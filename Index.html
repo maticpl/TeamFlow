@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* ==================
            1. Zmienne i Reset
@@ -31,6 +32,9 @@
             --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
             --border-radius: 8px;
             --font-family: 'Inter', sans-serif;
+            --chart-color-todo: #3b82f6;
+            --chart-color-inprogress: #f97316;
+            --chart-color-done: #22c55e;
         }
 
         .dark-mode {
@@ -862,6 +866,18 @@
              background-color: rgba(0, 0, 0, 0.8);
         }
         
+        #my-tasks-chart-container {
+            display: none; /* Ukryty domyślnie */
+            padding: 16px;
+            background-color: var(--bg-secondary);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow-md);
+            margin-bottom: 24px;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        
         /* ==================
            9. Responsywność (Mobile)
            ================== */
@@ -991,6 +1007,10 @@
 
             .add-task-icon-btn {
                 display: none;
+            }
+
+            #my-tasks-chart-container {
+                max-width: 100%;
             }
         }
 
@@ -1148,6 +1168,10 @@
                     </div>
                 </div>
             </header>
+            
+            <div id="my-tasks-chart-container">
+                <canvas id="my-tasks-chart"></canvas>
+            </div>
 
             <section class="kanban-board" id="kanban-board">
                 <!-- Kolumny Kanban będą renderowane tutaj -->
@@ -1422,6 +1446,7 @@
                 unsubscribeProjects: null,
                 unsubscribeCompleted: null,
                 unsubscribeUsers: null,
+                chartInstance: null
             }
         };
 
@@ -1448,6 +1473,7 @@
         const logoutBtn = document.getElementById('logout-btn');
         const newProjectBtn = document.getElementById('new-project-btn');
         const fabAddTask = document.getElementById('fab-add-task');
+        const myTasksChartContainer = document.getElementById('my-tasks-chart-container');
 
         const taskModal = {
             overlay: document.getElementById('task-modal'),
@@ -1533,7 +1559,10 @@
             if(!state.currentUser) return;
             applyTheme();
             renderSidebar();
+            
+            myTasksChartContainer.style.display = state.ui.currentView === 'my-tasks' ? 'block' : 'none';
             sortBtn.style.display = state.ui.currentView === 'my-tasks' ? 'flex' : 'none';
+            
             if (state.ui.currentView === 'projects') {
                 renderCurrentProjectView();
             } else {
@@ -1600,12 +1629,14 @@
                     .filter(t => t.assignee === state.currentUser.uid)
                     .map(t => ({ ...t, projectName: p.name }))
             );
+            
             myTasks.sort((a, b) => {
-                const dateA = a.dueDate ? new Date(a.dueDate) : 0;
-                const dateB = b.dueDate ? new Date(b.dueDate) : 0;
-                if (!dateA) return 1; if (!dateB) return -1;
+                const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+                const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
                 return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
             });
+
+            renderMyTasksChart(myTasks);
             renderKanbanBoard(myTasks, false);
         }
 
@@ -1643,6 +1674,51 @@
                 </div>
             </li>`;
         }
+
+        function renderMyTasksChart(tasks) {
+            const ctx = document.getElementById('my-tasks-chart').getContext('2d');
+            const statusCounts = { todo: 0, inprogress: 0, done: 0 };
+            tasks.forEach(task => {
+                if(statusCounts.hasOwnProperty(task.status)) {
+                    statusCounts[task.status]++;
+                }
+            });
+
+            if(state.ui.chartInstance) {
+                state.ui.chartInstance.destroy();
+            }
+
+            state.ui.chartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Do realizacji', 'W trakcie', 'Wykonane'],
+                    datasets: [{
+                        label: 'Liczba zadań',
+                        data: [statusCounts.todo, statusCounts.inprogress, statusCounts.done],
+                        backgroundColor: [
+                            'var(--chart-color-todo)',
+                            'var(--chart-color-inprogress)',
+                            'var(--chart-color-done)'
+                        ],
+                        borderColor: 'var(--bg-secondary)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: 'var(--text-secondary)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
 
         function applyTheme() {
             const isDark = state.ui.theme === 'dark';
@@ -1713,7 +1789,7 @@
             
             const targetProject = isFab ? findProject(newTaskModal.projectSelect.value) : project;
             if (!targetProject) {
-                showNotification("Wybierz projekt, aby dodać zadanie.");
+                showNotification("Stwórz lub wybierz projekt, aby dodać zadanie.");
                 return;
             };
 
@@ -2100,4 +2176,3 @@
     </script>
 </body>
 </html>
-
