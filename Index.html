@@ -140,7 +140,7 @@
             padding: 24px;
             display: flex;
             flex-direction: column;
-            transition: background-color 0.3s, border-color 0.3s;
+            transition: background-color 0.3s, border-color 0.3s, transform 0.3s ease-in-out;
             flex-shrink: 0;
         }
 
@@ -290,6 +290,9 @@
         /* ==================
            4. Main Content - Nagłówek
            ================== */
+        .mobile-header {
+            display: none;
+        }
         
         .main-header {
             display: flex;
@@ -857,6 +860,93 @@
         .dark-mode #loading-overlay {
              background-color: rgba(0, 0, 0, 0.8);
         }
+        
+        /* ==================
+           9. Responsywność (Mobile)
+           ================== */
+        @media (max-width: 768px) {
+            .app-container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                height: 100%;
+                z-index: 2000;
+                transform: translateX(-100%);
+                border-right: 1px solid var(--border-color);
+            }
+            .sidebar.open {
+                transform: translateX(0);
+                box-shadow: var(--shadow-lg);
+            }
+
+            .main-content {
+                padding: 16px;
+                padding-top: 70px; /* Miejsce na mobilny nagłówek */
+            }
+            .mobile-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                background-color: var(--bg-secondary);
+                padding: 12px 16px;
+                box-shadow: var(--shadow-sm);
+                z-index: 1001;
+            }
+            #menu-toggle {
+                background: none;
+                border: none;
+                cursor: pointer;
+                padding: 4px;
+            }
+            #menu-toggle svg {
+                width: 24px;
+                height: 24px;
+                color: var(--text-primary);
+            }
+            .mobile-header h2 {
+                font-size: 18px;
+            }
+            
+            .main-header {
+                display: none; /* Ukryj stary nagłówek */
+            }
+            
+            .kanban-board {
+                display: flex;
+                flex-direction: column;
+                overflow-y: auto;
+                overflow-x: hidden;
+                gap: 24px;
+                height: 100%;
+            }
+
+            .kanban-column {
+                min-height: 200px; /* Zapobiega zapadaniu się pustych kolumn */
+            }
+
+            .modal {
+                width: 95vw;
+                max-height: 85vh;
+            }
+            .task-modal-content {
+                flex-direction: column;
+                overflow-y: auto;
+            }
+            .task-modal-sidebar {
+                width: 100%;
+                border-top: 1px solid var(--border-color);
+                border-right: none;
+            }
+        }
+
 
     </style>
 </head>
@@ -907,7 +997,7 @@
     
     <div class="app-container hidden">
         <!-- =========== PANEL BOCZNY =========== -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -963,6 +1053,17 @@
 
         <!-- =========== GŁÓWNA ZAWARTOŚĆ =========== -->
         <main class="main-content">
+            <header class="mobile-header">
+                <button id="menu-toggle">
+                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                    </svg>
+                </button>
+                 <h2 id="mobile-header-title"></h2>
+                 <div class="theme-switcher" id="mobile-theme-switcher">
+                    <!-- Switcher zostanie sklonowany tutaj przez JS -->
+                 </div>
+            </header>
             <header class="main-header">
                 <div>
                     <div class="project-title-wrapper">
@@ -985,7 +1086,7 @@
                         </svg>
                         <span>Sortuj po dacie</span>
                     </button>
-                    <div class="theme-switcher">
+                    <div class="theme-switcher" id="desktop-theme-switcher">
                         <button id="theme-light" title="Tryb Jasny">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
@@ -1270,6 +1371,12 @@
             }
         };
 
+        const sidebar = document.getElementById('sidebar');
+        const menuToggle = document.getElementById('menu-toggle');
+        const mobileHeaderTitle = document.getElementById('mobile-header-title');
+        const mobileThemeSwitcher = document.getElementById('mobile-theme-switcher');
+        const desktopThemeSwitcher = document.getElementById('desktop-theme-switcher');
+
         const mainNav = document.getElementById('main-nav');
         const projectsListEl = document.getElementById('projects-list');
         const completedProjectsSection = document.getElementById('completed-projects-section');
@@ -1330,9 +1437,6 @@
             message: document.getElementById('notification-message'),
         };
         
-        const themeLightBtn = document.getElementById('theme-light');
-        const themeDarkBtn = document.getElementById('theme-dark');
-        
         const loginForm = document.getElementById('login-form');
         const registerForm = document.getElementById('register-form');
         const showRegisterBtn = document.getElementById('show-register');
@@ -1340,6 +1444,9 @@
         const authErrorLogin = document.getElementById('auth-error-login');
         const authErrorRegister = document.getElementById('auth-error-register');
 
+        // Klonowanie przełącznika motywu dla widoku mobilnego
+        mobileThemeSwitcher.appendChild(desktopThemeSwitcher.cloneNode(true));
+        
         const findUser = (userId) => state.users.find(u => u.id === userId);
         const findProject = (projectId) => state.projects.find(p => p.id === projectId);
         const findCompletedProject = (projectId) => state.completedProjects.find(p => p.id === projectId);
@@ -1383,7 +1490,7 @@
                 (projects || []).forEach(project => {
                     const li = document.createElement('li');
                     li.className = 'nav-item';
-                    li.innerHTML = `<a href="#" data-project-id="${project.id}" class="${project.id === state.currentProjectId && state.ui.currentView === 'projects' ? 'active' : ''}"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span>${project.name}</span></a>`;
+                    li.innerHTML = `<a href="#" data-project-id="${project.id}" class="${project.id === state.currentProjectId && state.ui.currentView === 'projects' ? 'active' : ''}"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span>${project.name}</span></a>`;
                     listEl.appendChild(li);
                 });
             };
@@ -1403,11 +1510,13 @@
             projectActionsEl.style.display = project && !isCompleted && isOwner ? 'flex' : 'none';
             if (!project) {
                  projectNameHeaderEl.textContent = 'Wybierz projekt';
+                 mobileHeaderTitle.textContent = 'Projekty';
                  projectMembersHeaderEl.innerHTML = '';
                  kanbanBoardEl.innerHTML = '<p>Wybierz projekt lub stwórz nowy, aby zacząć.</p>';
                  return;
             }
             projectNameHeaderEl.textContent = project.name;
+            mobileHeaderTitle.textContent = project.name;
             projectMembersHeaderEl.innerHTML = '';
             (project.members || []).forEach(memberId => {
                 const user = findUser(memberId);
@@ -1425,6 +1534,7 @@
 
         function renderMyTasksView() {
             projectNameHeaderEl.textContent = 'Moje zadania';
+            mobileHeaderTitle.textContent = 'Moje zadania';
             projectMembersHeaderEl.innerHTML = '';
             projectActionsEl.style.display = 'none';
             let myTasks = state.projects.flatMap(p => 
@@ -1477,14 +1587,12 @@
         }
 
         function applyTheme() {
-            document.body.className = state.ui.theme === 'dark' ? 'dark-mode' : '';
-            if (state.ui.theme === 'dark') {
-                if(themeDarkBtn) themeDarkBtn.classList.add('active'); 
-                if(themeLightBtn) themeLightBtn.classList.remove('active');
-            } else {
-                if(themeLightBtn) themeLightBtn.classList.add('active');
-                if(themeDarkBtn) themeDarkBtn.classList.remove('active');
-            }
+            const isDark = state.ui.theme === 'dark';
+            document.body.classList.toggle('dark-mode', isDark);
+            document.querySelectorAll('.theme-switcher').forEach(switcher => {
+                switcher.querySelector('#theme-dark')?.classList.toggle('active', isDark);
+                switcher.querySelector('#theme-light')?.classList.toggle('active', !isDark);
+            });
         }
         
         function openModal(modal) { modal.classList.add('visible'); }
@@ -1608,8 +1716,9 @@
             } catch (error) {
                 console.error("Błąd rejestracji:", error);
                 authErrorRegister.textContent = error.message;
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Zarejestruj się';
+            } finally {
+                 submitBtn.disabled = false;
+                 submitBtn.textContent = 'Zarejestruj się';
             }
         });
 
@@ -1696,6 +1805,7 @@
                 state.ui.currentView = 'projects';
                 saveUiState();
                 render();
+                sidebar.classList.remove('open');
             }
         };
         projectsListEl.addEventListener('click', handleProjectLinkClick);
@@ -1708,6 +1818,7 @@
                 state.ui.currentView = link.dataset.view;
                 saveUiState();
                 render();
+                sidebar.classList.remove('open');
             }
         });
 
@@ -1825,8 +1936,22 @@
         });
 
         taskModal.saveBtn.addEventListener('click', saveTaskFromModal);
-        themeLightBtn.addEventListener('click', () => { state.ui.theme = 'light'; saveUiState(); applyTheme(); });
-        themeDarkBtn.addEventListener('click', () => { state.ui.theme = 'dark'; saveUiState(); applyTheme(); });
+        
+        document.querySelectorAll('.theme-switcher').forEach(switcher => {
+            switcher.addEventListener('click', e => {
+                const button = e.target.closest('button');
+                if(!button) return;
+
+                if(button.id.includes('light')) {
+                    state.ui.theme = 'light';
+                } else if (button.id.includes('dark')) {
+                    state.ui.theme = 'dark';
+                }
+                saveUiState();
+                applyTheme();
+            });
+        });
+
         searchInput.addEventListener('click', () => {
             searchModal.resultsList.innerHTML = '<li class="search-result-item"><p>Zacznij pisać...</p></li>';
             openModal(searchModal.overlay);
@@ -1847,6 +1972,10 @@
                 closeModal(searchModal.overlay);
                 openTaskModal(item.dataset.taskId);
             }
+        });
+
+        menuToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('open');
         });
 
         let draggedTaskId = null;
