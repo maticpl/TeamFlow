@@ -259,7 +259,6 @@
             font-weight: 500;
             font-size: 14px;
             transition: background-color 0.2s, color 0.2s;
-            position: relative;
         }
         .nav-item a:hover {
             background-color: var(--bg-tertiary);
@@ -268,32 +267,11 @@
             background-color: var(--accent-primary);
             color: var(--text-on-accent);
         }
-        .nav-item a .delete-project-btn {
-            display: none;
-            position: absolute;
-            right: 8px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            color: inherit;
-            cursor: pointer;
-            padding: 4px;
-            line-height: 1;
-            font-size: 18px;
-            border-radius: 50%;
-        }
-        .nav-item a:hover .delete-project-btn,
-        .nav-item a.active .delete-project-btn {
-            display: block;
-        }
-        .nav-item a .delete-project-btn:hover {
-            background-color: rgba(0,0,0,0.1);
-        }
-
+        
         .nav-item svg {
             width: 20px;
             height: 20px;
+            flex-shrink: 0;
         }
         
         .new-project-btn {
@@ -346,14 +324,17 @@
             border-radius: var(--border-radius);
             cursor: pointer;
             margin-left: 8px;
-            transition: background-color 0.2s, color 0.2s;
+            transition: background-color 0.2s, color 0.2s, border-color 0.2s;
         }
         .project-actions button:hover {
             background-color: var(--bg-tertiary);
             color: var(--text-primary);
         }
-        .project-actions .complete-project-btn:hover {
+        .project-actions .delete-project-btn {
             border-color: var(--danger-primary);
+            color: var(--danger-primary);
+        }
+        .project-actions .delete-project-btn:hover {
             background-color: var(--danger-primary);
             color: white;
         }
@@ -1151,7 +1132,8 @@
                         </div>
                         <div class="project-actions" id="project-actions">
                              <button id="edit-project-btn">Edytuj projekt</button>
-                             <button id="complete-project-btn" class="complete-project-btn">Zakończ projekt</button>
+                             <button id="complete-project-btn">Zakończ projekt</button>
+                             <button id="delete-project-btn" class="delete-project-btn">Usuń</button>
                         </div>
                     </div>
                     <div class="project-members" id="project-members-header">
@@ -1469,7 +1451,7 @@
                 sortMyTasksByDate: 'asc',
                 unsubscribeProjects: null,
                 unsubscribeCompleted: null,
-                unsubscribeUsers: null
+                unsubscribeUsers: null,
             }
         };
 
@@ -1542,6 +1524,12 @@
             overlay: document.getElementById('notification-modal'),
             message: document.getElementById('notification-message'),
         };
+
+        const deleteProjectModal = {
+             overlay: document.getElementById('delete-project-modal'),
+             name: document.getElementById('delete-project-name'),
+             confirmBtn: document.getElementById('confirm-delete-btn'),
+        };
         
         const loginForm = document.getElementById('login-form');
         const registerForm = document.getElementById('register-form');
@@ -1600,8 +1588,20 @@
                     const li = document.createElement('li');
                     li.className = 'nav-item';
                     li.innerHTML = `<a href="#" data-project-id="${project.id}" class="${project.id === state.currentProjectId && state.ui.currentView === 'projects' ? 'active' : ''}"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span>${project.name}</span>
-                    ${isOwner ? `<button class="delete-project-btn" title="Usuń projekt">&times;</button>` : ''}
                     </a>`;
+                    
+                    const projectLink = li.querySelector('a');
+
+                    if (isOwner) {
+                         const deleteBtn = document.createElement('button');
+                         deleteBtn.className = 'delete-project-btn';
+                         deleteBtn.title = 'Usuń projekt';
+                         deleteBtn.innerHTML = '&times;';
+                         deleteBtn.dataset.projectId = project.id;
+                         deleteBtn.dataset.projectName = project.name;
+                         deleteBtn.dataset.isCompleted = listEl === completedProjectsListEl;
+                         projectLink.appendChild(deleteBtn);
+                    }
                     listEl.appendChild(li);
                 });
             };
@@ -1664,7 +1664,7 @@
                 if (dateB === Infinity) return -1;
                 return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
             });
-            renderKanbanBoard(myTasks, true); // Zmieniono na true aby umożliwić interakcje
+            renderKanbanBoard(myTasks, true);
         }
 
         function renderKanbanBoard(tasks, isInteractive) {
@@ -1701,7 +1701,7 @@
                 </div>
             </li>`;
         }
-        
+
         function applyTheme() {
             const isDark = state.ui.theme === 'dark';
             document.body.classList.toggle('dark-mode', isDark);
@@ -1997,6 +1997,40 @@
             await updateDoc(doc(projectsRef, projectId), { name: newName, members: selectedMembers });
             closeModal(editProjectModal.overlay);
         });
+
+        const deleteProjectModal = {
+             overlay: document.getElementById('delete-project-modal'),
+             name: document.getElementById('delete-project-name'),
+             confirmBtn: document.getElementById('confirm-delete-btn'),
+        };
+
+        const handleProjectDeletion = (e) => {
+            const deleteBtn = e.target.closest('.delete-project-btn');
+            if (deleteBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                deleteProjectModal.name.textContent = deleteBtn.dataset.projectName;
+                deleteProjectModal.overlay.dataset.projectId = deleteBtn.dataset.projectId;
+                deleteProjectModal.overlay.dataset.isCompleted = deleteBtn.dataset.isCompleted;
+                openModal(deleteProjectModal.overlay);
+            }
+        };
+
+        projectsListEl.addEventListener('click', handleProjectDeletion);
+        completedProjectsListEl.addEventListener('click', handleProjectDeletion);
+
+        deleteProjectModal.confirmBtn.addEventListener('click', async () => {
+            const { projectId, isCompleted } = deleteProjectModal.overlay.dataset;
+            const ref = (isCompleted === 'true') ? completedProjectsRef : projectsRef;
+            await deleteDoc(doc(ref, projectId));
+
+            if (state.currentProjectId === projectId) {
+                state.currentProjectId = state.projects.length > 0 ? state.projects[0].id : null;
+                saveUiState();
+            }
+            closeModal(deleteProjectModal.overlay);
+        });
+
 
         completeProjectBtn.addEventListener('click', async () => {
             const project = findProject(state.currentProjectId);
