@@ -128,6 +128,7 @@
         .app-container {
             display: flex;
             height: 100vh;
+            position: relative;
         }
         .app-container.hidden {
             display: none;
@@ -864,9 +865,40 @@
         /* ==================
            9. Responsywność (Mobile)
            ================== */
+        .fab-add-task {
+            display: none;
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background-color: var(--accent-primary);
+            color: white;
+            border: none;
+            box-shadow: var(--shadow-lg);
+            font-size: 28px;
+            line-height: 56px;
+            text-align: center;
+            cursor: pointer;
+            z-index: 1002;
+        }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.4);
+            z-index: 1999;
+        }
+        
         @media (max-width: 768px) {
             .app-container {
                 flex-direction: column;
+                overflow-y: auto;
             }
 
             .sidebar {
@@ -882,10 +914,15 @@
                 transform: translateX(0);
                 box-shadow: var(--shadow-lg);
             }
+            .sidebar.open + .sidebar-overlay {
+                display: block;
+            }
 
             .main-content {
                 padding: 16px;
                 padding-top: 70px; /* Miejsce na mobilny nagłówek */
+                overflow: visible;
+                height: auto;
             }
             .mobile-header {
                 display: flex;
@@ -920,16 +957,18 @@
             }
             
             .kanban-board {
-                display: flex;
-                flex-direction: column;
-                overflow-y: auto;
-                overflow-x: hidden;
-                gap: 24px;
-                height: 100%;
+                display: block;
+                overflow: visible;
+                height: auto;
             }
 
             .kanban-column {
                 min-height: 200px; /* Zapobiega zapadaniu się pustych kolumn */
+                margin-bottom: 24px;
+            }
+            .kanban-tasks {
+                overflow-y: visible;
+                max-height: none;
             }
 
             .modal {
@@ -944,6 +983,14 @@
                 width: 100%;
                 border-top: 1px solid var(--border-color);
                 border-right: none;
+            }
+            
+            .fab-add-task {
+                display: block;
+            }
+
+            .add-task-icon-btn {
+                display: none;
             }
         }
 
@@ -1050,6 +1097,7 @@
                 <button id="logout-btn" class="btn">Wyloguj</button>
             </div>
         </aside>
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
         <!-- =========== GŁÓWNA ZAWARTOŚĆ =========== -->
         <main class="main-content">
@@ -1104,6 +1152,8 @@
             <section class="kanban-board" id="kanban-board">
                 <!-- Kolumny Kanban będą renderowane tutaj -->
             </section>
+            
+            <button id="fab-add-task" class="fab-add-task">+</button>
         </main>
     </div>
 
@@ -1232,6 +1282,10 @@
                     <button type="button" class="modal-close-btn">&times;</button>
                 </div>
                 <div class="form-modal-content">
+                     <div class="form-group" id="new-task-project-group">
+                        <label for="new-task-project">Projekt</label>
+                        <select id="new-task-project"></select>
+                    </div>
                     <div class="form-group">
                         <label for="new-task-title">Tytuł zadania</label>
                         <input type="text" id="new-task-title" required placeholder="np. Zaprojektować nowy landing page">
@@ -1372,6 +1426,7 @@
         };
 
         const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
         const menuToggle = document.getElementById('menu-toggle');
         const mobileHeaderTitle = document.getElementById('mobile-header-title');
         const mobileThemeSwitcher = document.getElementById('mobile-theme-switcher');
@@ -1392,6 +1447,7 @@
         const userEmailDisplay = document.getElementById('user-email-display');
         const logoutBtn = document.getElementById('logout-btn');
         const newProjectBtn = document.getElementById('new-project-btn');
+        const fabAddTask = document.getElementById('fab-add-task');
 
         const taskModal = {
             overlay: document.getElementById('task-modal'),
@@ -1421,6 +1477,8 @@
         const newTaskModal = {
             overlay: document.getElementById('new-task-modal'),
             form: document.getElementById('new-task-form'),
+            projectGroup: document.getElementById('new-task-project-group'),
+            projectSelect: document.getElementById('new-task-project'),
             title: document.getElementById('new-task-title'),
             description: document.getElementById('new-task-description'),
             assignee: document.getElementById('new-task-assignee'),
@@ -1645,11 +1703,22 @@
             closeModal(taskModal.overlay);
         }
         
-        function openNewTaskModal() {
+        function openNewTaskModal(isFab = false) {
             const project = findProject(state.currentProjectId);
-            if (!project) return;
+            newTaskModal.projectGroup.style.display = isFab ? 'block' : 'none';
+
+            if (isFab) {
+                newTaskModal.projectSelect.innerHTML = state.projects.map(p => `<option value="${p.id}" ${p.id === state.currentProjectId ? 'selected' : ''}>${p.name}</option>`).join('');
+            }
+            
+            const targetProject = isFab ? findProject(newTaskModal.projectSelect.value) : project;
+            if (!targetProject) {
+                showNotification("Wybierz projekt, aby dodać zadanie.");
+                return;
+            };
+
             newTaskModal.form.reset();
-             newTaskModal.assignee.innerHTML = '<option value="">Nikt</option>' + (project.members || []).map(memberId => {
+             newTaskModal.assignee.innerHTML = '<option value="">Nikt</option>' + (targetProject.members || []).map(memberId => {
                 const user = findUser(memberId);
                 return user ? `<option value="${user.id}">${user.name || user.email}</option>` : '';
             }).join('');
@@ -1806,6 +1875,7 @@
                 saveUiState();
                 render();
                 sidebar.classList.remove('open');
+                sidebarOverlay.classList.remove('visible');
             }
         };
         projectsListEl.addEventListener('click', handleProjectLinkClick);
@@ -1819,6 +1889,7 @@
                 saveUiState();
                 render();
                 sidebar.classList.remove('open');
+                sidebarOverlay.classList.remove('visible');
             }
         });
 
@@ -1890,7 +1961,11 @@
             e.preventDefault();
             const title = newTaskModal.title.value.trim();
             if(!title) return;
-            const project = findProject(state.currentProjectId);
+            
+            const isFab = newTaskModal.projectGroup.style.display === 'block';
+            const projectId = isFab ? newTaskModal.projectSelect.value : state.currentProjectId;
+            const project = findProject(projectId);
+
             if(!project) return;
             const newTask = {
                 id: `task${Date.now()}`, title,
@@ -1923,9 +1998,11 @@
             } else if (e.target.closest('.task-card')) {
                 openTaskModal(e.target.closest('.task-card').dataset.taskId);
             } else if (e.target.closest('.add-task-icon-btn')) {
-                openNewTaskModal();
+                openNewTaskModal(false);
             }
         });
+
+        fabAddTask.addEventListener('click', () => openNewTaskModal(true));
 
         document.querySelectorAll('.modal-overlay').forEach(overlay => {
             overlay.addEventListener('click', e => {
@@ -1976,7 +2053,19 @@
 
         menuToggle.addEventListener('click', () => {
             sidebar.classList.toggle('open');
+            sidebarOverlay.classList.toggle('visible');
         });
+        sidebarOverlay.addEventListener('click', () => {
+            sidebar.classList.remove('open');
+            sidebarOverlay.classList.remove('visible');
+        });
+        sidebar.querySelector('.sidebar-header').addEventListener('click', (e) => {
+            if (e.target.closest('a') === null) {
+                 sidebar.classList.remove('open');
+                 sidebarOverlay.classList.remove('visible');
+            }
+        });
+
 
         let draggedTaskId = null;
         kanbanBoardEl.addEventListener('dragstart', (e) => {
@@ -2011,3 +2100,4 @@
     </script>
 </body>
 </html>
+
