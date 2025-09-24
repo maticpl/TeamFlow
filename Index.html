@@ -259,6 +259,7 @@
             font-weight: 500;
             font-size: 14px;
             transition: background-color 0.2s, color 0.2s;
+            position: relative;
         }
         .nav-item a:hover {
             background-color: var(--bg-tertiary);
@@ -267,6 +268,29 @@
             background-color: var(--accent-primary);
             color: var(--text-on-accent);
         }
+        .nav-item a .delete-project-btn {
+            display: none;
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: inherit;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+            font-size: 18px;
+            border-radius: 50%;
+        }
+        .nav-item a:hover .delete-project-btn,
+        .nav-item a.active .delete-project-btn {
+            display: block;
+        }
+        .nav-item a .delete-project-btn:hover {
+            background-color: rgba(0,0,0,0.1);
+        }
+
         .nav-item svg {
             width: 20px;
             height: 20px;
@@ -595,7 +619,7 @@
             transition: transform 0.3s;
             max-height: 90vh;
         }
-        #notification-modal .modal {
+        #notification-modal .modal, #delete-project-modal .modal {
             max-width: 400px;
         }
         .modal-overlay.visible .modal {
@@ -780,6 +804,13 @@
         .btn-secondary {
             background-color: var(--bg-tertiary);
             color: var(--text-primary);
+        }
+        .btn-danger {
+            background-color: var(--danger-primary);
+            color: var(--text-on-accent);
+        }
+        .btn-danger:hover {
+            background-color: var(--danger-hover);
         }
 
         /* ==================
@@ -1358,6 +1389,23 @@
         </div>
     </div>
 
+     <!-- =========== MODAL - POTWIERDZENIE USUNIĘCIA =========== -->
+    <div class="modal-overlay" id="delete-project-modal">
+        <div class="modal">
+             <div class="modal-header">
+                <h2>Potwierdź usunięcie</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <p>Czy na pewno chcesz trwale usunąć projekt "<b id="delete-project-name"></b>"? Tej operacji nie można cofnąć.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="button" id="confirm-delete-btn" class="btn btn-danger">Tak, usuń</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         // Importuj potrzebne funkcje z SDK Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -1421,8 +1469,7 @@
                 sortMyTasksByDate: 'asc',
                 unsubscribeProjects: null,
                 unsubscribeCompleted: null,
-                unsubscribeUsers: null,
-                chartInstance: null
+                unsubscribeUsers: null
             }
         };
 
@@ -1549,9 +1596,12 @@
             const renderProjectList = (projects, listEl) => {
                 listEl.innerHTML = '';
                 (projects || []).forEach(project => {
+                    const isOwner = project.ownerId === state.currentUser.uid;
                     const li = document.createElement('li');
                     li.className = 'nav-item';
-                    li.innerHTML = `<a href="#" data-project-id="${project.id}" class="${project.id === state.currentProjectId && state.ui.currentView === 'projects' ? 'active' : ''}"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span>${project.name}</span></a>`;
+                    li.innerHTML = `<a href="#" data-project-id="${project.id}" class="${project.id === state.currentProjectId && state.ui.currentView === 'projects' ? 'active' : ''}"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span>${project.name}</span>
+                    ${isOwner ? `<button class="delete-project-btn" title="Usuń projekt">&times;</button>` : ''}
+                    </a>`;
                     listEl.appendChild(li);
                 });
             };
@@ -1875,9 +1925,9 @@
         
         // --- Interakcje w aplikacji ---
         const handleProjectLinkClick = (e) => {
-            e.preventDefault();
             const link = e.target.closest('a');
-            if (link) {
+            if (link && !e.target.closest('.delete-project-btn')) {
+                e.preventDefault();
                 state.currentProjectId = link.dataset.projectId;
                 state.ui.currentView = 'projects';
                 saveUiState();
@@ -2143,3 +2193,4 @@
     </script>
 </body>
 </html>
+
