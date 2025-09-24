@@ -1133,7 +1133,7 @@
                         <div class="project-actions" id="project-actions">
                              <button id="edit-project-btn">Edytuj projekt</button>
                              <button id="complete-project-btn">Zakończ projekt</button>
-                             <button id="delete-project-btn" class="delete-project-btn">Usuń</button>
+                             <button id="delete-project-btn-header" class="delete-project-btn">Usuń</button>
                         </div>
                     </div>
                     <div class="project-members" id="project-members-header">
@@ -1451,7 +1451,7 @@
                 sortMyTasksByDate: 'asc',
                 unsubscribeProjects: null,
                 unsubscribeCompleted: null,
-                unsubscribeUsers: null,
+                unsubscribeUsers: null
             }
         };
 
@@ -1474,6 +1474,7 @@
         const projectActionsEl = document.getElementById('project-actions');
         const editProjectBtn = document.getElementById('edit-project-btn');
         const completeProjectBtn = document.getElementById('complete-project-btn');
+        const deleteProjectHeaderBtn = document.getElementById('delete-project-btn-header');
         const userEmailDisplay = document.getElementById('user-email-display');
         const logoutBtn = document.getElementById('logout-btn');
         const newProjectBtn = document.getElementById('new-project-btn');
@@ -1584,24 +1585,9 @@
             const renderProjectList = (projects, listEl) => {
                 listEl.innerHTML = '';
                 (projects || []).forEach(project => {
-                    const isOwner = project.ownerId === state.currentUser.uid;
                     const li = document.createElement('li');
                     li.className = 'nav-item';
-                    li.innerHTML = `<a href="#" data-project-id="${project.id}" class="${project.id === state.currentProjectId && state.ui.currentView === 'projects' ? 'active' : ''}"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span>${project.name}</span>
-                    </a>`;
-                    
-                    const projectLink = li.querySelector('a');
-
-                    if (isOwner) {
-                         const deleteBtn = document.createElement('button');
-                         deleteBtn.className = 'delete-project-btn';
-                         deleteBtn.title = 'Usuń projekt';
-                         deleteBtn.innerHTML = '&times;';
-                         deleteBtn.dataset.projectId = project.id;
-                         deleteBtn.dataset.projectName = project.name;
-                         deleteBtn.dataset.isCompleted = listEl === completedProjectsListEl;
-                         projectLink.appendChild(deleteBtn);
-                    }
+                    li.innerHTML = `<a href="#" data-project-id="${project.id}" class="${project.id === state.currentProjectId && state.ui.currentView === 'projects' ? 'active' : ''}"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span>${project.name}</span></a>`;
                     listEl.appendChild(li);
                 });
             };
@@ -1618,7 +1604,19 @@
             const project = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
             const isCompleted = !!findCompletedProject(state.currentProjectId);
             const isOwner = project && project.ownerId === state.currentUser.uid;
-            projectActionsEl.style.display = project && !isCompleted && isOwner ? 'flex' : 'none';
+            projectActionsEl.style.display = project && isOwner ? 'flex' : 'none';
+            if (project && isCompleted) {
+                // Dla zakończonych projektów pokazujemy tylko przycisk usuwania
+                editProjectBtn.style.display = 'none';
+                completeProjectBtn.style.display = 'none';
+                deleteProjectHeaderBtn.style.display = 'inline-block';
+            } else if (project && isOwner) {
+                editProjectBtn.style.display = 'inline-block';
+                completeProjectBtn.style.display = 'inline-block';
+                deleteProjectHeaderBtn.style.display = 'inline-block';
+            }
+
+
             if (!project) {
                  projectNameHeaderEl.textContent = 'Wybierz projekt';
                  mobileHeaderTitle.textContent = 'Projekty';
@@ -1926,7 +1924,7 @@
         // --- Interakcje w aplikacji ---
         const handleProjectLinkClick = (e) => {
             const link = e.target.closest('a');
-            if (link && !e.target.closest('.delete-project-btn')) {
+            if (link) {
                 e.preventDefault();
                 state.currentProjectId = link.dataset.projectId;
                 state.ui.currentView = 'projects';
@@ -1998,37 +1996,32 @@
             closeModal(editProjectModal.overlay);
         });
 
-        const deleteProjectModal = {
-             overlay: document.getElementById('delete-project-modal'),
-             name: document.getElementById('delete-project-name'),
-             confirmBtn: document.getElementById('confirm-delete-btn'),
-        };
-
-        const handleProjectDeletion = (e) => {
-            const deleteBtn = e.target.closest('.delete-project-btn');
-            if (deleteBtn) {
-                e.preventDefault();
-                e.stopPropagation();
-                deleteProjectModal.name.textContent = deleteBtn.dataset.projectName;
-                deleteProjectModal.overlay.dataset.projectId = deleteBtn.dataset.projectId;
-                deleteProjectModal.overlay.dataset.isCompleted = deleteBtn.dataset.isCompleted;
-                openModal(deleteProjectModal.overlay);
-            }
-        };
-
-        projectsListEl.addEventListener('click', handleProjectDeletion);
-        completedProjectsListEl.addEventListener('click', handleProjectDeletion);
+        deleteProjectHeaderBtn.addEventListener('click', () => {
+            const project = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
+            if (!project) return;
+            
+            deleteProjectModal.name.textContent = project.name;
+            deleteProjectModal.overlay.dataset.projectId = project.id;
+            deleteProjectModal.overlay.dataset.isCompleted = !!findCompletedProject(project.id);
+            openModal(deleteProjectModal.overlay);
+        });
 
         deleteProjectModal.confirmBtn.addEventListener('click', async () => {
             const { projectId, isCompleted } = deleteProjectModal.overlay.dataset;
             const ref = (isCompleted === 'true') ? completedProjectsRef : projectsRef;
-            await deleteDoc(doc(ref, projectId));
+            
+            try {
+                await deleteDoc(doc(ref, projectId));
 
-            if (state.currentProjectId === projectId) {
-                state.currentProjectId = state.projects.length > 0 ? state.projects[0].id : null;
-                saveUiState();
+                if (state.currentProjectId === projectId) {
+                    state.currentProjectId = state.projects.length > 0 ? state.projects[0].id : null;
+                    saveUiState();
+                }
+                closeModal(deleteProjectModal.overlay);
+            } catch (error) {
+                console.error("Błąd podczas usuwania projektu:", error);
+                showNotification("Wystąpił błąd podczas usuwania projektu.");
             }
-            closeModal(deleteProjectModal.overlay);
         });
 
 
