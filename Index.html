@@ -862,18 +862,6 @@
              background-color: rgba(0, 0, 0, 0.8);
         }
         
-        #my-tasks-chart-container {
-            display: none; /* Ukryty domyślnie */
-            padding: 16px;
-            background-color: var(--bg-secondary);
-            border-radius: var(--border-radius);
-            box-shadow: var(--shadow-md);
-            margin-bottom: 24px;
-            max-width: 400px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        
         /* ==================
            9. Responsywność (Mobile)
            ================== */
@@ -1003,10 +991,6 @@
 
             .add-task-icon-btn {
                 display: none;
-            }
-
-            #my-tasks-chart-container {
-                max-width: 100%;
             }
         }
 
@@ -1164,10 +1148,6 @@
                     </div>
                 </div>
             </header>
-            
-            <div id="my-tasks-chart-container">
-                <canvas id="my-tasks-chart"></canvas>
-            </div>
 
             <section class="kanban-board" id="kanban-board">
                 <!-- Kolumny Kanban będą renderowane tutaj -->
@@ -1469,8 +1449,7 @@
         const logoutBtn = document.getElementById('logout-btn');
         const newProjectBtn = document.getElementById('new-project-btn');
         const fabAddTask = document.getElementById('fab-add-task');
-        const myTasksChartContainer = document.getElementById('my-tasks-chart-container');
-
+        
         const taskModal = {
             overlay: document.getElementById('task-modal'),
             title: document.getElementById('modal-task-title'),
@@ -1556,14 +1535,11 @@
             applyTheme();
             renderSidebar();
             
-            myTasksChartContainer.style.display = 'none'; // Domyślnie ukryj
-            sortBtn.style.display = 'none'; // Domyślnie ukryj
-
+            sortBtn.style.display = state.ui.currentView === 'my-tasks' ? 'flex' : 'none';
+            
             if (state.ui.currentView === 'projects') {
                 renderCurrentProjectView();
             } else {
-                myTasksChartContainer.style.display = 'block';
-                sortBtn.style.display = 'flex';
                 renderMyTasksView();
             }
         }
@@ -1636,8 +1612,6 @@
                 if (dateB === Infinity) return -1;
                 return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
             });
-
-            renderMyTasksChart(myTasks);
             renderKanbanBoard(myTasks, true); // Zmieniono na true aby umożliwić interakcje
         }
 
@@ -1675,75 +1649,7 @@
                 </div>
             </li>`;
         }
-
-        function renderMyTasksChart(tasks) {
-            const ctx = document.getElementById('my-tasks-chart').getContext('2d');
-            const statusCounts = { todo: 0, inprogress: 0, done: 0 };
-            tasks.forEach(task => {
-                if(statusCounts.hasOwnProperty(task.status)) {
-                    statusCounts[task.status]++;
-                }
-            });
-
-            if(state.ui.chartInstance) {
-                state.ui.chartInstance.destroy();
-            }
-
-            state.ui.chartInstance = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Do realizacji', 'W trakcie', 'Wykonane'],
-                    datasets: [{
-                        label: 'Liczba zadań',
-                        data: [statusCounts.todo, statusCounts.inprogress, statusCounts.done],
-                        backgroundColor: [
-                            getComputedStyle(document.documentElement).getPropertyValue('--chart-color-todo').trim(),
-                            getComputedStyle(document.documentElement).getPropertyValue('--chart-color-inprogress').trim(),
-                            getComputedStyle(document.documentElement).getPropertyValue('--chart-color-done').trim()
-                        ],
-                        borderColor: getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary').trim(),
-                        borderWidth: 4,
-                        hoverOffset: 4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                color: getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim(),
-                                usePointStyle: true,
-                                boxWidth: 8,
-                                padding: 20,
-                                 generateLabels: function(chart) {
-                                    const data = chart.data;
-                                    if (data.labels.length && data.datasets.length) {
-                                        const { labels, datasets } = data;
-                                        return labels.map((label, i) => {
-                                            const value = datasets[0].data[i];
-                                            return {
-                                                text: `${label} (${value})`,
-                                                fillStyle: datasets[0].backgroundColor[i],
-                                                strokeStyle: datasets[0].backgroundColor[i],
-                                                fontColor: getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim(),
-                                                // Pozostałe właściwości legendy
-                                                hidden: isNaN(datasets[0].data[i]) || chart.getDatasetMeta(0).data[i].hidden,
-                                                index: i
-                                            };
-                                        });
-                                    }
-                                    return [];
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-
+        
         function applyTheme() {
             const isDark = state.ui.theme === 'dark';
             document.body.classList.toggle('dark-mode', isDark);
@@ -1751,9 +1657,6 @@
                 switcher.querySelector('#theme-dark')?.classList.toggle('active', isDark);
                 switcher.querySelector('#theme-light')?.classList.toggle('active', !isDark);
             });
-             if(state.ui.chartInstance && state.ui.currentView === 'my-tasks') {
-                renderMyTasksChart(state.projects.flatMap(p => (p.tasks || []).filter(t => t.assignee === state.currentUser.uid)));
-            }
         }
         
         function openModal(modal) { modal.classList.add('visible'); }
@@ -2238,4 +2141,3 @@
     </script>
 </body>
 </html>
-
