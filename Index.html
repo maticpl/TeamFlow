@@ -351,8 +351,27 @@
             padding: 10px 0;
         }
         /* Rozciągnięcie sekcji Kanban pod Dashboardem */
+        /* Poprawiono: Użycie flexbox w kanban-board-mini, aby wymusić układ pionowy dla dashboardu. */
         .kanban-board-mini {
-            width: 100%; /* Upewnia się, że sekcja zajmuje całą dostępną szerokość */
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        /* Nowy CSS dla głównego widoku, który zawiera dashboard i kanban-mini. 
+           Kanban-board jest domyślnie flex, ale potrzebuje grid, gdy wyświetla Dashboard.
+           Musimy sprawdzić, czy renderMyDashboardView nie nadpisuje tego źle */
+        .main-content {
+            /* flex-grow: 1; -> zachowujemy */
+            /* display: flex; flex-direction: column; -> zachowujemy */
+            overflow: auto; /* Zmieniamy hidden na auto, żeby był scroll jeśli potrzebny */
+        }
+        
+        .dashboard-container {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
         }
 
         @media (max-width: 768px) {
@@ -1206,48 +1225,51 @@
                 
                 // Struktura Dashboardu
                 kanbanBoardEl.innerHTML = `
-                    <div class="dashboard-grid">
-                        <div class="dashboard-card">
-                            <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
-                            <div class="overdue-list-container">
-                                ${overdueTasks.length > 0 ? 
-                                    overdueTasks.map(task => `
-                                        <div class="overdue-item" data-task-id="${task.id}" data-project-id="${task.projectId}">
-                                            <span class="overdue-item-title">${task.title}</span>
-                                            <span class="overdue-item-date">${new Date(task.dueDate).toLocaleDateString('pl-PL')}</span>
-                                        </div>
-                                    `).join('') :
-                                    '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'
-                                }
+                    <div class="dashboard-container"> <!-- NOWY KONTENER GŁÓWNY -->
+                        <div class="dashboard-grid">
+                            <div class="dashboard-card">
+                                <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
+                                <div class="overdue-list-container">
+                                    ${overdueTasks.length > 0 ? 
+                                        overdueTasks.map(task => `
+                                            <div class="overdue-item" data-task-id="${task.id}" data-project-id="${task.projectId}">
+                                                <span class="overdue-item-title">${task.title}</span>
+                                                <span class="overdue-item-date">${new Date(task.dueDate).toLocaleDateString('pl-PL')}</span>
+                                            </div>
+                                        `).join('') :
+                                        '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'
+                                    }
+                                </div>
+                            </div>
+                            <div class="dashboard-card">
+                                <h3>Obciążenie zadaniami (Aktywne: ${totalActiveTasks})</h3>
+                                <div class="chart-mockup">
+                                    <div class="chart-bar" style="height: ${todoHeight}% !important; background-color: var(--danger-primary);" title="${todoCount} Do realizacji">${todoCount}</div>
+                                    <div class="chart-bar" style="height: ${inProgressHeight}% !important; background-color: var(--accent-primary);" title="${inProgressCount} W trakcie">${inProgressCount}</div>
+                                </div>
+                                <div style="display: flex; justify-content: space-around; margin-top: 8px;">
+                                    <div class="chart-label" style="width: 40%; color: var(--danger-primary);">Do realizacji</div>
+                                    <div class="chart-label" style="width: 40%; color: var(--accent-primary);">W trakcie</div>
+                                </div>
                             </div>
                         </div>
-                        <div class="dashboard-card">
-                            <h3>Obciążenie zadaniami (Aktywne: ${totalActiveTasks})</h3>
-                            <div class="chart-mockup">
-                                <div class="chart-bar" style="height: ${todoHeight}% !important; background-color: var(--danger-primary);" title="${todoCount} Do realizacji">${todoCount}</div>
-                                <div class="chart-bar" style="height: ${inProgressHeight}% !important; background-color: var(--accent-primary);" title="${inProgressCount} W trakcie">${inProgressCount}</div>
-                            </div>
-                            <div style="display: flex; justify-content: space-around; margin-top: 8px;">
-                                <div class="chart-label" style="width: 40%; color: var(--danger-primary);">Do realizacji</div>
-                                <div class="chart-label" style="width: 40%; color: var(--accent-primary);">W trakcie</div>
-                            </div>
-                        </div>
+                        
+                        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Wszystkie Twoje Zadania</h2>
+                        <section id="my-tasks-kanban" class="kanban-board-mini">
+                        </section>
                     </div>
-                    
-                    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Wszystkie Twoje Zadania</h2>
-                    <section id="my-tasks-kanban" class="kanban-board-mini">
-                    </section>
                 `;
                 
                 // Renderuj Kanban dla wszystkich zadań użytkownika w nowej sekcji
                 const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
                 
-                // ZMIANA: Usunięcie ograniczenia szerokości, aby Kanban zajął całą szerokość poniżej siatki
+                // ZMIANA: Zapewnienie, że sekcja Kanbana jest poprawnie inicjowana
                 const renderMyTasksKanban = (tasks, targetElement) => {
                     targetElement.innerHTML = '';
                     targetElement.style.display = 'grid';
                     targetElement.style.gridTemplateColumns = 'repeat(3, 1fr)';
                     targetElement.style.gap = '16px';
+                    targetElement.style.overflowX = 'auto'; // Umożliwia scroll poziomy, jeśli za dużo kolumn
                     
                     Object.keys(STATUSES).forEach(statusKey => {
                         const column = document.createElement('div');
@@ -1269,12 +1291,17 @@
                         openTaskModal(taskId);
                     });
                 });
+                
+                // Zapewnienie, że główny kanban-board (który jest kontenerem dla Dashboardu) ma układ pionowy
+                kanbanBoardEl.style.display = 'block';
+                kanbanBoardEl.style.overflow = 'visible'; // żeby nie ukrywać elementów
             }
 
             function renderKanbanBoard(tasks, isInteractive) {
                 // Czyścimy, jeśli przełączamy z Dashboardu
                 kanbanBoardEl.innerHTML = '';
                 kanbanBoardEl.style.display = 'grid'; // Wróć do grid dla Kanban
+                kanbanBoardEl.style.overflow = 'auto'; // Zapewnienie scrollowania dla projektu
                 
                 Object.keys(STATUSES).forEach(statusKey => {
                     const column = document.createElement('div');
@@ -1721,7 +1748,7 @@
             newProjectBtn.addEventListener('click', () => {
                  newProjectModal.form.reset();
                  newProjectModal.membersContainer.innerHTML = state.users.map(user => 
-                    `<div class="member-option"><input type="checkbox" id="new-user-sel-${user.id}" value="${user.id}" ${user.id === state.currentUser.uid ? 'checked disabled' : ''}><label for="new-user-sel-${user.id}">${user.name || user.email}</label></div>`
+                    `<div class="member-option"><input type="checkbox" id="new-user-sel-${user.id}" value="${user.id}" ${user.id === state.currentUser.uid ? 'checked disabled' : ''}><label for="new-task-multi-${user.id}">${user.name || user.email}</label></div>`
                 ).join('');
                  openModal(newProjectModal.overlay);
             });
@@ -2063,7 +2090,7 @@
                 const { task, project } = findTask(draggedTaskId);
                 if (task && task.status !== newStatus) {
                     if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < task.assignees.length) {
-                        showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
+                        showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.\", \"Błąd");
                         render(); 
                         return;
                     }
