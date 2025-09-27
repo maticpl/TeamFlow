@@ -7,7 +7,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="manifest" href="manifest.json">
     <style>
         /* ==================
            1. Zmienne i Reset
@@ -582,9 +581,6 @@
             width: 14px;
             height: 14px;
         }
-        .task-assignees {
-            display: flex;
-        }
         .task-assignees .avatar {
             width: 24px;
             height: 24px;
@@ -713,45 +709,6 @@
             resize: vertical;
         }
         
-        .completion-status-list {
-            list-style: none;
-        }
-        .completion-status-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 8px;
-            border-radius: var(--border-radius);
-            transition: background-color 0.2s;
-        }
-        .completion-status-item:hover {
-            background-color: var(--bg-tertiary);
-        }
-        .completion-status-item .user-info {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .completion-status-item .user-info .avatar {
-            width: 28px;
-            height: 28px;
-            font-size: 12px;
-            margin: 0;
-        }
-        .completion-status-item .status-indicator {
-            font-size: 12px;
-            font-weight: 600;
-            padding: 2px 8px;
-            border-radius: 12px;
-        }
-        .completion-status-item .status-indicator.done {
-            background-color: var(--success-primary);
-            color: white;
-        }
-        .completion-status-item .status-indicator.pending {
-            background-color: var(--border-color);
-            color: var(--text-secondary);
-        }
         
         .sidebar-detail {
             margin-bottom: 16px;
@@ -796,28 +753,6 @@
         }
         .form-group textarea {
             resize: vertical;
-        }
-
-        .task-type-selection {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-        .task-type-selection label {
-            flex: 1;
-            padding: 10px;
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius);
-            text-align: center;
-            cursor: pointer;
-        }
-        .task-type-selection input {
-            display: none;
-        }
-        .task-type-selection input:checked + label {
-            background-color: var(--accent-primary);
-            color: white;
-            border-color: var(--accent-primary);
         }
         
         .members-selection {
@@ -1270,12 +1205,7 @@
                         <textarea id="modal-task-description" placeholder="Dodaj opis zadania..."></textarea>
                     </div>
 
-                    <div class="task-modal-section completion-status" id="modal-completion-status-section" style="display: none;">
-                        <h4>Status ukończenia</h4>
-                        <ul class="completion-status-list" id="modal-completion-status-list">
-                            <!-- statusy ukończenia -->
-                        </ul>
-                    </div>
+                    
                 </div>
                 <div class="task-modal-sidebar">
                     <div class="sidebar-detail">
@@ -1384,22 +1314,9 @@
                         <label for="new-task-title">Tytuł zadania</label>
                         <input type="text" id="new-task-title" required placeholder="np. Zaprojektować nowy landing page">
                     </div>
-                     <div class="form-group">
-                        <label>Typ zadania</label>
-                        <div class="task-type-selection">
-                            <input type="radio" id="task-type-single" name="task-type" value="single" checked>
-                            <label for="task-type-single">Jednoosobowe</label>
-                            <input type="radio" id="task-type-multi" name="task-type" value="multi">
-                            <label for="task-type-multi">Wieloosobowe</label>
-                        </div>
-                    </div>
-                     <div class="form-group" id="new-task-assignee-single-wrapper">
+                    <div class="form-group">
                         <label for="new-task-assignee-select">Przypisz do</label>
                         <select id="new-task-assignee-select"></select>
-                    </div>
-                    <div class="form-group" id="new-task-assignee-multi-wrapper" style="display: none;">
-                        <label>Wybierz osoby</label>
-                        <div id="new-task-assignee-multi-list" class="members-selection"></div>
                     </div>
                     <div class="form-group">
                         <label for="new-task-description">Opis</label>
@@ -1407,8 +1324,12 @@
                     </div>
                     <div style="display: flex; gap: 16px;">
                         <div class="form-group" style="flex: 1;">
-                            <label for="new-task-dueDate">Termin</label>
-                            <input type="datetime-local" id="new-task-dueDate">
+                            <label for="new-task-status-select">Status</label>
+                            <select id="new-task-status-select">
+                                <option value="todo" selected>Do realizacji</option>
+                                <option value="inprogress">W trakcie realizacji</option>
+                                <option value="done">Wykonane</option>
+                            </select>
                         </div>
                          <div class="form-group" style="flex: 1;">
                             <label for="new-task-priority">Priorytet</label>
@@ -1470,8 +1391,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, arrayUnion, arrayRemove, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
-
+        
         // ============================
         // 0. Konfiguracja i Inicjalizacja Firebase
         // ============================
@@ -1489,7 +1409,7 @@
         
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-        let db, auth, messaging;
+        let db, auth;
         const loadingOverlay = document.getElementById('loading-overlay');
         const authOverlay = document.getElementById('auth-overlay');
         const appContainer = document.querySelector('.app-container');
@@ -1501,7 +1421,6 @@
             const app = initializeApp(firebaseConfig);
             db = getFirestore(app);
             auth = getAuth(app);
-            messaging = getMessaging(app);
         } catch (error) {
             console.error("Błąd inicjalizacji Firebase:", error);
             authOverlay.innerHTML = `<div class="auth-container"><h2>Błąd Konfiguracji</h2><p>Błąd inicjalizacji Firebase: ${error.message}. Sprawdź, czy obiekt 'firebaseConfig' jest poprawnie uzupełniony w kodzie i czy projekt Firebase został poprawnie utworzony.</p></div>`;
@@ -1540,10 +1459,6 @@
         const menuToggle = document.getElementById('menu-toggle');
         const mobileHeaderTitle = document.getElementById('mobile-header-title');
         
-        const desktopNotificationsBtn = document.getElementById('desktop-notifications-btn');
-        const mobileNotificationsBtn = document.getElementById('mobile-notifications-btn');
-        mobileNotificationsBtn.innerHTML = desktopNotificationsBtn.innerHTML;
-
         const mainNav = document.getElementById('main-nav');
         const projectsListEl = document.getElementById('projects-list');
         const completedProjectsSection = document.getElementById('completed-projects-section');
@@ -1568,8 +1483,6 @@
             description: document.getElementById('modal-task-description'),
             status: document.getElementById('modal-task-status'),
             assigneesList: document.getElementById('modal-task-assignees-list'),
-            completionStatusSection: document.getElementById('modal-completion-status-section'),
-            completionStatusList: document.getElementById('modal-completion-status-list'),
             priority: document.getElementById('modal-task-priority'),
             dueDate: document.getElementById('modal-task-dueDate'),
             saveBtn: document.getElementById('save-task-btn'),
@@ -1594,11 +1507,8 @@
             projectSelect: document.getElementById('new-task-project'),
             title: document.getElementById('new-task-title'),
             description: document.getElementById('new-task-description'),
-            taskTypeRadios: document.querySelectorAll('input[name="task-type"]'),
-            assigneeSingleWrapper: document.getElementById('new-task-assignee-single-wrapper'),
-            assigneeSingleSelect: document.getElementById('new-task-assignee-select'),
-            assigneeMultiWrapper: document.getElementById('new-task-assignee-multi-wrapper'),
-            assigneeMultiList: document.getElementById('new-task-assignee-multi-list'),
+            assigneeSelect: document.getElementById('new-task-assignee-select'),
+            statusSelect: document.getElementById('new-task-status-select'),
             dueDate: document.getElementById('new-task-dueDate'),
             priority: document.getElementById('new-task-priority'),
         };
@@ -1623,23 +1533,12 @@
         const findUser = (userId) => state.users.find(u => u.id === userId);
         const findProject = (projectId) => state.projects.find(p => p.id === projectId);
         const findCompletedProject = (projectId) => state.completedProjects.find(p => p.id === projectId);
-        
-        const migrateTask = (task) => {
-            if (!task.type) {
-                task.type = 'single';
-                task.assignees = task.assignee ? [task.assignee] : [];
-                task.completedBy = task.status === 'done' && task.assignee ? [task.assignee] : [];
-            }
-            if (!task.assignees) task.assignees = [];
-            if (!task.completedBy) task.completedBy = [];
-            return task;
-        }
 
         const findTask = (taskId) => {
             const allProjects = [...state.projects, ...state.completedProjects];
             for (const project of allProjects) {
                 const task = (project.tasks || []).find(t => t.id === taskId);
-                if (task) return { task: migrateTask(task), project };
+                if (task) return { task, project };
             }
             return { task: null, project: null };
         };
@@ -1720,8 +1619,7 @@
                 return `<div class="avatar" style="background-color: ${user.avatarColor || '#ccc'}" title="${user.name || user.email}">${(user.name || user.email).substring(0,2).toUpperCase()}</div>`;
             }).join('');
             
-            const projectTasks = (project.tasks || []).map(migrateTask);
-            renderKanbanBoard(projectTasks, !isCompleted);
+            renderKanbanBoard(project.tasks || [], !isCompleted);
         }
 
         function renderMyTasksView() {
@@ -1732,8 +1630,8 @@
             
             const allProjects = [...state.projects, ...state.completedProjects];
             let myTasks = allProjects.flatMap(p => 
-                (p.tasks || []).map(migrateTask)
-                    .filter(t => t.assignees.includes(state.currentUser.id))
+                (p.tasks || [])
+                    .filter(t => t.assignee === state.currentUser.id)
                     .map(t => ({ ...t, projectName: p.name }))
             );
             
@@ -1765,24 +1663,17 @@
         }
         
         function createTaskCardHTML(task, isInteractive) {
+            const assignee = findUser(task.assignee);
             const isCompleted = task.status === 'done';
             const priorityClass = task.priority === 'high' ? 'priority-high' : '';
             const projectNameHTML = task.projectName ? `<span class="task-project-name">${task.projectName}</span>` : '';
             
-            const assigneesHTML = (task.assignees || []).map(assigneeId => {
-                const user = findUser(assigneeId);
-                return user ? `<div class="avatar" style="background-color: ${user.avatarColor || '#ccc'}" title="${user.name || user.email}">${(user.name || user.email).substring(0,2).toUpperCase()}</div>` : '';
-            }).join('');
+            const assigneeHTML = assignee ? `<div class="avatar" style="background-color: ${assignee.avatarColor || '#ccc'}" title="${assignee.name || assignee.email}">${(assignee.name || assignee.email).substring(0,2).toUpperCase()}</div>` : '';
 
             const dueDateHTML = task.dueDate ? `
                 <div class="task-detail">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
                     <span>${formatTimestampForDisplay(task.dueDate)}</span>
-                </div>` : '';
-            
-            const multiUserIcon = task.type === 'multi' ? `
-                <div class="task-detail" title="Zadanie wieloosobowe">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m-7.5-2.962A3.75 3.75 0 0115 9.75c0 1.036-.394 2.006-1.097 2.753m-10.243-4.553a4.5 4.5 0 118.23 4.762A4.5 4.5 0 016.75 12.75c-1.631 0-3.133-.82-4.01-2.043M15.75 9.75c0-1.036.394-2.006 1.097-2.753A3.75 3.75 0 0015 3.75c-1.631 0-3.133.82-4.01 2.043m5.858 5.858a3.75 3.75 0 00-5.858-5.858m0 0A3.75 3.75 0 019.75 5.25c1.036 0 2.006.394 2.753 1.097" /></svg>
                 </div>` : '';
 
             return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}">
@@ -1790,8 +1681,8 @@
                 ${projectNameHTML}
                 <h4>${task.title}</h4>
                 <div class="task-meta">
-                    <div class="task-details">${dueDateHTML}${multiUserIcon}</div>
-                    <div class="task-assignees">${assigneesHTML}</div>
+                    <div class="task-details">${dueDateHTML}</div>
+                    <div class="task-assignees">${assigneeHTML}</div>
                 </div>
             </li>`;
         }
@@ -1825,34 +1716,9 @@
             taskModal.dueDate.value = formatTimestampForInput(task.dueDate);
             taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
             
-            taskModal.assigneesList.innerHTML = (task.assignees || []).map(memberId => {
-                const user = findUser(memberId);
-                return user ? `<div title="${user.name || user.email}" class="avatar" style="background-color: ${user.avatarColor || '#ccc'}">${(user.name || user.email).substring(0,2).toUpperCase()}</div>` : '';
-            }).join('');
+            const assignee = findUser(task.assignee);
+            taskModal.assigneesList.innerHTML = assignee ? `<div title="${assignee.name || assignee.email}" class="avatar" style="background-color: ${assignee.avatarColor || '#ccc'}">${(assignee.name || assignee.email).substring(0,2).toUpperCase()}</div>` : '<span>Nikt</span>';
             
-            if (task.type === 'multi') {
-                taskModal.completionStatusSection.style.display = 'block';
-                taskModal.completionStatusList.innerHTML = (task.assignees || []).map(userId => {
-                    const user = findUser(userId);
-                    if (!user) return ''; // Add a guard for missing users
-                    const isDone = task.completedBy.includes(userId);
-                    const isCurrentUser = userId === state.currentUser.id;
-                    const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm" data-user-id="${userId}" id="complete-my-part-btn">Oznacz jako wykonane</button>` : '';
-
-                    return `<li class="completion-status-item">
-                        <div class="user-info">
-                            <div class="avatar" style="background-color: ${user.avatarColor || '#ccc'}" title="${user.name || user.email}">${(user.name || user.email).substring(0,2).toUpperCase()}</div>
-                            <span>${user.name || user.email}</span>
-                        </div>
-                        <div class="status-indicator-wrapper" style="display: flex; align-items: center; gap: 8px;">
-                            ${actionButton}
-                            <span class="status-indicator ${isDone ? 'done' : 'pending'}">${isDone ? 'Gotowe' : 'Oczekuje'}</span>
-                        </div>
-                    </li>`;
-                }).join('');
-            } else {
-                taskModal.completionStatusSection.style.display = 'none';
-            }
             openModal(taskModal.overlay);
         }
 
@@ -1864,12 +1730,6 @@
             const oldStatus = task.status;
             const newStatus = taskModal.status.value;
 
-            if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < task.assignees.length) {
-                showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
-                taskModal.status.value = oldStatus;
-                return;
-            }
-            
             const dueDateValue = taskModal.dueDate.value;
             const updatedTask = {...task,
                 description: taskModal.description.value,
@@ -1906,26 +1766,22 @@
                 return user ? {id: user.id, name: user.name || user.email} : null;
             }).filter(Boolean);
 
-            newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
-            newTaskModal.assigneeMultiList.innerHTML = membersOptions.map(u => `<div class="member-option"><input type="checkbox" id="new-task-multi-${u.id}" value="${u.id}"><label for="new-task-multi-${u.id}">${u.name}</label></div>`).join('');
+            newTaskModal.assigneeSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
             
-            newTaskModal.assigneeSingleWrapper.style.display = 'block';
-            newTaskModal.assigneeMultiWrapper.style.display = 'none';
-            document.getElementById('task-type-single').checked = true;
-
             openModal(newTaskModal.overlay);
         }
 
         onAuthStateChanged(auth, async (user) => {
             if (user) {
-                const userDoc = await getDoc(doc(usersRef, user.uid));
+                const userDocRef = doc(usersRef, user.uid);
+                const userDoc = await getDoc(userDocRef);
                 state.currentUser = { id: user.uid, ...(userDoc.exists() ? userDoc.data() : { email: user.email }) };
+                
                 authOverlay.style.display = 'none';
                 appContainer.classList.remove('hidden');
                 loadingOverlay.style.display = 'flex';
                 userEmailDisplay.textContent = state.currentUser.email;
                 setupFirestoreListeners(user.uid);
-                updateNotificationButtonState();
             } else {
                 state.currentUser = null;
                 appContainer.classList.add('hidden');
@@ -1943,7 +1799,7 @@
             state.ui.unsubscribeUsers = onSnapshot(query(usersRef), (snapshot) => {
                 state.users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const currentUserDoc = state.users.find(u => u.id === userId);
-                if (currentUserDoc) state.currentUser = currentUserDoc;
+                if (currentUserDoc) state.currentUser = {id: userId, ...currentUserDoc };
                 render();
             }, (error) => console.error("Błąd odczytu użytkowników:", error));
 
@@ -1988,10 +1844,9 @@
                 const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                 const user = userCredential.user;
                 await setDoc(doc(usersRef, user.uid), {
-                    id: user.uid, // POPRAWKA
+                    id: user.uid,
                     email: user.email, name: name,
                     avatarColor: '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'),
-                    fcmTokens: []
                 });
             } catch (error) {
                 console.error("Błąd rejestracji:", error);
@@ -2073,7 +1928,7 @@
                 members: selectedMembers,
                 tasks: taskTitles.map((title, i) => ({
                     id: `task${Date.now() + i}`, title, description: '', status: 'todo', 
-                    type: 'single', assignees: [], completedBy: [], priority: 'medium', dueDate: null
+                    assignee: null, priority: 'medium', dueDate: null
                 }))
             };
             const docRef = await addDoc(projectsRef, newProject);
@@ -2116,14 +1971,6 @@
             }
         });
         
-        newTaskModal.taskTypeRadios.forEach(radio => {
-            radio.addEventListener('change', () => {
-                const isMulti = radio.value === 'multi';
-                newTaskModal.assigneeSingleWrapper.style.display = isMulti ? 'none' : 'block';
-                newTaskModal.assigneeMultiWrapper.style.display = isMulti ? 'block' : 'none';
-            });
-        });
-
         newTaskModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const title = newTaskModal.title.value.trim();
@@ -2134,34 +1981,16 @@
             const project = findProject(projectId);
 
             if(!project) return;
-
-            const taskType = document.querySelector('input[name="task-type"]:checked').value;
-            let assignees = [];
-            if (taskType === 'single') {
-                const singleAssignee = newTaskModal.assigneeSingleSelect.value;
-                if (singleAssignee) assignees.push(singleAssignee);
-            } else {
-                assignees = Array.from(newTaskModal.assigneeMultiList.querySelectorAll('input:checked')).map(input => input.value);
-            }
-            if (assignees.length === 0 && taskType === 'multi') {
-                 showNotification("Wybierz przynajmniej jedną osobę do zadania wieloosobowego.", "Błąd");
-                 return;
-            }
             
-            const dueDateValue = newTaskModal.dueDate.value;
             const newTask = {
                 id: `task${Date.now()}`, title,
                 description: newTaskModal.description.value,
-                status: 'todo', 
-                type: taskType,
-                assignees: assignees,
-                completedBy: [],
+                status: newTaskModal.statusSelect.value, 
+                assignee: newTaskModal.assigneeSelect.value || null,
                 priority: newTaskModal.priority.value,
-                dueDate: dueDateValue ? Timestamp.fromDate(new Date(dueDateValue)) : null,
-                reminderSent: false
+                dueDate: null,
             };
             
-            // POPRAWKA: Ujednolicona logika aktualizacji
             const projectDocRef = doc(projectsRef, project.id);
             const updatedTasks = [...(project.tasks || []), newTask];
             await updateDoc(projectDocRef, { tasks: updatedTasks });
@@ -2176,27 +2005,9 @@
             
             const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
             let updatedTask = { ...task };
-
-            if (task.type === 'multi') {
-                const userId = state.currentUser.id;
-                if (checkbox.checked) {
-                    if (!updatedTask.completedBy.includes(userId)) {
-                        updatedTask.completedBy.push(userId);
-                    }
-                } else {
-                    updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
-                }
-
-                if (updatedTask.completedBy.length === updatedTask.assignees.length) {
-                    updatedTask.status = 'done';
-                    if (task.status !== 'done') showConfetti();
-                } else {
-                    updatedTask.status = task.status === 'done' ? 'inprogress' : task.status;
-                }
-            } else {
-                 updatedTask.status = checkbox.checked ? 'done' : 'todo';
-                 if (checkbox.checked && task.status !== 'done') showConfetti();
-            }
+            
+            updatedTask.status = checkbox.checked ? 'done' : 'todo';
+            if (checkbox.checked && task.status !== 'done') showConfetti();
 
             const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
             await updateDoc(projectDocRef, { tasks: updatedTasks });
@@ -2224,119 +2035,6 @@
 
         taskModal.saveBtn.addEventListener('click', saveTaskFromModal);
         
-        taskModal.overlay.addEventListener('click', async (e) => {
-            if (e.target.id === 'complete-my-part-btn') {
-                const userId = e.target.dataset.userId;
-                const taskId = taskModal.overlay.dataset.taskId;
-                const { task, project } = findTask(taskId);
-                if (!task || !project || userId !== state.currentUser.id) return;
-
-                if (!task.completedBy.includes(userId)) {
-                    task.completedBy.push(userId);
-                }
-                
-                if (task.completedBy.length === task.assignees.length) {
-                    task.status = 'done';
-                    if (findTask(taskId).task.status !== 'done') showConfetti();
-                }
-                
-                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                const updatedTasks = project.tasks.map(t => t.id === taskId ? task : t);
-                await updateDoc(projectDocRef, { tasks: updatedTasks });
-                openTaskModal(taskId);
-            }
-        });
-
-        desktopNotificationsBtn.addEventListener('click', toggleNotificationPermission);
-        mobileNotificationsBtn.addEventListener('click', toggleNotificationPermission);
-
-        function updateNotificationButtonState() {
-            const permission = Notification.permission;
-            const btn = document.getElementById('desktop-notifications-btn');
-            const mobileBtn = document.getElementById('mobile-notifications-btn');
-            if (permission === 'granted') {
-                btn.classList.add('active');
-                mobileBtn.classList.add('active');
-                btn.title = "Powiadomienia są włączone";
-                mobileBtn.title = "Powiadomienia są włączone";
-            } else {
-                btn.classList.remove('active');
-                mobileBtn.classList.remove('active');
-                btn.title = "Włącz powiadomienia";
-                mobileBtn.title = "Włącz powiadomienia";
-            }
-        }
-
-        async function toggleNotificationPermission() {
-             if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-                 showNotification("Twoja przeglądarka nie wspiera powiadomień.", "Błąd");
-                 return;
-            }
-
-            if(Notification.permission === 'granted') {
-                 showNotification("Powiadomienia są już włączone. Aby je wyłączyć, musisz to zrobić w ustawieniach swojej przeglądarki.", "Informacja");
-                 return;
-            }
-
-            if (Notification.permission === 'denied') {
-                  showNotification("Odmówiłeś/aś zgody na powiadomienia. Musisz je odblokować w ustawieniach przeglądarki, aby móc je włączyć.", "Informacja");
-                 return;
-            }
-
-            try {
-                const permission = await Notification.requestPermission();
-                if (permission === 'granted') {
-                    console.log('Zgoda na powiadomienia uzyskana.');
-                    await setupFCM();
-                } else {
-                    console.log('Użytkownik nie wyraził zgody na powiadomienia.');
-                }
-            } catch (error) {
-                console.error('Błąd podczas proszenia o zgodę na powiadomienia:', error);
-            }
-            updateNotificationButtonState();
-        }
-        
-        async function setupFCM() {
-            try {
-                const VAPID_KEY = "TWOJ_VAPID_KEY_Z_KONSOLI_FIREBASE";
-                if(VAPID_KEY === "TWOJ_VAPID_KEY_Z_KONSOLI_FIREBASE") {
-                     console.error("VAPID Key dla powiadomień nie został skonfigurowany w index.html");
-                     showNotification("Konfiguracja powiadomień jest niekompletna (brak VAPID Key). Skontaktuj się z administratorem.", "Błąd");
-                     return;
-                }
-
-                const currentToken = await getToken(messaging, { vapidKey: VAPID_KEY });
-                if (currentToken) {
-                    console.log('Uzyskano token FCM:', currentToken);
-                    await saveTokenToFirestore(currentToken);
-                } else {
-                    console.log('Nie udało się uzyskać tokenu. Upewnij się, że masz plik firebase-messaging-sw.js');
-                }
-            } catch (err) {
-                console.error('Wystąpił błąd podczas pobierania tokenu. ', err);
-            }
-        }
-
-        async function saveTokenToFirestore(token) {
-            if (!state.currentUser) return;
-            try {
-                const userDocRef = doc(usersRef, state.currentUser.id);
-                await updateDoc(userDocRef, {
-                    fcmTokens: arrayUnion(token)
-                });
-                console.log('Token zapisany w Firestore.');
-                showNotification("Powiadomienia zostały pomyślnie włączone!", "Sukces");
-            } catch (error) {
-                console.error("Błąd zapisu tokenu w Firestore:", error);
-            }
-        }
-        
-        onMessage(messaging, (payload) => {
-            console.log('Otrzymano wiadomość, gdy aplikacja jest aktywna: ', payload);
-            showNotification(payload.notification.body, payload.notification.title);
-        });
-
         document.querySelectorAll('.theme-switcher').forEach(switcher => {
             switcher.addEventListener('click', e => {
                 const button = e.target.closest('button');
@@ -2432,11 +2130,6 @@
             const { task, project } = findTask(draggedTaskId);
 
             if (task && task.status !== newStatus) {
-                if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < task.assignees.length) {
-                    showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
-                    render();
-                    return;
-                }
                 const oldStatus = task.status;
                 task.status = newStatus;
                 const projectDocRef = doc(projectsRef, project.id);
