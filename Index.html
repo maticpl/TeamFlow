@@ -68,6 +68,9 @@
         .sidebar-header .logo { width: 32px; height: 32px; background-color: var(--accent-primary); border-radius: var(--border-radius); display: flex; align-items: center; justify-content: center; }
         .sidebar-header .logo svg { width: 20px; height: 20px; color: white; }
         .sidebar-header h1 { font-size: 20px; font-weight: 600; }
+        /* Nowy styl dla subtytułu aplikacji */
+        .app-subtitle { font-size: 12px; color: var(--text-secondary); font-weight: 400; margin-top: -4px; }
+
         .search-bar { position: relative; margin-bottom: 16px; }
         .search-bar input { width: 100%; padding: 8px 12px 8px 32px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary); font-size: 14px; }
         .search-bar svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-secondary); }
@@ -359,19 +362,21 @@
             gap: 16px;
         }
 
-        /* Nowy CSS dla głównego widoku, który zawiera dashboard i kanban-mini. 
-           Kanban-board jest domyślnie flex, ale potrzebuje grid, gdy wyświetla Dashboard.
-           Musimy sprawdzić, czy renderMyDashboardView nie nadpisuje tego źle */
+        /* Naprawienie głównego kontenera, który zawiera elementy Dashboardu */
         .main-content {
-            /* flex-grow: 1; -> zachowujemy */
-            /* display: flex; flex-direction: column; -> zachowujemy */
-            overflow: auto; /* Zmieniamy hidden na auto, żeby był scroll jeśli potrzebny */
+            /* Przy widoku Dashboardu (kanban-board display: block) chcemy, żeby zawartość płynęła w pionie */
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
         }
         
+        /* Kontener Dashboardu, który ma zapewnić flow pionowy */
         .dashboard-container {
             display: flex;
             flex-direction: column;
             width: 100%;
+            flex-shrink: 0; /* Zapobiega ściskaniu */
         }
 
         @media (max-width: 768px) {
@@ -472,7 +477,11 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
                     </svg>
                 </div>
-                <h1>TeamFlow</h1>
+                <div>
+                    <h1>TeamFlow</h1>
+                    <!-- ZMIANA: Nowy subtytuł -->
+                    <p class="app-subtitle">by Mateusz Czerwiński</p>
+                </div>
             </div>
 
             <div class="search-bar">
@@ -1214,6 +1223,17 @@
                 fabAddTask.style.display = 'none'; // Ukryj FAB
 
                 const myTasks = getAllMyTasks();
+                
+                // Sortowanie zadań przed podziałem na dashboard i kanban
+                myTasks.sort((a, b) => {
+                    const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+                    const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+                    if (dateA === Infinity && dateB === Infinity) return 0;
+                    if (dateA === Infinity) return 1;
+                    if (dateB === Infinity) return -1;
+                    return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
+                });
+                
                 const overdueTasks = getOverdueTasks(myTasks);
                 const todoCount = myTasks.filter(t => t.status === 'todo').length;
                 const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
@@ -1224,8 +1244,9 @@
                 const inProgressHeight = totalActiveTasks > 0 ? Math.round((inProgressCount / totalActiveTasks) * 100) : 0;
                 
                 // Struktura Dashboardu
+                // UŻYCIE GŁÓWNEGO KONTENERA KANBAN-BOARD DO ZAWIEARANIA WSZYSTKIEGO W WIDOKU DASHBOARD
                 kanbanBoardEl.innerHTML = `
-                    <div class="dashboard-container"> <!-- NOWY KONTENER GŁÓWNY -->
+                    <div class="dashboard-container"> <!-- KONTENER ZAPEWNIAJĄCY PIONOWY FLOW -->
                         <div class="dashboard-grid">
                             <div class="dashboard-card">
                                 <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
@@ -1263,19 +1284,20 @@
                 // Renderuj Kanban dla wszystkich zadań użytkownika w nowej sekcji
                 const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
                 
-                // ZMIANA: Zapewnienie, że sekcja Kanbana jest poprawnie inicjowana
+                // Zapewnienie, że sekcja Kanbana jest poprawnie inicjowana
                 const renderMyTasksKanban = (tasks, targetElement) => {
                     targetElement.innerHTML = '';
                     targetElement.style.display = 'grid';
                     targetElement.style.gridTemplateColumns = 'repeat(3, 1fr)';
                     targetElement.style.gap = '16px';
-                    targetElement.style.overflowX = 'auto'; // Umożliwia scroll poziomy, jeśli za dużo kolumn
+                    targetElement.style.overflowX = 'auto'; 
                     
                     Object.keys(STATUSES).forEach(statusKey => {
                         const column = document.createElement('div');
                         column.className = 'kanban-column';
                         column.dataset.status = statusKey;
-                        const tasksInColumn = tasks.filter(t => t.status === statusKey);
+                        // Kanban w widoku Dashboardu powinien być interaktywny
+                        const tasksInColumn = tasks.filter(t => t.status === statusKey); 
                         
                         column.innerHTML = `<div class="kanban-column-header"><h3>${STATUSES[statusKey]}</h3><span class="task-count">${tasksInColumn.length}</span></div><ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true)).join('')}</ul>`;
                         targetElement.appendChild(column);
@@ -1292,16 +1314,16 @@
                     });
                 });
                 
-                // Zapewnienie, że główny kanban-board (który jest kontenerem dla Dashboardu) ma układ pionowy
+                // W widoku Dashboardu, główny kanban-board jest używany jako kontener pionowy
                 kanbanBoardEl.style.display = 'block';
-                kanbanBoardEl.style.overflow = 'visible'; // żeby nie ukrywać elementów
+                kanbanBoardEl.style.overflow = 'visible';
             }
 
             function renderKanbanBoard(tasks, isInteractive) {
-                // Czyścimy, jeśli przełączamy z Dashboardu
+                // Ta funkcja jest używana DLA PROJEKTÓW
                 kanbanBoardEl.innerHTML = '';
                 kanbanBoardEl.style.display = 'grid'; // Wróć do grid dla Kanban
-                kanbanBoardEl.style.overflow = 'auto'; // Zapewnienie scrollowania dla projektu
+                kanbanBoardEl.style.overflow = 'auto'; 
                 
                 Object.keys(STATUSES).forEach(statusKey => {
                     const column = document.createElement('div');
@@ -2070,8 +2092,8 @@
             });
 
             let draggedTaskId = null;
+            // ZMIANA: Dodano drag&drop do my-tasks-kanban
             kanbanBoardEl.addEventListener('dragstart', (e) => {
-                if (findCompletedProject(state.currentProjectId)) return;
                 const taskCard = e.target.closest('.task-card');
                 if (taskCard) {
                     draggedTaskId = taskCard.dataset.taskId;
@@ -2086,21 +2108,28 @@
                 e.preventDefault();
                 const column = e.target.closest('.kanban-column');
                 if (!column || !draggedTaskId) return;
+                
                 const newStatus = column.dataset.status;
                 const { task, project } = findTask(draggedTaskId);
+                
+                // Dodatkowy check dla Kanban w widoku Projektu, gdzie drag&drop może być zabroniony
+                if (state.ui.currentView === 'projects' && findCompletedProject(state.currentProjectId)) return;
+
                 if (task && task.status !== newStatus) {
                     if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < task.assignees.length) {
-                        showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.\", \"Błąd");
+                        showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
                         render(); 
                         return;
                     }
                     const oldStatus = task.status;
                     task.status = newStatus;
                     
+                    // ZMIANA: Wyszukaj referencję do projektu (aktywny/zakończony)
+                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+
                     // Dodaj aktywność po zmianie statusu
                     await addActivity(task, project, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
                     
-                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                     const updatedTasks = project.tasks.map(t => t.id === draggedTaskId ? task : t);
                     await updateDoc(projectDocRef, { tasks: updatedTasks });
                     if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
