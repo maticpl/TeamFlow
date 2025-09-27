@@ -268,6 +268,84 @@
             color: var(--text-secondary);
             margin-top: 4px;
         }
+        /* Style dla Pulpitu/Dashboard */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+        .dashboard-card {
+            background-color: var(--bg-secondary);
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow-sm);
+        }
+        .dashboard-card h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--accent-primary);
+        }
+        .chart-mockup {
+            height: 100px;
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+            padding-top: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .chart-bar {
+            width: 40%;
+            background-color: var(--accent-primary);
+            color: white;
+            text-align: center;
+            font-size: 12px;
+            line-height: 1.2;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            font-weight: 600;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+            transition: height 0.5s;
+        }
+        .chart-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-align: center;
+            margin-top: 4px;
+        }
+        .overdue-list-container {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .overdue-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px dotted var(--border-color);
+        }
+        .overdue-item:last-child {
+            border-bottom: none;
+        }
+        .overdue-item-title {
+            font-weight: 500;
+            color: var(--danger-primary);
+            cursor: pointer;
+        }
+        .overdue-item-title:hover {
+            text-decoration: underline;
+        }
+        .overdue-item-date {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .no-overdue-tasks {
+            font-style: italic;
+            color: var(--success-primary);
+            padding: 10px 0;
+        }
 
         @media (max-width: 768px) {
             .app-container { flex-direction: column; overflow-y: auto; }
@@ -310,6 +388,9 @@
     width: 22px;
     height: 22px;
 }
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -377,7 +458,7 @@
             <nav class="nav-section">
                 <ul class="nav-list" id="main-nav">
                     <li class="nav-item">
-                        <a href="#" data-view="my-tasks">
+                        <a href="#" data-view="my-dashboard"> <!-- Zmieniono data-view na my-dashboard -->
                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                             </svg>
@@ -793,7 +874,7 @@
                 currentProjectId: null,
                 ui: {
                     theme: 'light',
-                    currentView: 'projects',
+                    currentView: 'my-dashboard', // DOMYŚLNIE ZMIENIONO NA DASHBOARD
                     sortMyTasksByDate: 'asc',
                     unsubscribeProjects: null,
                     unsubscribeCompleted: null,
@@ -967,6 +1048,25 @@
                 }
                 return { task: null, project: null };
             };
+            
+            // NOWA FUNKCJA: Pobiera wszystkie zadania użytkownika
+            function getAllMyTasks() {
+                const allProjects = [...state.projects, ...state.completedProjects];
+                return allProjects.flatMap(p => 
+                    (p.tasks || [])
+                        .map(migrateTask)
+                        .filter(t => t.assignees.includes(state.currentUser.uid))
+                        .map(t => ({ ...t, projectName: p.name, projectId: p.id }))
+                );
+            }
+            
+            // NOWA FUNKCJA: Pobiera opóźnione zadania
+            function getOverdueTasks(tasks) {
+                const now = Date.now();
+                return tasks.filter(t => 
+                    t.dueDate && new Date(t.dueDate).getTime() < now && t.status !== 'done'
+                ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()); // Sortuje od najstarszych
+            }
 
             const saveUiState = () => localStorage.setItem(`teamFlowUiState_${appId}`, JSON.stringify(state.ui));
             const loadUiState = () => {
@@ -985,21 +1085,26 @@
                 if(!state.currentUser) return;
                 applyTheme();
                 renderSidebar();
-                sortBtn.style.display = state.ui.currentView === 'my-tasks' ? 'flex' : 'none';
+                
+                // Ustawienie widoczności przycisku sortowania
+                sortBtn.style.display = state.ui.currentView === 'my-dashboard' ? 'flex' : 'none';
+                
                 if (state.ui.currentView === 'projects') {
                     renderCurrentProjectView();
-                } else {
-                    renderMyTasksView();
+                } else if (state.ui.currentView === 'my-dashboard') {
+                    renderMyDashboardView(); // NOWY WIDOK
                 }
             }
 
             function renderSidebar() {
-                mainNav.querySelector('a').classList.toggle('active', state.ui.currentView === 'my-tasks');
+                // Aktywuj link dashboardu, jeśli to obecny widok
+                mainNav.querySelector('a').classList.toggle('active', state.ui.currentView === 'my-dashboard');
                 const renderProjectList = (projects, listEl) => {
                     listEl.innerHTML = '';
                     (projects || []).forEach(project => {
                         const li = document.createElement('li');
                         li.className = 'nav-item';
+                        // Zaktualizowano klasę aktywności dla projektu
                         li.innerHTML = `<a href="#" data-project-id="${project.id}" class="${project.id === state.currentProjectId && state.ui.currentView === 'projects' ? 'active' : ''}"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span>${project.name}</span></a>`;
                         listEl.appendChild(li);
                     });
@@ -1055,7 +1160,7 @@
                     }
                 });
 
-                // NOWA LOGIKA: Renderowanie paska postępu
+                // LOGIKA: Renderowanie paska postępu
                 const projectTasks = (project.tasks || []).map(migrateTask);
                 const totalTasks = projectTasks.length;
                 const completedTasks = projectTasks.filter(t => t.status === 'done').length;
@@ -1071,35 +1176,98 @@
 
                 renderKanbanBoard(projectTasks, !isCompleted);
             }
-
-            function renderMyTasksView() {
-                projectNameHeaderEl.textContent = 'Moje zadania';
-                mobileHeaderTitle.textContent = 'Moje zadania';
+            
+            // NOWA FUNKCJA: Renderuje widok "Mój Pulpit"
+            function renderMyDashboardView() {
+                projectNameHeaderEl.textContent = 'Mój Pulpit';
+                mobileHeaderTitle.textContent = 'Mój Pulpit';
                 projectMembersHeaderEl.innerHTML = '';
                 projectActionsEl.style.display = 'none';
-                projectProgressEl.innerHTML = ''; // Ukryj pasek postępu w widoku Moje Zadania
+                projectProgressEl.innerHTML = ''; 
+                fabAddTask.style.display = 'none'; // Ukryj FAB
+
+                const myTasks = getAllMyTasks();
+                const overdueTasks = getOverdueTasks(myTasks);
+                const todoCount = myTasks.filter(t => t.status === 'todo').length;
+                const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
+                const totalActiveTasks = todoCount + inProgressCount;
+
+                // Obliczenia do wykresu (mock)
+                const todoHeight = totalActiveTasks > 0 ? Math.round((todoCount / totalActiveTasks) * 100) : 0;
+                const inProgressHeight = totalActiveTasks > 0 ? Math.round((inProgressCount / totalActiveTasks) * 100) : 0;
                 
-                const allProjects = [...state.projects, ...state.completedProjects];
-                let myTasks = allProjects.flatMap(p => 
-                    (p.tasks || [])
-                        .map(migrateTask)
-                        .filter(t => t.assignees.includes(state.currentUser.uid))
-                        .map(t => ({ ...t, projectName: p.name }))
-                );
+                // Struktura Dashboardu
+                kanbanBoardEl.innerHTML = `
+                    <div class="dashboard-grid">
+                        <div class="dashboard-card">
+                            <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
+                            <div class="overdue-list-container">
+                                ${overdueTasks.length > 0 ? 
+                                    overdueTasks.map(task => `
+                                        <div class="overdue-item" data-task-id="${task.id}" data-project-id="${task.projectId}">
+                                            <span class="overdue-item-title">${task.title}</span>
+                                            <span class="overdue-item-date">${new Date(task.dueDate).toLocaleDateString('pl-PL')}</span>
+                                        </div>
+                                    `).join('') :
+                                    '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'
+                                }
+                            </div>
+                        </div>
+                        <div class="dashboard-card">
+                            <h3>Obciążenie zadaniami (Aktywne: ${totalActiveTasks})</h3>
+                            <div class="chart-mockup">
+                                <div class="chart-bar" style="height: ${todoHeight}% !important; background-color: var(--danger-primary);" title="${todoCount} Do realizacji">${todoCount}</div>
+                                <div class="chart-bar" style="height: ${inProgressHeight}% !important; background-color: var(--accent-primary);" title="${inProgressCount} W trakcie">${inProgressCount}</div>
+                            </div>
+                            <div style="display: flex; justify-content: space-around; margin-top: 8px;">
+                                <div class="chart-label" style="width: 40%; color: var(--danger-primary);">Do realizacji</div>
+                                <div class="chart-label" style="width: 40%; color: var(--accent-primary);">W trakcie</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Wszystkie Twoje Zadania</h2>
+                    <section id="my-tasks-kanban" class="kanban-board-mini">
+                    </section>
+                `;
                 
-                myTasks.sort((a, b) => {
-                    const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
-                    const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-                    if (dateA === Infinity && dateB === Infinity) return 0;
-                    if (dateA === Infinity) return 1;
-                    if (dateB === Infinity) return -1;
-                    return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
+                // Renderuj Kanban dla wszystkich zadań użytkownika w nowej sekcji
+                const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
+                
+                // Adaptacja renderKanbanBoard, aby działała na mniejszym elemencie:
+                const renderMyTasksKanban = (tasks, targetElement) => {
+                    targetElement.innerHTML = '';
+                    targetElement.style.display = 'grid';
+                    targetElement.style.gridTemplateColumns = 'repeat(3, 1fr)';
+                    targetElement.style.gap = '16px';
+                    
+                    Object.keys(STATUSES).forEach(statusKey => {
+                        const column = document.createElement('div');
+                        column.className = 'kanban-column';
+                        column.dataset.status = statusKey;
+                        const tasksInColumn = tasks.filter(t => t.status === statusKey);
+                        
+                        column.innerHTML = `<div class="kanban-column-header"><h3>${STATUSES[statusKey]}</h3><span class="task-count">${tasksInColumn.length}</span></div><ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true)).join('')}</ul>`;
+                        targetElement.appendChild(column);
+                    });
+                };
+                
+                renderMyTasksKanban(myTasks, myTasksKanbanEl);
+                
+                // Dodanie listenera dla opóźnionych zadań (pozwala na kliknięcie i otwarcie modala)
+                document.querySelectorAll('.overdue-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        const taskId = e.currentTarget.dataset.taskId;
+                        openTaskModal(taskId);
+                    });
                 });
-                renderKanbanBoard(myTasks, true);
             }
 
             function renderKanbanBoard(tasks, isInteractive) {
+                // Czyścimy, jeśli przełączamy z Dashboardu
                 kanbanBoardEl.innerHTML = '';
+                kanbanBoardEl.style.display = 'grid'; // Wróć do grid dla Kanban
+                
                 Object.keys(STATUSES).forEach(statusKey => {
                     const column = document.createElement('div');
                     column.className = 'kanban-column';
@@ -1120,16 +1288,20 @@
                     const user = findUser(assigneeId);
                     return user ? `<div class="avatar" style="background-color: ${user.avatarColor || '#ccc'}" title="${user.name || user.email}">${(user.name || user.email).substring(0,2).toUpperCase()}</div>` : '';
                 }).join('');
+                
+                // Dodanie klasy 'overdue' jeśli zadanie jest opóźnione
+                const isOverdue = task.dueDate && new Date(task.dueDate).getTime() < Date.now() && task.status !== 'done';
+                const overdueClass = isOverdue ? 'overdue' : '';
 
                 const dueDateHTML = task.dueDate ? `
-                    <div class="task-detail">
+                    <div class="task-detail ${overdueClass}">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
-                        <span>${new Date(task.dueDate).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
+                        <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${new Date(task.dueDate).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
                     </div>` : '';
                 
                 const multiUserIcon = task.type === 'multi' ? `
                     <div class="task-detail" title="Zadanie wieloosobowe">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m-7.5-2.962A3.75 3.75 0 0115 9.75c0 1.036-.394 2.006-1.097 2.753m-10.243-4.553a4.5 4.5 0 118.23 4.762A4.5 4.5 0 016.75 12.75c-1.631 0-3.133-.82-4.01-2.043M15.75 9.75c0-1.036.394-2.006 1.097-2.753A3.75 3.75 0 0015 3.75c-1.631 0-3.133.82-4.01 2.043m5.858 5.858a3.75 3.75 0 00-5.858-5.858m0 0A3.75 3.75 0 019.75 5.25c1.036 0 2.006.394 2.753 1.097" /></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m-7.5-2.962A3.75 3.75 0 0115 9.75c0 1.036-.394 2.006-1.097 2.753m-10.243-4.553a4.5 4.5 0 118.23 4.762A4.5 4.5 0 006.75 12.75c-1.631 0-3.133-.82-4.01-2.043M15.75 9.75c0-1.036.394-2.006 1.097-2.753A3.75 3.75 0 0015 3.75c-1.631 0-3.133.82-4.01 2.043m5.858 5.858a3.75 3.75 0 00-5.858-5.858m0 0A3.75 3.75 0 019.75 5.25c1.036 0 2.006.394 2.753 1.097" /></svg>
                     </div>` : '';
 
                 return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}">
@@ -1356,10 +1528,10 @@
                             try {
                                 await deleteDoc(doc(collectionRef, projectId));
                                 
-                                // Przełącz na następny projekt lub widok 'Moje zadania'
+                                // Przełącz na następny projekt lub widok 'Mój Pulpit'
                                 const nextProject = state.projects.find(p => p.id !== projectId) || state.completedProjects.find(p => p.id !== projectId);
                                 state.currentProjectId = nextProject ? nextProject.id : null;
-                                state.ui.currentView = state.currentProjectId ? 'projects' : 'my-tasks';
+                                state.ui.currentView = state.currentProjectId ? 'projects' : 'my-dashboard'; // Zmiana na my-dashboard
                                 saveUiState();
                                 showNotification("Projekt został pomyślnie usunięty.", "Sukces");
                                 render();
@@ -1400,8 +1572,11 @@
                 const projectsQuery = query(projectsRef, where("members", "array-contains", userId));
                 state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
                     state.projects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    if (!state.currentProjectId || (!findProject(state.currentProjectId) && !findCompletedProject(state.currentProjectId))) {
+                    // Po załadowaniu projektów, sprawdź, czy currentProjectId jest wciąż aktualny
+                    const isCurrentProjectActive = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
+                    if (!isCurrentProjectActive && state.ui.currentView !== 'my-dashboard') {
                         state.currentProjectId = state.projects.length > 0 ? state.projects[0].id : null;
+                        state.ui.currentView = state.currentProjectId ? 'projects' : 'my-dashboard';
                     }
                     loadingOverlay.style.display = 'none';
                     render();
@@ -1526,6 +1701,7 @@
                 e.preventDefault();
                 const link = e.target.closest('a');
                 if(link && link.dataset.view) {
+                    state.currentProjectId = null; // Wyczyść ID projektu przy przejściu na pulpit
                     state.ui.currentView = link.dataset.view;
                     saveUiState();
                     render();
@@ -1597,7 +1773,7 @@
                     await setDoc(doc(completedProjectsRef, project.id), project);
                     await deleteDoc(doc(projectsRef, project.id));
                     state.currentProjectId = state.projects.length > 0 ? state.projects[0].id : null;
-                    state.ui.currentView = state.currentProjectId ? 'projects' : 'my-tasks';
+                    state.ui.currentView = state.currentProjectId ? 'projects' : 'my-dashboard';
                     saveUiState();
                 } catch (error) {
                     console.error("Błąd zamykania projektu:", error);
@@ -1692,12 +1868,23 @@
             }
 
             kanbanBoardEl.addEventListener('click', (e) => {
+                // Ta sekcja obsługuje kliknięcia w Kanban na dashboardzie i w widoku projektu
                 if (e.target.closest('.task-card-checkbox')) {
                     handleTaskCheckboxClick(e.target.closest('.task-card-checkbox'));
                 } else if (e.target.closest('.task-card')) {
                     openTaskModal(e.target.closest('.task-card').dataset.taskId);
                 } else if (e.target.closest('.add-task-icon-btn')) {
                     openNewTaskModal(false);
+                }
+            });
+            
+            // Dostęp do modala z dashboardu (z opóźnionych zadań)
+            document.addEventListener('click', (e) => {
+                if (e.target.closest('.overdue-item-title')) {
+                    const item = e.target.closest('.overdue-item');
+                    if (item && item.dataset.taskId) {
+                        openTaskModal(item.dataset.taskId);
+                    }
                 }
             });
 
