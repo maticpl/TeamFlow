@@ -442,8 +442,9 @@
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 16px;
-            height: 100%;
+            flex-grow: 1; /* POPRAWKA: Zapewnia, że tablica wypełnia dostępną przestrzeń */
             overflow-x: auto;
+            min-height: 0; /* POPRAWKA: Zapobiega problemom z rozmiarem w kontenerach flex */
         }
         .kanban-column {
             background-color: var(--bg-tertiary);
@@ -721,7 +722,7 @@
             justify-content: space-between;
             padding: 8px;
             border-radius: var(--border-radius);
-            transition: background-color: 0.2s;
+            transition: background-color 0.2s;
         }
         .completion-status-item:hover {
             background-color: var(--bg-tertiary);
@@ -1468,7 +1469,7 @@
         // Importuj potrzebne funkcje z SDK Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, onSnapshot, collection, query, where, arrayUnion, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, arrayUnion, arrayRemove, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
         // ============================
@@ -1477,13 +1478,13 @@
         
         const firebaseConfig = {
             // UWAGA: Wklej tutaj swoją konfigurację Firebase
-            apiKey: "AIzaSyDUgw_p1cI4corSOm4vypcNQVNGgXWYNLQ",
-  authDomain: "wlasciwa-aplikacja.firebaseapp.com",
-  databaseURL: "https://wlasciwa-aplikacja-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "wlasciwa-aplikacja",
-  storageBucket: "wlasciwa-aplikacja.firebasestorage.app",
-  messagingSenderId: "180170656322",
-  appId: "1:180170656322:web:48fff7a2092ed2a3437bdb"
+            apiKey: "TWOJ_KLUCZ_API",
+            authDomain: "TWOJA_DOMENA_AUTORYZACJI.firebaseapp.com",
+            databaseURL: "https://NAZWA-PROJEKTU.firebaseio.com",
+            projectId: "ID_TWOJEGO_PROJEKTU",
+            storageBucket: "TWOJ_STORAGE_BUCKET.appspot.com",
+            messagingSenderId: "TWOJ_SENDER_ID",
+            appId: "TWOJ_APP_ID"
         };
         
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
@@ -1914,8 +1915,6 @@
             openModal(newTaskModal.overlay);
         }
 
-        // ... reszta kodu (event listenery) ...
-        // ... (wklej tutaj cały pozostały blok od onAuthStateChanged do końca) ...
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 const userDoc = await getDoc(doc(usersRef, user.uid));
@@ -1970,6 +1969,57 @@
         }
         
         loadUiState();
+        
+        showRegisterBtn.addEventListener('click', () => { loginForm.style.display = 'none'; registerForm.style.display = 'block'; });
+        showLoginBtn.addEventListener('click', () => { registerForm.style.display = 'none'; loginForm.style.display = 'block'; });
+
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('register-name').value.trim();
+            const email = document.getElementById('register-email').value;
+            const password = document.getElementById('register-password').value;
+            if (!name) { authErrorRegister.textContent = 'Nazwa użytkownika jest wymagana.'; return; }
+            authErrorRegister.textContent = '';
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Rejestrowanie...';
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+                await setDoc(doc(usersRef, user.uid), {
+                    uid: user.uid, email: user.email, name: name,
+                    avatarColor: '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'),
+                    fcmTokens: []
+                });
+            } catch (error) {
+                console.error("Błąd rejestracji:", error);
+                authErrorRegister.textContent = error.message;
+            } finally {
+                 submitBtn.disabled = false;
+                 submitBtn.textContent = 'Zarejestruj się';
+            }
+        });
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            authErrorLogin.textContent = '';
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logowanie...';
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+            } catch (error) {
+                console.error("Błąd logowania:", error);
+                authErrorLogin.textContent = "Nieprawidłowy email lub hasło.";
+            } finally {
+                 submitBtn.disabled = false;
+                 submitBtn.textContent = 'Zaloguj się';
+            }
+        });
+        
+        logoutBtn.addEventListener('click', () => signOut(auth));
         
         const handleProjectLinkClick = (e) => {
             e.preventDefault();
@@ -2108,7 +2158,7 @@
                 reminderSent: false
             };
             await updateDoc(doc(projectsRef, project.id), {
-                tasks: [...(project.tasks || []), newTask]
+                tasks: arrayUnion(newTask)
             });
             closeModal(newTaskModal.overlay);
         });
@@ -2213,18 +2263,18 @@
 
         async function toggleNotificationPermission() {
              if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-                showNotification("Twoja przeglądarka nie wspiera powiadomień.", "Błąd");
-                return;
+                 showNotification("Twoja przeglądarka nie wspiera powiadomień.", "Błąd");
+                 return;
             }
 
             if(Notification.permission === 'granted') {
-                showNotification("Powiadomienia są już włączone. Aby je wyłączyć, musisz to zrobić w ustawieniach swojej przeglądarki.", "Informacja");
-                return;
+                 showNotification("Powiadomienia są już włączone. Aby je wyłączyć, musisz to zrobić w ustawieniach swojej przeglądarki.", "Informacja");
+                 return;
             }
 
             if (Notification.permission === 'denied') {
-                 showNotification("Odmówiłeś/aś zgody na powiadomienia. Musisz je odblokować w ustawieniach przeglądarki, aby móc je włączyć.", "Informacja");
-                return;
+                  showNotification("Odmówiłeś/aś zgody na powiadomienia. Musisz je odblokować w ustawieniach przeglądarki, aby móc je włączyć.", "Informacja");
+                 return;
             }
 
             try {
@@ -2393,3 +2443,4 @@
     </script>
 </body>
 </html>
+
