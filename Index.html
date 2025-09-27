@@ -190,6 +190,61 @@
         .dark-mode #loading-overlay { background-color: rgba(0, 0, 0, 0.8); }
         .fab-add-task { display: none; position: fixed; bottom: 24px; right: 24px; width: 56px; height: 56px; border-radius: 50%; background-color: var(--accent-primary); color: white; border: none; box-shadow: var(--shadow-lg); font-size: 28px; line-height: 56px; text-align: center; cursor: pointer; z-index: 1002; }
         .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.4); z-index: 1999; }
+        /* Nowe style dla komentarzy i aktywności */
+        .comment-input-area {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .comment-input-area textarea {
+            flex-grow: 1;
+            min-height: 40px;
+            max-height: 100px;
+            padding: 8px;
+            resize: vertical;
+        }
+        .comments-list, .activity-list {
+            list-style: none;
+            max-height: 200px;
+            overflow-y: auto;
+            border-top: 1px solid var(--border-color);
+            padding-top: 12px;
+        }
+        .comment-item {
+            margin-bottom: 12px;
+            padding: 8px 12px;
+            background-color: var(--bg-primary);
+            border-radius: var(--border-radius);
+            font-size: 14px;
+        }
+        .comment-author {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        .activity-item {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            border-left: 3px solid var(--border-color);
+            padding-left: 10px;
+        }
+        .activity-item strong {
+            color: var(--text-primary);
+        }
+        .activity-item span.status-change {
+            font-weight: 500;
+            padding: 1px 6px;
+            border-radius: 4px;
+            color: white;
+        }
+        .status-todo { background-color: var(--danger-primary); }
+        .status-inprogress { background-color: var(--accent-primary); }
+        .status-done { background-color: var(--success-primary); }
+
         @media (max-width: 768px) {
             .app-container { flex-direction: column; overflow-y: auto; }
             .sidebar { position: fixed; top: 0; left: 0; height: 100%; z-index: 2000; transform: translateX(-100%); border-right: 1px solid var(--border-color); }
@@ -423,6 +478,27 @@
                         <ul class="completion-status-list" id="modal-completion-status-list">
                             </ul>
                     </div>
+                    
+                    <!-- NOWA SEKCJA: Komentarze -->
+                    <div class="task-modal-section comments">
+                        <h4>Komentarze</h4>
+                        <div class="comment-input-area">
+                            <textarea id="new-comment-text" placeholder="Napisz komentarz..." rows="1"></textarea>
+                            <button class="btn btn-primary" id="add-comment-btn">Dodaj</button>
+                        </div>
+                        <ul class="comments-list" id="comments-list">
+                            <!-- Komentarze będą ładowane dynamicznie tutaj -->
+                        </ul>
+                    </div>
+
+                    <!-- NOWA SEKCJA: Historia aktywności -->
+                    <div class="task-modal-section activity-log">
+                        <h4>Historia aktywności</h4>
+                        <ul class="activity-list" id="activity-list">
+                            <!-- Aktywności będą ładowane dynamicznie tutaj -->
+                        </ul>
+                    </div>
+
                 </div>
                 <div class="task-modal-sidebar">
                     <div class="sidebar-detail">
@@ -739,6 +815,10 @@
                 priority: document.getElementById('modal-task-priority'),
                 dueDate: document.getElementById('modal-task-dueDate'),
                 saveBtn: document.getElementById('save-task-btn'),
+                commentsList: document.getElementById('comments-list'), // NOWA REFERENCJA
+                newCommentText: document.getElementById('new-comment-text'), // NOWA REFERENCJA
+                addCommentBtn: document.getElementById('add-comment-btn'), // NOWA REFERENCJA
+                activityList: document.getElementById('activity-list'), // NOWA REFERENCJA
             };
             const newProjectModal = {
                 overlay: document.getElementById('new-project-modal'),
@@ -842,6 +922,9 @@
                 }
                 if (!task.assignees) task.assignees = [];
                 if (!task.completedBy) task.completedBy = [];
+                // Upewnij się, że istnieją tablice dla komentarzy i aktywności
+                if (!task.comments) task.comments = [];
+                if (!task.activityLog) task.activityLog = [];
                 return task;
             }
 
@@ -1056,30 +1139,119 @@
                 } else {
                     taskModal.completionStatusSection.style.display = 'none';
                 }
+                
+                renderComments(task); // RENDEROWANIE KOMENTARZY
+                renderActivityLog(task); // RENDEROWANIE HISTORII
+                
                 openModal(taskModal.overlay);
+            }
+            
+            // FUNKCJE RENDERUJĄCE NOWE SEKCJE
+            function renderComments(task) {
+                taskModal.commentsList.innerHTML = '';
+                task.comments.sort((a, b) => b.timestamp - a.timestamp).forEach(comment => {
+                    const user = findUser(comment.userId);
+                    const userName = user ? (user.name || user.email) : 'Nieznany Użytkownik';
+                    const avatarInitials = user ? (user.name || user.email).substring(0, 2).toUpperCase() : '??';
+                    const avatarColor = user ? user.avatarColor || '#ccc' : '#aaa';
+
+                    const li = document.createElement('li');
+                    li.className = 'comment-item';
+                    li.innerHTML = `
+                        <div class="comment-author">
+                            <div class="avatar" style="background-color: ${avatarColor}; width: 24px; height: 24px; font-size: 11px;">${avatarInitials}</div>
+                            <span>${userName}</span>
+                            <small style="color: var(--text-secondary); font-weight: 400;">${new Date(comment.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small>
+                        </div>
+                        <p>${comment.text}</p>
+                    `;
+                    taskModal.commentsList.appendChild(li);
+                });
+            }
+
+            function renderActivityLog(task) {
+                taskModal.activityList.innerHTML = '';
+                task.activityLog.sort((a, b) => b.timestamp - a.timestamp).forEach(log => {
+                    const user = findUser(log.userId);
+                    const userName = user ? (user.name || user.email) : 'Nieznany Użytkownik';
+                    const dateStr = new Date(log.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+                    let message = '';
+                    if (log.type === 'status') {
+                        const oldStatusClass = `status-${log.oldValue.toLowerCase().replace(/\s/g, '')}`;
+                        const newStatusClass = `status-${log.newValue.toLowerCase().replace(/\s/g, '')}`;
+                        message = `zmienił status z <span class="status-change ${oldStatusClass}">${log.oldValue}</span> na <span class="status-change ${newStatusClass}">${log.newValue}</span>.`;
+                    } else if (log.type === 'priority') {
+                        message = `zmienił priorytet z <strong>${log.oldValue}</strong> na <strong>${log.newValue}</strong>.`;
+                    } else if (log.type === 'comment') {
+                        message = `dodał nowy komentarz.`;
+                    } else if (log.type === 'completion') {
+                        message = `oznaczył swoją część zadania jako <span class="status-change status-done">Wykonaną</span>.`;
+                    }
+                    
+                    const li = document.createElement('li');
+                    li.className = 'activity-item';
+                    li.innerHTML = `[${dateStr}] <strong>${userName}</strong> ${message}`;
+                    taskModal.activityList.appendChild(li);
+                });
+            }
+
+
+            async function addActivity(task, project, type, oldValue = null, newValue = null) {
+                const activity = {
+                    type: type,
+                    userId: state.currentUser.uid,
+                    timestamp: Date.now(),
+                    oldValue: oldValue,
+                    newValue: newValue,
+                };
+                task.activityLog = [...(task.activityLog || []), activity];
+                
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                const updatedTasks = project.tasks.map(t => t.id === task.id ? task : t);
+                
+                await updateDoc(projectDocRef, { tasks: updatedTasks });
             }
 
             async function saveTaskFromModal() {
                 const taskId = taskModal.overlay.dataset.taskId;
                 const { task, project } = findTask(taskId);
                 if (!task || !project) return;
+                
                 const oldStatus = task.status;
+                const oldPriority = task.priority;
+
                 const newStatus = taskModal.status.value;
+                const newPriority = taskModal.priority.value;
+
                 if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < task.assignees.length) {
                     showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
                     taskModal.status.value = oldStatus;
                     return;
                 }
+                
                 const updatedTask = {...task,
                     description: taskModal.description.value,
                     status: newStatus,
-                    priority: taskModal.priority.value,
+                    priority: newPriority,
                     dueDate: taskModal.dueDate.value,
                 };
                 if (taskModal.completed.checked && updatedTask.status !== 'done') updatedTask.status = 'done';
+                
+                // 1. Zapis zmian w statusie i priorytecie do Activity Log
+                if (oldStatus !== newStatus) {
+                    await addActivity(updatedTask, project, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+                }
+                if (oldPriority !== newPriority) {
+                     await addActivity(updatedTask, project, 'priority', oldPriority, newPriority);
+                }
+                
+                // 2. Zapisz resztę zmian
                 const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                 const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
+                
                 await updateDoc(projectDocRef, { tasks: updatedTasks });
+                
                 if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
                 closeModal(taskModal.overlay);
             }
@@ -1338,7 +1510,9 @@
                     members: selectedMembers,
                     tasks: taskTitles.map((title, i) => ({
                         id: `task${Date.now() + i}`, title, description: '', status: 'todo', 
-                        type: 'single', assignees: [], completedBy: [], priority: 'medium', dueDate: null
+                        type: 'single', assignees: [], completedBy: [], priority: 'medium', dueDate: null,
+                        comments: [], // Inicjalizacja komentarzy
+                        activityLog: [] // Inicjalizacja historii
                     }))
                 };
                 const docRef = await addDoc(projectsRef, newProject);
@@ -1420,6 +1594,8 @@
                     completedBy: [],
                     priority: newTaskModal.priority.value,
                     dueDate: newTaskModal.dueDate.value || null,
+                    comments: [], // Inicjalizacja komentarzy
+                    activityLog: [] // Inicjalizacja historii
                 };
                 await updateDoc(doc(projectsRef, project.id), {
                     tasks: [...(project.tasks || []), newTask]
@@ -1433,6 +1609,8 @@
                 if (!task || !project) return;
                 const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                 let updatedTask = { ...task };
+                const oldStatus = updatedTask.status;
+
                 if (task.type === 'multi') {
                     const userId = state.currentUser.uid;
                     if (checkbox.checked) {
@@ -1444,13 +1622,22 @@
                     }
                     if (updatedTask.completedBy.length === updatedTask.assignees.length) {
                         updatedTask.status = 'done';
-                        if (task.status !== 'done') showConfetti();
+                        if (oldStatus !== 'done') showConfetti();
                     } else {
-                        updatedTask.status = task.status === 'done' ? 'inprogress' : task.status;
+                        updatedTask.status = oldStatus === 'done' ? 'inprogress' : oldStatus;
                     }
+                     if (updatedTask.status !== oldStatus) {
+                         await addActivity(updatedTask, project, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                     } else if (checkbox.checked && updatedTask.status !== 'done' && !updatedTask.activityLog.some(a => a.type === 'completion' && a.userId === state.currentUser.uid)) {
+                        // Jeśli multi-task, a użytkownik zaznaczył, ale zadanie jeszcze nie jest 'done', dodajemy tylko activity
+                        await addActivity(updatedTask, project, 'completion');
+                     }
                 } else { 
                      updatedTask.status = checkbox.checked ? 'done' : 'todo';
-                     if (checkbox.checked && task.status !== 'done') showConfetti();
+                     if (updatedTask.status !== oldStatus) {
+                         if (updatedTask.status === 'done') showConfetti();
+                         await addActivity(updatedTask, project, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                     }
                 }
                 const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
                 await updateDoc(projectDocRef, { tasks: updatedTasks });
@@ -1478,19 +1665,60 @@
 
             taskModal.saveBtn.addEventListener('click', saveTaskFromModal);
             
+            // Listener do dodawania komentarzy
+            taskModal.addCommentBtn.addEventListener('click', async () => {
+                const taskId = taskModal.overlay.dataset.taskId;
+                const commentText = taskModal.newCommentText.value.trim();
+                if (!commentText) return;
+                
+                const { task, project } = findTask(taskId);
+                if (!task || !project) return;
+                
+                const newComment = {
+                    userId: state.currentUser.uid,
+                    text: commentText,
+                    timestamp: Date.now(),
+                };
+                
+                task.comments = [...(task.comments || []), newComment];
+                
+                // Dodaj wpis do historii
+                await addActivity(task, project, 'comment');
+                
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                const updatedTasks = project.tasks.map(t => t.id === taskId ? task : t);
+                
+                await updateDoc(projectDocRef, { tasks: updatedTasks });
+                
+                taskModal.newCommentText.value = '';
+                openTaskModal(taskId); // Odśwież modal, aby wyświetlić nowy komentarz i aktywność
+            });
+
+
             taskModal.overlay.addEventListener('click', async (e) => {
                 if (e.target.id === 'complete-my-part-btn') {
                     const userId = e.target.dataset.userId;
                     const taskId = taskModal.overlay.dataset.taskId;
                     const { task, project } = findTask(taskId);
                     if (!task || !project || userId !== state.currentUser.uid) return;
+                    
+                    const oldStatus = task.status;
+
                     if (!task.completedBy.includes(userId)) {
                         task.completedBy.push(userId);
                     }
                     if (task.completedBy.length === task.assignees.length) {
                         task.status = 'done';
-                        if (findTask(taskId).task.status !== 'done') showConfetti();
+                        if (oldStatus !== 'done') showConfetti();
                     }
+                    
+                    // Jeśli status się zmienił, dodaj aktywność statusu
+                    if (task.status !== oldStatus) {
+                         await addActivity(task, project, 'status', STATUSES[oldStatus], STATUSES[task.status]);
+                    } 
+                    // Zawsze dodaj aktywność ukończenia części zadania
+                    await addActivity(task, project, 'completion');
+
                     const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                     const updatedTasks = project.tasks.map(t => t.id === taskId ? task : t);
                     await updateDoc(projectDocRef, { tasks: updatedTasks });
@@ -1598,6 +1826,10 @@
                     }
                     const oldStatus = task.status;
                     task.status = newStatus;
+                    
+                    // Dodaj aktywność po zmianie statusu
+                    await addActivity(task, project, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+                    
                     const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                     const updatedTasks = project.tasks.map(t => t.id === draggedTaskId ? task : t);
                     await updateDoc(projectDocRef, { tasks: updatedTasks });
