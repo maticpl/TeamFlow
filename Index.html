@@ -442,9 +442,9 @@
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 16px;
-            flex-grow: 1; /* POPRAWKA: Zapewnia, że tablica wypełnia dostępną przestrzeń */
+            flex-grow: 1; 
             overflow-x: auto;
-            min-height: 0; /* POPRAWKA: Zapobiega problemom z rozmiarem w kontenerach flex */
+            min-height: 0;
         }
         .kanban-column {
             background-color: var(--bg-tertiary);
@@ -1701,7 +1701,7 @@
         function renderCurrentProjectView() {
             const project = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
             const isCompleted = !!findCompletedProject(state.currentProjectId);
-            const isOwner = project && project.ownerId === state.currentUser.uid;
+            const isOwner = project && project.ownerId === state.currentUser.id;
             projectActionsEl.style.display = project && !isCompleted && isOwner ? 'flex' : 'none';
 
             if (!project) {
@@ -1733,7 +1733,7 @@
             const allProjects = [...state.projects, ...state.completedProjects];
             let myTasks = allProjects.flatMap(p => 
                 (p.tasks || []).map(migrateTask)
-                    .filter(t => t.assignees.includes(state.currentUser.uid))
+                    .filter(t => t.assignees.includes(state.currentUser.id))
                     .map(t => ({ ...t, projectName: p.name }))
             );
             
@@ -1834,8 +1834,9 @@
                 taskModal.completionStatusSection.style.display = 'block';
                 taskModal.completionStatusList.innerHTML = (task.assignees || []).map(userId => {
                     const user = findUser(userId);
+                    if (!user) return ''; // Add a guard for missing users
                     const isDone = task.completedBy.includes(userId);
-                    const isCurrentUser = userId === state.currentUser.uid;
+                    const isCurrentUser = userId === state.currentUser.id;
                     const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm" data-user-id="${userId}" id="complete-my-part-btn">Oznacz jako wykonane</button>` : '';
 
                     return `<li class="completion-status-item">
@@ -1918,7 +1919,7 @@
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 const userDoc = await getDoc(doc(usersRef, user.uid));
-                state.currentUser = userDoc.exists() ? { id: user.uid, uid: user.uid, ...userDoc.data() } : { id: user.uid, uid: user.uid, email: user.email };
+                state.currentUser = { id: user.uid, ...(userDoc.exists() ? userDoc.data() : { email: user.email }) };
                 authOverlay.style.display = 'none';
                 appContainer.classList.remove('hidden');
                 loadingOverlay.style.display = 'flex';
@@ -1987,7 +1988,8 @@
                 const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                 const user = userCredential.user;
                 await setDoc(doc(usersRef, user.uid), {
-                    uid: user.uid, email: user.email, name: name,
+                    id: user.uid, // POPRAWKA
+                    email: user.email, name: name,
                     avatarColor: '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'),
                     fcmTokens: []
                 });
@@ -2051,7 +2053,7 @@
         newProjectBtn.addEventListener('click', () => {
              newProjectModal.form.reset();
              newProjectModal.membersContainer.innerHTML = state.users.map(user => 
-                `<div class="member-option"><input type="checkbox" id="new-user-sel-${user.id}" value="${user.id}" ${user.id === state.currentUser.uid ? 'checked disabled' : ''}><label for="new-user-sel-${user.id}">${user.name || user.email}</label></div>`
+                `<div class="member-option"><input type="checkbox" id="new-user-sel-${user.id}" value="${user.id}" ${user.id === state.currentUser.id ? 'checked disabled' : ''}><label for="new-user-sel-${user.id}">${user.name || user.email}</label></div>`
             ).join('');
              openModal(newProjectModal.overlay);
         });
@@ -2061,13 +2063,13 @@
             const newName = newProjectModal.nameInput.value.trim();
             if (!newName) return;
             const selectedMembers = Array.from(newProjectModal.membersContainer.querySelectorAll('input:checked')).map(input => input.value);
-            if (!selectedMembers.includes(state.currentUser.uid)) {
-                selectedMembers.push(state.currentUser.uid);
+            if (!selectedMembers.includes(state.currentUser.id)) {
+                selectedMembers.push(state.currentUser.id);
             }
             const taskTitles = newProjectModal.tasksTextarea.value.split('\n').map(t => t.replace(/^-/, '').trim()).filter(Boolean);
             const newProject = {
                 name: newName,
-                ownerId: state.currentUser.uid,
+                ownerId: state.currentUser.id,
                 members: selectedMembers,
                 tasks: taskTitles.map((title, i) => ({
                     id: `task${Date.now() + i}`, title, description: '', status: 'todo', 
@@ -2089,8 +2091,8 @@
             const newName = editProjectModal.nameInput.value.trim();
             if (!projectId || !newName) return;
             const selectedMembers = Array.from(editProjectModal.membersContainer.querySelectorAll('input:checked')).map(input => input.value);
-            if (!selectedMembers.includes(state.currentUser.uid)) {
-                selectedMembers.push(state.currentUser.uid);
+            if (!selectedMembers.includes(state.currentUser.id)) {
+                selectedMembers.push(state.currentUser.id);
             }
             await updateDoc(doc(projectsRef, projectId), { name: newName, members: selectedMembers });
             closeModal(editProjectModal.overlay);
@@ -2098,7 +2100,8 @@
 
         completeProjectBtn.addEventListener('click', async () => {
             const project = findProject(state.currentProjectId);
-            if (!project || (project.tasks || []).some(t => t.status !== 'done')) {
+            if (!project) return;
+            if ((project.tasks || []).some(t => t.status !== 'done')) {
                 showNotification("Wszystkie zadania muszą być ukończone, aby zamknąć projekt.");
                 return;
             }
@@ -2140,8 +2143,8 @@
             } else {
                 assignees = Array.from(newTaskModal.assigneeMultiList.querySelectorAll('input:checked')).map(input => input.value);
             }
-            if (assignees.length === 0) {
-                 showNotification("Wybierz przynajmniej jedną osobę do zadania.", "Błąd");
+            if (assignees.length === 0 && taskType === 'multi') {
+                 showNotification("Wybierz przynajmniej jedną osobę do zadania wieloosobowego.", "Błąd");
                  return;
             }
             
@@ -2157,9 +2160,12 @@
                 dueDate: dueDateValue ? Timestamp.fromDate(new Date(dueDateValue)) : null,
                 reminderSent: false
             };
-            await updateDoc(doc(projectsRef, project.id), {
-                tasks: arrayUnion(newTask)
-            });
+            
+            // POPRAWKA: Ujednolicona logika aktualizacji
+            const projectDocRef = doc(projectsRef, project.id);
+            const updatedTasks = [...(project.tasks || []), newTask];
+            await updateDoc(projectDocRef, { tasks: updatedTasks });
+            
             closeModal(newTaskModal.overlay);
         });
         
@@ -2172,7 +2178,7 @@
             let updatedTask = { ...task };
 
             if (task.type === 'multi') {
-                const userId = state.currentUser.uid;
+                const userId = state.currentUser.id;
                 if (checkbox.checked) {
                     if (!updatedTask.completedBy.includes(userId)) {
                         updatedTask.completedBy.push(userId);
@@ -2223,7 +2229,7 @@
                 const userId = e.target.dataset.userId;
                 const taskId = taskModal.overlay.dataset.taskId;
                 const { task, project } = findTask(taskId);
-                if (!task || !project || userId !== state.currentUser.uid) return;
+                if (!task || !project || userId !== state.currentUser.id) return;
 
                 if (!task.completedBy.includes(userId)) {
                     task.completedBy.push(userId);
@@ -2315,7 +2321,7 @@
         async function saveTokenToFirestore(token) {
             if (!state.currentUser) return;
             try {
-                const userDocRef = doc(usersRef, state.currentUser.uid);
+                const userDocRef = doc(usersRef, state.currentUser.id);
                 await updateDoc(userDocRef, {
                     fcmTokens: arrayUnion(token)
                 });
@@ -2443,5 +2449,4 @@
     </script>
 </body>
 </html>
-
 
