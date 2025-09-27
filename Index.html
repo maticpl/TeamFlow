@@ -694,12 +694,7 @@
                     </div>
                     
 
-                    <div class="task-modal-section description">
-                        <h4>Opis</h4>
-                        <textarea id="modal-task-description" placeholder="Dodaj opis zadania..."></textarea>
-                    </div>
-
-                    <!-- NOWA SEKCJA: Podzadania -->
+                    <!-- ZMIANA 3: PRZENIESIENIE SEKCJI PODZADAŃ NA GÓRĘ -->
                     <div class="task-modal-section subtasks" id="modal-subtasks-section" style="display: none;">
                         <h4>Podzadania (<span id="subtasks-count">0</span>)</h4>
                         <ul class="subtasks-list" id="subtasks-list">
@@ -710,6 +705,12 @@
                             <select id="new-subtask-assignee-select" title="Przypisz do"></select>
                             <button class="btn btn-primary" id="add-subtask-btn">+</button>
                         </div>
+                    </div>
+
+                    <!-- ZMIANA 3: PRZENIESIENIE OPISU PONIŻEJ -->
+                    <div class="task-modal-section description">
+                        <h4>Opis</h4>
+                        <textarea id="modal-task-description" placeholder="Dodaj opis zadania..."></textarea>
                     </div>
 
 
@@ -756,6 +757,19 @@
                             <option value="medium">Średni</option>
                             <option value="high">Wysoki</option>
                         </select>
+                    </div>
+                    <!-- NOWY: Sekcja cykliczności -->
+                    <div class="sidebar-detail">
+                        <label for="modal-task-recurrence-select">Cykliczność</label>
+                        <select id="modal-task-recurrence-select">
+                            <option value="">Brak</option>
+                            <option value="weekly">Co tydzień</option>
+                            <option value="biweekly">Co 2 tygodnie</option>
+                            <option value="monthly">Co miesiąc (konkretny dzień miesiąca)</option>
+                            <option value="monthly-exact">Miesięcznie (ten sam dzień)</option>
+                        </select>
+                        <!-- ZMIANA: Pole dla konkretnego dnia miesiąca -->
+                        <input type="number" id="modal-task-monthly-day" placeholder="Dzień miesiąca (1-31)" min="1" max="31" style="display: none; margin-top: 8px;">
                     </div>
                     <div class="sidebar-detail">
                         <label for="modal-task-dueDate">Termin wykonania</label>
@@ -1073,6 +1087,8 @@
                 completionStatusSection: document.getElementById('modal-completion-status-section'),
                 completionStatusList: document.getElementById('modal-completion-status-list'),
                 priority: document.getElementById('modal-task-priority'),
+                recurrenceSelect: document.getElementById('modal-task-recurrence-select'), // NOWA REFERENCJA
+                monthlyDayInput: document.getElementById('modal-task-monthly-day'),      // NOWA REFERENCJA
                 dueDate: document.getElementById('modal-task-dueDate'),
                 saveBtn: document.getElementById('save-task-btn'),
                 deleteTaskBtn: document.getElementById('delete-task-btn'), // NOWA REFERENCJA
@@ -1118,6 +1134,8 @@
                 newSubtaskAssigneeTemplate: document.getElementById('template-subtask-assignee'), // NOWA REFERENCJA
                 addSubtaskTemplateBtn: document.getElementById('add-subtask-template-btn'), // NOWA REFERENCJA
                 newSubtasksList: document.getElementById('new-task-subtasks-list'), // NOWA REFERENCJA
+                recurrenceSelect: document.getElementById('new-task-recurrence-select'), // NOWA REFERENCJA
+                monthlyDayInput: document.getElementById('new-task-monthly-day'),      // NOWA REFERENCJA
                 dueDate: document.getElementById('new-task-dueDate'),
                 priority: document.getElementById('new-task-priority'),
             };
@@ -1154,6 +1172,46 @@
                 confirmationModal.confirmBtn.classList.toggle('btn-danger', danger);
                 confirmationModal.confirmBtn.classList.toggle('btn-primary', !danger);
                 openModal(confirmationModal.overlay);
+            }
+
+            // NOWA FUNKCJA: Oblicza następny termin dla zadania cyklicznego
+            function getRecurrenceDate(lastDueDate, recurrenceType, monthlyDay) {
+                if (!lastDueDate || !recurrenceType) return null;
+
+                let nextDate = new Date(lastDueDate);
+
+                switch (recurrenceType) {
+                    case 'weekly':
+                        nextDate.setDate(nextDate.getDate() + 7);
+                        break;
+                    case 'biweekly':
+                        nextDate.setDate(nextDate.getDate() + 14);
+                        break;
+                    case 'monthly-exact':
+                        nextDate.setMonth(nextDate.getMonth() + 1);
+                        break;
+                    case 'monthly': // Konkretny dzień miesiąca
+                        const dayOfMonth = parseInt(monthlyDay);
+                        if (isNaN(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) {
+                             nextDate.setMonth(nextDate.getMonth() + 1); // Domyślnie +1 miesiąc
+                        } else {
+                            let currentMonth = nextDate.getMonth();
+                            let currentYear = nextDate.getFullYear();
+                            nextDate = new Date(currentYear, currentMonth + 1, dayOfMonth);
+                        }
+                        break;
+                    default:
+                        return null;
+                }
+                
+                // Formatowanie daty do stringa datetime-local (YYYY-MM-DDTHH:MM)
+                const yyyy = nextDate.getFullYear();
+                const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
+                const dd = String(nextDate.getDate()).padStart(2, '0');
+                const hh = String(nextDate.getHours()).padStart(2, '0');
+                const mi = String(nextDate.getMinutes()).padStart(2, '0');
+                
+                return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
             }
 
             async function requestNotificationPermission() {
@@ -1201,6 +1259,8 @@
                 if (!task.comments) task.comments = [];
                 if (!task.activityLog) task.activityLog = [];
                 if (!task.subtasks) task.subtasks = [];
+                // Dodaj pola cykliczności
+                if (!task.recurrence) task.recurrence = { type: '', monthlyDay: null };
                 return task;
             }
 
@@ -1589,6 +1649,12 @@
                 // Usuwanie zadania jest zawsze dostępne w modalu (później sprawdzimy uprawnienia)
                 taskModal.deleteTaskBtn.dataset.taskId = taskId;
 
+                // Cykliczność
+                taskModal.recurrenceSelect.value = task.recurrence.type || '';
+                const monthlyDay = task.recurrence.monthlyDay;
+                taskModal.monthlyDayInput.value = monthlyDay || '';
+                taskModal.monthlyDayInput.style.display = (task.recurrence.type === 'monthly' || task.recurrence.type === 'monthly-exact') ? 'block' : 'none';
+
                 renderComments(task);
                 renderActivityLog(task);
                 
@@ -1693,6 +1759,35 @@
                 await updateDoc(projectDocRef, { tasks: updatedTasks });
             }
 
+            // NOWA FUNKCJA: Klonuje zadanie do następnego cyklu
+            async function cloneTaskForRecurrence(originalTask, project) {
+                const nextDueDate = getRecurrenceDate(originalTask.dueDate, originalTask.recurrence.type, originalTask.recurrence.monthlyDay);
+
+                if (!nextDueDate) return;
+
+                const newTask = {
+                    ...originalTask,
+                    id: `task${Date.now()}`,
+                    status: 'todo', // Resetuj status
+                    completedBy: [], // Resetuj ukończenia wieloosobowe
+                    subtasks: originalTask.subtasks.map(s => ({...s, completed: false})), // Resetuj podzadania
+                    dueDate: nextDueDate,
+                    activityLog: [{
+                        type: 'recurrence_start',
+                        userId: state.currentUser.uid,
+                        timestamp: Date.now(),
+                        newValue: 'Utworzono automatycznie w cyklu'
+                    }],
+                    comments: []
+                };
+
+                const projectDocRef = doc(projectsRef, project.id);
+                await updateDoc(projectDocRef, {
+                    tasks: [...(project.tasks || []).map(t => t.id === originalTask.id ? originalTask : t), newTask]
+                });
+                showNotification(`Zadanie cykliczne "${newTask.title}" zostało utworzone na nowy termin: ${new Date(nextDueDate).toLocaleString()}.`, "Nowy cykl");
+            }
+            
             async function saveTaskFromModal() {
                 const taskId = taskModal.overlay.dataset.taskId;
                 const { task, project } = findTask(taskId);
@@ -1700,9 +1795,12 @@
                 
                 const oldStatus = task.status;
                 const oldPriority = task.priority;
+                const oldRecurrence = task.recurrence.type;
 
                 const newStatus = taskModal.status.value;
                 const newPriority = taskModal.priority.value;
+                const newRecurrenceType = taskModal.recurrenceSelect.value;
+                const newMonthlyDay = taskModal.monthlyDayInput.value;
                 
                 const subtasksRequired = task.subtasks && task.subtasks.length > 0;
                 const allSubtasksCompleted = subtasksRequired ? task.subtasks.every(s => s.completed) : true;
@@ -1724,6 +1822,10 @@
                     status: newStatus,
                     priority: newPriority,
                     dueDate: taskModal.dueDate.value,
+                    recurrence: {
+                        type: newRecurrenceType,
+                        monthlyDay: newRecurrenceType === 'monthly' ? parseInt(newMonthlyDay) : null
+                    }
                 };
                 
                 // Ukończenie zadania musi być synchronizowane z checkboxem i logiką podzadań
@@ -1742,6 +1844,10 @@
                 if (oldPriority !== newPriority) {
                      await addActivity(updatedTask, project, 'priority', oldPriority, newPriority);
                 }
+                // Aktywność dla cykliczności (opcjonalnie)
+                if (oldRecurrence !== newRecurrenceType) {
+                    await addActivity(updatedTask, project, 'recurrence', oldRecurrence || 'Brak', newRecurrenceType || 'Brak');
+                }
                 
                 // 2. Zapisz resztę zmian
                 const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
@@ -1749,7 +1855,15 @@
                 
                 await updateDoc(projectDocRef, { tasks: updatedTasks });
                 
-                if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
+                // 3. Obsługa klonowania dla zadań cyklicznych
+                if (oldStatus !== 'done' && updatedTask.status === 'done' && updatedTask.recurrence.type) {
+                    showConfetti();
+                    // Klonuj zadanie do nowego cyklu (asynchronicznie)
+                    await cloneTaskForRecurrence(updatedTask, project);
+                } else if (oldStatus !== 'done' && updatedTask.status === 'done') {
+                    showConfetti();
+                }
+
                 closeModal(taskModal.overlay);
             }
             
@@ -1817,6 +1931,9 @@
                 // Ukrycie sekcji podzadań
                 newTaskModal.subtasksArea.style.display = 'none';
                 newTaskModal.hasSubtasksCheckbox.checked = false;
+
+                // Cykliczność
+                newTaskModal.monthlyDayInput.style.display = 'none';
 
                 document.getElementById('task-type-single').checked = true;
                 openModal(newTaskModal.overlay);
@@ -1990,6 +2107,19 @@
                     renderNewSubtasks();
                 }
             });
+            
+            // LOGIKA DLA MODALA NOWEGO ZADANIA (Cykliczność)
+            newTaskModal.recurrenceSelect.addEventListener('change', (e) => {
+                const type = e.target.value;
+                newTaskModal.monthlyDayInput.style.display = (type === 'monthly' || type === 'monthly-exact') ? 'block' : 'none';
+            });
+            
+            // LOGIKA DLA MODALA EDYCJI ZADANIA (Cykliczność)
+            taskModal.recurrenceSelect.addEventListener('change', (e) => {
+                const type = e.target.value;
+                taskModal.monthlyDayInput.style.display = (type === 'monthly' || type === 'monthly-exact') ? 'block' : 'none';
+            });
+
 
             newTaskModal.addSubtaskTemplateBtn.addEventListener('click', () => {
                 const title = newTaskModal.newSubtaskTitleTemplate.value.trim();
@@ -2054,6 +2184,17 @@
                      showNotification("Jeśli zadanie wymaga podzadań, dodaj co najmniej jedno.", "Błąd");
                      return;
                 }
+                
+                // Walidacja cykliczności
+                const recurrenceType = newTaskModal.recurrenceSelect.value;
+                let monthlyDay = null;
+                if (recurrenceType === 'monthly') {
+                    monthlyDay = parseInt(newTaskModal.monthlyDayInput.value);
+                    if (isNaN(monthlyDay) || monthlyDay < 1 || monthlyDay > 31) {
+                         showNotification("Wymagany jest poprawny dzień miesiąca (1-31) dla cyklu miesięcznego.", "Błąd");
+                         return;
+                    }
+                }
 
                 const newTask = {
                     id: `task${Date.now()}`, title,
@@ -2064,6 +2205,10 @@
                     completedBy: [],
                     priority: newTaskModal.priority.value,
                     dueDate: newTaskModal.dueDate.value || null,
+                    recurrence: {
+                        type: recurrenceType,
+                        monthlyDay: monthlyDay
+                    },
                     comments: [], 
                     activityLog: [], 
                     subtasks: hasSubtasks ? tempNewSubtasks : [] // DODANIE PODZADAŃ
@@ -2169,167 +2314,6 @@
                 openTaskModal(taskId);
             });
 
-
-            // Pozostałe listenery (pozostają w kodzie)
-            mobileThemeSwitcher.appendChild(desktopThemeSwitcher.cloneNode(true));
-            showRegisterBtn.addEventListener('click', () => { loginForm.style.display = 'none'; registerForm.style.display = 'block'; });
-            showLoginBtn.addEventListener('click', () => { registerForm.style.display = 'none'; loginForm.style.display = 'block'; });
-            registerForm.addEventListener('submit', async (e) => { /* (Bez zmian) */
-                e.preventDefault();
-                const name = document.getElementById('register-name').value.trim();
-                const email = document.getElementById('register-email').value;
-                const password = document.getElementById('register-password').value;
-                if (!name) { authErrorRegister.textContent = 'Nazwa użytkownika jest wymagana.'; return; }
-                authErrorRegister.textContent = '';
-                const submitBtn = e.target.querySelector('button[type="submit"]');
-                submitBtn.disabled = true;
-                submitBtn.textContent = 'Rejestrowanie...';
-                try {
-                    await createUserWithEmailAndPassword(auth, email, password);
-                    const user = auth.currentUser; 
-                    await setDoc(doc(usersRef, user.uid), {
-                        uid: user.uid,
-                        email: user.email,
-                        name: name,
-                        avatarColor: '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')
-                    });
-                } catch (error) {
-                    console.error("Błąd rejestracji:", error);
-                    authErrorRegister.textContent = error.message;
-                } finally {
-                     submitBtn.disabled = false;
-                     submitBtn.textContent = 'Zarejestruj się';
-                }
-            });
-
-            loginForm.addEventListener('submit', async (e) => { /* (Bez zmian) */
-                e.preventDefault();
-                const email = document.getElementById('login-email').value;
-                const password = document.getElementById('login-password').value;
-                authErrorLogin.textContent = '';
-                const submitBtn = e.target.querySelector('button[type="submit"]');
-                submitBtn.disabled = true;
-                submitBtn.textContent = 'Logowanie...';
-                try {
-                    await signInWithEmailAndPassword(auth, email, password);
-                } catch (error) {
-                    console.error("Błąd logowania:", error);
-                    authErrorLogin.textContent = "Nieprawidłowy email lub hasło.";
-                } finally {
-                     submitBtn.disabled = false;
-                     submitBtn.textContent = 'Zaloguj się';
-                }
-            });
-            
-            logoutBtn.addEventListener('click', () => signOut(auth));
-            notificationToggleBtn.addEventListener('click', requestNotificationPermission);
-            
-            const handleProjectLinkClick = (e) => { /* (Bez zmian) */
-                e.preventDefault();
-                const link = e.target.closest('a');
-                if (link && link.dataset.projectId) {
-                    state.currentProjectId = link.dataset.projectId;
-                    state.ui.currentView = 'projects';
-                    saveUiState();
-                    render();
-                    sidebar.classList.remove('open');
-                    sidebarOverlay.classList.remove('visible');
-                }
-            };
-            projectsListEl.addEventListener('click', handleProjectLinkClick);
-            completedProjectsListEl.addEventListener('click', handleProjectLinkClick);
-            
-            mainNav.addEventListener('click', (e) => { /* (Bez zmian) */
-                e.preventDefault();
-                const link = e.target.closest('a');
-                if(link && link.dataset.view) {
-                    state.currentProjectId = null; 
-                    state.ui.currentView = link.dataset.view;
-                    saveUiState();
-                    render();
-                    sidebar.classList.remove('open');
-                    sidebarOverlay.classList.remove('visible');
-                }
-            });
-
-            newProjectBtn.addEventListener('click', () => { /* (Bez zmian) */
-                 newProjectModal.form.reset();
-                 newProjectModal.membersContainer.innerHTML = state.users.map(user => 
-                    `<div class="member-option"><input type="checkbox" id="new-user-sel-${user.id}" value="${user.id}" ${user.id === state.currentUser.uid ? 'checked disabled' : ''}><label for="new-task-multi-${user.id}">${user.name || user.email}</label></div>`
-                ).join('');
-                 openModal(newProjectModal.overlay);
-            });
-
-            newProjectModal.form.addEventListener('submit', async (e) => { /* (Bez zmian) */
-                e.preventDefault();
-                const newName = newProjectModal.nameInput.value.trim();
-                if (!newName) return;
-                const selectedMembers = Array.from(newProjectModal.membersContainer.querySelectorAll('input:checked')).map(input => input.value);
-                if (!selectedMembers.includes(state.currentUser.uid)) {
-                    selectedMembers.push(state.currentUser.uid);
-                }
-                const taskTitles = newProjectModal.tasksTextarea.value.split('\n').map(t => t.replace(/^-/, '').trim()).filter(Boolean);
-                const newProject = {
-                    name: newName,
-                    ownerId: state.currentUser.uid,
-                    members: selectedMembers,
-                    tasks: taskTitles.map((title, i) => ({
-                        id: `task${Date.now() + i}`, title, description: '', status: 'todo', 
-                        type: 'single', assignees: [], completedBy: [], priority: 'medium', dueDate: null,
-                        comments: [], 
-                        activityLog: [],
-                        subtasks: [] // Nowe projekty nie mają podzadań domyślnie
-                    }))
-                };
-                const docRef = await addDoc(projectsRef, newProject);
-                state.currentProjectId = docRef.id;
-                state.ui.currentView = 'projects';
-                saveUiState();
-                closeModal(newProjectModal.overlay);
-            });
-            
-            editProjectBtn.addEventListener('click', () => openEditProjectModal(state.currentProjectId));
-            deleteProjectBtn.addEventListener('click', () => handleDeleteProject(state.currentProjectId));
-
-
-            editProjectModal.form.addEventListener('submit', async (e) => { /* (Bez zmian) */
-                e.preventDefault();
-                const projectId = editProjectModal.overlay.dataset.projectId;
-                const newName = editProjectModal.nameInput.value.trim();
-                if (!projectId || !newName) return;
-                const selectedMembers = Array.from(editProjectModal.membersContainer.querySelectorAll('input:checked')).map(input => input.value);
-                if (!selectedMembers.includes(state.currentUser.uid)) {
-                    selectedMembers.push(state.currentUser.uid);
-                }
-                await updateDoc(doc(projectsRef, projectId), { name: newName, members: selectedMembers });
-                closeModal(editProjectModal.overlay);
-            });
-
-            completeProjectBtn.addEventListener('click', async () => { /* (Bez zmian) */
-                const project = findProject(state.currentProjectId);
-                if (!project || (project.tasks || []).some(t => t.status !== 'done')) {
-                    showNotification("Wszystkie zadania muszą być ukończone, aby zamknąć projekt.");
-                    return;
-                }
-                try {
-                    await setDoc(doc(completedProjectsRef, project.id), project);
-                    await deleteDoc(doc(projectsRef, project.id));
-                    state.currentProjectId = state.projects.length > 0 ? state.projects[0].id : null;
-                    state.ui.currentView = state.currentProjectId ? 'projects' : 'my-dashboard';
-                    saveUiState();
-                } catch (error) {
-                    console.error("Błąd zamykania projektu:", error);
-                    showNotification("Błąd podczas zamykania projektu.");
-                }
-            });
-            
-            newTaskModal.taskTypeRadios.forEach(radio => { /* (Bez zmian) */
-                radio.addEventListener('change', () => {
-                    const isMulti = radio.value === 'multi';
-                    newTaskModal.assigneeSingleWrapper.style.display = isMulti ? 'none' : 'block';
-                    newTaskModal.assigneeMultiWrapper.style.display = isMulti ? 'block' : 'none';
-                });
-            });
 
             // Pozostałe listenery (uproszczone dla brevity)
             taskModal.saveBtn.addEventListener('click', saveTaskFromModal);
@@ -2444,20 +2428,24 @@
                 }
             });
             
-            menuToggle.addEventListener('click', () => { /* (Bez zmian) */
-                sidebar.classList.toggle('open');
-                sidebarOverlay.classList.toggle('visible');
-            });
-            sidebarOverlay.addEventListener('click', () => { /* (Bez zmian) */
-                sidebar.classList.remove('open');
-                sidebarOverlay.classList.remove('visible');
-            });
-            sidebar.querySelector('.sidebar-header').addEventListener('click', (e) => { /* (Bez zmian) */
-                if (e.target.closest('a') === null) {
-                     sidebar.classList.remove('open');
-                     sidebarOverlay.classList.remove('visible');
+            // NAPRAWA BŁĘDU: Umożliwienie otwierania modala zadania
+            // Dodajemy listener do całego kanbanBoardEl (dla drag&drop)
+            // Musimy dodać też listener dla kliknięć na karcie zadania (dla widoku projektu i dashboardu)
+            kanbanBoardEl.addEventListener('click', (e) => {
+                const taskCard = e.target.closest('.task-card');
+                const checkbox = e.target.closest('.task-card-checkbox');
+                const addTaskBtn = e.target.closest('.add-task-icon-btn');
+
+                if (checkbox) {
+                    handleTaskCheckboxClick(checkbox);
+                } else if (taskCard) {
+                    // Kliknięcie na karcie, ale nie na checkboxie
+                    openTaskModal(taskCard.dataset.taskId);
+                } else if (addTaskBtn) {
+                    openNewTaskModal(false);
                 }
             });
+
 
             let draggedTaskId = null;
             // ZMIANA: Dodano drag&drop do my-tasks-kanban
