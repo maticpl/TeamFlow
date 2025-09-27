@@ -1435,17 +1435,13 @@
         // 0. Konfiguracja i Inicjalizacja Firebase
         // ============================
         
-        const firebaseConfig = {
-            // UWAGA: Wklej tutaj swoją konfigurację Firebase
-            apiKey: "AIzaSyDUgw_p1cI4corSOm4vypcNQVNGgXWYNLQ",
-  authDomain: "wlasciwa-aplikacja.firebaseapp.com",
-  databaseURL: "https://wlasciwa-aplikacja-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "wlasciwa-aplikacja",
-  storageBucket: "wlasciwa-aplikacja.firebasestorage.app",
-  messagingSenderId: "180170656322",
-  appId: "1:180170656322:web:48fff7a2092ed2a3437bdb"
-        };
-        
+        // ZMIANA ZABEZPIECZAJĄCA: Konfiguracja Firebase jest teraz wczytywana z globalnej zmiennej __firebase_config.
+        // To zapobiega umieszczaniu klucza API i innych danych wrażliwych bezpośrednio w kodzie źródłowym,
+        // co jest zgodne z dobrymi praktykami bezpieczeństwa.
+        const firebaseConfigString = typeof __firebase_config !== 'undefined' 
+            ? __firebase_config 
+            : '{}'; // Użyj pustego obiektu jako fallback, aby uniknąć błędu parsowania
+
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         let db, auth;
@@ -1454,15 +1450,21 @@
         const appContainer = document.querySelector('.app-container');
 
         try {
-            if (firebaseConfig.apiKey === "TWOJ_KLUCZ_API") {
-                throw new Error("Klucze Firebase nie zostały skonfigurowane.");
+            // Parsujemy string z konfiguracją do obiektu JSON
+            const firebaseConfig = JSON.parse(firebaseConfigString);
+            
+            // Sprawdzamy, czy klucz API istnieje. Jeśli nie, rzucamy błąd.
+            if (!firebaseConfig.apiKey) {
+                throw new Error("Klucze Firebase nie zostały skonfigurowane lub nie zostały poprawnie wczytane. Upewnij się, że zmienna __firebase_config jest dostępna w Twoim środowisku.");
             }
+            
             const app = initializeApp(firebaseConfig);
             db = getFirestore(app);
             auth = getAuth(app);
         } catch (error) {
             console.error("Błąd inicjalizacji Firebase:", error);
-            authOverlay.innerHTML = `<div class="auth-container"><h2>Błąd Konfiguracji</h2><p>Błąd inicjalizacji Firebase: ${error.message}. Sprawdź, czy obiekt 'firebaseConfig' jest poprawnie uzupełniony w kodzie i czy projekt Firebase został poprawnie utworzony.</p></div>`;
+            // Wyświetlamy bardziej szczegółowy komunikat błędu użytkownikowi
+            authOverlay.innerHTML = `<div class="auth-container"><h2>Błąd Konfiguracji</h2><p>${error.message}. Sprawdź, czy Twoje środowisko poprawnie dostarcza konfigurację Firebase.</p></div>`;
         }
 
         const projectsRef = collection(db, `artifacts/${appId}/public/data/projects`);
