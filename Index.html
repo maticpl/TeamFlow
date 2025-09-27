@@ -1,225 +1,284 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>TeamFlow — Kanban + Auth (naprawione)</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>TeamFlow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    :root{
-      --bg-primary:#f4f5f7;--bg-secondary:#fff;--bg-tertiary:#e9eaec;--bg-overlay:rgba(0,0,0,.5);
-      --text-primary:#172b4d;--text-secondary:#5e6c84;--border-color:#dfe1e6;
-      --accent-primary:#4f46e5;--accent-hover:#4338ca;--danger:#dc2626;--success:#16a34a;
-      --shadow:0 10px 20px rgba(0,0,0,.08);--radius:12px
+    /* === Twój CSS – zachowany układ i zmienne === */
+    :root {
+      --bg-primary:#f4f5f7;--bg-secondary:#ffffff;--bg-tertiary:#e9eaec;--bg-overlay:rgba(0,0,0,.5);
+      --text-primary:#172b4d;--text-secondary:#5e6c84;--text-on-accent:#ffffff;--border-color:#dfe1e6;
+      --accent-primary:#4f46e5;--accent-hover:#4338ca;--danger-primary:#dc2626;--danger-hover:#b91c1c;--success-primary:#16a34a;
+      --priority-high-bg:#fef9c3;--priority-high-border:#fde047;
+      --shadow-sm:0 1px 2px rgba(0,0,0,.05);--shadow-md:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -2px rgba(0,0,0,.1);
+      --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1);--border-radius:8px;--font-family:'Inter',sans-serif
     }
-    .dark{--bg-primary:#111827;--bg-secondary:#1f2937;--bg-tertiary:#374151;--text-primary:#f9fafb;--text-secondary:#d1d5db;--border-color:#374151}
-    *{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg-primary);color:var(--text-primary)}
-    /* AUTH */
-    #auth{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg-primary)}
-    .card{background:var(--bg-secondary);border:1px solid var(--border-color);box-shadow:var(--shadow);border-radius:var(--radius);padding:24px;width:min(92vw,420px)}
-    .row{display:grid;gap:10px} label{font-size:13px;font-weight:600} input,select,textarea{width:100%;padding:10px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-primary);color:var(--text-primary)}
-    .btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:10px;border:none;cursor:pointer;font-weight:700}
+    .dark-mode{--bg-primary:#1f2937;--bg-secondary:#374151;--bg-tertiary:#4b5563;--text-primary:#f9fafb;--text-secondary:#d1d5db;--border-color:#4b5563;--success-primary:#22c55e;--priority-high-bg:#4f46e5;--priority-high-border:#6d28d9}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--font-family);background:var(--bg-primary);color:var(--text-primary);line-height:1.5;overflow:hidden;transition:background .3s,color .3s}
+
+    /* Overlays / auth */
+    #auth-overlay{position:fixed;inset:0;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;z-index:10001}
+    .auth-container{background:var(--bg-secondary);padding:40px;border-radius:12px;box-shadow:var(--shadow-lg);width:min(92vw,420px)}
+    .auth-container h2{margin-bottom:10px}
+    .auth-form .form-group{margin:12px 0}
+    .auth-form label{display:block;margin-bottom:6px;font-size:14px;font-weight:600}
+    .auth-form input{width:100%;padding:10px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-primary);color:var(--text-primary)}
+    .btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:10px;font-weight:700;border:none;cursor:pointer}
     .btn-primary{background:var(--accent-primary);color:#fff}.btn-primary:hover{background:var(--accent-hover)}
-    .btn-ghost{background:transparent;border:1px solid var(--border-color);color:var(--text-primary)}
-    .muted{color:var(--text-secondary);font-size:13px}
-    .error{color:var(--danger);min-height:20px;font-size:13px}
-    /* APP */
-    #app{display:none;height:100vh}
-    .layout{display:flex;height:100%}
-    aside{width:280px;border-right:1px solid var(--border-color);background:var(--bg-secondary);padding:16px;display:flex;flex-direction:column;gap:12px}
-    .aside-top{display:flex;align-items:center;gap:10px}
-    .logo{width:34px;height:34px;border-radius:8px;background:var(--accent-primary);color:#fff;display:grid;place-items:center;font-weight:900}
-    .projects{flex:1;overflow:auto}
-    .projects h4{margin:8px 0 4px 0;font-size:12px;text-transform:uppercase;color:var(--text-secondary)}
-    .projects ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
-    .projects a{display:flex;align-items:center;gap:8px;text-decoration:none;color:inherit;padding:8px;border-radius:10px}
-    .projects a.active,.projects a:hover{background:var(--bg-tertiary)}
-    .footer{border-top:1px solid var(--border-color);padding-top:8px;font-size:12px;color:var(--text-secondary)}
-    main{flex:1;display:flex;flex-direction:column}
-    header{display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--border-color);background:var(--bg-secondary)}
-    .title-wrap{display:flex;align-items:center;gap:10px}
-    .pill{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--border-color);color:var(--text-secondary)}
-    .controls{display:flex;align-items:center;gap:8px}
-    .board{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px;overflow:auto}
-    .col{background:var(--bg-tertiary);border-radius:12px;padding:12px;display:flex;flex-direction:column}
-    .col h3{display:flex;align-items:center;gap:8px;margin:0 0 8px 0;font-size:14px}
-    .tasks{list-style:none;margin:0;padding:0;display:grid;gap:8px;overflow:auto}
-    .card-task{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;padding:12px;display:grid;gap:6px}
-    .card-task .meta{display:flex;gap:6px;flex-wrap:wrap}
-    .badge{font-size:11px;padding:2px 6px;border-radius:8px;border:1px solid var(--border-color);color:var(--text-secondary)}
+    .btn-secondary{background:var(--bg-tertiary)}
+    .auth-form .btn{width:100%;margin-top:8px}
+    .auth-toggle{margin-top:10px;font-size:13px}.auth-toggle a{color:var(--accent-primary);cursor:pointer}
+    .error-message{min-height:20px;color:var(--danger-primary);font-size:13px;margin-top:8px}
+
+    /* App layout */
+    .app-container{display:flex;height:100vh}
+    .app-container.hidden{display:none}
+    #sidebar{width:280px;background:var(--bg-secondary);border-right:1px solid var(--border-color);padding:16px;display:flex;flex-direction:column}
+    .sidebar-header{display:flex;gap:8px;align-items:center;margin-bottom:14px}
+    .logo{width:32px;height:32px;border-radius:8px;background:var(--accent-primary);color:#fff;display:grid;place-items:center;font-weight:800}
+    .nav-section h2{font-size:12px;color:var(--text-secondary);text-transform:uppercase;margin:10px 0 4px}
+    .nav-list{list-style:none;display:grid;gap:6px;max-height:30vh;overflow:auto}
+    .nav-item a{display:flex;gap:8px;align-items:center;padding:8px;border-radius:8px;color:inherit;text-decoration:none}
+    .nav-item a:hover{background:var(--bg-tertiary)} .nav-item a.active{background:var(--accent-primary);color:#fff}
+    .new-project-btn{margin-top:10px}
+    .sidebar-footer{margin-top:auto;border-top:1px solid var(--border-color);padding-top:12px;font-size:12px;color:var(--text-secondary)}
+
+    .main-content{flex:1;display:flex;flex-direction:column}
+    .main-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border-color);background:var(--bg-secondary)}
+    .header-actions{display:flex;gap:8px;align-items:center}
+    .header-btn{background:transparent;border:none;border-radius:999px;padding:6px;cursor:pointer;color:var(--text-secondary)}
+    .header-btn:hover{background:var(--bg-tertiary)}
+    .search{display:flex;align-items:center;gap:8px}
+    .search input{padding:8px 10px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-primary);color:var(--text-primary);width:220px}
+
+    .kanban-board{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:16px;overflow:auto;background:var(--bg-primary)}
+    .kanban-column{background:var(--bg-tertiary);border-radius:12px;padding:12px;display:flex;flex-direction:column}
+    .kanban-column-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+    .task-count{font-size:12px;border:1px solid var(--border-color);border-radius:999px;padding:2px 8px;color:var(--text-secondary)}
+    .kanban-tasks{list-style:none;display:grid;gap:8px;overflow:auto}
+    .task-card{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;padding:12px;display:grid;gap:6px}
+    .task-meta{display:flex;gap:6px;flex-wrap:wrap}
+    .badge{font-size:11px;padding:2px 6px;border:1px solid var(--border-color);border-radius:8px;color:var(--text-secondary)}
     .assignees{display:flex;gap:4px;flex-wrap:wrap}
     .avatar{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11px;color:#fff}
-    .drop{min-height:20px;border:2px dashed transparent;border-radius:8px;padding:2px}
-    .drop.dragover{border-color:var(--accent-primary);background:rgba(79,70,229,.08)}
-    /* MODALS */
-    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px}
-    .overlay.open{display:flex}
-    .modal{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;box-shadow:var(--shadow);width:min(92vw,560px)}
-    .modal header{border-bottom:1px solid var(--border-color)}
+
+    /* Modale */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:16px;z-index:1100}
+    .modal-overlay.visible{display:flex}
+    .modal{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;box-shadow:var(--shadow-lg);width:min(92vw,560px)}
+    .modal header{padding:12px 16px;border-bottom:1px solid var(--border-color)}
     .modal .content{padding:16px}
     .modal .footer{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border-color)}
-    @media (max-width:900px){aside{width:90vw}.board{grid-template-columns:1fr}}
+
+    #loading-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,.75);z-index:1200}
+    .dark-mode #loading-overlay{background:rgba(0,0,0,.75);color:#fff}
+
+    /* Mobile */
+    #sidebar-overlay{display:none}
+    @media (max-width:900px){
+      .app-container{flex-direction:column}
+      #sidebar{position:fixed;height:100vh;transform:translateX(-100%);transition:transform .25s;z-index:1201}
+      #sidebar.open{transform:translateX(0)}
+      #sidebar-overlay{display:block;position:fixed;inset:0;background:rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .2s;z-index:1200}
+      #sidebar-overlay.visible{opacity:1;pointer-events:auto}
+    }
   </style>
 </head>
 <body>
-  <!-- AUTH -->
-  <section id="auth">
-    <div class="card">
-      <h2>TeamFlow</h2>
-      <p class="muted" style="margin:6px 0 18px 0">Zaloguj się lub załóż konto</p>
-      <div class="row">
-        <label>Email<input id="auth-email" type="email" required/></label>
-        <label>Hasło<input id="auth-pass" type="password" minlength="6" required/></label>
-        <button id="btn-login" class="btn btn-primary">Zaloguj</button>
-        <button id="btn-register" class="btn btn-ghost">Zarejestruj</button>
-        <div id="auth-error" class="error"></div>
+
+<!-- LOADING -->
+<div id="loading-overlay"><p>Ładowanie…</p></div>
+
+<!-- AUTH -->
+<div id="auth-overlay">
+  <div class="auth-container">
+    <form id="login-form" class="auth-form">
+      <h2>Zaloguj się</h2>
+      <div class="form-group"><label for="login-email">Email</label><input id="login-email" type="email" required></div>
+      <div class="form-group"><label for="login-password">Hasło</label><input id="login-password" type="password" required></div>
+      <button class="btn btn-primary" type="submit">Zaloguj się</button>
+      <p id="auth-error-login" class="error-message"></p>
+      <p class="auth-toggle">Nie masz konta? <a id="show-register">Zarejestruj się</a></p>
+    </form>
+
+    <form id="register-form" class="auth-form" style="display:none">
+      <h2>Stwórz konto</h2>
+      <div class="form-group"><label for="register-name">Nazwa użytkownika</label><input id="register-name" type="text" required></div>
+      <div class="form-group"><label for="register-email">Email</label><input id="register-email" type="email" required></div>
+      <div class="form-group"><label for="register-password">Hasło (min. 6 znaków)</label><input id="register-password" type="password" minlength="6" required></div>
+      <button class="btn btn-primary" type="submit">Zarejestruj się</button>
+      <p id="auth-error-register" class="error-message"></p>
+      <p class="auth-toggle">Masz już konto? <a id="show-login">Zaloguj się</a></p>
+    </form>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app-container hidden" id="app-container">
+  <div id="sidebar-overlay"></div>
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">TF</div>
+      <div>
+        <div style="font-weight:800">TeamFlow</div>
+        <div style="font-size:12px;color:var(--text-secondary)" id="user-email-display"></div>
       </div>
     </div>
-  </section>
 
-  <!-- APP -->
-  <section id="app">
-    <div class="layout">
-      <aside>
-        <div class="aside-top">
-          <div class="logo">TF</div>
-          <div>
-            <div style="font-weight:700">TeamFlow</div>
-            <div class="muted" id="me-email"></div>
-          </div>
-        </div>
+    <nav class="nav-section">
+      <ul class="nav-list" id="main-nav">
+        <li class="nav-item">
+          <a href="#" class="active" data-view="projects" id="menu-toggle">
+            <span>Projekty</span>
+          </a>
+        </li>
+      </ul>
+    </nav>
 
-        <div class="projects">
-          <h4>Projekty</h4>
-          <ul id="projects-list"></ul>
-          <button id="btn-new-project" class="btn btn-primary" style="margin-top:8px">+ Nowy projekt</button>
-        </div>
+    <nav class="nav-section">
+      <h2>Moje projekty</h2>
+      <ul class="nav-list" id="projects-list"></ul>
+    </nav>
 
-        <div class="footer">
-          <button id="btn-logout" class="btn btn-ghost" style="width:100%">Wyloguj</button>
-        </div>
-      </aside>
-
-      <main>
-        <header>
-          <div class="title-wrap">
-            <h2 id="project-title" style="margin:0">—</h2>
-            <span class="pill" id="project-status">aktywny</span>
-          </div>
-          <div class="controls">
-            <button id="btn-edit-project" class="btn btn-ghost">Edytuj projekt</button>
-            <button id="btn-close-project" class="btn btn-primary">Zakończ projekt</button>
-            <button id="btn-new-task" class="btn btn-primary">+ Zadanie</button>
-          </div>
-        </header>
-
-        <section class="board">
-          <div class="col" data-status="todo">
-            <h3>Do zrobienia <span class="pill" id="count-todo">0</span></h3>
-            <div class="drop" data-drop="todo"></div>
-            <ul class="tasks" id="list-todo"></ul>
-          </div>
-          <div class="col" data-status="inprogress">
-            <h3>W trakcie <span class="pill" id="count-inprogress">0</span></h3>
-            <div class="drop" data-drop="inprogress"></div>
-            <ul class="tasks" id="list-inprogress"></ul>
-          </div>
-          <div class="col" data-status="done">
-            <h3>Gotowe <span class="pill" id="count-done">0</span></h3>
-            <div class="drop" data-drop="done"></div>
-            <ul class="tasks" id="list-done"></ul>
-          </div>
-        </section>
-      </main>
+    <div id="completed-projects-section" class="nav-section">
+      <h2>Zakończone</h2>
+      <ul class="nav-list" id="completed-projects-list"></ul>
     </div>
-  </section>
 
-  <!-- MODAL: NEW/EDIT TASK -->
-  <div id="modal-task" class="overlay">
-    <div class="modal">
-      <header><h3 id="task-modal-title" style="margin:0">Nowe zadanie</h3></header>
-      <div class="content">
-        <div class="row">
-          <label>Tytuł<input id="task-title" type="text" required/></label>
-          <label>Opis<textarea id="task-desc" rows="4"></textarea></label>
-          <div class="row" style="grid-template-columns: 1fr 1fr; gap:12px">
-            <label>Status
-              <select id="task-status">
-                <option value="todo">Do zrobienia</option>
-                <option value="inprogress">W trakcie</option>
-                <option value="done">Gotowe</option>
-              </select>
-            </label>
-            <label>Priorytet
-              <select id="task-priority">
-                <option value="normal">Normalny</option>
-                <option value="high">Wysoki</option>
-                <option value="low">Niski</option>
-              </select>
-            </label>
-          </div>
-          <div class="row" style="grid-template-columns: 1fr 1fr; gap:12px">
-            <label>Termin (data)<input id="task-date" type="date"/></label>
-            <label>Godzina<input id="task-time" type="time"/></label>
-          </div>
-          <div class="row">
-            <label>Przypisanie
-              <select id="task-assign-mode">
-                <option value="single">Jedna osoba</option>
-                <option value="multi">Wiele osób</option>
-              </select>
-            </label>
-            <div id="assign-single-wrap">
-              <select id="assign-single"></select>
-            </div>
-            <div id="assign-multi-wrap" style="display:none">
-              <div id="assign-multi" class="row" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>
-            </div>
-          </div>
+    <button class="btn btn-primary new-project-btn" id="new-project-btn">+ Nowy projekt</button>
+
+    <div class="sidebar-footer">
+      <button id="logout-btn" class="btn btn-secondary" style="width:100%">Wyloguj</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <header class="main-header">
+      <div class="project-title-wrapper">
+        <h2 id="project-name-header">—</h2>
+        <div id="project-members-header" class="project-members"></div>
+      </div>
+      <div class="header-actions">
+        <div class="search">
+          <input id="search-input" placeholder="Szukaj zadań...">
+          <button id="sort-btn" class="header-btn" title="Sortuj po terminie">↕</button>
+        </div>
+        <button id="notification-toggle-btn" class="header-btn" title="Powiadomienia">🔔</button>
+        <div class="theme-switcher" id="desktop-theme-switcher">
+          <button id="theme-light" class="header-btn" title="Tryb jasny">☀️</button>
+          <button id="theme-dark" class="header-btn" title="Tryb ciemny">🌙</button>
         </div>
       </div>
-      <div class="footer">
-        <button id="task-cancel" class="btn btn-ghost">Anuluj</button>
-        <button id="task-save" class="btn btn-primary">Zapisz</button>
+    </header>
+
+    <section id="project-actions" style="display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color);background:var(--bg-secondary)">
+      <button id="edit-project-btn" class="btn btn-secondary">Edytuj projekt</button>
+      <button id="complete-project-btn" class="btn btn-primary">Zakończ projekt</button>
+      <button id="fab-add-task" class="btn btn-primary">+ Dodaj zadanie</button>
+    </section>
+
+    <section class="kanban-board" id="kanban-board">
+      <div class="kanban-column" data-status="todo">
+        <div class="kanban-column-header"><h3>Do realizacji</h3><span class="task-count" id="count-todo">0</span></div>
+        <ul class="kanban-tasks" id="list-todo"></ul>
       </div>
+      <div class="kanban-column" data-status="inprogress">
+        <div class="kanban-column-header"><h3>W trakcie realizacji</h3><span class="task-count" id="count-inprogress">0</span></div>
+        <ul class="kanban-tasks" id="list-inprogress"></ul>
+      </div>
+      <div class="kanban-column" data-status="done">
+        <div class="kanban-column-header"><h3>Wykonane</h3><span class="task-count" id="count-done">0</span></div>
+        <ul class="kanban-tasks" id="list-done"></ul>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- MODAL: TASK -->
+<div class="modal-overlay" id="task-modal">
+  <div class="modal">
+    <header><h3 id="modal-task-title">Nowe zadanie</h3></header>
+    <div class="content">
+      <div class="form-group"><label>Tytuł <input id="modal-task-title-input" type="text"></label></div>
+      <div class="form-group"><label>Opis <textarea id="modal-task-description" rows="4"></textarea></label></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <label>Status
+          <select id="modal-task-status">
+            <option value="todo">Do realizacji</option>
+            <option value="inprogress">W trakcie realizacji</option>
+            <option value="done">Wykonane</option>
+          </select>
+        </label>
+        <label>Priorytet
+          <select id="modal-task-priority">
+            <option value="normal">Normalny</option>
+            <option value="high">Wysoki</option>
+            <option value="low">Niski</option>
+          </select>
+        </label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">
+        <label>Termin (data) <input id="modal-task-dueDate" type="date"></label>
+        <label>Godzina <input id="modal-task-dueTime" type="time"></label>
+      </div>
+      <div class="form-group" style="margin-top:8px">
+        <label>Przypisanie
+          <select id="modal-assign-mode">
+            <option value="single">Jedna osoba</option>
+            <option value="multi">Wiele osób</option>
+          </select>
+        </label>
+        <div id="modal-assign-single-wrap" style="margin-top:8px">
+          <select id="modal-assign-single"></select>
+        </div>
+        <div id="modal-assign-multi-wrap" style="display:none;margin-top:8px;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px"></div>
+      </div>
+      <div id="modal-completion-status-section" style="display:none;margin-top:8px">
+        <div class="form-group"><label><input id="modal-task-completed" type="checkbox"> Moja część wykonana</label></div>
+        <div id="modal-completion-status-list" class="assignees"></div>
+      </div>
+    </div>
+    <div class="footer">
+      <button id="modal-task-cancel" class="btn btn-secondary">Anuluj</button>
+      <button id="save-task-btn" class="btn btn-primary">Zapisz</button>
     </div>
   </div>
+</div>
 
-  <!-- MODAL: NEW/EDIT PROJECT -->
-  <div id="modal-project" class="overlay">
-    <div class="modal">
-      <header><h3 id="project-modal-title" style="margin:0">Nowy projekt</h3></header>
-      <div class="content">
-        <div class="row">
-          <label>Nazwa projektu<input id="proj-name" type="text" required/></label>
-          <div class="row">
-            <div class="muted">Członkowie projektu</div>
-            <div id="proj-members" class="row" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>
-          </div>
-        </div>
-      </div>
-      <div class="footer">
-        <button id="proj-cancel" class="btn btn-ghost">Anuluj</button>
-        <button id="proj-save" class="btn btn-primary">Zapisz</button>
+<!-- MODAL: PROJECT -->
+<div class="modal-overlay" id="project-modal">
+  <div class="modal">
+    <header><h3 id="project-modal-title">Nowy projekt</h3></header>
+    <div class="content">
+      <div class="form-group"><label>Nazwa projektu <input id="project-name-input" type="text"></label></div>
+      <div class="form-group">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Członkowie projektu</div>
+        <div id="project-members-list" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px"></div>
       </div>
     </div>
+    <div class="footer">
+      <button id="project-cancel" class="btn btn-secondary">Anuluj</button>
+      <button id="project-save" class="btn btn-primary">Zapisz</button>
+    </div>
   </div>
-
-  <!-- SIMPLE TOAST -->
-  <div id="toast" style="position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--bg-secondary);border:1px solid var(--border-color);padding:10px 14px;border-radius:10px;display:none;box-shadow:var(--shadow)"></div>
+</div>
 
 <script type="module">
 /* =========================
-   1) IMPORTY — poprawne, bez „...”
+   IMPORTY Firebase (naprawione)
 ========================= */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getMessaging, getToken, onMessage, isSupported } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
 /* =========================
-   2) KONFIG — ZOSTAWIAM „cofingAPI” (wstaw swoje wartości)
+   KONFIG – wstaw swoje klucze (cofingAPI)
 ========================= */
 const firebaseConfig = {
   apiKey: "__API_KEY__",
@@ -234,279 +293,254 @@ const auth = getAuth(app);
 const db   = getFirestore(app);
 
 /* =========================
-   3) ŚCIEŻKI DANYCH (kompatybilne wstecz)
+   STATE + stałe
 ========================= */
-const APP_ID = "__APP_ID__"; // jeśli chcesz dynamicznie — nadpisz po init
-const COLL_PATHS = {
+const STATUSES = { todo:"Do realizacji", inprogress:"W trakcie realizacji", done:"Wykonane" };
+const state = {
+  currentUser:null,
+  users:[],
+  projects:[],
+  completedProjects:[],
+  currentProjectId:null,
+  ui:{ theme:"light", sortMyTasksByDate:"asc", unsubscribeUsers:null, unsubscribeProjects:null, unsubscribeCompleted:null }
+};
+
+const APP_ID = "__APP_ID__"; // jeśli chcesz użyć własnego appId w ścieżkach – podmień
+const PATHS = {
   users:               `artifacts/${APP_ID}/public/data/users`,
   projects:            `artifacts/${APP_ID}/public/data/projects`,
-  completedProjects:   `artifacts/${APP_ID}/public/data/completedProjects`,
-  tasksGlobal:         `artifacts/${APP_ID}/public/data/tasks`, // wariant globalny
-  tasksSub:            (projectId)=> `artifacts/${APP_ID}/public/data/projects/${projectId}/tasks` // wariant subkolekcji
+  completed:           `artifacts/${APP_ID}/public/data/completedProjects`,
+  tasksGlobal:         `artifacts/${APP_ID}/public/data/tasks`,
+  tasksSub:            (projectId)=>`artifacts/${APP_ID}/public/data/projects/${projectId}/tasks`
 };
+
+const usersRef = collection(db, PATHS.users);
+const projectsRef = collection(db, PATHS.projects);
+const completedProjectsRef = collection(db, PATHS.completed);
 
 /* =========================
-   4) STAN & POMOCNICZE
+   DOM refs
 ========================= */
-const state = {
-  me: null,
-  projects: [],
-  users: [],
-  activeProjectId: null,
-  unsub: { projects: null, users: null, tasks: null } // cleanup nasłuchów
-};
+const authOverlay = document.getElementById('auth-overlay');
+const appContainer = document.getElementById('app-container');
+const loadingOverlay = document.getElementById('loading-overlay');
 
-const $ = (sel)=> document.querySelector(sel);
-const $$ = (sel)=> Array.from(document.querySelectorAll(sel));
-const toast = (msg)=>{ const t=$("#toast"); t.textContent=msg; t.style.display="block"; clearTimeout(t._to); t._to=setTimeout(()=>t.style.display="none",2200); };
+const loginForm = document.getElementById('login-form');
+const registerForm = document.getElementById('register-form');
+const showRegisterBtn = document.getElementById('show-register');
+const showLoginBtn = document.getElementById('show-login');
+const authErrorLogin = document.getElementById('auth-error-login');
+const authErrorRegister = document.getElementById('auth-error-register');
 
-const authUI = {
-  email: $("#auth-email"),
-  pass: $("#auth-pass"),
-  err:  $("#auth-error"),
-  btnLogin: $("#btn-login"),
-  btnRegister: $("#btn-register"),
-  root: $("#auth")
-};
-const appUI = {
-  root: $("#app"),
-  meEmail: $("#me-email"),
-  projectsList: $("#projects-list"),
-  btnNewProject: $("#btn-new-project"),
-  btnLogout: $("#btn-logout"),
-  title: $("#project-title"),
-  status: $("#project-status"),
-  btnEditProject: $("#btn-edit-project"),
-  btnCloseProject: $("#btn-close-project"),
-  btnNewTask: $("#btn-new-task"),
-  counts: {
-    todo: $("#count-todo"),
-    inprogress: $("#count-inprogress"),
-    done: $("#count-done")
-  },
-  lists: {
-    todo: $("#list-todo"),
-    inprogress: $("#list-inprogress"),
-    done: $("#list-done")
-  }
-};
-const modTask = {
-  root: $("#modal-task"),
-  title: $("#task-modal-title"),
-  inTitle: $("#task-title"),
-  inDesc: $("#task-desc"),
-  inStatus: $("#task-status"),
-  inPriority: $("#task-priority"),
-  inDate: $("#task-date"),
-  inTime: $("#task-time"),
-  inMode: $("#task-assign-mode"),
-  singleWrap: $("#assign-single-wrap"),
-  single: $("#assign-single"),
-  multiWrap: $("#assign-multi-wrap"),
-  multi: $("#assign-multi"),
-  btnSave: $("#task-save"),
-  btnCancel: $("#task-cancel"),
-  _editId: null // jeśli edytujemy
-};
-const modProj = {
-  root: $("#modal-project"),
-  title: $("#project-modal-title"),
-  inName: $("#proj-name"),
-  membersWrap: $("#proj-members"),
-  btnSave: $("#proj-save"),
-  btnCancel: $("#proj-cancel"),
-  _editId: null
-};
+const userEmailDisplay = document.getElementById('user-email-display');
+const logoutBtn = document.getElementById('logout-btn');
+
+const projectsListEl = document.getElementById('projects-list');
+const completedProjectsListEl = document.getElementById('completed-projects-list');
+const projectNameHeaderEl = document.getElementById('project-name-header');
+const projectMembersHeaderEl = document.getElementById('project-members-header');
+const newProjectBtn = document.getElementById('new-project-btn');
+const editProjectBtn = document.getElementById('edit-project-btn');
+const completeProjectBtn = document.getElementById('complete-project-btn');
+const fabAddTask = document.getElementById('fab-add-task');
+
+const kanbanBoardEl = document.getElementById('kanban-board');
+const listTodo = document.getElementById('list-todo');
+const listInprogress = document.getElementById('list-inprogress');
+const listDone = document.getElementById('list-done');
+const countTodo = document.getElementById('count-todo');
+const countInprogress = document.getElementById('count-inprogress');
+const countDone = document.getElementById('count-done');
+
+const searchInput = document.getElementById('search-input');
+const sortBtn = document.getElementById('sort-btn');
+const sidebar = document.getElementById('sidebar');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+const menuToggle = document.getElementById('menu-toggle');
+
+const notificationToggleBtn = document.getElementById('notification-toggle-btn');
+const themeLight = document.getElementById('theme-light');
+const themeDark  = document.getElementById('theme-dark');
+const desktopThemeSwitcher = document.getElementById('desktop-theme-switcher');
 
 /* =========================
-   5) AUTH — działa i reaguje
+   Helpers
 ========================= */
-authUI.btnLogin.addEventListener("click", async ()=>{
-  authUI.err.textContent = "";
+const $esc = (s)=>String(s??"").replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m]));
+const toInputDate=(d)=>d.toISOString().slice(0,10);
+const toInputTime=(d)=>d.toTimeString().slice(0,5);
+function combineDateTime(dateStr,timeStr){
+  if(!dateStr && !timeStr) return null;
+  const d = dateStr? new Date(dateStr+"T00:00:00") : new Date();
+  if(timeStr){ const [h,m]=(timeStr||"").split(":").map(Number); d.setHours(h||0,m||0,0,0); }
+  return d.toISOString();
+}
+
+/* =========================
+   Theme
+========================= */
+function applyTheme(){ document.body.classList.toggle("dark-mode", state.ui.theme==="dark"); }
+themeLight.addEventListener("click", ()=>{state.ui.theme="light";applyTheme();});
+themeDark.addEventListener("click", ()=>{state.ui.theme="dark";applyTheme();});
+applyTheme();
+
+/* =========================
+   Auth events (naprawione)
+========================= */
+showRegisterBtn.addEventListener('click', ()=>{ loginForm.style.display='none'; registerForm.style.display='block'; });
+showLoginBtn.addEventListener('click', ()=>{ registerForm.style.display='none'; loginForm.style.display='block'; });
+
+loginForm.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  authErrorLogin.textContent="";
+  const email = (document.getElementById('login-email').value||"").trim();
+  const pass  = document.getElementById('login-password').value;
+  try{ await signInWithEmailAndPassword(auth,email,pass); }
+  catch(err){ authErrorLogin.textContent = err.message; }
+});
+
+registerForm.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  authErrorRegister.textContent="";
+  const name = (document.getElementById('register-name').value||"").trim();
+  const email= document.getElementById('register-email').value;
+  const pass = document.getElementById('register-password').value;
+  if(!name){ authErrorRegister.textContent="Nazwa użytkownika jest wymagana."; return; }
+  const btn = registerForm.querySelector('button[type="submit"]'); btn.disabled=true; btn.textContent="Rejestrowanie…";
   try{
-    await signInWithEmailAndPassword(auth, authUI.email.value.trim(), authUI.pass.value);
-  }catch(e){ authUI.err.textContent = e.message; }
-});
-authUI.btnRegister.addEventListener("click", async ()=>{
-  authUI.err.textContent = "";
-  try{
-    const cred = await createUserWithEmailAndPassword(auth, authUI.email.value.trim(), authUI.pass.value);
-    // auto-dopis do users
-    const uid = cred.user.uid;
-    await setDoc(doc(collection(db, COLL_PATHS.users), uid), {
-      uid, email: cred.user.email ?? "", name: cred.user.email?.split("@")[0] ?? "Użytkownik",
-      createdAt: serverTimestamp()
-    }, { merge: true });
-  }catch(e){ authUI.err.textContent = e.message; }
+    const cred = await createUserWithEmailAndPassword(auth,email,pass);
+    await setDoc(doc(usersRef, cred.user.uid), {
+      uid: cred.user.uid, email: cred.user.email||"", name, createdAt: serverTimestamp()
+    }, { merge:true });
+  }catch(err){ authErrorRegister.textContent = err.message; }
+  finally{ btn.disabled=false; btn.textContent="Zarejestruj się"; }
 });
 
-appUI.btnLogout.addEventListener("click", ()=> signOut(auth));
-
-onAuthStateChanged(auth, async (user)=>{
-  if(user){
-    state.me = user;
-    authUI.root.style.display = "none";
-    appUI.root.style.display  = "block";
-    appUI.meEmail.textContent = user.email || "(brak email)";
-
-    // Nasłuch USERS i PROJECTS
-    listenUsers();
-    listenProjects();
-  }else{
-    cleanupListeners();
-    state.me = null;
-    appUI.root.style.display  = "none";
-    authUI.root.style.display = "flex";
-  }
-});
+logoutBtn.addEventListener('click', ()=> signOut(auth));
 
 /* =========================
-   6) NASŁUCHY DANYCH
+   Notifications (naprawione)
 ========================= */
-function cleanupListeners(){
-  for(const k of Object.keys(state.unsub)){
-    if(state.unsub[k]){ state.unsub[k](); state.unsub[k]=null; }
+function updateNotificationBellUI(){
+  if(!notificationToggleBtn) return;
+  if(!("Notification" in window)){ notificationToggleBtn.classList.remove('active'); notificationToggleBtn.title = 'Brak wsparcia'; return; }
+  if(Notification.permission==='granted'){ notificationToggleBtn.classList.add('active'); notificationToggleBtn.title='Powiadomienia włączone'; }
+  else { notificationToggleBtn.classList.remove('active'); notificationToggleBtn.title='Kliknij, aby włączyć'; }
+}
+updateNotificationBellUI();
+
+async function requestNotificationPermission(){
+  try{
+    if(!await isSupported()) return;
+    const perm = await Notification.requestPermission();
+    updateNotificationBellUI();
+    if(perm!=='granted') return;
+    const messaging = getMessaging(app);
+    const token = await getToken(messaging);
+    if(token && state.currentUser){
+      const uref = doc(usersRef, state.currentUser.uid);
+      const snap = await getDoc(uref);
+      const tokens = snap.exists()? (snap.data().fcmTokens||[]) : [];
+      if(!tokens.includes(token)){
+        await updateDoc(uref, { fcmTokens: [...tokens, token] }); /* kropka przed tokens -> poprawione */  /* :contentReference[oaicite:4]{index=4} */
+      }
+    }
+    onMessage(messaging, (payload)=> console.log('FCM message:', payload));
+  }catch(err){ console.error('FCM error:', err); }
+}
+notificationToggleBtn.addEventListener('click', requestNotificationPermission);
+
+/* =========================
+   Firestore Listeners
+========================= */
+function cleanup(){
+  for (const k of ['unsubscribeUsers','unsubscribeProjects','unsubscribeCompleted']){
+    if(state.ui[k]){ state.ui[k](); state.ui[k]=null; }
   }
 }
 
 function listenUsers(){
-  if(state.unsub.users) state.unsub.users();
-  state.unsub.users = onSnapshot(collection(db, COLL_PATHS.users), (snap)=>{
-    state.users = snap.docs.map(d=> ({ id:d.id, ...d.data() }));
-    // odśwież selecty w modalach jeśli trzeba
-    if(modTask.root.classList.contains("open")) fillAssigneesUI();
-    if(modProj.root.classList.contains("open")) fillProjectMembersUI(modProj._editId);
-  });
+  if(state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
+  state.ui.unsubscribeUsers = onSnapshot(usersRef, (snap)=>{
+    state.users = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    // odśwież UI w modalu jeśli otwarty
+  }, (e)=>console.error('Błąd odczytu użytkowników:', e));
 }
 
-function listenProjects(){
-  if(state.unsub.projects) state.unsub.projects();
-  state.unsub.projects = onSnapshot(collection(db, COLL_PATHS.projects), (snap)=>{
-    state.projects = snap.docs.map(d=> ({ id:d.id, ...d.data() }))
-      .sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")));
-    renderProjectsList();
-    // automatyczny wybór pierwszego projektu (jeśli nieaktywny)
-    if(!state.activeProjectId && state.projects[0]){
-      selectProject(state.projects[0].id);
-    }else if(state.activeProjectId && !state.projects.find(p=>p.id===state.activeProjectId)){
-      state.activeProjectId = null;
-      if(state.projects[0]) selectProject(state.projects[0].id);
+function listenProjectsForUser(userId){
+  if(state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
+  const q = query(projectsRef, where("members","array-contains", userId));
+  state.ui.unsubscribeProjects = onSnapshot(q, (snap)=>{
+    state.projects = snap.docs.map(d=>({ id:d.id, ...d.data() })); /* .doc.data() -> poprawione */ /* :contentReference[oaicite:5]{index=5} */
+    // jeśli nie ma wybranego projektu — ustaw pierwszy
+    if(!state.currentProjectId || !state.projects.find(p=>p.id===state.currentProjectId)){
+      state.currentProjectId = state.projects[0]?.id || null;
     }
+    render();
+  }, (e)=>{
+    console.error('Błąd odczytu projektów:', e);
   });
+
+  if(state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
+  const qc = query(completedProjectsRef, where("members","array-contains", userId));
+  state.ui.unsubscribeCompleted = onSnapshot(qc, (snap)=>{
+    state.completedProjects = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    render();
+  }, (e)=>console.error('Błąd odczytu zakończonych projektów:', e));
 }
 
 /* =========================
-   7) RENDER PROJEKTÓW / WYBÓR
+   Auth state change (naprawione spread)
 ========================= */
+onAuthStateChanged(auth, async (user)=>{
+  if(user){
+    const userDoc = await getDoc(doc(usersRef, user.uid));
+    state.currentUser = userDoc.exists() ? { id:user.uid, uid:user.uid, ...userDoc.data() } : { id:user.uid, uid:user.uid, email:user.email }; /* ...userDoc.data() -> poprawione */ /* :contentReference[oaicite:6]{index=6} */
+    userEmailDisplay.textContent = state.currentUser.email || "(brak email)";
+    authOverlay.style.display='none'; appContainer.classList.remove('hidden'); loadingOverlay.style.display='none';
+    listenUsers(); listenProjectsForUser(user.uid);
+    updateNotificationBellUI();
+  }else{
+    cleanup();
+    state.currentUser=null;
+    appContainer.classList.add('hidden'); authOverlay.style.display='flex'; loadingOverlay.style.display='none';
+  }
+});
+
+/* =========================
+   Projekty: render i akcje
+========================= */
+function render(){
+  renderProjectsList();
+  renderProjectHeader();
+  renderBoardFromDB();
+}
+
 function renderProjectsList(){
-  appUI.projectsList.innerHTML = "";
+  projectsListEl.innerHTML="";
   for(const p of state.projects){
-    const a = document.createElement("a");
-    a.href="#"; a.dataset.id=p.id;
-    a.className = (p.id===state.activeProjectId) ? "active" : "";
-    a.innerHTML = `
-      <span style="width:8px;height:8px;border-radius:999px;display:inline-block;background:${p.closed? '#9ca3af':'#10b981'}"></span>
-      <span>${escapeHtml(p.name||'(bez nazwy)')}</span>
-    `;
-    a.addEventListener("click",(e)=>{ e.preventDefault(); selectProject(p.id); });
-    const li = document.createElement("li"); li.appendChild(a); appUI.projectsList.appendChild(li);
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href="#"; a.dataset.id=p.id; a.className = (p.id===state.currentProjectId)?"active":"";
+    a.innerHTML = `<span style="width:8px;height:8px;border-radius:999px;background:${p.closed?'#9ca3af':'#10b981'};display:inline-block"></span> <span>${$esc(p.name||'(bez nazwy)')}</span>`;
+    a.addEventListener('click',(e)=>{ e.preventDefault(); state.currentProjectId=p.id; render(); });
+    li.appendChild(a); projectsListEl.appendChild(li);
+  }
+  // zakończone
+  completedProjectsListEl.innerHTML="";
+  for(const p of state.completedProjects){
+    const li = document.createElement('li');
+    li.innerHTML = `<a href="#" data-id="${p.id}"><span style="width:8px;height:8px;border-radius:999px;background:#9ca3af;display:inline-block"></span> <span>${$esc(p.name||'(bez nazwy)')}</span></a>`;
+    completedProjectsListEl.appendChild(li);
   }
 }
 
-async function selectProject(projectId){
-  state.activeProjectId = projectId;
-  const p = state.projects.find(x=>x.id===projectId);
-  appUI.title.textContent = p?.name || "(bez nazwy)";
-  appUI.status.textContent = p?.closed ? "zakończony" : "aktywny";
-  appUI.status.style.background = p?.closed ? "#fee2e2" : "";
-  // nasłuch zadań (oba warianty)
-  listenTasks(projectId);
-}
+function currentProject(){ return state.projects.find(p=>p.id===state.currentProjectId) || null; }
 
-function listenTasks(projectId){
-  if(state.unsub.tasks) state.unsub.tasks();
-
-  const subRef  = collection(db, COLL_PATHS.tasksSub(projectId));
-  const globRef = collection(db, COLL_PATHS.tasksGlobal);
-
-  // Słuchamy obie kolekcje i scalamy wyniki po id
-  const buffers = { sub: [], glob: [] };
-  const renderFromBuffers = ()=>{
-    const map = new Map();
-    for(const t of buffers.sub)  map.set(t.id, t);
-    for(const t of buffers.glob) map.set(t.id, t); // global nadpisze sub (albo odwrotnie — nieistotne)
-    const arr = Array.from(map.values());
-    renderBoard(arr);
-  };
-
-  const unsub1 = onSnapshot(subRef, (snap)=>{
-    buffers.sub = snap.docs.map(d=> ({ id:d.id, ...d.data(), __src:"sub" }));
-    renderFromBuffers();
-  });
-  const unsub2 = onSnapshot(query(globRef, where("projectId","==",projectId)), (snap)=>{
-    buffers.glob = snap.docs.map(d=> ({ id:d.id, ...d.data(), __src:"glob" }));
-    renderFromBuffers();
-  });
-
-  state.unsub.tasks = ()=>{ unsub1(); unsub2(); };
-}
-
-/* =========================
-   8) RENDER BOARD + DnD
-========================= */
-function renderBoard(tasks){
-  const buckets = { todo:[], inprogress:[], done:[] };
-  for(const t of tasks){
-    const s = (t.status==="inprogress"||t.status==="done")? t.status : "todo";
-    buckets[s].push(t);
-  }
-
-  for(const k of ["todo","inprogress","done"]){
-    const ul = appUI.lists[k];
-    ul.innerHTML = "";
-    for(const t of buckets[k]){
-      const li = document.createElement("li");
-      li.className="card-task"; li.draggable=true; li.dataset.id = t.id; li.dataset.src = t.__src || "sub";
-      li.innerHTML = renderTaskHTML(t);
-      // DnD
-      li.addEventListener("dragstart", (e)=>{ e.dataTransfer.setData("text/plain", JSON.stringify({id:t.id,src:li.dataset.src})); });
-      // Edycja po kliknięciu
-      li.addEventListener("click", ()=> openTaskModal(t));
-      ul.appendChild(li);
-    }
-    appUI.counts[k].textContent = String(buckets[k].length);
-  }
-
-  // obszary drop
-  $$(".drop").forEach(drop=>{
-    drop.addEventListener("dragover",(e)=>{ e.preventDefault(); drop.classList.add("dragover"); });
-    drop.addEventListener("dragleave",()=> drop.classList.remove("dragover"));
-    drop.addEventListener("drop", async (e)=>{
-      e.preventDefault(); drop.classList.remove("dragover");
-      const data = JSON.parse(e.dataTransfer.getData("text/plain")||"{}");
-      const status = drop.dataset.drop;
-      if(!data.id) return;
-      await setTaskStatus(data.id, status, data.src);
-    });
-  });
-}
-
-function renderTaskHTML(t){
-  const dateStr = t.dueAt ? new Date(t.dueAt).toLocaleString() : "";
-  const ass = (Array.isArray(t.assignees)? t.assignees : (t.assignee?[t.assignee]:[]));
-  const badges = [
-    dateStr && `<span class="badge">⏰ ${escapeHtml(dateStr)}</span>`,
-    t.priority && `<span class="badge">⭐ ${escapeHtml(t.priority)}</span>`
-  ].filter(Boolean).join("");
-  const assHtml = ass.map(uid=>renderAvatar(uid)).join("");
-  return `
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px">
-      <div style="font-weight:700">${escapeHtml(t.title||"(bez tytułu)")}</div>
-      <div class="assignees">${assHtml}</div>
-    </div>
-    ${t.description? `<div class="muted" style="font-size:13px">${escapeHtml(t.description)}</div>`:""}
-    <div class="meta">${badges}</div>
-  `;
+function renderProjectHeader(){
+  const p = currentProject();
+  projectNameHeaderEl.textContent = p?.name || "—";
+  projectMembersHeaderEl.innerHTML = (p?.members||[]).map(uid=>renderAvatar(uid)).join("");
 }
 
 function renderAvatar(uid){
@@ -514,221 +548,301 @@ function renderAvatar(uid){
   const name = u?.name || u?.email || "U";
   const inic = name.trim().charAt(0).toUpperCase();
   const hue = (uid||"0").split("").reduce((a,c)=>a+c.charCodeAt(0),0)%360;
-  return `<span class="avatar" style="background:hsl(${hue} 70% 45%)" title="${escapeHtml(name)}">${inic}</span>`;
+  return `<span class="avatar" title="${$esc(name)}" style="background:hsl(${hue} 70% 45%)">${inic}</span>`;
 }
 
 /* =========================
-   9) CREATE/UPDATE TASKS
+   Zadania: odczyt z 2 ścieżek i render
 ========================= */
-appUI.btnNewTask.addEventListener("click", ()=> openTaskModal());
+function listenTasks(projectId, cb){
+  const buffers = { sub:[], glob:[] };
+  const unsub = [];
+  // sub
+  unsub.push(onSnapshot(collection(db, PATHS.tasksSub(projectId)), (snap)=>{
+    buffers.sub = snap.docs.map(d=>({ id:d.id, ...d.data(), __src:'sub' }));
+    cb([...buffers.sub, ...buffers.glob]);
+  }));
+  // global
+  unsub.push(onSnapshot(query(collection(db, PATHS.tasksGlobal), where("projectId","==",projectId)), (snap)=>{
+    buffers.glob = snap.docs.map(d=>({ id:d.id, ...d.data(), __src:'glob' }));
+    cb([...buffers.sub, ...buffers.glob]);
+  }));
+  return ()=> unsub.forEach(u=>u());
+}
 
-modTask.btnCancel.addEventListener("click", ()=> closeTaskModal());
-modTask.root.addEventListener("click",(e)=>{ if(e.target===modTask.root) closeTaskModal(); });
+let unsubTasks = null;
+function renderBoardFromDB(){
+  const p = currentProject();
+  if(!p){ listTodo.innerHTML=listInprogress.innerHTML=listDone.innerHTML=""; countTodo.textContent=countInprogress.textContent=countDone.textContent="0"; return; }
+  if(unsubTasks) unsubTasks();
+  unsubTasks = listenTasks(p.id, (all)=> renderBoard(all));
+}
 
-modTask.inMode.addEventListener("change", ()=>{
-  const multi = modTask.inMode.value === "multi";
-  modTask.singleWrap.style.display = multi? "none":"block";
-  modTask.multiWrap.style.display  = multi? "block":"none";
-});
-
-modTask.btnSave.addEventListener("click", async ()=>{
-  if(!state.activeProjectId) return;
-  const when = combineDateTime(modTask.inDate.value, modTask.inTime.value);
-  const isMulti = modTask.inMode.value === "multi";
-  const assignees = isMulti ? getCheckedValues(modTask.multi) : [modTask.single.value].filter(Boolean);
-
-  const payload = {
-    title: modTask.inTitle.value.trim(),
-    description: modTask.inDesc.value.trim(),
-    status: modTask.inStatus.value,
-    priority: modTask.inPriority.value,
-    projectId: state.activeProjectId,
-    assignees,
-    dueAt: when ?? null,
-    updatedAt: serverTimestamp(),
-    createdBy: state.me?.uid || null
-  };
-  if(!payload.title){ toast("Podaj tytuł"); return; }
-
-  try{
-    if(modTask._editId){
-      // aktualizacja w źródle gdzie dokument istnieje (sub lub global)
-      await updateTask(modTask._editId, payload);
-      toast("Zadanie zaktualizowane");
-    }else{
-      await createTask(payload); // zapis do subkolekcji (domyślnie)
-      toast("Zadanie dodane");
-    }
-    closeTaskModal();
-  }catch(e){
-    toast("Błąd: "+e.message);
+function renderBoard(tasks){
+  // sortowanie po terminie
+  const dir = state.ui.sortMyTasksByDate === 'asc' ? 1 : -1;
+  const arr = tasks.slice().sort((a,b)=> {
+    const ad = a.dueAt? new Date(a.dueAt).getTime():0;
+    const bd = b.dueAt? new Date(b.dueAt).getTime():0;
+    return (ad-bd)*dir;
+  });
+  const buckets = { todo:[], inprogress:[], done:[] };
+  for(const t of arr){
+    const s = (t.status==='inprogress'||t.status==='done')? t.status:'todo';
+    buckets[s].push(t);
   }
+  renderBucket(listTodo, buckets.todo);
+  renderBucket(listInprogress, buckets.inprogress);
+  renderBucket(listDone, buckets.done);
+  countTodo.textContent = String(buckets.todo.length);
+  countInprogress.textContent = String(buckets.inprogress.length);
+  countDone.textContent = String(buckets.done.length);
+}
+
+function renderBucket(ul,tasks){
+  ul.innerHTML = "";
+  for(const t of tasks){
+    const li = document.createElement('li');
+    li.className="task-card"; li.draggable=true; li.dataset.taskId=t.id; li.dataset.src=t.__src||'sub';
+    const ass = Array.isArray(t.assignees)? t.assignees : (t.assignee?[t.assignee]:[]);
+    const assHtml = ass.map(renderAvatar).join("");
+    const dateStr = t.dueAt ? new Date(t.dueAt).toLocaleString() : "";
+    li.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:6px">
+        <div style="font-weight:700">${$esc(t.title||'(bez tytułu)')}</div>
+        <div class="assignees">${assHtml}</div>
+      </div>
+      ${t.description? `<div style="font-size:13px;color:var(--text-secondary)">${$esc(t.description)}</div>`:""}
+      <div class="task-meta">
+        ${dateStr? `<span class="badge">⏰ ${$esc(dateStr)}</span>`:""}
+        ${t.priority? `<span class="badge">⭐ ${$esc(t.priority)}</span>`:""}
+      </div>
+    `;
+    li.addEventListener('click', ()=> openTaskModal(t));
+    li.addEventListener('dragstart', (e)=>{
+      e.dataTransfer.setData("text/plain", JSON.stringify({ id:t.id, src:li.dataset.src }));
+      setTimeout(()=> li.classList.add('dragging'), 0);
+    });
+    li.addEventListener('dragend', ()=> li.classList.remove('dragging'));
+    ul.appendChild(li);
+  }
+}
+
+// DnD na kolumnach
+kanbanBoardEl.addEventListener('dragover', (e)=> e.preventDefault());
+kanbanBoardEl.addEventListener('drop', async (e)=>{
+  e.preventDefault();
+  const column = e.target.closest('.kanban-column'); if(!column) return;
+  const data = JSON.parse(e.dataTransfer.getData("text/plain")||"{}");
+  if(!data.id) return;
+  await setTaskStatus(data.id, column.dataset.status, data.src);
 });
 
 async function setTaskStatus(taskId, status, src){
-  const ref = (src==="glob")
-    ? doc(collection(db, COLL_PATHS.tasksGlobal), taskId)
-    : doc(collection(db, COLL_PATHS.tasksSub(state.activeProjectId)), taskId);
+  const p = currentProject(); if(!p) return;
+  const ref = (src==='glob') ? doc(collection(db, PATHS.tasksGlobal), taskId) : doc(collection(db, PATHS.tasksSub(p.id)), taskId);
   await updateDoc(ref, { status, updatedAt: serverTimestamp() });
 }
 
-async function updateTask(taskId, data){
-  // spróbuj w subkolekcji
-  const subRef = doc(collection(db, COLL_PATHS.tasksSub(state.activeProjectId)), taskId);
-  const subDoc = await getDoc(subRef);
-  if(subDoc.exists()){
-    await updateDoc(subRef, data);
-    return;
-  }
-  // spróbuj w global
-  const gRef = doc(collection(db, COLL_PATHS.tasksGlobal), taskId);
-  const gDoc = await getDoc(gRef);
-  if(gDoc.exists()){
-    await updateDoc(gRef, data);
-    return;
-  }
-  // fallback – jeśli nie ma nigdzie, utwórz w sub
+/* =========================
+   Dodawanie / edycja zadań
+========================= */
+const taskModal = {
+  overlay: document.getElementById('task-modal'),
+  title: document.getElementById('modal-task-title'),
+  inTitle: document.getElementById('modal-task-title-input'),
+  inDesc: document.getElementById('modal-task-description'),
+  inStatus: document.getElementById('modal-task-status'),
+  inPriority: document.getElementById('modal-task-priority'),
+  inDate: document.getElementById('modal-task-dueDate'),
+  inTime: document.getElementById('modal-task-dueTime'),
+  inMode: document.getElementById('modal-assign-mode'),
+  singleWrap: document.getElementById('modal-assign-single-wrap'),
+  single: document.getElementById('modal-assign-single'),
+  multiWrap: document.getElementById('modal-assign-multi-wrap'),
+  multi: document.getElementById('modal-assign-multi-wrap'),
+  completed: document.getElementById('modal-task-completed'),
+  completionStatusSection: document.getElementById('modal-completion-status-section'),
+  completionStatusList: document.getElementById('modal-completion-status-list'),
+  btnSave: document.getElementById('save-task-btn'),
+  btnCancel: document.getElementById('modal-task-cancel'),
+  _edit:null
+};
+
+function openTaskModal(task){
+  const p = currentProject(); if(!p) return;
+  taskModal._edit = task || null;
+  taskModal.title.textContent = task? "Edytuj zadanie":"Nowe zadanie";
+  taskModal.inTitle.value = task?.title || "";
+  taskModal.inDesc.value  = task?.description || "";
+  taskModal.inStatus.value= task?.status || "todo";
+  taskModal.inPriority.value= task?.priority || "normal";
+  if(task?.dueAt){ const d=new Date(task.dueAt); taskModal.inDate.value=toInputDate(d); taskModal.inTime.value=toInputTime(d); } else { taskModal.inDate.value=""; taskModal.inTime.value=""; }
+
+  // przypisanie
+  const ass = Array.isArray(task?.assignees)? task.assignees : (task?.assignee?[task.assignee]:[]);
+  const isMulti = ass.length>1;
+  taskModal.inMode.value = isMulti? "multi":"single";
+  fillAssignUI(ass);
+
+  taskModal.overlay.classList.add('visible');
+}
+function closeTaskModal(){ taskModal.overlay.classList.remove('visible'); }
+taskModal.btnCancel.addEventListener('click', closeTaskModal);
+taskModal.overlay.addEventListener('click', (e)=>{ if(e.target===taskModal.overlay) closeTaskModal(); });
+
+function fillAssignUI(preselected=[]){
+  // single
+  const options = [`<option value="">— wybierz —</option>`, ...state.users.map(u=>`<option value="${u.id||u.uid}">${$esc(u.name||u.email||u.id)}</option>`)].join("");
+  document.getElementById('modal-assign-single').innerHTML = options;
+  document.getElementById('modal-assign-single').value = preselected[0] || "";
+
+  // multi
+  const wrap = document.getElementById('modal-assign-multi-wrap');
+  wrap.innerHTML = state.users.map(u=>{
+    const id = u.id||u.uid;
+    const checked = preselected.includes(id) ? "checked":"";
+    return `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" value="${id}" ${checked}/> <span>${$esc(u.name||u.email||id)}</span></label>`;
+  }).join("");
+
+  const multi = (document.getElementById('modal-assign-mode').value === "multi");
+  document.getElementById('modal-assign-single-wrap').style.display = multi? "none":"block";
+  document.getElementById('modal-assign-multi-wrap').style.display  = multi? "grid":"none";
+}
+document.getElementById('modal-assign-mode').addEventListener('change', ()=> fillAssignUI([]));
+
+fabAddTask.addEventListener('click', ()=> openTaskModal());
+taskModal.btnSave.addEventListener('click', async ()=>{
+  const p = currentProject(); if(!p) return;
+  const title = taskModal.inTitle.value.trim();
+  if(!title) return;
+  const dueAt = combineDateTime(taskModal.inDate.value, taskModal.inTime.value);
+  const isMulti = document.getElementById('modal-assign-mode').value === "multi";
+  const multiSel = Array.from(document.querySelectorAll('#modal-assign-multi-wrap input[type=checkbox]:checked')).map(i=>i.value);
+  const singleSel = document.getElementById('modal-assign-single').value;
+  const assignees = isMulti ? multiSel : (singleSel? [singleSel] : []);
+
+  const payload = {
+    title, description: taskModal.inDesc.value.trim(),
+    status: taskModal.inStatus.value,
+    priority: taskModal.inPriority.value,
+    projectId: p.id,
+    assignees,
+    dueAt: dueAt??null,
+    updatedAt: serverTimestamp(),
+    createdBy: state.currentUser?.uid || null
+  };
+
+  try{
+    if(taskModal._edit){
+      await updateTask(taskModal._edit, payload);
+    }else{
+      await addDoc(collection(db, PATHS.tasksSub(p.id)), { ...payload, createdAt: serverTimestamp() });
+    }
+    closeTaskModal();
+  }catch(e){ console.error(e); }
+});
+
+async function updateTask(task, data){
+  const p = currentProject(); if(!p) return;
+  // spróbuj w sub
+  const subRef = doc(collection(db, PATHS.tasksSub(p.id)), task.id);
+  const subSnap = await getDoc(subRef);
+  if(subSnap.exists()){ await updateDoc(subRef, data); return; }
+  // global
+  const gRef = doc(collection(db, PATHS.tasksGlobal), task.id);
+  const gSnap = await getDoc(gRef);
+  if(gSnap.exists()){ await updateDoc(gRef, data); return; }
+  // fallback
   await setDoc(subRef, { ...data, createdAt: serverTimestamp() });
 }
 
-async function createTask(data){
-  // domyślnie do subkolekcji
-  await addDoc(collection(db, COLL_PATHS.tasksSub(state.activeProjectId)), {
-    ...data,
-    createdAt: serverTimestamp()
-  });
-}
-
 /* =========================
-   10) CREATE/EDIT PROJECTS
+   Projekty: dodawanie/edycja/zamykanie
 ========================= */
-appUI.btnNewProject.addEventListener("click", ()=> openProjectModal());
-appUI.btnEditProject.addEventListener("click", ()=>{
-  const p = state.projects.find(x=>x.id===state.activeProjectId);
-  if(!p) return;
-  openProjectModal(p);
-});
-appUI.btnCloseProject.addEventListener("click", async ()=>{
-  const p = state.projects.find(x=>x.id===state.activeProjectId);
-  if(!p) return;
+const projectModal = {
+  overlay: document.getElementById('project-modal'),
+  title: document.getElementById('project-modal-title'),
+  inName: document.getElementById('project-name-input'),
+  membersList: document.getElementById('project-members-list'),
+  btnSave: document.getElementById('project-save'),
+  btnCancel: document.getElementById('project-cancel'),
+  _editId:null
+};
+
+function openProjectModal(p){
+  projectModal._editId = p?.id || null;
+  projectModal.title.textContent = p? "Edytuj projekt":"Nowy projekt";
+  projectModal.inName.value = p?.name || "";
+  projectModal.membersList.innerHTML = state.users.map(u=>{
+    const id=u.id||u.uid; const checked = (p?.members||[]).includes(id)?"checked":"";
+    return `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" value="${id}" ${checked}/> <span>${$esc(u.name||u.email||id)}</span></label>`;
+  }).join("");
+  projectModal.overlay.classList.add('visible');
+}
+function closeProjectModal(){ projectModal.overlay.classList.remove('visible'); }
+projectModal.btnCancel.addEventListener('click', closeProjectModal);
+projectModal.overlay.addEventListener('click', (e)=>{ if(e.target===projectModal.overlay) closeProjectModal(); });
+
+newProjectBtn.addEventListener('click', ()=> openProjectModal());
+editProjectBtn.addEventListener('click', ()=>{ const p=currentProject(); if(p) openProjectModal(p); });
+projectModal.btnSave.addEventListener('click', async ()=>{
+  const name = projectModal.inName.value.trim();
+  const members = Array.from(projectModal.membersList.querySelectorAll('input[type=checkbox]:checked')).map(i=>i.value);
+  if(!name) return;
   try{
-    // przenieś do completedProjects
+    if(projectModal._editId){
+      await updateDoc(doc(projectsRef, projectModal._editId), { name, members, updatedAt: serverTimestamp() });
+    }else{
+      const ref = await addDoc(projectsRef, { name, members, closed:false, createdAt: serverTimestamp() });
+      state.currentProjectId = ref.id;
+    }
+    closeProjectModal();
+  }catch(e){ console.error(e); }
+});
+
+completeProjectBtn.addEventListener('click', async ()=>{
+  const p = currentProject(); if(!p) return;
+  try{
     const batch = writeBatch(db);
-    const src = doc(collection(db, COLL_PATHS.projects), p.id);
-    const dst = doc(collection(db, COLL_PATHS.completedProjects), p.id);
+    const src = doc(projectsRef, p.id);
+    const dst = doc(completedProjectsRef, p.id);
     batch.set(dst, { ...p, closed:true, closedAt: serverTimestamp() });
     batch.delete(src);
     await batch.commit();
-    toast("Projekt zakończony");
-  }catch(e){ toast("Błąd: "+e.message); }
-});
-
-modProj.btnCancel.addEventListener("click", ()=> closeProjectModal());
-modProj.root.addEventListener("click",(e)=>{ if(e.target===modProj.root) closeProjectModal(); });
-
-modProj.btnSave.addEventListener("click", async ()=>{
-  const name = modProj.inName.value.trim();
-  if(!name){ toast("Podaj nazwę projektu"); return; }
-  const members = getCheckedValues(modProj.membersWrap);
-  try{
-    if(modProj._editId){
-      await updateDoc(doc(collection(db, COLL_PATHS.projects), modProj._editId), { name, members, updatedAt: serverTimestamp() });
-      toast("Projekt zaktualizowany");
-    }else{
-      const ref = await addDoc(collection(db, COLL_PATHS.projects), { name, members, closed:false, createdAt: serverTimestamp() });
-      toast("Projekt dodany");
-      selectProject(ref.id);
-    }
-    closeProjectModal();
-  }catch(e){ toast("Błąd: "+e.message); }
+    state.currentProjectId = null;
+  }catch(e){ console.error(e); }
 });
 
 /* =========================
-   11) MODALE — wypełnianie
+   Szukaj + sort (literówki naprawione)
 ========================= */
-function openTaskModal(task){
-  modTask._editId = task?.id || null;
-  modTask.title.textContent = task? "Edytuj zadanie":"Nowe zadanie";
-  modTask.inTitle.value = task?.title || "";
-  modTask.inDesc.value  = task?.description || "";
-  modTask.inStatus.value = task?.status || "todo";
-  modTask.inPriority.value = task?.priority || "normal";
-  if(task?.dueAt){
-    const d = new Date(task.dueAt);
-    modTask.inDate.value = toInputDate(d);
-    modTask.inTime.value = toInputTime(d);
-  }else{
-    modTask.inDate.value=""; modTask.inTime.value="";
-  }
-
-  // tryb przypisania
-  const assignees = Array.isArray(task?.assignees) ? task.assignees : (task?.assignee?[task.assignee]:[]);
-  modTask.inMode.value = (assignees && assignees.length>1) ? "multi" : "single";
-  fillAssigneesUI(assignees);
-
-  modTask.root.classList.add("open");
+function performGlobalSearch(term){
+  if(!term || term.length<2) return [];
+  const q = term.toLowerCase();
+  const allProjects = [...state.projects, ...state.completedProjects]; /* [.state.projects, .state.completedProjects] -> poprawione */ /* :contentReference[oaicite:7]{index=7} */
+  return allProjects.flatMap(p =>
+    (p.tasks||[]).filter(t =>
+      (t.title||"").toLowerCase().includes(q) ||
+      (t.description||"").toLowerCase().includes(q)
+    ).map(t => ({ ...t, projectName:p.name, projectId:p.id })) /* ({ .task, ... }) -> poprawione */ /* :contentReference[oaicite:8]{index=8} */
+  );
 }
-function closeTaskModal(){ modTask.root.classList.remove("open"); }
-
-function fillAssigneesUI(preselected=[]){
-  // single
-  modTask.single.innerHTML = `<option value="">— wybierz —</option>` + state.users.map(u=>`
-    <option value="${u.id||u.uid}">${escapeHtml(u.name||u.email||u.id)}</option>
-  `).join("");
-  const singleValue = preselected[0] || "";
-  modTask.single.value = singleValue;
-
-  // multi
-  modTask.multi.innerHTML = state.users.map(u=>{
-    const id = u.id||u.uid;
-    const checked = preselected.includes(id) ? "checked":"";
-    return `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" value="${id}" ${checked}/> <span>${escapeHtml(u.name||u.email||id)}</span></label>`;
-  }).join("");
-
-  const multi = modTask.inMode.value === "multi";
-  modTask.singleWrap.style.display = multi? "none":"block";
-  modTask.multiWrap.style.display  = multi? "block":"none";
-}
-
-function openProjectModal(project){
-  modProj._editId = project?.id || null;
-  modProj.title.textContent = project? "Edytuj projekt":"Nowy projekt";
-  modProj.inName.value = project?.name || "";
-  fillProjectMembersUI(project?.id, project?.members || []);
-  modProj.root.classList.add("open");
-}
-function closeProjectModal(){ modProj.root.classList.remove("open"); }
-
-function fillProjectMembersUI(projectId, preselected=[]){
-  modProj.membersWrap.innerHTML = state.users.map(u=>{
-    const id = u.id||u.uid;
-    const checked = preselected.includes(id) ? "checked":"";
-    return `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" value="${id}" ${checked}/> <span>${escapeHtml(u.name||u.email||id)}</span></label>`;
-  }).join("");
-}
+searchInput.addEventListener('input', ()=>{
+  const results = performGlobalSearch(searchInput.value);
+  // Tutaj możesz wyrenderować własny modal wyników – struktura zostawiona jak u Ciebie.
+});
+sortBtn.addEventListener('click', ()=>{
+  state.ui.sortMyTasksByDate = (state.ui.sortMyTasksByDate==='asc')?'desc':'asc';
+  renderBoardFromDB();
+});
 
 /* =========================
-   12) UTILS
+   Sidebar mobile
 ========================= */
-function combineDateTime(d,t){
-  if(!d && !t) return null;
-  const date = d? new Date(d+"T00:00:00") : new Date();
-  if(t){
-    const [hh,mm] = t.split(":").map(Number);
-    date.setHours(hh||0,mm||0,0,0);
-  }
-  return date.toISOString();
-}
-function toInputDate(d){ return d.toISOString().slice(0,10); }
-function toInputTime(d){ return d.toTimeString().slice(0,5); }
-function getCheckedValues(container){
-  return Array.from(container.querySelectorAll("input[type=checkbox]:checked")).map(i=>i.value);
-}
-function escapeHtml(s){ return String(s??"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
+menuToggle.addEventListener('click', ()=>{ sidebar.classList.toggle('open'); sidebarOverlay.classList.toggle('visible'); });
+sidebarOverlay.addEventListener('click', ()=>{ sidebar.classList.remove('open'); sidebarOverlay.classList.remove('visible'); });
 
-/* =========================
-   13) START
-========================= */
 </script>
 </body>
 </html>
