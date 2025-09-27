@@ -77,7 +77,6 @@
             justify-content: center;
             z-index: 10001;
         }
-
         .auth-container {
             background-color: var(--bg-secondary);
             padding: 40px;
@@ -1430,7 +1429,57 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-    
+   import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
+
+        /**
+ * Prosi użytkownika o zgodę na powiadomienia i zapisuje token FCM w jego profilu.
+ */
+async function requestNotificationPermission() {
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager'in window)) {
+        console.warn("Ta przeglądarka nie wspiera powiadomień push.");
+        return;
+    }
+
+    try {
+        const messaging = getMessaging(app); // 'app' to Twoja zainicjalizowana aplikacja Firebase
+
+        // Prośba o zgodę
+        const permission = await Notification.requestPermission();
+        if (permission === "granted") {
+            console.log("Zgoda na powiadomienia uzyskana.");
+            
+            // Pobranie tokenu. Klucz VAPID jest teraz pobierany automatycznie.
+            const currentToken = await getToken(messaging);
+
+            if (currentToken) {
+                console.log("Otrzymano token FCM: ", currentToken);
+                // Zapisz token w profilu użytkownika w Firestore
+                if (state.currentUser) {
+                    const userRef = doc(db, `artifacts/${appId}/public/data/users`, state.currentUser.uid);
+                    const userDoc = await getDoc(userRef);
+
+                    if (userDoc.exists()) {
+                        const userData = userDoc.data();
+                        const tokens = userData.fcmTokens || [];
+                        if (!tokens.includes(currentToken)) {
+                            tokens.push(currentToken);
+                            await updateDoc(userRef, { fcmTokens: tokens });
+                            console.log("Token FCM został dodany do profilu użytkownika.");
+                        } else {
+                            console.log("Ten token FCM już istnieje w profilu użytkownika.");
+                        }
+                    }
+                }
+            } else {
+                console.warn("Nie udało się uzyskać tokenu FCM. Upewnij się, że masz plik firebase-messaging-sw.js.");
+            }
+        } else {
+            console.warn("Użytkownik nie wyraził zgody na powiadomienia.");
+        }
+    } catch (error) {
+        console.error("Wystąpił błąd podczas próby uzyskania zgody na powiadomienia:", error);
+    }
+}
         // ============================
         // 0. Konfiguracja i Inicjalizacja Firebase
         // ============================
@@ -1960,25 +2009,23 @@
         logoutBtn.addEventListener('click', () => signOut(auth));
 
         onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                const userDoc = await getDoc(doc(usersRef, user.uid));
-                state.currentUser = userDoc.exists() ? { id: user.uid, uid: user.uid, ...userDoc.data() } : { id: user.uid, uid: user.uid, email: user.email };
-                
-                authOverlay.style.display = 'none';
-                appContainer.classList.remove('hidden');
-                loadingOverlay.style.display = 'flex';
-                userEmailDisplay.textContent = state.currentUser.email;
-                setupFirestoreListeners(user.uid);
-            } else {
-                state.currentUser = null;
-                appContainer.classList.add('hidden');
-                authOverlay.style.display = 'flex';
-                loadingOverlay.style.display = 'none';
-                if (state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
-                if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
-                if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
-            }
-        });
+    if (user) {
+        // ...twój obecny kod po zalogowaniu...
+        state.currentUser = userDoc.exists() ? { id: user.uid, uid: user.uid, ...userDoc.data() } : { id: user.uid, uid: user.uid, email: user.email };
+        
+        authOverlay.style.display = 'none';
+        appContainer.classList.remove('hidden');
+        loadingOverlay.style.display = 'flex';
+        userEmailDisplay.textContent = state.currentUser.email;
+        setupFirestoreListeners(user.uid);
+        
+        // NOWY DODANY WIERSZ:
+        requestNotificationPermission(); // Prośba o zgodę na powiadomienia
+        
+    } else {
+        // ...twój obecny kod po wylogowaniu...
+    }
+});
         
         function setupFirestoreListeners(userId) {
             if (!userId) return;
@@ -2345,3 +2392,4 @@
     </script>
 </body>
 </html>
+
