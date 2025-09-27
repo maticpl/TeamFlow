@@ -1428,17 +1428,17 @@
     <script type="module">
         // Importuj potrzebne funkcje z SDK Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     
         // ============================
         // 0. Konfiguracja i Inicjalizacja Firebase
         // ============================
         
-        const firebaseConfigString = typeof __firebase_config !== 'undefined' 
-            ? __firebase_config 
-            : '{}';
-
+        // NOWY, ZMIENIONY FRAGMENT
+    import firebaseConfig from './config.js';
+        
+        
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         let db, auth;
@@ -1446,44 +1446,24 @@
         const authOverlay = document.getElementById('auth-overlay');
         const appContainer = document.querySelector('.app-container');
 
-        async function initializeFirebase() {
-            try {
-                const firebaseConfig = JSON.parse(firebaseConfigString);
-                
-                if (!firebaseConfig.apiKey) {
-                    throw new Error("Klucze Firebase nie zostały skonfigurowane lub nie zostały poprawnie wczytane.");
-                }
-                
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                // ZMIANA ZABEZPIECZAJĄCA: Logowanie za pomocą tokena dostarczonego przez środowisko
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    // Fallback do logowania anonimowego, jeśli token nie jest dostępny
-                    await signInAnonymously(auth);
-                }
-            } catch (error) {
-                console.error("Błąd inicjalizacji Firebase lub logowania:", error);
-                authOverlay.innerHTML = `<div class="auth-container"><h2>Błąd Konfiguracji</h2><p>${error.message}. Sprawdź, czy Twoje środowisko poprawnie dostarcza konfigurację i token autoryzacyjny.</p></div>`;
+        try {
+            if (firebaseConfig.apiKey === "TWOJ_KLUCZ_API") {
+                throw new Error("Klucze Firebase nie zostały skonfigurowane.");
             }
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        } catch (error) {
+            console.error("Błąd inicjalizacji Firebase:", error);
+            authOverlay.innerHTML = `<div class="auth-container"><h2>Błąd Konfiguracji</h2><p>Błąd inicjalizacji Firebase: ${error.message}. Sprawdź, czy obiekt 'firebaseConfig' jest poprawnie uzupełniony w kodzie i czy projekt Firebase został poprawnie utworzony.</p></div>`;
         }
 
-        // Deklaracje referencji kolekcji - zostaną zainicjowane po załadowaniu DOM
-        let projectsRef, completedProjectsRef, usersRef;
+        const projectsRef = collection(db, `artifacts/${appId}/public/data/projects`);
+        const completedProjectsRef = collection(db, `artifacts/${appId}/public/data/completedProjects`);
+        const usersRef = collection(db, `artifacts/${appId}/public/data/users`);
 
-    document.addEventListener('DOMContentLoaded', async () => {
+    document.addEventListener('DOMContentLoaded', () => {
         
-        await initializeFirebase(); // Zaczekaj na inicjalizację i logowanie
-
-        // Inicjalizacja referencji do kolekcji po pomyślnym połączeniu z Firebase
-        projectsRef = collection(db, `artifacts/${appId}/public/data/projects`);
-        completedProjectsRef = collection(db, `artifacts/${appId}/public/data/completedProjects`);
-        usersRef = collection(db, `artifacts/${appId}/public/data/users`);
-
-
         const STATUSES = {
             todo: 'Do realizacji',
             inprogress: 'W trakcie realizacji',
@@ -1976,18 +1956,16 @@
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 const userDoc = await getDoc(doc(usersRef, user.uid));
-                state.currentUser = userDoc.exists() ? { id: user.uid, uid: user.uid, ...userDoc.data() } : { id: user.uid, uid: user.uid, email: user.email, isAnonymous: user.isAnonymous };
+                state.currentUser = userDoc.exists() ? { id: user.uid, uid: user.uid, ...userDoc.data() } : { id: user.uid, uid: user.uid, email: user.email };
                 
-                // Ukryj formularze logowania/rejestracji jeśli użytkownik jest zalogowany (nawet anonimowo)
                 authOverlay.style.display = 'none';
                 appContainer.classList.remove('hidden');
                 loadingOverlay.style.display = 'flex';
-                userEmailDisplay.textContent = state.currentUser.email || `Gość: ${state.currentUser.uid.substring(0,6)}`;
+                userEmailDisplay.textContent = state.currentUser.email;
                 setupFirestoreListeners(user.uid);
             } else {
                 state.currentUser = null;
                 appContainer.classList.add('hidden');
-                // Pokaż formularz logowania tylko jeśli nie ma użytkownika
                 authOverlay.style.display = 'flex';
                 loadingOverlay.style.display = 'none';
                 if (state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
