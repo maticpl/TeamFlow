@@ -1432,13 +1432,6 @@
    import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
         /**
- * Prosi użytkownika o zgodę na powiadomienia i zapisuje token FCM w jego profilu.
- */
-async function requestNotificationPermission() {
-    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager'in window)) {
-        console.warn("Ta przeglądarka nie wspiera powiadomień push.");
-        return;
-    }
 
     try {
         const messaging = getMessaging(app); // 'app' to Twoja zainicjalizowana aplikacja Firebase
@@ -1496,7 +1489,7 @@ async function requestNotificationPermission() {
         
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-        let db, auth;
+        let db, auth, app;
         const loadingOverlay = document.getElementById('loading-overlay');
         const authOverlay = document.getElementById('auth-overlay');
         const appContainer = document.querySelector('.app-container');
@@ -1505,7 +1498,7 @@ async function requestNotificationPermission() {
             if (firebaseConfig.apiKey === "TWOJ_KLUCZ_API") {
                 throw new Error("Klucze Firebase nie zostały skonfigurowane.");
             }
-            const app = initializeApp(firebaseConfig);
+            app = initializeApp(firebaseConfig);
             db = getFirestore(app);
             auth = getAuth(app);
         } catch (error) {
@@ -1541,7 +1534,32 @@ async function requestNotificationPermission() {
                 chartInstance: null
             }
         };
+        
+async function requestNotificationPermission() {
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager'in window)) {
+        console.warn("Ta przeglądarka nie wspiera powiadomień push.");
+        return;
+    }
+    logoutBtn.addEventListener('click', () => signOut(auth));
 
+        onAuthStateChanged(auth, async (user) => {
+    if (user) {
+        // ...twój obecny kod po zalogowaniu...
+        state.currentUser = userDoc.exists() ? { id: user.uid, uid: user.uid, ...userDoc.data() } : { id: user.uid, uid: user.uid, email: user.email };
+        
+        authOverlay.style.display = 'none';
+        appContainer.classList.remove('hidden');
+        loadingOverlay.style.display = 'flex';
+        userEmailDisplay.textContent = state.currentUser.email;
+        setupFirestoreListeners(user.uid);
+        
+        // NOWY DODANY WIERSZ:
+        requestNotificationPermission(); // Prośba o zgodę na powiadomienia
+        
+    } else {
+        // ...twój obecny kod po wylogowaniu...
+    }
+});
         const sidebar = document.getElementById('sidebar');
         const sidebarOverlay = document.getElementById('sidebar-overlay');
         const menuToggle = document.getElementById('menu-toggle');
@@ -2006,27 +2024,6 @@ async function requestNotificationPermission() {
             }
         });
         
-        logoutBtn.addEventListener('click', () => signOut(auth));
-
-        onAuthStateChanged(auth, async (user) => {
-    if (user) {
-        // ...twój obecny kod po zalogowaniu...
-        state.currentUser = userDoc.exists() ? { id: user.uid, uid: user.uid, ...userDoc.data() } : { id: user.uid, uid: user.uid, email: user.email };
-        
-        authOverlay.style.display = 'none';
-        appContainer.classList.remove('hidden');
-        loadingOverlay.style.display = 'flex';
-        userEmailDisplay.textContent = state.currentUser.email;
-        setupFirestoreListeners(user.uid);
-        
-        // NOWY DODANY WIERSZ:
-        requestNotificationPermission(); // Prośba o zgodę na powiadomienia
-        
-    } else {
-        // ...twój obecny kod po wylogowaniu...
-    }
-});
-        
         function setupFirestoreListeners(userId) {
             if (!userId) return;
             if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
@@ -2392,4 +2389,5 @@ async function requestNotificationPermission() {
     </script>
 </body>
 </html>
+
 
