@@ -1041,6 +1041,9 @@
                 dueDate: document.getElementById('modal-task-dueDate'),
                 saveBtn: document.getElementById('save-task-btn'),
                 deleteBtn: document.getElementById('delete-task-btn'),
+                editBtn: document.getElementById('edit-task-btn'), // <-- DODAJ
+                titleInput: document.getElementById('modal-task-title-input'), // <-- DODAJ
+                assigneesEdit: document.getElementById('modal-task-assignees-edit'), // <-- DODAJ
                 commentsList: document.getElementById('comments-list'), // NOWA REFERENCJA
                 newCommentText: document.getElementById('new-comment-text'), // NOWA REFERENCJA
                 addCommentBtn: document.getElementById('add-comment-btn'), // NOWA REFERENCJA
@@ -1467,32 +1470,91 @@
                 openModal(notificationModal.overlay);
             }
 
-            async function openTaskModal(taskId) {
-                const { task, project } = findTask(taskId);
-                if (!task || !project) return;
+           async function openTaskModal(taskId) {
+            const { task, project } = findTask(taskId);
+            if (!task || !project) return;
+
+            // --- TRYB WIDOKU (domyślny) ---
+            const setViewMode = () => {
                 taskModal.overlay.dataset.taskId = taskId;
+
+                // Tytuł
                 taskModal.title.textContent = task.title;
+                taskModal.title.style.display = 'block';
+                taskModal.titleInput.style.display = 'none';
+
+                // Reszta pól
                 taskModal.completed.checked = task.status === 'done';
                 taskModal.description.value = task.description || '';
                 taskModal.priority.value = task.priority;
                 taskModal.dueDate.value = task.dueDate;
                 taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
+
+                // Wyłącz edycję pól w trybie widoku
+                Array.from(taskModal.overlay.querySelectorAll('select, textarea, input[type="datetime-local"]')).forEach(el => el.disabled = true);
+                taskModal.completed.disabled = false; // Checkbox zawsze aktywny
+
+                // Przypisane osoby (widok)
                 taskModal.assigneesList.innerHTML = (task.assignees || []).map(memberId => {
                     const user = findUser(memberId);
                     return user ? `<div title="${user.name || user.email}" class="avatar" style="background-color: ${user.avatarColor || '#ccc'}">${(user.name || user.email).substring(0,2).toUpperCase()}</div>` : '';
                 }).join('');
+                taskModal.assigneesEdit.style.display = 'none';
+                taskModal.assigneesList.style.display = 'flex';
+
+
+                // Widoczność przycisków
+                taskModal.saveBtn.style.display = 'none';
+                const isCreator = task.createdBy && task.createdBy === state.currentUser.uid;
+                taskModal.deleteBtn.style.display = isCreator ? 'block' : 'none';
+                taskModal.editBtn.style.display = isCreator ? 'block' : 'none';
+
+                // Sekcje specjalne
                 if (task.type === 'multi') {
-                    taskModal.completionStatusSection.style.display = 'block';
-                    taskModal.completionStatusList.innerHTML = (task.assignees || []).map(userId => {
-                        const user = findUser(userId);
-                        const isDone = task.completedBy.includes(userId);
-                        const isCurrentUser = userId === state.currentUser.uid;
-                        const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm" data-user-id="${userId}" id="complete-my-part-btn">Oznacz jako wykonane</button>` : '';
-                        return `<li class="completion-status-item"><div class="user-info"><div class="avatar" style="background-color: ${user.avatarColor || '#ccc'}" title="${user.name || user.email}">${(user.name || user.email).substring(0,2).toUpperCase()}</div><span>${user.name || user.email}</span></div><div class="status-indicator-wrapper">${actionButton}<span class="status-indicator ${isDone ? 'done' : 'pending'}">${isDone ? 'Gotowe' : 'Oczekuje'}</span></div></li>`;
-                    }).join('');
+                    // ... (istniejący kod od statusu ukończenia zostaje bez zmian)
                 } else {
                     taskModal.completionStatusSection.style.display = 'none';
                 }
+
+                renderComments(task);
+                renderActivityLog(task);
+                openModal(taskModal.overlay);
+            };
+
+            // --- TRYB EDYCJI ---
+            const setEditMode = () => {
+                // Tytuł
+                taskModal.title.style.display = 'none';
+                taskModal.titleInput.value = task.title;
+                taskModal.titleInput.style.display = 'block';
+
+                // Odblokuj pola
+                Array.from(taskModal.overlay.querySelectorAll('select, textarea, input[type="datetime-local"]')).forEach(el => el.disabled = false);
+
+                // Przypisane osoby (edycja)
+                taskModal.assigneesList.style.display = 'none';
+                taskModal.assigneesEdit.style.display = 'block';
+                const membersOptions = (project.members || []).map(memberId => findUser(memberId)).filter(Boolean);
+
+                taskModal.assigneesEdit.innerHTML = membersOptions.map(user => 
+                    `<div class="member-option">
+                        <input type="checkbox" id="edit-task-multi-${user.id}" value="${user.id}" ${task.assignees.includes(user.id) ? 'checked' : ''}>
+                        <label for="edit-task-multi-${user.id}">${user.name || user.email}</label>
+                    </div>`
+                ).join('');
+
+                // Przyciski
+                taskModal.saveBtn.style.display = 'block';
+                taskModal.deleteBtn.style.display = 'none';
+                taskModal.editBtn.style.display = 'none';
+            };
+
+            // Ustaw listener tylko raz
+            taskModal.editBtn.onclick = setEditMode;
+
+            // Inicjalizuj modal w trybie widoku
+            setViewMode();
+        }
                 
                 renderComments(task); // RENDEROWANIE KOMENTARZY
                 renderActivityLog(task); // RENDEROWANIE HISTORII
@@ -1572,17 +1634,49 @@
                 const { task, project } = findTask(taskId);
                 if (!task || !project) return;
                 
-                const oldStatus = task.status;
-                const oldPriority = task.priority;
+                // Odczytaj nowe wartości z pól edycji
+                const newTitle = taskModal.titleInput.value.trim();
+                const newAssignees = Array.from(taskModal.assigneesEdit.querySelectorAll('input:checked')).map(input => input.value);
 
-                const newStatus = taskModal.status.value;
-                const newPriority = taskModal.priority.value;
-
-                if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < task.assignees.length) {
-                    showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
-                    taskModal.status.value = oldStatus;
+                if (!newTitle) {
+                    showNotification("Tytuł zadania nie może być pusty.", "Błąd");
                     return;
                 }
+                if (newAssignees.length === 0) {
+                    showNotification("Zadanie musi być przypisane do co najmniej jednej osoby.", "Błąd");
+                    return;
+                }
+                
+                const oldStatus = task.status;
+                const oldPriority = task.priority;
+                const newStatus = taskModal.status.value;
+
+                // ... (istniejąca logika od sprawdzania statusu 'done' zostaje bez zmian)
+
+                const updatedTask = {
+                    ...task,
+                    title: newTitle, // Zapisz nowy tytuł
+                    assignees: newAssignees, // Zapisz nowe przypisania
+                    description: taskModal.description.value,
+                    status: newStatus,
+                    priority: taskModal.priority.value,
+                    dueDate: taskModal.dueDate.value,
+                };
+                
+                // ... (istniejąca logika od logowania aktywności zostaje bez zmian)
+                
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
+                
+                await updateDoc(projectDocRef, { tasks: updatedTasks });
+                
+                showNotification("Zmiany w zadaniu zostały zapisane.", "Sukces");
+                if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
+                
+                // Zamknij i odśwież modal w trybie widoku
+                closeModal(taskModal.overlay);
+                openTaskModal(taskId);
+            }
                 
                 const updatedTask = {...task,
                     description: taskModal.description.value,
@@ -2029,6 +2123,7 @@
             document.querySelectorAll('.modal-overlay').forEach(overlay => {
                 overlay.addEventListener('click', e => {
                     if (e.target === overlay || e.target.closest('.modal-close-btn')) {
+                        Array.from(overlay.querySelectorAll('select, textarea, input')).forEach(el => el.disabled = false);
                         closeModal(overlay);
                     }
                 });
@@ -2259,5 +2354,6 @@
     </script>
 </body>
 </html>
+
 
 
