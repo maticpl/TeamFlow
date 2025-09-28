@@ -991,8 +991,9 @@
                 currentProjectId: null,
                 ui: {
                     theme: 'light',
-                    currentView: 'my-dashboard', // DOMYŚLNIE ZMIENIONO NA DASHBOARD
+                    currentView: 'my-dashboard',
                     sortMyTasksByDate: 'asc',
+                    projectSortOrders: {}, // <-- DODANA LINIA
                     unsubscribeProjects: null,
                     unsubscribeCompleted: null,
                     unsubscribeUsers: null,
@@ -1203,19 +1204,21 @@
             };
 
             function render() {
-                if(!state.currentUser) return;
-                applyTheme();
-                renderSidebar();
-                
-                // Ustawienie widoczności przycisku sortowania
-                sortBtn.style.display = state.ui.currentView === 'my-dashboard' ? 'flex' : 'none';
-                
-                if (state.ui.currentView === 'projects') {
-                    renderCurrentProjectView();
-                } else if (state.ui.currentView === 'my-dashboard') {
-                    renderMyDashboardView(); // NOWY WIDOK
-                }
+            if(!state.currentUser) return;
+            applyTheme();
+            renderSidebar();
+
+            // Ustawienie widoczności przycisku sortowania
+            const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
+            const isDashboardView = state.ui.currentView === 'my-dashboard';
+            sortBtn.style.display = isProjectView || isDashboardView ? 'flex' : 'none';
+
+            if (isProjectView) {
+                renderCurrentProjectView();
+            } else if (isDashboardView) {
+                renderMyDashboardView();
             }
+        }
 
             function renderSidebar() {
                 // Aktywuj link dashboardu, jeśli to obecny widok
@@ -1244,13 +1247,11 @@
                 const isCompleted = !!findCompletedProject(state.currentProjectId);
                 const isOwner = project && project.ownerId === state.currentUser.uid;
                 
-                // Ustawienie widoczności akcji projektu
                 projectActionsEl.style.display = project && isOwner ? 'flex' : 'none';
 
-                // Ustawienie widoczności przycisków akcji dla właściciela
                 if (project && isOwner) {
                     editProjectBtn.style.display = 'inline-block';
-                    deleteProjectBtn.style.display = 'inline-block'; // Zawsze widoczny dla właściciela
+                    deleteProjectBtn.style.display = 'inline-block';
                     completeProjectBtn.style.display = isCompleted ? 'none' : 'inline-block';
                 } else {
                     editProjectBtn.style.display = 'none';
@@ -1281,7 +1282,6 @@
                     }
                 });
 
-                // LOGIKA: Renderowanie paska postępu
                 const projectTasks = (project.tasks || []).map(migrateTask);
                 const totalTasks = projectTasks.length;
                 const completedTasks = projectTasks.filter(t => t.status === 'done').length;
@@ -1293,7 +1293,19 @@
                     </div>
                     <div class="progress-text">${completedTasks} z ${totalTasks} zadań ukończonych (${progressPercent}%)</div>
                 `;
-                projectProgressEl.style.display = totalTasks > 0 ? 'block' : 'none'; // Ukryj, jeśli brak zadań
+                projectProgressEl.style.display = totalTasks > 0 ? 'block' : 'none';
+
+                // ▼▼▼ NOWA LOGIKA: SORTOWANIE ZADAŃ PROJEKTU ▼▼▼
+                const sortOrder = state.ui.projectSortOrders[project.id] || 'asc'; // Domyślnie 'asc'
+                projectTasks.sort((a, b) => {
+                    const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+                    const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+                    if (dateA === Infinity && dateB === Infinity) return 0;
+                    if (dateA === Infinity) return 1;
+                    if (dateB === Infinity) return -1;
+                    return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+                });
+                // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
 
                 renderKanbanBoard(projectTasks, !isCompleted);
             }
@@ -2231,7 +2243,14 @@
             });
             
             sortBtn.addEventListener('click', () => {
-                state.ui.sortMyTasksByDate = state.ui.sortMyTasksByDate === 'asc' ? 'desc' : 'asc';
+                if (state.ui.currentView === 'my-dashboard') {
+                    // Logika dla pulpitu "Moje zadania"
+                    state.ui.sortMyTasksByDate = state.ui.sortMyTasksByDate === 'asc' ? 'desc' : 'asc';
+                } else if (state.ui.currentView === 'projects' && state.currentProjectId) {
+                    // Logika dla widoku projektu
+                    const currentOrder = state.ui.projectSortOrders[state.currentProjectId] || 'asc';
+                    state.ui.projectSortOrders[state.currentProjectId] = currentOrder === 'asc' ? 'desc' : 'asc';
+                }
                 saveUiState();
                 render();
             });
@@ -2334,6 +2353,7 @@
     </script>
 </body>
 </html>
+
 
 
 
