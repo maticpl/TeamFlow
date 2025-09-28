@@ -270,7 +270,7 @@
         .form-modal-content { padding: 24px; overflow-y: auto; }
         .form-group { margin-bottom: 16px; }
         .form-group label { display: block; margin-bottom: 8px; font-weight: 500; }
-        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-primary); font-family: var(--font-family); font-size: 14px; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-primary); font-family: var(--font-family); font-size: 14px; color: var(--text-primary); }
         .form-group textarea { resize: vertical; }
         .task-type-selection { display: flex; gap: 10px; margin-bottom: 16px; }
         .task-type-selection label { flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--border-radius); text-align: center; cursor: pointer; }
@@ -589,9 +589,9 @@
                     </svg>
                 </div>
                 <div>
-                    <h1>RekeepFlow</h1>
+                    <h1>RekeepTeamFlow</h1>
                     <!-- ZMIANA: Nowy subtytuł -->
-                    <p class="app-subtitle">for People by Mateusz Czerwiński</p>
+                    <p class="app-subtitle">by Mateusz Czerwiński</p>
                 </div>
             </div>
 
@@ -2140,44 +2140,55 @@ taskModal.commentsList.addEventListener('click', async (e) => {
             });
             
             async function handleTaskCheckboxClick(checkbox) {
-                const taskId = checkbox.dataset.taskId;
-                const { task, project } = findTask(taskId);
-                if (!task || !project) return;
-                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                let updatedTask = { ...task };
-                const oldStatus = updatedTask.status;
+    const taskId = checkbox.dataset.taskId;
+    const { task, project } = findTask(taskId);
+    if (!task || !project) return;
+    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+    let updatedTask = { ...task };
+    const oldStatus = updatedTask.status;
 
-                if (task.type === 'multi') {
-                    const userId = state.currentUser.uid;
-                    if (checkbox.checked) {
-                        if (!updatedTask.completedBy.includes(userId)) {
-                            updatedTask.completedBy.push(userId);
-                        }
-                    } else {
-                        updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
-                    }
-                    if (updatedTask.completedBy.length === updatedTask.assignees.length) {
-                        updatedTask.status = 'done';
-                        if (oldStatus !== 'done') showConfetti();
-                    } else {
-                        updatedTask.status = oldStatus === 'done' ? 'inprogress' : oldStatus;
-                    }
-                     if (updatedTask.status !== oldStatus) {
-                         await addActivity(updatedTask, project, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-                     } else if (checkbox.checked && updatedTask.status !== 'done' && !updatedTask.activityLog.some(a => a.type === 'completion' && a.userId === state.currentUser.uid)) {
-                        // Jeśli multi-task, a użytkownik zaznaczył, ale zadanie jeszcze nie jest 'done', dodajemy tylko activity
-                        await addActivity(updatedTask, project, 'completion');
-                     }
-                } else { 
-                     updatedTask.status = checkbox.checked ? 'done' : 'todo';
-                     if (updatedTask.status !== oldStatus) {
-                         if (updatedTask.status === 'done') showConfetti();
-                         await addActivity(updatedTask, project, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-                     }
-                }
-                const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
-                await updateDoc(projectDocRef, { tasks: updatedTasks });
+    if (task.type === 'multi') {
+        const userId = state.currentUser.uid;
+        if (checkbox.checked) {
+            if (!updatedTask.completedBy.includes(userId)) {
+                updatedTask.completedBy.push(userId);
             }
+        } else {
+            updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
+        }
+        if (updatedTask.completedBy.length === updatedTask.assignees.length) {
+            updatedTask.status = 'done';
+            if (oldStatus !== 'done') showConfetti();
+        } else {
+            updatedTask.status = oldStatus === 'done' ? 'inprogress' : oldStatus;
+        }
+        if (updatedTask.status !== oldStatus) {
+            updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+        } else if (checkbox.checked && updatedTask.status !== 'done' && !updatedTask.activityLog.some(a => a.type === 'completion' && a.userId === state.currentUser.uid)) {
+            updatedTask = addActivity(updatedTask, 'completion');
+        }
+    } else {
+        // ---- POCZĄTEK NOWEJ LOGIKI ----
+        // Sprawdzamy uprawnienia tylko wtedy, gdy ktoś próbuje ZAZNACZYĆ checkboxa
+        if (checkbox.checked) {
+            // Warunek: czy zadanie jest przypisane do kogoś i czy NIE jest to zalogowany użytkownik
+            if (task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
+                showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
+                checkbox.checked = false; // COFNIJ ZAZNACZENIE - bardzo ważne!
+                return; // Zatrzymaj dalsze wykonywanie funkcji
+            }
+        }
+        // ---- KONIEC NOWEJ LOGIKI ----
+        
+        updatedTask.status = checkbox.checked ? 'done' : 'todo';
+        if (updatedTask.status !== oldStatus) {
+            if (updatedTask.status === 'done') showConfetti();
+            updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+        }
+    }
+    const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
+    await updateDoc(projectDocRef, { tasks: updatedTasks });
+}
 
             kanbanBoardEl.addEventListener('click', (e) => {
                 // Ta sekcja obsługuje kliknięcia w Kanban na dashboardzie i w widoku projektu
@@ -2460,6 +2471,7 @@ await updateDoc(projectDocRef, { tasks: updatedTasks });
     </script>
 </body>
 </html>
+
 
 
 
