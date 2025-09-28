@@ -1267,110 +1267,7 @@
                 }
             };
 
-            function render() {
-            if(!state.currentUser) return;
-            applyTheme();
-            renderSidebar();
-taskModal.commentsList.addEventListener('click', async (e) => {
-    const deleteBtn = e.target.closest('.delete-comment-btn');
-    if (!deleteBtn) return;
-
-    const commentId = deleteBtn.dataset.commentId;
-    const taskId = taskModal.overlay.dataset.taskId;
-    const { task, project } = findTask(taskId);
-
-    if (!task || !project || !commentId) return;
-
-    // Upewnij się, że użytkownik jest autorem komentarza
-    const commentToDelete = (task.comments || []).find(c => (c.id || `comment_${c.timestamp}`) === commentId);
-    if (!commentToDelete || commentToDelete.userId !== state.currentUser.uid) {
-        showNotification("Nie masz uprawnień do usunięcia tego komentarza.", "Błąd");
-        return;
-    }
-
-    showConfirmation(
-        "Potwierdź usunięcie",
-        "Czy na pewno chcesz usunąć ten komentarz?",
-        async (confirmed) => {
-            if (confirmed) {
-                try {
-                    // Odfiltruj usunięty komentarz
-                    const updatedComments = task.comments.filter(c => (c.id || `comment_${c.timestamp}`) !== commentId);
-                    const updatedTask = { ...task, comments: updatedComments };
-                    const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
-
-                    const projectDocRef = findProject(project.id)
-                        ? doc(projectsRef, project.id)
-                        : doc(completedProjectsRef, project.id);
-                    
-                    await updateDoc(projectDocRef, { tasks: updatedTasks });
-                    openTaskModal(taskId);
-                    showNotification("Komentarz został usunięty.", "Sukces");
-                } catch (error) {
-                    console.error("Błąd podczas usuwania komentarza:", error);
-                    showNotification("Wystąpił błąd podczas usuwania komentarza.", "Błąd");
-                }
-            }
-        },
-        true // Użyj czerwonego przycisku potwierdzenia
-    );
-});
-                // Nowy listener dla głównego checkboxa w oknie modalnym
-taskModal.completed.addEventListener('change', async () => {
-    console.log("Checkbox w modalu kliknięty. Start funkcji."); // Diagnostyka
-
-    const taskId = taskModal.overlay.dataset.taskId;
-    const { task, project } = findTask(taskId);
-
-    if (!task || !project) {
-        console.error("Nie znaleziono zadania lub projektu. Przerywam.", { taskId }); // Diagnostyka
-        return;
-    }
-
-    console.log("Znaleziono zadanie:", task.title); // Diagnostyka
-
-    // --- POCZĄTEK NOWEJ LOGIKI WALIDACJI ---
-    if (taskModal.completed.checked) {
-        console.log("Próba oznaczenia jako 'Wykonane'. Sprawdzam warunki..."); // Diagnostyka
-        if (task.type === 'multi' && task.completedBy.length < task.assignees.length) {
-            console.warn("Walidacja nie powiodła się. Zadanie wieloosobowe nie jest ukończone przez wszystkich."); // Diagnostyka
-            showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
-            taskModal.completed.checked = false;
-            return;
-        }
-    }
-    // --- KONIEC NOWEJ LOGIKI WALIDACJI ---
-    console.log("Walidacja pomyślna. Przystępuję do zapisu statusu."); // Diagnostyka
-    
-    try {
-        const oldStatus = task.status;
-        const newStatus = taskModal.completed.checked ? 'done' : 'inprogress';
-
-        if (oldStatus !== newStatus) {
-            let updatedTask = { ...task, status: newStatus };
-            if (newStatus === 'done') showConfetti();
-
-            updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
-
-            const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
-            const projectDocRef = findProject(project.id) 
-                ? doc(projectsRef, project.id) 
-                : doc(completedProjectsRef, project.id);
             
-            console.log("Zapisuję zmiany w bazie danych..."); // Diagnostyka
-            await updateDoc(projectDocRef, { tasks: updatedTasks });
-            console.log("Zmiany zapisane pomyślnie."); // Diagnostyka
-            
-            openTaskModal(taskId);
-        } else {
-             console.log("Status się nie zmienił, nie ma potrzeby zapisu."); // Diagnostyka
-        }
-    } catch (error) {
-        console.error("Błąd przy zmianie statusu zadania przez checkbox modalny:", error);
-        showNotification("Wystąpił błąd podczas zapisu zmiany.", "Błąd");
-        taskModal.completed.checked = !taskModal.completed.checked;
-    }
-});
             // Ustawienie widoczności przycisku sortowania
             const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
             const isDashboardView = state.ui.currentView === 'my-dashboard';
@@ -1901,23 +1798,15 @@ if (shouldBeDisabled) {
     }).filter(Boolean);
     newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
     
-    // Generowanie HTML dla pigułek (to zostaje)
     newTaskModal.assigneeMultiList.innerHTML = membersOptions.map(u =>
         `<div class="member-pill ${u.id === state.currentUser.uid ? 'selected' : ''}" data-user-id="${u.id}">${u.name}</div>`
     ).join('');
-
-    // USUNĘLIŚMY STĄD ADD EVENT LISTENER
 
     newTaskModal.assigneeSingleWrapper.style.display = 'block';
     newTaskModal.assigneeMultiWrapper.style.display = 'none';
     document.getElementById('task-type-single').checked = true;
     openModal(newTaskModal.overlay);
 }
-                newTaskModal.assigneeSingleWrapper.style.display = 'block';
-                newTaskModal.assigneeMultiWrapper.style.display = 'none';
-                document.getElementById('task-type-single').checked = true;
-                openModal(newTaskModal.overlay);
-            }
 
             function openEditProjectModal(projectId) {
                 const project = findProject(projectId);
@@ -2423,7 +2312,110 @@ newTaskModal.assigneeMultiList.addEventListener('click', (e) => {
         openTaskModal(taskId);
     }
 });
+function render() {
+            if(!state.currentUser) return;
+            applyTheme();
+            renderSidebar();
+taskModal.commentsList.addEventListener('click', async (e) => {
+    const deleteBtn = e.target.closest('.delete-comment-btn');
+    if (!deleteBtn) return;
 
+    const commentId = deleteBtn.dataset.commentId;
+    const taskId = taskModal.overlay.dataset.taskId;
+    const { task, project } = findTask(taskId);
+
+    if (!task || !project || !commentId) return;
+
+    // Upewnij się, że użytkownik jest autorem komentarza
+    const commentToDelete = (task.comments || []).find(c => (c.id || `comment_${c.timestamp}`) === commentId);
+    if (!commentToDelete || commentToDelete.userId !== state.currentUser.uid) {
+        showNotification("Nie masz uprawnień do usunięcia tego komentarza.", "Błąd");
+        return;
+    }
+
+    showConfirmation(
+        "Potwierdź usunięcie",
+        "Czy na pewno chcesz usunąć ten komentarz?",
+        async (confirmed) => {
+            if (confirmed) {
+                try {
+                    // Odfiltruj usunięty komentarz
+                    const updatedComments = task.comments.filter(c => (c.id || `comment_${c.timestamp}`) !== commentId);
+                    const updatedTask = { ...task, comments: updatedComments };
+                    const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+
+                    const projectDocRef = findProject(project.id)
+                        ? doc(projectsRef, project.id)
+                        : doc(completedProjectsRef, project.id);
+                    
+                    await updateDoc(projectDocRef, { tasks: updatedTasks });
+                    openTaskModal(taskId);
+                    showNotification("Komentarz został usunięty.", "Sukces");
+                } catch (error) {
+                    console.error("Błąd podczas usuwania komentarza:", error);
+                    showNotification("Wystąpił błąd podczas usuwania komentarza.", "Błąd");
+                }
+            }
+        },
+        true // Użyj czerwonego przycisku potwierdzenia
+    );
+});
+                // Nowy listener dla głównego checkboxa w oknie modalnym
+taskModal.completed.addEventListener('change', async () => {
+    console.log("Checkbox w modalu kliknięty. Start funkcji."); // Diagnostyka
+
+    const taskId = taskModal.overlay.dataset.taskId;
+    const { task, project } = findTask(taskId);
+
+    if (!task || !project) {
+        console.error("Nie znaleziono zadania lub projektu. Przerywam.", { taskId }); // Diagnostyka
+        return;
+    }
+
+    console.log("Znaleziono zadanie:", task.title); // Diagnostyka
+
+    // --- POCZĄTEK NOWEJ LOGIKI WALIDACJI ---
+    if (taskModal.completed.checked) {
+        console.log("Próba oznaczenia jako 'Wykonane'. Sprawdzam warunki..."); // Diagnostyka
+        if (task.type === 'multi' && task.completedBy.length < task.assignees.length) {
+            console.warn("Walidacja nie powiodła się. Zadanie wieloosobowe nie jest ukończone przez wszystkich."); // Diagnostyka
+            showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
+            taskModal.completed.checked = false;
+            return;
+        }
+    }
+    // --- KONIEC NOWEJ LOGIKI WALIDACJI ---
+    console.log("Walidacja pomyślna. Przystępuję do zapisu statusu."); // Diagnostyka
+    
+    try {
+        const oldStatus = task.status;
+        const newStatus = taskModal.completed.checked ? 'done' : 'inprogress';
+
+        if (oldStatus !== newStatus) {
+            let updatedTask = { ...task, status: newStatus };
+            if (newStatus === 'done') showConfetti();
+
+            updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+
+            const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+            const projectDocRef = findProject(project.id) 
+                ? doc(projectsRef, project.id) 
+                : doc(completedProjectsRef, project.id);
+            
+            console.log("Zapisuję zmiany w bazie danych..."); // Diagnostyka
+            await updateDoc(projectDocRef, { tasks: updatedTasks });
+            console.log("Zmiany zapisane pomyślnie."); // Diagnostyka
+            
+            openTaskModal(taskId);
+        } else {
+             console.log("Status się nie zmienił, nie ma potrzeby zapisu."); // Diagnostyka
+        }
+    } catch (error) {
+        console.error("Błąd przy zmianie statusu zadania przez checkbox modalny:", error);
+        showNotification("Wystąpił błąd podczas zapisu zmiany.", "Błąd");
+        taskModal.completed.checked = !taskModal.completed.checked;
+    }
+});
             document.querySelectorAll('.theme-switcher').forEach(switcher => {
                 switcher.addEventListener('click', e => {
                     const button = e.target.closest('button');
@@ -2606,6 +2598,7 @@ newTaskModal.assigneeMultiList.addEventListener('click', (e) => {
     </script>
 </body>
 </html>
+
 
 
 
