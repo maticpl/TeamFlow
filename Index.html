@@ -238,6 +238,8 @@
         .task-detail svg { width: 14px; height: 14px; }
         .task-assignees { display: flex; }
         .task-assignees .avatar { width: 24px; height: 24px; font-size: 12px; border-color: var(--bg-tertiary); }
+        /* NOWY STYL: Ikona cykliczności */
+        .task-detail.recurring svg { color: var(--accent-primary); }
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--bg-overlay); display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; z-index: 1000; }
         .modal-overlay.visible { opacity: 1; visibility: visible; }
         .modal { background-color: var(--bg-secondary); border-radius: var(--border-radius); box-shadow: var(--shadow-lg); width: 90%; max-width: 800px; display: flex; flex-direction: column; transform: scale(0.95); transition: transform 0.3s; max-height: 90vh; }
@@ -272,6 +274,30 @@
         .form-group label { display: block; margin-bottom: 8px; font-weight: 500; }
         .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-primary); font-family: var(--font-family); font-size: 14px; color: var(--text-primary); }
         .form-group textarea { resize: vertical; }
+        /* NOWY STYL: Kontener dla opcji cykliczności */
+        .recurrence-options {
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 12px;
+            margin-top: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .form-group-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .form-group-checkbox input[type="checkbox"] {
+            width: auto;
+        }
+        .form-group-checkbox label {
+            margin-bottom: 0;
+            font-weight: normal;
+        }
+
         .task-type-selection { display: flex; gap: 10px; margin-bottom: 16px; }
         .task-type-selection label { flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--border-radius); text-align: center; cursor: pointer; }
         .task-type-selection input { display: none; }
@@ -795,13 +821,13 @@
                             <button class="btn btn-primary" id="add-comment-btn">Dodaj</button>
                         </div>
                         <ul class="comments-list" id="comments-list">
-                            </ul>
+                        </ul>
                     </div>
 
                     <div class="task-modal-section activity-log">
                         <h4>Historia aktywności</h4>
                         <ul class="activity-list" id="activity-list">
-                            </ul>
+                        </ul>
                     </div>
 
                 </div>
@@ -826,6 +852,27 @@
                     <div class="sidebar-detail">
                         <label for="modal-task-dueDate">Termin wykonania</label>
                         <input type="datetime-local" id="modal-task-dueDate">
+                    </div>
+                     <div class="sidebar-detail">
+                        <div class="form-group-checkbox">
+                            <input type="checkbox" id="modal-task-is-recurring">
+                            <label for="modal-task-is-recurring">Zadanie cykliczne</label>
+                        </div>
+                        <div id="modal-task-recurrence-options" style="display: none;">
+                            <div class="recurrence-options">
+                                <label for="modal-task-recurrence-type">Powtarzaj</label>
+                                <select id="modal-task-recurrence-type">
+                                    <option value="weekly">Co tydzień</option>
+                                    <option value="biweekly">Co 2 tygodnie</option>
+                                    <option value="monthly">Co miesiąc</option>
+                                    <option value="dayOfMonth">Wybrany dzień miesiąca</option>
+                                </select>
+                                <div id="modal-task-recurrence-day-wrapper" style="display: none;">
+                                    <label for="modal-task-recurrence-day">Dzień</label>
+                                    <input type="number" id="modal-task-recurrence-day" min="1" max="31">
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -942,6 +989,25 @@
                                 <option value="medium" selected>Średni</option>
                                 <option value="high">Wysoki</option>
                             </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <div class="form-group-checkbox">
+                             <input type="checkbox" id="new-task-is-recurring">
+                             <label for="new-task-is-recurring">Zadanie cykliczne</label>
+                        </div>
+                        <div id="new-task-recurrence-options" class="recurrence-options" style="display: none;">
+                            <label for="new-task-recurrence-type">Powtarzaj</label>
+                            <select id="new-task-recurrence-type">
+                                <option value="weekly">Co tydzień</option>
+                                <option value="biweekly">Co 2 tygodnie</option>
+                                <option value="monthly">Co miesiąc</option>
+                                <option value="dayOfMonth">Wybrany dzień miesiąca</option>
+                            </select>
+                             <div id="new-task-recurrence-day-wrapper" style="display: none;">
+                                <label for="new-task-recurrence-day">Dzień miesiąca</label>
+                                <input type="number" id="new-task-recurrence-day" min="1" max="31" placeholder="np. 15">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1071,7 +1137,7 @@
                     theme: 'light',
                     currentView: 'my-dashboard',
                     sortMyTasksByDate: 'asc',
-                    projectSortOrders: {}, // <-- DODANA LINIA
+                    projectSortOrders: {},
                     unsubscribeProjects: null,
                     unsubscribeCompleted: null,
                     unsubscribeUsers: null,
@@ -1093,14 +1159,14 @@
             const completedProjectsListEl = document.getElementById('completed-projects-list');
             const projectNameHeaderEl = document.getElementById('project-name-header');
             const projectMembersHeaderEl = document.getElementById('project-members-header');
-            const projectProgressEl = document.getElementById('project-progress'); // NOWA REFERENCJA
+            const projectProgressEl = document.getElementById('project-progress'); 
             const kanbanBoardEl = document.getElementById('kanban-board');
             const sortBtn = document.getElementById('sort-btn');
             const searchInput = document.getElementById('search-input');
             const projectActionsEl = document.getElementById('project-actions');
             const editProjectBtn = document.getElementById('edit-project-btn');
             const completeProjectBtn = document.getElementById('complete-project-btn');
-            const deleteProjectBtn = document.getElementById('delete-project-btn'); // Nowa referencja
+            const deleteProjectBtn = document.getElementById('delete-project-btn'); 
             const userEmailDisplay = document.getElementById('user-email-display');
             const logoutBtn = document.getElementById('logout-btn');
             const newProjectBtn = document.getElementById('new-project-btn');
@@ -1124,13 +1190,19 @@
                 dueDate: document.getElementById('modal-task-dueDate'),
                 saveBtn: document.getElementById('save-task-btn'),
                 deleteBtn: document.getElementById('delete-task-btn'),
-                editBtn: document.getElementById('edit-task-btn'), // <-- DODAJ
-                titleInput: document.getElementById('modal-task-title-input'), // <-- DODAJ
-                assigneesEdit: document.getElementById('modal-task-assignees-edit'), // <-- DODAJ
-                commentsList: document.getElementById('comments-list'), // NOWA REFERENCJA
-                newCommentText: document.getElementById('new-comment-text'), // NOWA REFERENCJA
-                addCommentBtn: document.getElementById('add-comment-btn'), // NOWA REFERENCJA
-                activityList: document.getElementById('activity-list'), // NOWA REFERENCJA
+                editBtn: document.getElementById('edit-task-btn'),
+                titleInput: document.getElementById('modal-task-title-input'), 
+                assigneesEdit: document.getElementById('modal-task-assignees-edit'),
+                commentsList: document.getElementById('comments-list'), 
+                newCommentText: document.getElementById('new-comment-text'),
+                addCommentBtn: document.getElementById('add-comment-btn'),
+                activityList: document.getElementById('activity-list'),
+                // NOWE REFERENCJE: Pola cykliczności w modalu edycji
+                isRecurring: document.getElementById('modal-task-is-recurring'),
+                recurrenceOptions: document.getElementById('modal-task-recurrence-options'),
+                recurrenceType: document.getElementById('modal-task-recurrence-type'),
+                recurrenceDayWrapper: document.getElementById('modal-task-recurrence-day-wrapper'),
+                recurrenceDay: document.getElementById('modal-task-recurrence-day'),
             };
             const newProjectModal = {
                 overlay: document.getElementById('new-project-modal'),
@@ -1159,6 +1231,12 @@
                 assigneeMultiList: document.getElementById('new-task-assignee-multi-list'),
                 dueDate: document.getElementById('new-task-dueDate'),
                 priority: document.getElementById('new-task-priority'),
+                 // NOWE REFERENCJE: Pola cykliczności w modalu nowego zadania
+                isRecurring: document.getElementById('new-task-is-recurring'),
+                recurrenceOptions: document.getElementById('new-task-recurrence-options'),
+                recurrenceType: document.getElementById('new-task-recurrence-type'),
+                recurrenceDayWrapper: document.getElementById('new-task-recurrence-day-wrapper'),
+                recurrenceDay: document.getElementById('new-task-recurrence-day'),
             };
             const searchModal = {
                 overlay: document.getElementById('search-modal'),
@@ -1170,7 +1248,6 @@
                 title: document.getElementById('notification-title'),
                 message: document.getElementById('notification-message'),
             };
-            // Nowa referencja do modala potwierdzenia
             const confirmationModal = {
                 overlay: document.getElementById('confirmation-modal'),
                 title: document.getElementById('confirmation-title'),
@@ -1180,7 +1257,55 @@
 
 
             // --- Definicje wszystkich funkcji ---
-            // ... (pozostałe funkcje pomocnicze)
+
+            /**
+             * NOWA FUNKCJA: Oblicza następną datę wykonania dla zadania cyklicznego.
+             * @param {string | null} currentDueDate - Aktualna data wykonania (w formacie ISO).
+             * @param {object} recurrenceRule - Obiekt z regułą cykliczności.
+             * @returns {string} - Nowa data wykonania w formacie ISO do zapisu w input[type=datetime-local].
+             */
+            function calculateNextDueDate(currentDueDate, recurrenceRule) {
+                // Jeśli nie ma daty bazowej, użyj dzisiejszej daty jako punktu wyjścia.
+                const baseDate = currentDueDate ? new Date(currentDueDate) : new Date();
+                let nextDate = new Date(baseDate);
+
+                switch (recurrenceRule.type) {
+                    case 'weekly':
+                        nextDate.setDate(baseDate.getDate() + 7);
+                        break;
+                    case 'biweekly':
+                        nextDate.setDate(baseDate.getDate() + 14);
+                        break;
+                    case 'monthly':
+                        nextDate.setMonth(baseDate.getMonth() + 1);
+                        break;
+                    case 'dayOfMonth':
+                        nextDate.setMonth(baseDate.getMonth() + 1);
+                        // Ustawienie dnia jest skomplikowane (różna liczba dni w miesiącach)
+                        // Ta prosta logika ustawi dzień, ale może przeskoczyć miesiąc, jeśli dzień jest > 28/29/30
+                        // np. 31 stycznia + 1 miesiąc = 2/3 marca. Lepsze jest ustawienie na ostatni dzień miesiąca.
+                        const targetDay = recurrenceRule.day;
+                        // Ustawiamy na pierwszy dzień następnego miesiąca
+                        nextDate = new Date(nextDate.getFullYear(), nextDate.getMonth(), 1);
+                        // Pobieramy liczbę dni w tym miesiącu
+                        const daysInMonth = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
+                        // Ustawiamy dzień, ale nie więcej niż liczba dni w miesiącu
+                        nextDate.setDate(Math.min(targetDay, daysInMonth));
+                        break;
+                }
+                
+                // Formatowanie daty do stringa kompatybilnego z input[type=datetime-local]
+                // YYYY-MM-DDTHH:mm
+                const pad = (num) => num.toString().padStart(2, '0');
+                const year = nextDate.getFullYear();
+                const month = pad(nextDate.getMonth() + 1);
+                const day = pad(nextDate.getDate());
+                const hours = pad(baseDate.getHours()); // Zachowaj oryginalną godzinę
+                const minutes = pad(baseDate.getMinutes());
+
+                return `${year}-${month}-${day}T${hours}:${minutes}`;
+            }
+
             function showConfirmation(title, message, callback, danger = false) {
                 confirmationModal.title.textContent = title;
                 confirmationModal.message.textContent = message;
@@ -1234,9 +1359,10 @@
                 }
                 if (!task.assignees) task.assignees = [];
                 if (!task.completedBy) task.completedBy = [];
-                // Upewnij się, że istnieją tablice dla komentarzy i aktywności
                 if (!task.comments) task.comments = [];
                 if (!task.activityLog) task.activityLog = [];
+                // Zapewnij, że pole recurrence istnieje, aby uniknąć błędów
+                if (task.recurrence === undefined) task.recurrence = null;
                 return task;
             }
 
@@ -1249,7 +1375,6 @@
                 return { task: null, project: null };
             };
             
-            // NOWA FUNKCJA: Pobiera wszystkie zadania użytkownika
             function getAllMyTasks() {
                 const allProjects = [...state.projects, ...state.completedProjects];
                 return allProjects.flatMap(p => 
@@ -1260,12 +1385,11 @@
                 );
             }
             
-            // NOWA FUNKCJA: Pobiera opóźnione zadania
             function getOverdueTasks(tasks) {
                 const now = Date.now();
                 return tasks.filter(t => 
                     t.dueDate && new Date(t.dueDate).getTime() < now && t.status !== 'done'
-                ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()); // Sortuje od najstarszych
+                ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()); 
             }
 
             const saveUiState = () => localStorage.setItem(`teamFlowUiState_${appId}`, JSON.stringify(state.ui));
@@ -1295,7 +1419,6 @@ taskModal.commentsList.addEventListener('click', async (e) => {
 
     if (!task || !project || !commentId) return;
 
-    // Upewnij się, że użytkownik jest autorem komentarza
     const commentToDelete = (task.comments || []).find(c => (c.id || `comment_${c.timestamp}`) === commentId);
     if (!commentToDelete || commentToDelete.userId !== state.currentUser.uid) {
         showNotification("Nie masz uprawnień do usunięcia tego komentarza.", "Błąd");
@@ -1308,7 +1431,6 @@ taskModal.commentsList.addEventListener('click', async (e) => {
         async (confirmed) => {
             if (confirmed) {
                 try {
-                    // Odfiltruj usunięty komentarz
                     const updatedComments = task.comments.filter(c => (c.id || `comment_${c.timestamp}`) !== commentId);
                     const updatedTask = { ...task, comments: updatedComments };
                     const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
@@ -1326,35 +1448,21 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                 }
             }
         },
-        true // Użyj czerwonego przycisku potwierdzenia
+        true 
     );
 });
-                // Nowy listener dla głównego checkboxa w oknie modalnym
 taskModal.completed.addEventListener('change', async () => {
-    console.log("Checkbox w modalu kliknięty. Start funkcji."); // Diagnostyka
-
     const taskId = taskModal.overlay.dataset.taskId;
     const { task, project } = findTask(taskId);
+    if (!task || !project) return;
 
-    if (!task || !project) {
-        console.error("Nie znaleziono zadania lub projektu. Przerywam.", { taskId }); // Diagnostyka
-        return;
-    }
-
-    console.log("Znaleziono zadanie:", task.title); // Diagnostyka
-
-    // --- POCZĄTEK NOWEJ LOGIKI WALIDACJI ---
     if (taskModal.completed.checked) {
-        console.log("Próba oznaczenia jako 'Wykonane'. Sprawdzam warunki..."); // Diagnostyka
         if (task.type === 'multi' && task.completedBy.length < task.assignees.length) {
-            console.warn("Walidacja nie powiodła się. Zadanie wieloosobowe nie jest ukończone przez wszystkich."); // Diagnostyka
             showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
             taskModal.completed.checked = false;
             return;
         }
     }
-    // --- KONIEC NOWEJ LOGIKI WALIDACJI ---
-    console.log("Walidacja pomyślna. Przystępuję do zapisu statusu."); // Diagnostyka
     
     try {
         const oldStatus = task.status;
@@ -1366,18 +1474,30 @@ taskModal.completed.addEventListener('change', async () => {
 
             updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
 
-            const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+            let tasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+
+            // ZMIANA: Logika tworzenia nowego zadania cyklicznego
+            if (newStatus === 'done' && updatedTask.recurrence) {
+                const nextDueDate = calculateNextDueDate(updatedTask.dueDate, updatedTask.recurrence);
+                const nextTask = {
+                    ...updatedTask,
+                    id: `task${Date.now()}`,
+                    status: 'todo',
+                    dueDate: nextDueDate,
+                    completedBy: [],
+                    // Zresetuj historię, zachowując ewentualnie komentarze jako kontekst.
+                    activityLog: [], 
+                };
+                tasks.push(nextTask);
+            }
+
             const projectDocRef = findProject(project.id) 
                 ? doc(projectsRef, project.id) 
                 : doc(completedProjectsRef, project.id);
             
-            console.log("Zapisuję zmiany w bazie danych..."); // Diagnostyka
-            await updateDoc(projectDocRef, { tasks: updatedTasks });
-            console.log("Zmiany zapisane pomyślnie."); // Diagnostyka
+            await updateDoc(projectDocRef, { tasks: tasks });
             
             openTaskModal(taskId);
-        } else {
-             console.log("Status się nie zmienił, nie ma potrzeby zapisu."); // Diagnostyka
         }
     } catch (error) {
         console.error("Błąd przy zmianie statusu zadania przez checkbox modalny:", error);
@@ -1398,14 +1518,12 @@ taskModal.completed.addEventListener('change', async () => {
         }
 
             function renderSidebar() {
-                // Aktywuj link dashboardu, jeśli to obecny widok
                 mainNav.querySelector('a').classList.toggle('active', state.ui.currentView === 'my-dashboard');
                 const renderProjectList = (projects, listEl) => {
                     listEl.innerHTML = '';
                     (projects || []).forEach(project => {
                         const li = document.createElement('li');
                         li.className = 'nav-item';
-                        // Zaktualizowano klasę aktywności dla projektu
                         li.innerHTML = `<a href="#" data-project-id="${project.id}" class="${project.id === state.currentProjectId && state.ui.currentView === 'projects' ? 'active' : ''}"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span>${project.name}</span></a>`;
                         listEl.appendChild(li);
                     });
@@ -1472,8 +1590,7 @@ taskModal.completed.addEventListener('change', async () => {
                 `;
                 projectProgressEl.style.display = totalTasks > 0 ? 'block' : 'none';
 
-                // ▼▼▼ NOWA LOGIKA: SORTOWANIE ZADAŃ PROJEKTU ▼▼▼
-                const sortOrder = state.ui.projectSortOrders[project.id] || 'asc'; // Domyślnie 'asc'
+                const sortOrder = state.ui.projectSortOrders[project.id] || 'asc'; 
                 projectTasks.sort((a, b) => {
                     const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
                     const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
@@ -1482,23 +1599,20 @@ taskModal.completed.addEventListener('change', async () => {
                     if (dateB === Infinity) return -1;
                     return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
                 });
-                // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
 
                 renderKanbanBoard(projectTasks, !isCompleted);
             }
             
-            // NOWA FUNKCJA: Renderuje widok "Mój Pulpit"
             function renderMyDashboardView() {
                 projectNameHeaderEl.textContent = 'Mój Pulpit';
                 mobileHeaderTitle.textContent = 'Mój Pulpit';
                 projectMembersHeaderEl.innerHTML = '';
                 projectActionsEl.style.display = 'none';
                 projectProgressEl.innerHTML = ''; 
-                fabAddTask.style.display = 'none'; // Ukryj FAB
+                fabAddTask.style.display = 'none'; 
 
                 const myTasks = getAllMyTasks();
                 
-                // Sortowanie zadań przed podziałem na dashboard i kanban
                 myTasks.sort((a, b) => {
                     const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
                     const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
@@ -1513,14 +1627,12 @@ taskModal.completed.addEventListener('change', async () => {
                 const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
                 const totalActiveTasks = todoCount + inProgressCount;
 
-                // Obliczenia do wykresu (mock)
                 const todoHeight = totalActiveTasks > 0 ? Math.round((todoCount / totalActiveTasks) * 100) : 0;
                 const inProgressHeight = totalActiveTasks > 0 ? Math.round((inProgressCount / totalActiveTasks) * 100) : 0;
                 
-                // Struktura Dashboardu
-                // UŻYCIE GŁÓWNEGO KONTENERA KANBAN-BOARD DO ZAWIEARANIA WSZYSTKIEGO W WIDOKU DASHBOARD
                 kanbanBoardEl.innerHTML = `
-                    <div class="dashboard-container"> <div class="dashboard-grid">
+                    <div class="dashboard-container">
+                        <div class="dashboard-grid">
                             <div class="dashboard-card">
                                 <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
                                 <div class="overdue-list-container">
@@ -1554,10 +1666,8 @@ taskModal.completed.addEventListener('change', async () => {
                     </div>
                 `;
                 
-                // Renderuj Kanban dla wszystkich zadań użytkownika w nowej sekcji
                 const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
                 
-                // Zapewnienie, że sekcja Kanbana jest poprawnie inicjowana
                 const renderMyTasksKanban = (tasks, targetElement) => {
                     targetElement.innerHTML = '';
                     targetElement.style.display = 'grid';
@@ -1569,7 +1679,6 @@ taskModal.completed.addEventListener('change', async () => {
                         const column = document.createElement('div');
                         column.className = 'kanban-column';
                         column.dataset.status = statusKey;
-                        // Kanban w widoku Dashboardu powinien być interaktywny
                         const tasksInColumn = tasks.filter(t => t.status === statusKey); 
                         
                         column.innerHTML = `<div class="kanban-column-header"><h3>${STATUSES[statusKey]}</h3><span class="task-count">${tasksInColumn.length}</span></div><ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true)).join('')}</ul>`;
@@ -1579,7 +1688,6 @@ taskModal.completed.addEventListener('change', async () => {
                 
                 renderMyTasksKanban(myTasks, myTasksKanbanEl);
                 
-                // Dodanie listenera dla opóźnionych zadań (pozwala na kliknięcie i otwarcie modala)
                 document.querySelectorAll('.overdue-item').forEach(item => {
                     item.addEventListener('click', (e) => {
                         const taskId = e.currentTarget.dataset.taskId;
@@ -1587,15 +1695,13 @@ taskModal.completed.addEventListener('change', async () => {
                     });
                 });
                 
-                // W widoku Dashboardu, główny kanban-board jest używany jako kontener pionowy
                 kanbanBoardEl.style.display = 'block';
                 kanbanBoardEl.style.overflow = 'visible';
             }
 
             function renderKanbanBoard(tasks, isInteractive) {
-                // Ta funkcja jest używana DLA PROJEKTÓW
                 kanbanBoardEl.innerHTML = '';
-                kanbanBoardEl.style.display = 'grid'; // Wróć do grid dla Kanban
+                kanbanBoardEl.style.display = 'grid'; 
                 kanbanBoardEl.style.overflow = 'auto'; 
                 
                 Object.keys(STATUSES).forEach(statusKey => {
@@ -1610,45 +1716,49 @@ taskModal.completed.addEventListener('change', async () => {
             }
             
             function createTaskCardHTML(task, isInteractive) {
-    const isCompleted = task.status === 'done';
-    const priorityClass = task.priority === 'high' ? 'priority-high' : '';
-    const projectNameHTML = task.projectName ? `<span class="task-project-name">${task.projectName}</span>` : '';
-    
-    // <-- POCZĄTEK ZMIAN
-    const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
-    const tooltipText = shouldBeDisabled ? `title="Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części."` : '';
-    // <-- KONIEC ZMIAN
+                const isCompleted = task.status === 'done';
+                const priorityClass = task.priority === 'high' ? 'priority-high' : '';
+                const projectNameHTML = task.projectName ? `<span class="task-project-name">${task.projectName}</span>` : '';
+                
+                const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
+                const tooltipText = shouldBeDisabled ? `title="Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części."` : '';
 
-    const assigneesHTML = (task.assignees || []).map(assigneeId => {
-        const user = findUser(assigneeId);
-        return user ? `<div class="avatar" style="background-color: ${user.avatarColor || '#ccc'}" title="${user.name || user.email}">${(user.name || user.email).substring(0,2).toUpperCase()}</div>` : '';
-    }).join('');
-    
-    const isOverdue = task.dueDate && new Date(task.dueDate).getTime() < Date.now() && task.status !== 'done';
-    const overdueClass = isOverdue ? 'overdue' : '';
+                const assigneesHTML = (task.assignees || []).map(assigneeId => {
+                    const user = findUser(assigneeId);
+                    return user ? `<div class="avatar" style="background-color: ${user.avatarColor || '#ccc'}" title="${user.name || user.email}">${(user.name || user.email).substring(0,2).toUpperCase()}</div>` : '';
+                }).join('');
+                
+                const isOverdue = task.dueDate && new Date(task.dueDate).getTime() < Date.now() && task.status !== 'done';
+                const overdueClass = isOverdue ? 'overdue' : '';
 
-    const dueDateHTML = task.dueDate ? `
-        <div class="task-detail ${overdueClass}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
-            <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${new Date(task.dueDate).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
-        </div>` : '';
-    
-    const multiUserIcon = task.type === 'multi' ? `
-        <div class="task-detail" title="Zadanie wieloosobowe">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m-7.5-2.962A3.75 3.75 0 0115 9.75c0 1.036-.394 2.006-1.097 2.753m-10.243-4.553a4.5 4.5 0 118.23 4.762A4.5 4.5 0 006.75 12.75c-1.631 0-3.133-.82-4.01-2.043M15.75 9.75c0-1.036.394-2.006 1.097-2.753A3.75 3.75 0 0015 3.75c-1.631 0-3.133.82-4.01 2.043m5.858 5.858a3.75 3.75 0 00-5.858-5.858m0 0A3.75 3.75 0 019.75 5.25c1.036 0 2.006.394 2.753 1.097" /></svg>
-        </div>` : '';
+                const dueDateHTML = task.dueDate ? `
+                    <div class="task-detail ${overdueClass}">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
+                        <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${new Date(task.dueDate).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
+                    </div>` : '';
+                
+                const multiUserIcon = task.type === 'multi' ? `
+                    <div class="task-detail" title="Zadanie wieloosobowe">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m-7.5-2.962A3.75 3.75 0 0115 9.75c0 1.036-.394 2.006-1.097 2.753m-10.243-4.553a4.5 4.5 0 118.23 4.762A4.5 4.5 0 006.75 12.75c-1.631 0-3.133-.82-4.01-2.043M15.75 9.75c0-1.036.394-2.006 1.097-2.753A3.75 3.75 0 0015 3.75c-1.631 0-3.133.82-4.01 2.043m5.858 5.858a3.75 3.75 0 00-5.858-5.858m0 0A3.75 3.75 0 019.75 5.25c1.036 0 2.006.394 2.753 1.097" /></svg>
+                    </div>` : '';
+                
+                // NOWY ELEMENT: Ikona dla zadań cyklicznych
+                const recurringIcon = task.recurrence ? `
+                    <div class="task-detail recurring" title="Zadanie cykliczne">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.664 0l3.18-3.185m-7.527 0l-4.24-4.24a3.75 3.75 0 00-5.303 0m5.303 0l4.242 4.242" /></svg>
+                    </div>` : '';
 
-    return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}">
-        <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isInteractive ? '' : 'disabled'} ${shouldBeDisabled ? 'disabled' : ''} ${tooltipText}>
-        ${projectNameHTML}
-        <h4>${task.title}</h4>
-        <div class="task-meta">
-            <div class="task-details">${dueDateHTML}${multiUserIcon}</div>
-            <div class="task-assignees">${assigneesHTML}</div>
-        </div>
-    </li>`;
-}
-            
+                return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}">
+                    <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isInteractive ? '' : 'disabled'} ${shouldBeDisabled ? 'disabled' : ''} ${tooltipText}>
+                    ${projectNameHTML}
+                    <h4>${task.title}</h4>
+                    <div class="task-meta">
+                        <div class="task-details">${dueDateHTML}${multiUserIcon}${recurringIcon}</div>
+                        <div class="task-assignees">${assigneesHTML}</div>
+                    </div>
+                </li>`;
+            }
+
             function applyTheme() {
                 const isDark = state.ui.theme === 'dark';
                 document.body.classList.toggle('dark-mode', isDark);
@@ -1680,18 +1790,35 @@ taskModal.completed.addEventListener('change', async () => {
 
                     taskModal.completed.checked = task.status === 'done';
                     const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
-taskModal.completed.disabled = shouldBeDisabled;
+                    taskModal.completed.disabled = shouldBeDisabled;
 
-if (shouldBeDisabled) {
-    taskModal.completed.title = "Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.";
-} else {
-    taskModal.completed.title = ""; // Wyczyść podpowiedź, jeśli checkbox jest aktywny
-}
+                    if (shouldBeDisabled) {
+                        taskModal.completed.title = "Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.";
+                    } else {
+                        taskModal.completed.title = ""; 
+                    }
                     taskModal.description.value = task.description || '';
                     taskModal.priority.value = task.priority;
                     taskModal.dueDate.value = task.dueDate;
                     taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
                     
+                    // ZMIANA: Ustawianie kontrolek cykliczności
+                    if (task.recurrence) {
+                        taskModal.isRecurring.checked = true;
+                        taskModal.recurrenceOptions.style.display = 'block';
+                        taskModal.recurrenceType.value = task.recurrence.type;
+                        if (task.recurrence.type === 'dayOfMonth') {
+                            taskModal.recurrenceDayWrapper.style.display = 'block';
+                            taskModal.recurrenceDay.value = task.recurrence.day;
+                        } else {
+                            taskModal.recurrenceDayWrapper.style.display = 'none';
+                        }
+                    } else {
+                        taskModal.isRecurring.checked = false;
+                        taskModal.recurrenceOptions.style.display = 'none';
+                        taskModal.recurrenceDayWrapper.style.display = 'none';
+                    }
+
                     Array.from(taskModal.overlay.querySelectorAll('.description textarea, .sidebar-detail select, .sidebar-detail input')).forEach(el => el.disabled = true);
                     taskModal.completed.disabled = false;
 
@@ -1725,13 +1852,12 @@ if (shouldBeDisabled) {
                     openModal(taskModal.overlay);
                 };
 
-                // --- TRYB EDYCJI ---
                 const setEditMode = () => {
                     taskModal.title.style.display = 'none';
                     taskModal.titleInput.value = task.title;
                     taskModal.titleInput.style.display = 'block';
 
-                    Array.from(taskModal.overlay.querySelectorAll('select, textarea, input[type="datetime-local"]')).forEach(el => el.disabled = false);
+                    Array.from(taskModal.overlay.querySelectorAll('select, textarea, input')).forEach(el => el.disabled = false);
 
                     taskModal.assigneesList.style.display = 'none';
                     taskModal.assigneesEdit.style.display = 'block';
@@ -1753,40 +1879,36 @@ if (shouldBeDisabled) {
                 setViewMode();
             }
             
-            // FUNKCJE RENDERUJĄCE NOWE SEKCJE
             function renderComments(task) {
-    taskModal.commentsList.innerHTML = '';
-    // Upewnij się, że task.comments istnieje
-    const comments = task.comments || [];
+                taskModal.commentsList.innerHTML = '';
+                const comments = task.comments || [];
 
-    comments.sort((a, b) => b.timestamp - a.timestamp).forEach(comment => {
-        const user = findUser(comment.userId);
-        const userName = user ? (user.name || user.email) : 'Nieznany Użytkownik';
-        const avatarInitials = user ? (user.name || user.email).substring(0, 2).toUpperCase() : '??';
-        const avatarColor = user ? user.avatarColor || '#ccc' : '#aaa';
-        
-        // Sprawdź, czy zalogowany użytkownik jest autorem komentarza
-        let deleteButtonHTML = '';
-        if (comment.userId === state.currentUser.uid) {
-            // Używamy ID komentarza, które dodaliśmy w kroku 1
-            const commentId = comment.id || `comment_${comment.timestamp}`; // Zabezpieczenie dla starych komentarzy
-            deleteButtonHTML = `<button class="delete-comment-btn" data-comment-id="${commentId}" title="Usuń komentarz">&times;</button>`;
-        }
+                comments.sort((a, b) => b.timestamp - a.timestamp).forEach(comment => {
+                    const user = findUser(comment.userId);
+                    const userName = user ? (user.name || user.email) : 'Nieznany Użytkownik';
+                    const avatarInitials = user ? (user.name || user.email).substring(0, 2).toUpperCase() : '??';
+                    const avatarColor = user ? user.avatarColor || '#ccc' : '#aaa';
+                    
+                    let deleteButtonHTML = '';
+                    if (comment.userId === state.currentUser.uid) {
+                        const commentId = comment.id || `comment_${comment.timestamp}`; 
+                        deleteButtonHTML = `<button class="delete-comment-btn" data-comment-id="${commentId}" title="Usuń komentarz">&times;</button>`;
+                    }
 
-        const li = document.createElement('li');
-        li.className = 'comment-item';
-        li.innerHTML = `
-            ${deleteButtonHTML}
-            <div class="comment-author">
-                <div class="avatar" style="background-color: ${avatarColor}; width: 24px; height: 24px; font-size: 11px;">${avatarInitials}</div>
-                <span>${userName}</span>
-                <small style="color: var(--text-secondary); font-weight: 400;">${new Date(comment.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small>
-            </div>
-            <p>${comment.text}</p>
-        `;
-        taskModal.commentsList.appendChild(li);
-    });
-}
+                    const li = document.createElement('li');
+                    li.className = 'comment-item';
+                    li.innerHTML = `
+                        ${deleteButtonHTML}
+                        <div class="comment-author">
+                            <div class="avatar" style="background-color: ${avatarColor}; width: 24px; height: 24px; font-size: 11px;">${avatarInitials}</div>
+                            <span>${userName}</span>
+                            <small style="color: var(--text-secondary); font-weight: 400;">${new Date(comment.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small>
+                        </div>
+                        <p>${comment.text}</p>
+                    `;
+                    taskModal.commentsList.appendChild(li);
+                });
+            }
 
             function renderActivityLog(task) {
                 taskModal.activityList.innerHTML = '';
@@ -1825,7 +1947,7 @@ if (shouldBeDisabled) {
                     newValue: newValue,
                 };
                 task.activityLog = [...(task.activityLog || []), activity];
-                return task; // Ważne: Zwracamy zaktualizowane zadanie
+                return task;
             }
 
            async function saveTaskFromModal() {
@@ -1856,7 +1978,6 @@ if (shouldBeDisabled) {
                     return;
                 }
 
-                // 1. Stwórz obiekt zaktualizowanego zadania ze wszystkimi nowymi danymi
                 let updatedTask = {
                     ...task,
                     title: newTitle,
@@ -1870,7 +1991,16 @@ if (shouldBeDisabled) {
                     updatedTask.status = 'done';
                 }
 
-                // 2. Dodaj wpisy do historii, modyfikując obiekt updatedTask
+                // ZMIANA: Zapisywanie informacji o cykliczności
+                if (taskModal.isRecurring.checked) {
+                    updatedTask.recurrence = {
+                        type: taskModal.recurrenceType.value,
+                        day: taskModal.recurrenceType.value === 'dayOfMonth' ? parseInt(taskModal.recurrenceDay.value) || 1 : null
+                    };
+                } else {
+                    updatedTask.recurrence = null;
+                }
+
                 if (oldStatus !== newStatus) {
                     updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
                 }
@@ -1878,18 +2008,29 @@ if (shouldBeDisabled) {
                     updatedTask = addActivity(updatedTask, 'priority', oldPriority, newPriority);
                 }
 
-                // 3. Wykonaj JEDEN zapis do bazy danych
+                let tasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+
+                // ZMIANA: Logika tworzenia nowego zadania cyklicznego przy zapisie
+                if (oldStatus !== 'done' && newStatus === 'done' && updatedTask.recurrence) {
+                    const nextDueDate = calculateNextDueDate(updatedTask.dueDate, updatedTask.recurrence);
+                    const nextTask = {
+                        ...updatedTask,
+                        id: `task${Date.now()}`,
+                        status: 'todo',
+                        dueDate: nextDueDate,
+                        completedBy: [],
+                        activityLog: [],
+                    };
+                    tasks.push(nextTask);
+                }
+                
                 const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
-
+                
                 try {
-                    await updateDoc(projectDocRef, { tasks: updatedTasks });
-
+                    await updateDoc(projectDocRef, { tasks: tasks });
                     if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
-                    
                     showNotification("Zmiany w zadaniu zostały zapisane.", "Sukces");
                     closeModal(taskModal.overlay);
-                    // Nie ma potrzeby ponownego otwierania modala, bo dane odświeżą się automatycznie
                 } catch (error) {
                     console.error("Błąd zapisu zmian w zadaniu:", error);
                     showNotification("Wystąpił błąd podczas zapisu zmian.", "Błąd");
@@ -1908,6 +2049,12 @@ if (shouldBeDisabled) {
                     return;
                 };
                 newTaskModal.form.reset();
+
+                // ZMIANA: Resetowanie pól cykliczności
+                newTaskModal.isRecurring.checked = false;
+                newTaskModal.recurrenceOptions.style.display = 'none';
+                newTaskModal.recurrenceDayWrapper.style.display = 'none';
+
                 const membersOptions = (targetProject.members || []).map(memberId => {
                     const user = findUser(memberId);
                     return user ? {id: user.id, name: user.name || user.email, avatarColor: user.avatarColor} : null;
@@ -1943,7 +2090,6 @@ if (shouldBeDisabled) {
                 openModal(editProjectModal.overlay);
             }
 
-            // NOWA FUNKCJA OBSŁUGUJĄCA USUNIĘCIE PROJEKTU
             async function handleDeleteProject(projectId) {
                 const project = findProject(projectId) || findCompletedProject(projectId);
                 if (!project || project.ownerId !== state.currentUser.uid) {
@@ -1960,11 +2106,9 @@ if (shouldBeDisabled) {
                         if (confirmed) {
                             try {
                                 await deleteDoc(doc(collectionRef, projectId));
-                                
-                                // Przełącz na następny projekt lub widok 'Mój Pulpit'
                                 const nextProject = state.projects.find(p => p.id !== projectId) || state.completedProjects.find(p => p.id !== projectId);
                                 state.currentProjectId = nextProject ? nextProject.id : null;
-                                state.ui.currentView = state.currentProjectId ? 'projects' : 'my-dashboard'; // Zmiana na my-dashboard
+                                state.ui.currentView = state.currentProjectId ? 'projects' : 'my-dashboard'; 
                                 saveUiState();
                                 showNotification("Projekt został pomyślnie usunięty.", "Sukces");
                                 render();
@@ -2005,7 +2149,6 @@ if (shouldBeDisabled) {
                 const projectsQuery = query(projectsRef, where("members", "array-contains", userId));
                 state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
                     state.projects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    // Po załadowaniu projektów, sprawdź, czy currentProjectId jest wciąż aktualny
                     const isCurrentProjectActive = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
                     if (!isCurrentProjectActive && state.ui.currentView !== 'my-dashboard') {
                         state.currentProjectId = state.projects.length > 0 ? state.projects[0].id : null;
@@ -2027,16 +2170,15 @@ if (shouldBeDisabled) {
             
             loadUiState();
             function updateNotificationBellUI() {
-    if (!notificationToggleBtn) return; // Zabezpieczenie na wypadek, gdyby przycisk nie istniał
-    
-    if (Notification.permission === 'granted') {
-        notificationToggleBtn.classList.add('active');
-        notificationToggleBtn.title = 'Powiadomienia są włączone';
-    } else {
-        notificationToggleBtn.classList.remove('active');
-        notificationToggleBtn.title = 'Kliknij, aby włączyć powiadomienia';
-    }
-}
+                if (!notificationToggleBtn) return;
+                if (Notification.permission === 'granted') {
+                    notificationToggleBtn.classList.add('active');
+                    notificationToggleBtn.title = 'Powiadomienia są włączone';
+                } else {
+                    notificationToggleBtn.classList.remove('active');
+                    notificationToggleBtn.title = 'Kliknij, aby włączyć powiadomienia';
+                }
+            }
             // --- GŁÓWNY LISTENER UWIERZYTELNIANIA ---
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
@@ -2060,7 +2202,7 @@ if (shouldBeDisabled) {
                 }
             });
 
-            // --- WSZYSTKIE POZOSTAŁE EVENT LISTENERY ---
+            // --- LISTENERY ---
             mobileThemeSwitcher.appendChild(desktopThemeSwitcher.cloneNode(true));
             showRegisterBtn.addEventListener('click', () => { loginForm.style.display = 'none'; registerForm.style.display = 'block'; });
             showLoginBtn.addEventListener('click', () => { registerForm.style.display = 'none'; loginForm.style.display = 'block'; });
@@ -2077,7 +2219,7 @@ if (shouldBeDisabled) {
                 submitBtn.textContent = 'Rejestrowanie...';
                 try {
                     await createUserWithEmailAndPassword(auth, email, password);
-                    const user = auth.currentUser; // Użyj auth.currentUser po pomyślnym utworzeniu
+                    const user = auth.currentUser; 
                     await setDoc(doc(usersRef, user.uid), {
                         uid: user.uid,
                         email: user.email,
@@ -2134,7 +2276,7 @@ if (shouldBeDisabled) {
                 e.preventDefault();
                 const link = e.target.closest('a');
                 if(link && link.dataset.view) {
-                    state.currentProjectId = null; // Wyczyść ID projektu przy przejściu na pulpit
+                    state.currentProjectId = null;
                     state.ui.currentView = link.dataset.view;
                     saveUiState();
                     render();
@@ -2145,7 +2287,6 @@ if (shouldBeDisabled) {
 
             newProjectBtn.addEventListener('click', () => {
                  newProjectModal.form.reset();
-                 // ZMIANA: Generowanie pigułek zamiast checkboxów w modalu nowego projektu.
                  newProjectModal.membersContainer.innerHTML = state.users.map(user => {
                     const isCurrentUser = user.id === state.currentUser.uid;
                     const initials = (user.name || user.email).substring(0,2).toUpperCase();
@@ -2159,7 +2300,6 @@ if (shouldBeDisabled) {
                  openModal(newProjectModal.overlay);
             });
             
-            // ZMIANA: Dodano delegację zdarzeń dla pigułek w modalu nowego projektu.
             newProjectModal.membersContainer.addEventListener('click', (e) => {
                 const pill = e.target.closest('.member-pill:not(.disabled)');
                 if (pill) {
@@ -2172,7 +2312,6 @@ if (shouldBeDisabled) {
                 const newName = newProjectModal.nameInput.value.trim();
                 if (!newName) return;
                 
-                // ZMIANA: Nowy sposób odczytywania zaznaczonych członków.
                 const selectedMembers = Array.from(newProjectModal.membersContainer.querySelectorAll('.member-pill.selected'))
                                            .map(pill => pill.dataset.userId);
 
@@ -2189,7 +2328,8 @@ if (shouldBeDisabled) {
                         createdBy: state.currentUser.uid,
                         type: 'single', assignees: [], completedBy: [], priority: 'medium', dueDate: null,
                         comments: [], 
-                        activityLog: [] 
+                        activityLog: [],
+                        recurrence: null
                     }))
                 };
                 const docRef = await addDoc(projectsRef, newProject);
@@ -2202,7 +2342,6 @@ if (shouldBeDisabled) {
             editProjectBtn.addEventListener('click', () => openEditProjectModal(state.currentProjectId));
 
             deleteProjectBtn.addEventListener('click', () => handleDeleteProject(state.currentProjectId));
-
 
             editProjectModal.form.addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -2271,6 +2410,20 @@ if (shouldBeDisabled) {
                      showNotification("Wybierz przynajmniej jedną osobę do zadania.", "Błąd");
                      return;
                 }
+
+                // ZMIANA: Odczytywanie danych o cykliczności z formularza
+                let recurrence = null;
+                if (newTaskModal.isRecurring.checked) {
+                    if (!newTaskModal.dueDate.value) {
+                        showNotification("Zadanie cykliczne musi mieć ustawiony termin wykonania.", "Błąd");
+                        return;
+                    }
+                    recurrence = {
+                        type: newTaskModal.recurrenceType.value,
+                        day: newTaskModal.recurrenceType.value === 'dayOfMonth' ? parseInt(newTaskModal.recurrenceDay.value) || 1 : null
+                    };
+                }
+
                 const newTask = {
                     id: `task${Date.now()}`, title,
                     createdBy: state.currentUser.uid,
@@ -2282,7 +2435,8 @@ if (shouldBeDisabled) {
                     priority: newTaskModal.priority.value,
                     dueDate: newTaskModal.dueDate.value || null,
                     comments: [], 
-                    activityLog: [] 
+                    activityLog: [],
+                    recurrence: recurrence // Dodanie pola cykliczności
                 };
                 await updateDoc(doc(projectsRef, project.id), {
                     tasks: [...(project.tasks || []), newTask]
@@ -2290,52 +2444,70 @@ if (shouldBeDisabled) {
                 closeModal(newTaskModal.overlay);
             });
             
-            async function handleTaskCheckboxClick(checkbox) {
-    const taskId = checkbox.dataset.taskId;
-    const { task, project } = findTask(taskId);
-    if (!task || !project) return;
-    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-    let updatedTask = { ...task };
-    const oldStatus = updatedTask.status;
+            async function handleTaskCompletion(task, project) {
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                
+                let tasks = project.tasks.map(t => (t.id === task.id ? task : t));
 
-    if (task.type === 'multi') {
-        const userId = state.currentUser.uid;
-        if (checkbox.checked) {
-            if (!updatedTask.completedBy.includes(userId)) {
-                updatedTask.completedBy.push(userId);
+                if (task.status === 'done' && task.recurrence) {
+                    const nextDueDate = calculateNextDueDate(task.dueDate, task.recurrence);
+                    const nextTask = {
+                        ...task,
+                        id: `task${Date.now()}`,
+                        status: 'todo',
+                        dueDate: nextDueDate,
+                        completedBy: [],
+                        activityLog: [],
+                    };
+                    tasks.push(nextTask);
+                }
+                await updateDoc(projectDocRef, { tasks: tasks });
             }
-        } else {
-            updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
-        }
-        if (updatedTask.completedBy.length === updatedTask.assignees.length) {
-            updatedTask.status = 'done';
-            if (oldStatus !== 'done') showConfetti();
-        } else {
-            updatedTask.status = oldStatus === 'done' ? 'inprogress' : oldStatus;
-        }
-        if (updatedTask.status !== oldStatus) {
-            updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-        } else if (checkbox.checked && updatedTask.status !== 'done' && !updatedTask.activityLog.some(a => a.type === 'completion' && a.userId === state.currentUser.uid)) {
-            updatedTask = addActivity(updatedTask, 'completion');
-        }
-    } else {
-        if (checkbox.checked) {
-            if (task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
-                showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
-                checkbox.checked = false; 
-                return; 
+
+
+            async function handleTaskCheckboxClick(checkbox) {
+                const taskId = checkbox.dataset.taskId;
+                const { task, project } = findTask(taskId);
+                if (!task || !project) return;
+                
+                let updatedTask = { ...task };
+                const oldStatus = updatedTask.status;
+
+                if (task.type === 'multi') {
+                    const userId = state.currentUser.uid;
+                    if (checkbox.checked) {
+                        if (!updatedTask.completedBy.includes(userId)) updatedTask.completedBy.push(userId);
+                    } else {
+                        updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
+                    }
+                    if (updatedTask.completedBy.length === updatedTask.assignees.length) {
+                        updatedTask.status = 'done';
+                    } else {
+                        updatedTask.status = oldStatus === 'done' ? 'inprogress' : oldStatus;
+                    }
+                    if (updatedTask.status !== oldStatus) {
+                        updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                    } else if (checkbox.checked && updatedTask.status !== 'done' && !updatedTask.activityLog.some(a => a.type === 'completion' && a.userId === state.currentUser.uid)) {
+                        updatedTask = addActivity(updatedTask, 'completion');
+                    }
+                } else {
+                    if (checkbox.checked) {
+                        if (task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
+                            showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
+                            checkbox.checked = false; 
+                            return; 
+                        }
+                    }
+                    updatedTask.status = checkbox.checked ? 'done' : 'todo';
+                    if (updatedTask.status !== oldStatus) {
+                        updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                    }
+                }
+
+                if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
+                
+                await handleTaskCompletion(updatedTask, project);
             }
-        }
-        
-        updatedTask.status = checkbox.checked ? 'done' : 'todo';
-        if (updatedTask.status !== oldStatus) {
-            if (updatedTask.status === 'done') showConfetti();
-            updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-        }
-    }
-    const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
-    await updateDoc(projectDocRef, { tasks: updatedTasks });
-}
 
             kanbanBoardEl.addEventListener('click', (e) => {
                 if (e.target.closest('.task-card-checkbox')) {
@@ -2370,78 +2542,76 @@ if (shouldBeDisabled) {
             taskModal.saveBtn.addEventListener('click', saveTaskFromModal);
             
            taskModal.addCommentBtn.addEventListener('click', async () => {
-    const taskId = taskModal.overlay.dataset.taskId;
-    const commentText = taskModal.newCommentText.value.trim();
-    if (!commentText) return;
+                const taskId = taskModal.overlay.dataset.taskId;
+                const commentText = taskModal.newCommentText.value.trim();
+                if (!commentText) return;
 
-    const { task, project } = findTask(taskId);
-    if (!task || !project) return;
-    if (task.createdBy && task.createdBy === state.currentUser.uid) {
-        taskModal.deleteBtn.style.display = 'block';
-    } else {
-        taskModal.deleteBtn.style.display = 'none';
-    }
+                const { task, project } = findTask(taskId);
+                if (!task || !project) return;
+                if (task.createdBy && task.createdBy === state.currentUser.uid) {
+                    taskModal.deleteBtn.style.display = 'block';
+                } else {
+                    taskModal.deleteBtn.style.display = 'none';
+                }
 
-    const newComment = {
-    id: `comment_${Date.now()}`,
-    userId: state.currentUser.uid,
-    text: commentText,
-    timestamp: Date.now(),
-};
+                const newComment = {
+                id: `comment_${Date.now()}`,
+                userId: state.currentUser.uid,
+                text: commentText,
+                timestamp: Date.now(),
+            };
 
-    let updatedTask = {
-        ...task,
-        comments: [...(task.comments || []), newComment]
-    };
+                let updatedTask = {
+                    ...task,
+                    comments: [...(task.comments || []), newComment]
+                };
 
-    updatedTask = addActivity(updatedTask, 'comment'); 
+                updatedTask = addActivity(updatedTask, 'comment'); 
 
-    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-    const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
 
-    await updateDoc(projectDocRef, { tasks: updatedTasks });
+                await updateDoc(projectDocRef, { tasks: updatedTasks });
 
-    taskModal.newCommentText.value = '';
-               openTaskModal(taskId);
-});
+                taskModal.newCommentText.value = '';
+                openTaskModal(taskId);
+            });
 
 
             taskModal.overlay.addEventListener('click', async (e) => {
-    const completePartBtn = e.target.closest('.js-complete-my-part-btn');
-    if (completePartBtn) {
-        const userId = completePartBtn.dataset.userId;
-        const taskId = taskModal.overlay.dataset.taskId;
-        const { task, project } = findTask(taskId);
+                const completePartBtn = e.target.closest('.js-complete-my-part-btn');
+                if (completePartBtn) {
+                    const userId = completePartBtn.dataset.userId;
+                    const taskId = taskModal.overlay.dataset.taskId;
+                    const { task, project } = findTask(taskId);
 
-        if (!task || !project || userId !== state.currentUser.uid) return;
-        
-        const oldStatus = task.status;
-        let updatedTask = { ...task };
+                    if (!task || !project || userId !== state.currentUser.uid) return;
+                    
+                    const oldStatus = task.status;
+                    let updatedTask = { ...task };
 
-        if (!updatedTask.completedBy.includes(userId)) {
-            updatedTask.completedBy.push(userId);
-        }
+                    if (!updatedTask.completedBy.includes(userId)) {
+                        updatedTask.completedBy.push(userId);
+                    }
 
-        if (updatedTask.completedBy.length === updatedTask.assignees.length) {
-            updatedTask.status = 'done';
-        } else if (updatedTask.completedBy.length > 0) {
-            updatedTask.status = 'inprogress';
-        } else {
-            updatedTask.status = 'todo';
-        }
-        
-        if (updatedTask.status !== oldStatus) {
-            if (updatedTask.status === 'done') showConfetti();
-            updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-        }
-        updatedTask = addActivity(updatedTask, 'completion');
+                    if (updatedTask.completedBy.length === updatedTask.assignees.length) {
+                        updatedTask.status = 'done';
+                    } else if (updatedTask.completedBy.length > 0) {
+                        updatedTask.status = 'inprogress';
+                    } else {
+                        updatedTask.status = 'todo';
+                    }
+                    
+                    if (updatedTask.status !== oldStatus) {
+                        if (updatedTask.status === 'done') showConfetti();
+                        updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                    }
+                    updatedTask = addActivity(updatedTask, 'completion');
 
-        const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-        const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
-        await updateDoc(projectDocRef, { tasks: updatedTasks });
-        openTaskModal(taskId);
-    }
-});
+                    await handleTaskCompletion(updatedTask, project);
+                    openTaskModal(taskId);
+                }
+            });
 
             document.querySelectorAll('.theme-switcher').forEach(switcher => {
                 switcher.addEventListener('click', e => {
@@ -2551,27 +2721,12 @@ if (shouldBeDisabled) {
                     }
 
                     const oldStatus = task.status;
-
-                    const activity = {
-                        type: 'status',
-                        userId: state.currentUser.uid,
-                        timestamp: Date.now(),
-                        oldValue: STATUSES[oldStatus],
-                        newValue: STATUSES[newStatus],
-                    };
+                    let updatedTask = { ...task, status: newStatus };
+                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
                     
-                    const updatedTask = {
-                        ...task,
-                        status: newStatus,
-                        activityLog: [...(task.activityLog || []), activity]
-                    };
-                    
-                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                    const updatedTasks = project.tasks.map(t => (t.id === draggedTaskId ? updatedTask : t));
-
-                    await updateDoc(projectDocRef, { tasks: updatedTasks });
-
                     if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
+
+                    await handleTaskCompletion(updatedTask, project);
                 }
             });
             taskModal.deleteBtn.addEventListener('click', async () => {
@@ -2581,9 +2736,9 @@ if (shouldBeDisabled) {
           if (!task || !project) return;
           
           if (task.createdBy !== state.currentUser.uid && project.ownerId !== state.currentUser.uid) {
-    showNotification("Nie masz uprawnień do usunięcia tego zadania. Musisz być twórcą zadania lub właścicielem projektu.", "Błąd");
-    return;
-}
+            showNotification("Nie masz uprawnień do usunięcia tego zadania. Musisz być twórcą zadania lub właścicielem projektu.", "Błąd");
+            return;
+        }
 
           showConfirmation(
               "Potwierdź usunięcie zadania",
@@ -2591,11 +2746,9 @@ if (shouldBeDisabled) {
               async (confirmed) => {
                   if (confirmed) {
                       const updatedTasks = project.tasks.filter(t => t.id !== taskId);
-
                       const projectDocRef = findProject(project.id) 
                           ? doc(projectsRef, project.id) 
                           : doc(completedProjectsRef, project.id);
-                      
                       try {
                           await updateDoc(projectDocRef, { tasks: updatedTasks });
                           closeModal(taskModal.overlay);
@@ -2609,6 +2762,18 @@ if (shouldBeDisabled) {
               true
           );
       });
+
+        // NOWE LISTENERY: Obsługa interfejsu cykliczności
+        function setupRecurrenceUIListeners(modalElements) {
+            modalElements.isRecurring.addEventListener('change', () => {
+                modalElements.recurrenceOptions.style.display = modalElements.isRecurring.checked ? 'block' : 'none';
+            });
+            modalElements.recurrenceType.addEventListener('change', () => {
+                modalElements.recurrenceDayWrapper.style.display = modalElements.recurrenceType.value === 'dayOfMonth' ? 'block' : 'none';
+            });
+        }
+        setupRecurrenceUIListeners(newTaskModal);
+        setupRecurrenceUIListeners(taskModal);
         });
     </script>
 </body>
