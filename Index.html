@@ -740,9 +740,10 @@
                 </div>
             </div>
              <div class="modal-footer">
-                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
-                <button type="button" id="save-task-btn" class="btn btn-primary">Zapisz zmiany</button>
-            </div>
+                <button type="button" class="btn btn-danger" id="delete-task-btn" style="margin-right:auto; display:none;">Usuń zadanie</button>
+<button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+<button type="button" id="save-task-btn" class="btn btn-primary">Zapisz zmiany</button>
+</div>
         </div>
     </div>
     
@@ -1032,6 +1033,7 @@
                 priority: document.getElementById('modal-task-priority'),
                 dueDate: document.getElementById('modal-task-dueDate'),
                 saveBtn: document.getElementById('save-task-btn'),
+            , deleteBtn: document.getElementById('delete-task-btn')
                 commentsList: document.getElementById('comments-list'), // NOWA REFERENCJA
                 newCommentText: document.getElementById('new-comment-text'), // NOWA REFERENCJA
                 addCommentBtn: document.getElementById('add-comment-btn'), // NOWA REFERENCJA
@@ -1468,6 +1470,8 @@
                 taskModal.priority.value = task.priority;
                 taskModal.dueDate.value = task.dueDate;
                 taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
+                // Pokaż przycisk usuwania tylko autorowi zadania
+                if (taskModal.deleteBtn) { taskModal.deleteBtn.style.display = (task.createdBy === state.currentUser.uid) ? 'inline-block' : 'none'; }
                 taskModal.assigneesList.innerHTML = (task.assignees || []).map(memberId => {
                     const user = findUser(memberId);
                     return user ? `<div title="${user.name || user.email}" class="avatar" style="background-color: ${user.avatarColor || '#ccc'}">${(user.name || user.email).substring(0,2).toUpperCase()}</div>` : '';
@@ -1858,11 +1862,12 @@
                     ownerId: state.currentUser.uid,
                     members: selectedMembers,
                     tasks: taskTitles.map((title, i) => ({
-                        id: `task${Date.now() + i}`, title, description: '', status: 'todo', 
+id: `task${Date.now() + i}`, title, description: '', status: 'todo', 
                         type: 'single', assignees: [], completedBy: [], priority: 'medium', dueDate: null,
                         comments: [], // Inicjalizacja komentarzy
-                        activityLog: [] // Inicjalizacja historii
-                    }))
+                        activityLog: [] // Inicjalizacja historii,
+      createdBy: state.currentUser.uid 
+    }))
                 };
                 const docRef = await addDoc(projectsRef, newProject);
                 state.currentProjectId = docRef.id;
@@ -1936,7 +1941,7 @@
                      return;
                 }
                 const newTask = {
-                    id: `task${Date.now()}`, title,
+id: `task${Date.now()}`, title,
                     description: newTaskModal.description.value,
                     status: 'todo', 
                     type: taskType,
@@ -1945,8 +1950,9 @@
                     priority: newTaskModal.priority.value,
                     dueDate: newTaskModal.dueDate.value || null,
                     comments: [], // Inicjalizacja komentarzy
-                    activityLog: [] // Inicjalizacja historii
-                };
+                    activityLog: [] // Inicjalizacja historii,
+  createdBy: state.currentUser.uid
+};
                 await updateDoc(doc(projectsRef, project.id), {
                     tasks: [...(project.tasks || []), newTask]
                 });
@@ -2026,7 +2032,9 @@
 
             taskModal.saveBtn.addEventListener('click', saveTaskFromModal);
             
-            // Listener do dodawania komentarzy
+            
+taskModal.deleteBtn && taskModal.deleteBtn.addEventListener(\'click\', () => { const taskId = taskModal.overlay.dataset.taskId; if (taskId) handleDeleteTask(taskId); });
+// Listener do dodawania komentarzy
             taskModal.addCommentBtn.addEventListener('click', async () => {
                 const taskId = taskModal.overlay.dataset.taskId;
                 const commentText = taskModal.newCommentText.value.trim();
@@ -2206,7 +2214,38 @@
             });
             
         });
-    </script>
+    
+        // Usuwanie zadania przez autora
+        async function handleDeleteTask(taskId) {
+            const { task, project } = findTask(taskId);
+            if (!task || !project) return;
+            if (task.createdBy !== state.currentUser.uid) {
+                showNotification("Tylko autor zadania może je usunąć.", "Brak uprawnień");
+                return;
+            }
+            showConfirmation(
+                "Usuń zadanie",
+                `Czy na pewno chcesz usunąć zadanie „${task.title}”? Tej operacji nie można cofnąć.`,
+                async (confirmed) => {
+                    if (!confirmed) return;
+                    try {
+                        const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                        const updatedTasks = (project.tasks || []).filter(t => t.id !== taskId);
+                        await updateDoc(projectDocRef, { tasks: updatedTasks });
+                        closeModal(taskModal.overlay);
+                        showNotification("Zadanie zostało usunięte.", "Sukces");
+                        // opcjonalnie: odśwież widok
+                        await loadProjects();
+                        render();
+                    } catch (err) {
+                        console.error("Błąd usuwania zadania:", err);
+                        showNotification("Wystąpił błąd podczas usuwania zadania.", "Błąd");
+                    }
+                },
+                true
+            );
+        }
+</script>
 </body>
 </html>
 
