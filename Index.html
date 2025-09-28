@@ -2468,49 +2468,55 @@ if (shouldBeDisabled) {
             });
             kanbanBoardEl.addEventListener('dragover', (e) => e.preventDefault());
             kanbanBoardEl.addEventListener('drop', async (e) => {
-                e.preventDefault();
-                const column = e.target.closest('.kanban-column');
-                if (!column || !draggedTaskId) return;
+    e.preventDefault();
+    const column = e.target.closest('.kanban-column');
+    if (!column || !draggedTaskId) return;
 
-                const newStatus = column.dataset.status;
-                const { task, project } = findTask(draggedTaskId);
+    const newStatus = column.dataset.status;
+    const { task, project } = findTask(draggedTaskId);
 
-                if (state.ui.currentView === 'projects' && findCompletedProject(state.currentProjectId)) return;
+    if (state.ui.currentView === 'projects' && findCompletedProject(state.currentProjectId)) return;
 
-                if (task && task.status !== newStatus) {
-                    if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < task.assignees.length) {
-                        showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
-                        render();
-                        return;
-                    }
+    if (task && task.status !== newStatus) {
+        // --- POCZĄTEK NOWEJ LOGIKI ---
+        // Sprawdź uprawnienia dla zadania jednoosobowego przenoszonego do "Wykonane"
+        if (task.type === 'single' && newStatus === 'done' && task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
+            showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
+            render(); // Odśwież widok, aby cofnąć kartę na miejsce
+            return;
+        }
+        // --- KONIEC NOWEJ LOGIKI ---
 
-                    const oldStatus = task.status;
+        if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < task.assignees.length) {
+            showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
+            render();
+            return;
+        }
 
-                    // 1. Stwórz wpis do historii
-                    const activity = {
-                        type: 'status',
-                        userId: state.currentUser.uid,
-                        timestamp: Date.now(),
-                        oldValue: STATUSES[oldStatus],
-                        newValue: STATUSES[newStatus],
-                    };
-                    
-                    // 2. Stwórz obiekt zaktualizowanego zadania
-                    const updatedTask = {
-                        ...task,
-                        status: newStatus,
-                        activityLog: [...(task.activityLog || []), activity]
-                    };
-                    
-                    // 3. Wykonaj jeden, czysty zapis do bazy danych
-                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                    const updatedTasks = project.tasks.map(t => (t.id === draggedTaskId ? updatedTask : t));
+        const oldStatus = task.status;
 
-                    await updateDoc(projectDocRef, { tasks: updatedTasks });
+        const activity = {
+            type: 'status',
+            userId: state.currentUser.uid,
+            timestamp: Date.now(),
+            oldValue: STATUSES[oldStatus],
+            newValue: STATUSES[newStatus],
+        };
+        
+        const updatedTask = {
+            ...task,
+            status: newStatus,
+            activityLog: [...(task.activityLog || []), activity]
+        };
+        
+        const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+        const updatedTasks = project.tasks.map(t => (t.id === draggedTaskId ? updatedTask : t));
 
-                    if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
-                }
-            });
+        await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+        if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
+    }
+});
             taskModal.deleteBtn.addEventListener('click', async () => {
           const taskId = taskModal.overlay.dataset.taskId;
           const { task, project } = findTask(taskId);
@@ -2550,6 +2556,7 @@ if (shouldBeDisabled) {
     </script>
 </body>
 </html>
+
 
 
 
