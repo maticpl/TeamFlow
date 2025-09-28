@@ -1285,6 +1285,49 @@ taskModal.commentsList.addEventListener('click', async (e) => {
         true // Użyj czerwonego przycisku potwierdzenia
     );
 });
+                // Nowy listener dla głównego checkboxa w oknie modalnym
+taskModal.completed.addEventListener('change', async () => {
+    const taskId = taskModal.overlay.dataset.taskId;
+    const { task, project } = findTask(taskId);
+    if (!task || !project) return;
+
+    // --- POCZĄTEK NOWEJ LOGIKI WALIDACJI ---
+    // Sprawdzamy, czy ktoś próbuje oznaczyć zadanie jako "Wykonane"
+    if (taskModal.completed.checked) {
+        // Jeśli jest to zadanie wieloosobowe i nie wszyscy je ukończyli
+        if (task.type === 'multi' && task.completedBy.length < task.assignees.length) {
+            showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
+            taskModal.completed.checked = false; // Natychmiast odznacz checkbox
+            return; // Przerwij działanie
+        }
+    }
+    // --- KONIEC NOWEJ LOGIKI WALIDACJI ---
+
+    // Jeśli walidacja przeszła pomyślnie, zapisz zmianę statusu
+    try {
+        const oldStatus = task.status;
+        const newStatus = taskModal.completed.checked ? 'done' : 'inprogress';
+
+        if (oldStatus !== newStatus) {
+            let updatedTask = { ...task, status: newStatus };
+            if (newStatus === 'done') showConfetti();
+
+            updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+
+            const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+            const projectDocRef = findProject(project.id) 
+                ? doc(projectsRef, project.id) 
+                : doc(completedProjectsRef, project.id);
+            
+            await updateDoc(projectDocRef, { tasks: updatedTasks });
+            openTaskModal(taskId); // Odśwież modal, aby pokazać zmiany
+        }
+    } catch (error) {
+        console.error("Błąd przy zmianie statusu zadania przez checkbox modalny:", error);
+        showNotification("Wystąpił błąd podczas zapisu zmiany.", "Błąd");
+        taskModal.completed.checked = !taskModal.completed.checked; // Przywróć poprzedni stan w razie błędu
+    }
+});
             // Ustawienie widoczności przycisku sortowania
             const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
             const isDashboardView = state.ui.currentView === 'my-dashboard';
@@ -2471,6 +2514,7 @@ await updateDoc(projectDocRef, { tasks: updatedTasks });
     </script>
 </body>
 </html>
+
 
 
 
