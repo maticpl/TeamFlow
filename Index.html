@@ -740,7 +740,7 @@
                 </div>
             </div>
              <div class="modal-footer">
-                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="button" id="delete-task-btn" class="btn btn-danger" style="margin-right: auto;">Usuń zadanie</button> <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
                 <button type="button" id="save-task-btn" class="btn btn-primary">Zapisz zmiany</button>
             </div>
         </div>
@@ -1032,6 +1032,7 @@
                 priority: document.getElementById('modal-task-priority'),
                 dueDate: document.getElementById('modal-task-dueDate'),
                 saveBtn: document.getElementById('save-task-btn'),
+                deleteBtn: document.getElementById('delete-task-btn'),
                 commentsList: document.getElementById('comments-list'), // NOWA REFERENCJA
                 newCommentText: document.getElementById('new-comment-text'), // NOWA REFERENCJA
                 addCommentBtn: document.getElementById('add-comment-btn'), // NOWA REFERENCJA
@@ -1937,6 +1938,7 @@
                 }
                 const newTask = {
                     id: `task${Date.now()}`, title,
+                    createdBy: state.currentUser.uid,
                     description: newTaskModal.description.value,
                     status: 'todo', 
                     type: taskType,
@@ -2034,6 +2036,12 @@
                 
                 const { task, project } = findTask(taskId);
                 if (!task || !project) return;
+                // Sprawdź, czy użytkownik jest twórcą i pokaż/ukryj przycisk usuwania
+                if (task.createdBy && task.createdBy === state.currentUser.uid) {
+                    taskModal.deleteBtn.style.display = 'block';
+                } else {
+                    taskModal.deleteBtn.style.display = 'none';
+                }
                 
                 const newComment = {
                     userId: state.currentUser.uid,
@@ -2204,8 +2212,43 @@
                     if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
                 }
             });
-            
+            taskModal.deleteBtn.addEventListener('click', async () => {
+          const taskId = taskModal.overlay.dataset.taskId;
+          const { task, project } = findTask(taskId);
+
+          if (!task || !project) return;
+          
+          if (task.createdBy !== state.currentUser.uid) {
+              showNotification("Nie masz uprawnień do usunięcia tego zadania.", "Błąd");
+              return;
+          }
+
+          showConfirmation(
+              "Potwierdź usunięcie zadania",
+              `Czy na pewno chcesz trwale usunąć zadanie: "${task.title}"?`,
+              async (confirmed) => {
+                  if (confirmed) {
+                      const updatedTasks = project.tasks.filter(t => t.id !== taskId);
+
+                      const projectDocRef = findProject(project.id) 
+                          ? doc(projectsRef, project.id) 
+                          : doc(completedProjectsRef, project.id);
+                      
+                      try {
+                          await updateDoc(projectDocRef, { tasks: updatedTasks });
+                          closeModal(taskModal.overlay);
+                          showNotification("Zadanie zostało pomyślnie usunięte.", "Sukces");
+                      } catch (error) {
+                          console.error("Błąd podczas usuwania zadania:", error);
+                          showNotification("Wystąpił błąd podczas usuwania zadania.", "Błąd");
+                      }
+                  }
+              }, 
+              true
+          );
+      });
         });
     </script>
 </body>
 </html>
+
