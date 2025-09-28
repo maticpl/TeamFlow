@@ -1287,23 +1287,31 @@ taskModal.commentsList.addEventListener('click', async (e) => {
 });
                 // Nowy listener dla głównego checkboxa w oknie modalnym
 taskModal.completed.addEventListener('change', async () => {
+    console.log("Checkbox w modalu kliknięty. Start funkcji."); // Diagnostyka
+
     const taskId = taskModal.overlay.dataset.taskId;
     const { task, project } = findTask(taskId);
-    if (!task || !project) return;
+
+    if (!task || !project) {
+        console.error("Nie znaleziono zadania lub projektu. Przerywam.", { taskId }); // Diagnostyka
+        return;
+    }
+
+    console.log("Znaleziono zadanie:", task.title); // Diagnostyka
 
     // --- POCZĄTEK NOWEJ LOGIKI WALIDACJI ---
-    // Sprawdzamy, czy ktoś próbuje oznaczyć zadanie jako "Wykonane"
     if (taskModal.completed.checked) {
-        // Jeśli jest to zadanie wieloosobowe i nie wszyscy je ukończyli
+        console.log("Próba oznaczenia jako 'Wykonane'. Sprawdzam warunki..."); // Diagnostyka
         if (task.type === 'multi' && task.completedBy.length < task.assignees.length) {
+            console.warn("Walidacja nie powiodła się. Zadanie wieloosobowe nie jest ukończone przez wszystkich."); // Diagnostyka
             showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
-            taskModal.completed.checked = false; // Natychmiast odznacz checkbox
-            return; // Przerwij działanie
+            taskModal.completed.checked = false;
+            return;
         }
     }
     // --- KONIEC NOWEJ LOGIKI WALIDACJI ---
-
-    // Jeśli walidacja przeszła pomyślnie, zapisz zmianę statusu
+    console.log("Walidacja pomyślna. Przystępuję do zapisu statusu."); // Diagnostyka
+    
     try {
         const oldStatus = task.status;
         const newStatus = taskModal.completed.checked ? 'done' : 'inprogress';
@@ -1319,13 +1327,18 @@ taskModal.completed.addEventListener('change', async () => {
                 ? doc(projectsRef, project.id) 
                 : doc(completedProjectsRef, project.id);
             
+            console.log("Zapisuję zmiany w bazie danych..."); // Diagnostyka
             await updateDoc(projectDocRef, { tasks: updatedTasks });
-            openTaskModal(taskId); // Odśwież modal, aby pokazać zmiany
+            console.log("Zmiany zapisane pomyślnie."); // Diagnostyka
+            
+            openTaskModal(taskId);
+        } else {
+             console.log("Status się nie zmienił, nie ma potrzeby zapisu."); // Diagnostyka
         }
     } catch (error) {
         console.error("Błąd przy zmianie statusu zadania przez checkbox modalny:", error);
         showNotification("Wystąpił błąd podczas zapisu zmiany.", "Błąd");
-        taskModal.completed.checked = !taskModal.completed.checked; // Przywróć poprzedni stan w razie błędu
+        taskModal.completed.checked = !taskModal.completed.checked;
     }
 });
             // Ustawienie widoczności przycisku sortowania
@@ -2514,6 +2527,7 @@ await updateDoc(projectDocRef, { tasks: updatedTasks });
     </script>
 </body>
 </html>
+
 
 
 
