@@ -1658,7 +1658,7 @@ taskModal.completed.addEventListener('change', async () => {
                             const user = findUser(userId);
                             const isDone = task.completedBy.includes(userId);
                             const isCurrentUser = userId === state.currentUser.uid;
-                            const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm" data-user-id="${userId}" id="complete-my-part-btn">Oznacz jako wykonane</button>` : '';
+                            const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm js-complete-my-part-btn" data-user-id="${userId}">Oznacz jako wykonane</button>` : '';
                             return `<li class="completion-status-item"><div class="user-info"><div class="avatar" style="background-color: ${user.avatarColor || '#ccc'}" title="${user.name || user.email}">${(user.name || user.email).substring(0,2).toUpperCase()}</div><span>${user.name || user.email}</span></div><div class="status-indicator-wrapper">${actionButton}<span class="status-indicator ${isDone ? 'done' : 'pending'}">${isDone ? 'Gotowe' : 'Oczekuje'}</span></div></li>`;
                         }).join('');
                     } else {
@@ -2324,32 +2324,43 @@ taskModal.completed.addEventListener('change', async () => {
 
 
             taskModal.overlay.addEventListener('click', async (e) => {
-                if (e.target.id === 'complete-my-part-btn') {
-const oldStatus = task.status;
-let updatedTask = { ...task }; // Pracuj na kopii
+    const completePartBtn = e.target.closest('.js-complete-my-part-btn');
+    if (completePartBtn) {
+        const userId = completePartBtn.dataset.userId;
+        const taskId = taskModal.overlay.dataset.taskId;
+        const { task, project } = findTask(taskId);
 
-if (!updatedTask.completedBy.includes(userId)) {
-    updatedTask.completedBy.push(userId);
-}
-if (updatedTask.completedBy.length === updatedTask.assignees.length) {
-    updatedTask.status = 'done';
-    if (oldStatus !== 'done') showConfetti();
-}
+        if (!task || !project || userId !== state.currentUser.uid) return;
+        
+        const oldStatus = task.status;
+        let updatedTask = { ...task };
 
-// Jeśli status się zmienił, dodaj aktywność statusu
-if (updatedTask.status !== oldStatus) {
-    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-}
-// Zawsze dodaj aktywność ukończenia części zadania
-updatedTask = addActivity(updatedTask, 'completion');
+        if (!updatedTask.completedBy.includes(userId)) {
+            updatedTask.completedBy.push(userId);
+        }
 
-const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
-await updateDoc(projectDocRef, { tasks: updatedTasks });
-// Nie ma potrzeby ponownego otwierania modala
-// openTaskModal(taskId); 
-                }
-            });
+        // Poprawna logika ustawiania statusu
+        if (updatedTask.completedBy.length === updatedTask.assignees.length) {
+            updatedTask.status = 'done';
+        } else if (updatedTask.completedBy.length > 0) {
+            updatedTask.status = 'inprogress';
+        } else {
+            updatedTask.status = 'todo';
+        }
+        
+        // Logika dodawania wpisów do historii
+        if (updatedTask.status !== oldStatus) {
+            if (updatedTask.status === 'done') showConfetti();
+            updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+        }
+        updatedTask = addActivity(updatedTask, 'completion');
+
+        const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+        const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
+        await updateDoc(projectDocRef, { tasks: updatedTasks });
+        openTaskModal(taskId);
+    }
+});
 
             document.querySelectorAll('.theme-switcher').forEach(switcher => {
                 switcher.addEventListener('click', e => {
@@ -2527,6 +2538,7 @@ await updateDoc(projectDocRef, { tasks: updatedTasks });
     </script>
 </body>
 </html>
+
 
 
 
