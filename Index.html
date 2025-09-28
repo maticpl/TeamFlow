@@ -1604,7 +1604,7 @@
             }
 
 
-            async function addActivity(task, project, type, oldValue = null, newValue = null) {
+            function addActivity(task, type, oldValue = null, newValue = null) {
                 const activity = {
                     type: type,
                     userId: state.currentUser.uid,
@@ -1613,68 +1613,75 @@
                     newValue: newValue,
                 };
                 task.activityLog = [...(task.activityLog || []), activity];
-                
-                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                const updatedTasks = project.tasks.map(t => t.id === task.id ? task : t);
-                
-                await updateDoc(projectDocRef, { tasks: updatedTasks });
+                return task; // Ważne: Zwracamy zaktualizowane zadanie
             }
 
-            async function saveTaskFromModal() {
+           async function saveTaskFromModal() {
                 const taskId = taskModal.overlay.dataset.taskId;
                 const { task, project } = findTask(taskId);
                 if (!task || !project) return;
-                
-                const newTitle = taskModal.titleInput.value.trim();
-                const newAssignees = Array.from(taskModal.assigneesEdit.querySelectorAll('input:checked')).map(input => input.value);
 
+                const newTitle = taskModal.titleInput.value.trim();
                 if (!newTitle) {
                     showNotification("Tytuł zadania nie może być pusty.", "Błąd");
                     return;
                 }
+
+                const newAssignees = Array.from(taskModal.assigneesEdit.querySelectorAll('input:checked')).map(input => input.value);
                 if (newAssignees.length === 0) {
                     showNotification("Zadanie musi być przypisane do co najmniej jednej osoby.", "Błąd");
                     return;
                 }
-                
+
                 const oldStatus = task.status;
-                const oldPriority = task.priority;
                 const newStatus = taskModal.status.value;
+                const oldPriority = task.priority;
+                const newPriority = taskModal.priority.value;
 
                 if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < newAssignees.length) {
                     showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
                     taskModal.status.value = oldStatus;
                     return;
                 }
-                
-                const updatedTask = {
+
+                // 1. Stwórz obiekt zaktualizowanego zadania ze wszystkimi nowymi danymi
+                let updatedTask = {
                     ...task,
                     title: newTitle,
                     assignees: newAssignees,
                     description: taskModal.description.value,
                     status: newStatus,
-                    priority: taskModal.priority.value,
+                    priority: newPriority,
                     dueDate: taskModal.dueDate.value,
                 };
-                
-                if (taskModal.completed.checked && updatedTask.status !== 'done') updatedTask.status = 'done';
-                
+                 if (taskModal.completed.checked && updatedTask.status !== 'done') {
+                    updatedTask.status = 'done';
+                }
+
+                // 2. Dodaj wpisy do historii, modyfikując obiekt updatedTask
                 if (oldStatus !== newStatus) {
-                    await addActivity(updatedTask, project, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
                 }
                 if (oldPriority !== newPriority) {
-                     await addActivity(updatedTask, project, 'priority', oldPriority, newPriority);
+                    updatedTask = addActivity(updatedTask, 'priority', oldPriority, newPriority);
                 }
-                
-                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
-                
-                await updateDoc(projectDocRef, { tasks: updatedTasks });
-                
-                if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
 
-                closeModal(taskModal.overlay);
-                openTaskModal(taskId); // Odśwież widok
+                // 3. Wykonaj JEDEN zapis do bazy danych
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+
+                try {
+                    await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+                    if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
+                    
+                    showNotification("Zmiany w zadaniu zostały zapisane.", "Sukces");
+                    closeModal(taskModal.overlay);
+                    // Nie ma potrzeby ponownego otwierania modala, bo dane odświeżą się automatycznie
+                } catch (error) {
+                    console.error("Błąd zapisu zmian w zadaniu:", error);
+                    showNotification("Wystąpił błąd podczas zapisu zmian.", "Błąd");
+                }
             }
             
             function openNewTaskModal(isFab = false) {
@@ -2327,6 +2334,7 @@
     </script>
 </body>
 </html>
+
 
 
 
