@@ -2125,68 +2125,70 @@
             
             // Listener do dodawania komentarzy
             taskModal.addCommentBtn.addEventListener('click', async () => {
-                const taskId = taskModal.overlay.dataset.taskId;
-                const commentText = taskModal.newCommentText.value.trim();
-                if (!commentText) return;
-                
-                const { task, project } = findTask(taskId);
-                if (!task || !project) return;
-                // Sprawdź, czy użytkownik jest twórcą i pokaż/ukryj przycisk usuwania
-                if (task.createdBy && task.createdBy === state.currentUser.uid) {
-                    taskModal.deleteBtn.style.display = 'block';
-                } else {
-                    taskModal.deleteBtn.style.display = 'none';
-                }
-                
-                const newComment = {
-                    userId: state.currentUser.uid,
-                    text: commentText,
-                    timestamp: Date.now(),
-                };
-                
-                task.comments = [...(task.comments || []), newComment];
-                
-                // Dodaj wpis do historii
-                await addActivity(task, project, 'comment');
-                
-                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                const updatedTasks = project.tasks.map(t => t.id === taskId ? task : t);
-                
-                await updateDoc(projectDocRef, { tasks: updatedTasks });
-                
-                taskModal.newCommentText.value = '';
-                openTaskModal(taskId); // Odśwież modal, aby wyświetlić nowy komentarz i aktywność
-            });
+    const taskId = taskModal.overlay.dataset.taskId;
+    const commentText = taskModal.newCommentText.value.trim();
+    if (!commentText) return;
+
+    const { task, project } = findTask(taskId);
+    if (!task || !project) return;
+    // Sprawdź, czy użytkownik jest twórcą i pokaż/ukryj przycisk usuwania
+    if (task.createdBy && task.createdBy === state.currentUser.uid) {
+        taskModal.deleteBtn.style.display = 'block';
+    } else {
+        taskModal.deleteBtn.style.display = 'none';
+    }
+
+    const newComment = {
+        userId: state.currentUser.uid,
+        text: commentText,
+        timestamp: Date.now(),
+    };
+
+    // Stwórz nową, zaktualizowaną wersję zadania
+    let updatedTask = {
+        ...task,
+        comments: [...(task.comments || []), newComment]
+    };
+
+    // Dodaj wpis do historii, używając poprawionej wersji zadania
+    updatedTask = addActivity(updatedTask, 'comment'); // <-- POPRAWIONA LINIA
+
+    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+    const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+
+    await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+    taskModal.newCommentText.value = '';
+    // Nie ma potrzeby ponownego otwierania modala, dane odświeżą się same
+    // openTaskModal(taskId); // Usunięte dla lepszej płynności
+});
 
 
             taskModal.overlay.addEventListener('click', async (e) => {
                 if (e.target.id === 'complete-my-part-btn') {
-                    const userId = e.target.dataset.userId;
-                    const taskId = taskModal.overlay.dataset.taskId;
-                    const { task, project } = findTask(taskId);
-                    if (!task || !project || userId !== state.currentUser.uid) return;
-                    
-                    const oldStatus = task.status;
+const oldStatus = task.status;
+let updatedTask = { ...task }; // Pracuj na kopii
 
-                    if (!task.completedBy.includes(userId)) {
-                        task.completedBy.push(userId);
-                    }
-                    if (task.completedBy.length === task.assignees.length) {
-                        task.status = 'done';
-                        if (oldStatus !== 'done') showConfetti();
-                    }
-                    
-                    // Jeśli status się zmienił, dodaj aktywność statusu
-                    if (task.status !== oldStatus) {
-                         await addActivity(task, project, 'status', STATUSES[oldStatus], STATUSES[task.status]);
-                    } 
-                    // Zawsze dodaj aktywność ukończenia części zadania
-                    await addActivity(task, project, 'completion');
+if (!updatedTask.completedBy.includes(userId)) {
+    updatedTask.completedBy.push(userId);
+}
+if (updatedTask.completedBy.length === updatedTask.assignees.length) {
+    updatedTask.status = 'done';
+    if (oldStatus !== 'done') showConfetti();
+}
 
-                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                    const updatedTasks = project.tasks.map(t => t.id === taskId ? task : t);
-                    await updateDoc(projectDocRef, { tasks: updatedTasks });
-                    openTaskModal(taskId); 
+// Jeśli status się zmienił, dodaj aktywność statusu
+if (updatedTask.status !== oldStatus) {
+    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+}
+// Zawsze dodaj aktywność ukończenia części zadania
+updatedTask = addActivity(updatedTask, 'completion');
+
+const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
+await updateDoc(projectDocRef, { tasks: updatedTasks });
+// Nie ma potrzeby ponownego otwierania modala
+// openTaskModal(taskId); 
                 }
             });
 
@@ -2366,6 +2368,7 @@
     </script>
 </body>
 </html>
+
 
 
 
