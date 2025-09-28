@@ -277,7 +277,6 @@
         .task-type-selection input { display: none; }
         .task-type-selection input:checked + label { background-color: var(--accent-primary); color: white; border-color: var(--accent-primary); }
         
-        /* ZMIANA: Usunięto stare style i dodano nowe */
         .members-selection-pills {
             display: flex;
             flex-wrap: wrap;
@@ -853,8 +852,7 @@
                     </div>
                     <div class="form-group">
                         <label>Dodaj członków zespołu</label>
-                         <div id="new-project-members" class="members-selection" style="flex-direction: row; flex-wrap: wrap;">
-                            </div>
+                         <div id="new-project-members" class="members-selection-pills"></div>
                     </div>
                     <div class="form-group">
                         <label for="new-project-tasks">Pierwsze zadania (każde w nowej linii)</label>
@@ -1917,7 +1915,6 @@ if (shouldBeDisabled) {
                 
                 newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
                 
-                // ZMIANA: Generowanie pigułek zamiast checkboxów
                 newTaskModal.assigneeMultiList.innerHTML = membersOptions.map(u => {
                     const isCurrentUser = u.id === state.currentUser.uid;
                     const initials = (u.name || u.email).substring(0,2).toUpperCase();
@@ -2148,33 +2145,53 @@ if (shouldBeDisabled) {
 
             newProjectBtn.addEventListener('click', () => {
                  newProjectModal.form.reset();
-                 newProjectModal.membersContainer.innerHTML = state.users.map(user => 
-                    `<div class="member-option"><input type="checkbox" id="new-user-sel-${user.id}" value="${user.id}" ${user.id === state.currentUser.uid ? 'checked disabled' : ''}><label for="new-task-multi-${user.id}">${user.name || user.email}</label></div>`
-                ).join('');
+                 // ZMIANA: Generowanie pigułek zamiast checkboxów w modalu nowego projektu.
+                 newProjectModal.membersContainer.innerHTML = state.users.map(user => {
+                    const isCurrentUser = user.id === state.currentUser.uid;
+                    const initials = (user.name || user.email).substring(0,2).toUpperCase();
+                     return `
+                        <div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${user.id}" title="${user.name || user.email}">
+                            <div class="member-pill-avatar" style="background-color: ${user.avatarColor || '#ccc'}">${initials}</div>
+                            <span>${user.name || user.email}</span>
+                        </div>
+                    `;
+                 }).join('');
                  openModal(newProjectModal.overlay);
+            });
+            
+            // ZMIANA: Dodano delegację zdarzeń dla pigułek w modalu nowego projektu.
+            newProjectModal.membersContainer.addEventListener('click', (e) => {
+                const pill = e.target.closest('.member-pill:not(.disabled)');
+                if (pill) {
+                    pill.classList.toggle('selected');
+                }
             });
 
             newProjectModal.form.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const newName = newProjectModal.nameInput.value.trim();
                 if (!newName) return;
-                const selectedMembers = Array.from(newProjectModal.membersContainer.querySelectorAll('input:checked')).map(input => input.value);
+                
+                // ZMIANA: Nowy sposób odczytywania zaznaczonych członków.
+                const selectedMembers = Array.from(newProjectModal.membersContainer.querySelectorAll('.member-pill.selected'))
+                                           .map(pill => pill.dataset.userId);
+
                 if (!selectedMembers.includes(state.currentUser.uid)) {
                     selectedMembers.push(state.currentUser.uid);
                 }
                 const taskTitles = newProjectModal.tasksTextarea.value.split('\n').map(t => t.replace(/^-/, '').trim()).filter(Boolean);
                 const newProject = {
-    name: newName,
-    ownerId: state.currentUser.uid,
-    members: selectedMembers,
-    tasks: taskTitles.map((title, i) => ({
-        id: `task${Date.now() + i}`, title, description: '', status: 'todo',
-        createdBy: state.currentUser.uid, // <-- DODAJ TĘ LINIĘ
-        type: 'single', assignees: [], completedBy: [], priority: 'medium', dueDate: null,
-        comments: [], // Inicjalizacja komentarzy
-        activityLog: [] // Inicjalizacja historii
-    }))
-};
+                    name: newName,
+                    ownerId: state.currentUser.uid,
+                    members: selectedMembers,
+                    tasks: taskTitles.map((title, i) => ({
+                        id: `task${Date.now() + i}`, title, description: '', status: 'todo',
+                        createdBy: state.currentUser.uid,
+                        type: 'single', assignees: [], completedBy: [], priority: 'medium', dueDate: null,
+                        comments: [], 
+                        activityLog: [] 
+                    }))
+                };
                 const docRef = await addDoc(projectsRef, newProject);
                 state.currentProjectId = docRef.id;
                 state.ui.currentView = 'projects';
@@ -2183,7 +2200,7 @@ if (shouldBeDisabled) {
             });
             
             editProjectBtn.addEventListener('click', () => openEditProjectModal(state.currentProjectId));
-            // Dodanie listenera dla nowego przycisku usuwania
+
             deleteProjectBtn.addEventListener('click', () => handleDeleteProject(state.currentProjectId));
 
 
@@ -2226,10 +2243,8 @@ if (shouldBeDisabled) {
                 });
             });
 
-            // ZMIANA: Dodano delegację zdarzeń dla pigułek - to rozwiązuje problem "działania co drugi raz"
             newTaskModal.assigneeMultiList.addEventListener('click', (e) => {
                 const pill = e.target.closest('.member-pill');
-                // Sprawdzamy, czy kliknięto na pigułkę i czy nie jest ona zablokowana
                 if (pill && !pill.classList.contains('disabled')) {
                     pill.classList.toggle('selected');
                 }
@@ -2249,7 +2264,6 @@ if (shouldBeDisabled) {
                     const singleAssignee = newTaskModal.assigneeSingleSelect.value;
                     if (singleAssignee) assignees.push(singleAssignee);
                 } else {
-                    // ZMIANA: Nowy sposób zbierania przypisanych osób z pigułek
                     assignees = Array.from(newTaskModal.assigneeMultiList.querySelectorAll('.member-pill.selected'))
                                    .map(pill => pill.dataset.userId);
                 }
@@ -2267,8 +2281,8 @@ if (shouldBeDisabled) {
                     completedBy: [],
                     priority: newTaskModal.priority.value,
                     dueDate: newTaskModal.dueDate.value || null,
-                    comments: [], // Inicjalizacja komentarzy
-                    activityLog: [] // Inicjalizacja historii
+                    comments: [], 
+                    activityLog: [] 
                 };
                 await updateDoc(doc(projectsRef, project.id), {
                     tasks: [...(project.tasks || []), newTask]
@@ -2305,17 +2319,13 @@ if (shouldBeDisabled) {
             updatedTask = addActivity(updatedTask, 'completion');
         }
     } else {
-        // ---- POCZĄTEK NOWEJ LOGIKI ----
-        // Sprawdzamy uprawnienia tylko wtedy, gdy ktoś próbuje ZAZNACZYĆ checkboxa
         if (checkbox.checked) {
-            // Warunek: czy zadanie jest przypisane do kogoś i czy NIE jest to zalogowany użytkownik
             if (task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
                 showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
-                checkbox.checked = false; // COFNIJ ZAZNACZENIE - bardzo ważne!
-                return; // Zatrzymaj dalsze wykonywanie funkcji
+                checkbox.checked = false; 
+                return; 
             }
         }
-        // ---- KONIEC NOWEJ LOGIKI ----
         
         updatedTask.status = checkbox.checked ? 'done' : 'todo';
         if (updatedTask.status !== oldStatus) {
@@ -2328,7 +2338,6 @@ if (shouldBeDisabled) {
 }
 
             kanbanBoardEl.addEventListener('click', (e) => {
-                // Ta sekcja obsługuje kliknięcia w Kanban na dashboardzie i w widoku projektu
                 if (e.target.closest('.task-card-checkbox')) {
                     handleTaskCheckboxClick(e.target.closest('.task-card-checkbox'));
                 } else if (e.target.closest('.task-card')) {
@@ -2338,7 +2347,6 @@ if (shouldBeDisabled) {
                 }
             });
             
-            // Dostęp do modala z dashboardu (z opóźnionych zadań)
             document.addEventListener('click', (e) => {
                 if (e.target.closest('.overdue-item-title')) {
                     const item = e.target.closest('.overdue-item');
@@ -2361,7 +2369,6 @@ if (shouldBeDisabled) {
 
             taskModal.saveBtn.addEventListener('click', saveTaskFromModal);
             
-            // Listener do dodawania komentarzy
            taskModal.addCommentBtn.addEventListener('click', async () => {
     const taskId = taskModal.overlay.dataset.taskId;
     const commentText = taskModal.newCommentText.value.trim();
@@ -2369,7 +2376,6 @@ if (shouldBeDisabled) {
 
     const { task, project } = findTask(taskId);
     if (!task || !project) return;
-    // Sprawdź, czy użytkownik jest twórcą i pokaż/ukryj przycisk usuwania
     if (task.createdBy && task.createdBy === state.currentUser.uid) {
         taskModal.deleteBtn.style.display = 'block';
     } else {
@@ -2377,20 +2383,18 @@ if (shouldBeDisabled) {
     }
 
     const newComment = {
-    id: `comment_${Date.now()}`, // <-- DODAJ TĘ LINIĘ
+    id: `comment_${Date.now()}`,
     userId: state.currentUser.uid,
     text: commentText,
     timestamp: Date.now(),
 };
 
-    // Stwórz nową, zaktualizowaną wersję zadania
     let updatedTask = {
         ...task,
         comments: [...(task.comments || []), newComment]
     };
 
-    // Dodaj wpis do historii, używając poprawionej wersji zadania
-    updatedTask = addActivity(updatedTask, 'comment'); // <-- POPRAWIONA LINIA
+    updatedTask = addActivity(updatedTask, 'comment'); 
 
     const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
     const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
@@ -2399,8 +2403,6 @@ if (shouldBeDisabled) {
 
     taskModal.newCommentText.value = '';
                openTaskModal(taskId);
-    // Nie ma potrzeby ponownego otwierania modala, dane odświeżą się same
-    // openTaskModal(taskId); // Usunięte dla lepszej płynności
 });
 
 
@@ -2420,7 +2422,6 @@ if (shouldBeDisabled) {
             updatedTask.completedBy.push(userId);
         }
 
-        // Poprawna logika ustawiania statusu
         if (updatedTask.completedBy.length === updatedTask.assignees.length) {
             updatedTask.status = 'done';
         } else if (updatedTask.completedBy.length > 0) {
@@ -2429,7 +2430,6 @@ if (shouldBeDisabled) {
             updatedTask.status = 'todo';
         }
         
-        // Logika dodawania wpisów do historii
         if (updatedTask.status !== oldStatus) {
             if (updatedTask.status === 'done') showConfetti();
             updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
@@ -2437,7 +2437,7 @@ if (shouldBeDisabled) {
         updatedTask = addActivity(updatedTask, 'completion');
 
         const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-        const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
+        const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
         await updateDoc(projectDocRef, { tasks: updatedTasks });
         openTaskModal(taskId);
     }
@@ -2497,10 +2497,8 @@ if (shouldBeDisabled) {
             
             sortBtn.addEventListener('click', () => {
                 if (state.ui.currentView === 'my-dashboard') {
-                    // Logika dla pulpitu "Moje zadania"
                     state.ui.sortMyTasksByDate = state.ui.sortMyTasksByDate === 'asc' ? 'desc' : 'asc';
                 } else if (state.ui.currentView === 'projects' && state.currentProjectId) {
-                    // Logika dla widoku projektu
                     const currentOrder = state.ui.projectSortOrders[state.currentProjectId] || 'asc';
                     state.ui.projectSortOrders[state.currentProjectId] = currentOrder === 'asc' ? 'desc' : 'asc';
                 }
@@ -2524,7 +2522,6 @@ if (shouldBeDisabled) {
             });
 
             let draggedTaskId = null;
-            // ZMIANA: Dodano drag&drop do my-tasks-kanban
             kanbanBoardEl.addEventListener('dragstart', (e) => {
                 const taskCard = e.target.closest('.task-card');
                 if (taskCard) {
@@ -2555,7 +2552,6 @@ if (shouldBeDisabled) {
 
                     const oldStatus = task.status;
 
-                    // 1. Stwórz wpis do historii
                     const activity = {
                         type: 'status',
                         userId: state.currentUser.uid,
@@ -2564,14 +2560,12 @@ if (shouldBeDisabled) {
                         newValue: STATUSES[newStatus],
                     };
                     
-                    // 2. Stwórz obiekt zaktualizowanego zadania
                     const updatedTask = {
                         ...task,
                         status: newStatus,
                         activityLog: [...(task.activityLog || []), activity]
                     };
                     
-                    // 3. Wykonaj jeden, czysty zapis do bazy danych
                     const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                     const updatedTasks = project.tasks.map(t => (t.id === draggedTaskId ? updatedTask : t));
 
