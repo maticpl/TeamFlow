@@ -44,6 +44,40 @@
             --priority-high-border: #6d28d9;
             --danger-border: #ef4444; /* Dostosowanie koloru w trybie ciemnym */
         }
+        .comment-item {
+    position: relative; /* Potrzebne do pozycjonowania przycisku */
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    background-color: var(--bg-primary);
+    border-radius: var(--border-radius);
+    font-size: 14px;
+}
+
+.delete-comment-btn {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    opacity: 0.5;
+    transition: opacity 0.2s, background-color 0.2s;
+}
+
+.comment-item:hover .delete-comment-btn {
+    opacity: 1;
+}
+
+.delete-comment-btn:hover {
+    background-color: var(--border-color);
+    color: var(--danger-primary);
+}
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: var(--font-family); background-color: var(--bg-primary); color: var(--text-primary); line-height: 1.5; overflow: hidden; transition: background-color 0.3s, color 0.3s; }
         #auth-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--bg-primary); display: flex; align-items: center; justify-content: center; z-index: 10001; }
@@ -1207,7 +1241,49 @@
             if(!state.currentUser) return;
             applyTheme();
             renderSidebar();
+taskModal.commentsList.addEventListener('click', async (e) => {
+    const deleteBtn = e.target.closest('.delete-comment-btn');
+    if (!deleteBtn) return;
 
+    const commentId = deleteBtn.dataset.commentId;
+    const taskId = taskModal.overlay.dataset.taskId;
+    const { task, project } = findTask(taskId);
+
+    if (!task || !project || !commentId) return;
+
+    // Upewnij się, że użytkownik jest autorem komentarza
+    const commentToDelete = (task.comments || []).find(c => (c.id || `comment_${c.timestamp}`) === commentId);
+    if (!commentToDelete || commentToDelete.userId !== state.currentUser.uid) {
+        showNotification("Nie masz uprawnień do usunięcia tego komentarza.", "Błąd");
+        return;
+    }
+
+    showConfirmation(
+        "Potwierdź usunięcie",
+        "Czy na pewno chcesz usunąć ten komentarz?",
+        async (confirmed) => {
+            if (confirmed) {
+                try {
+                    // Odfiltruj usunięty komentarz
+                    const updatedComments = task.comments.filter(c => (c.id || `comment_${c.timestamp}`) !== commentId);
+                    const updatedTask = { ...task, comments: updatedComments };
+                    const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+
+                    const projectDocRef = findProject(project.id)
+                        ? doc(projectsRef, project.id)
+                        : doc(completedProjectsRef, project.id);
+                    
+                    await updateDoc(projectDocRef, { tasks: updatedTasks });
+                    showNotification("Komentarz został usunięty.", "Sukces");
+                } catch (error) {
+                    console.error("Błąd podczas usuwania komentarza:", error);
+                    showNotification("Wystąpił błąd podczas usuwania komentarza.", "Błąd");
+                }
+            }
+        },
+        true // Użyj czerwonego przycisku potwierdzenia
+    );
+});
             // Ustawienie widoczności przycisku sortowania
             const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
             const isDashboardView = state.ui.currentView === 'my-dashboard';
@@ -1567,26 +1643,38 @@
             
             // FUNKCJE RENDERUJĄCE NOWE SEKCJE
             function renderComments(task) {
-                taskModal.commentsList.innerHTML = '';
-                task.comments.sort((a, b) => b.timestamp - a.timestamp).forEach(comment => {
-                    const user = findUser(comment.userId);
-                    const userName = user ? (user.name || user.email) : 'Nieznany Użytkownik';
-                    const avatarInitials = user ? (user.name || user.email).substring(0, 2).toUpperCase() : '??';
-                    const avatarColor = user ? user.avatarColor || '#ccc' : '#aaa';
+    taskModal.commentsList.innerHTML = '';
+    // Upewnij się, że task.comments istnieje
+    const comments = task.comments || [];
 
-                    const li = document.createElement('li');
-                    li.className = 'comment-item';
-                    li.innerHTML = `
-                        <div class="comment-author">
-                            <div class="avatar" style="background-color: ${avatarColor}; width: 24px; height: 24px; font-size: 11px;">${avatarInitials}</div>
-                            <span>${userName}</span>
-                            <small style="color: var(--text-secondary); font-weight: 400;">${new Date(comment.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small>
-                        </div>
-                        <p>${comment.text}</p>
-                    `;
-                    taskModal.commentsList.appendChild(li);
-                });
-            }
+    comments.sort((a, b) => b.timestamp - a.timestamp).forEach(comment => {
+        const user = findUser(comment.userId);
+        const userName = user ? (user.name || user.email) : 'Nieznany Użytkownik';
+        const avatarInitials = user ? (user.name || user.email).substring(0, 2).toUpperCase() : '??';
+        const avatarColor = user ? user.avatarColor || '#ccc' : '#aaa';
+        
+        // Sprawdź, czy zalogowany użytkownik jest autorem komentarza
+        let deleteButtonHTML = '';
+        if (comment.userId === state.currentUser.uid) {
+            // Używamy ID komentarza, które dodaliśmy w kroku 1
+            const commentId = comment.id || `comment_${comment.timestamp}`; // Zabezpieczenie dla starych komentarzy
+            deleteButtonHTML = `<button class="delete-comment-btn" data-comment-id="${commentId}" title="Usuń komentarz">&times;</button>`;
+        }
+
+        const li = document.createElement('li');
+        li.className = 'comment-item';
+        li.innerHTML = `
+            ${deleteButtonHTML}
+            <div class="comment-author">
+                <div class="avatar" style="background-color: ${avatarColor}; width: 24px; height: 24px; font-size: 11px;">${avatarInitials}</div>
+                <span>${userName}</span>
+                <small style="color: var(--text-secondary); font-weight: 400;">${new Date(comment.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</small>
+            </div>
+            <p>${comment.text}</p>
+        `;
+        taskModal.commentsList.appendChild(li);
+    });
+}
 
             function renderActivityLog(task) {
                 taskModal.activityList.innerHTML = '';
@@ -2125,7 +2213,7 @@
             taskModal.saveBtn.addEventListener('click', saveTaskFromModal);
             
             // Listener do dodawania komentarzy
-            taskModal.addCommentBtn.addEventListener('click', async () => {
+           taskModal.addCommentBtn.addEventListener('click', async () => {
     const taskId = taskModal.overlay.dataset.taskId;
     const commentText = taskModal.newCommentText.value.trim();
     if (!commentText) return;
@@ -2140,10 +2228,11 @@
     }
 
     const newComment = {
-        userId: state.currentUser.uid,
-        text: commentText,
-        timestamp: Date.now(),
-    };
+    id: `comment_${Date.now()}`, // <-- DODAJ TĘ LINIĘ
+    userId: state.currentUser.uid,
+    text: commentText,
+    timestamp: Date.now(),
+};
 
     // Stwórz nową, zaktualizowaną wersję zadania
     let updatedTask = {
@@ -2369,6 +2458,7 @@ await updateDoc(projectDocRef, { tasks: updatedTasks });
     </script>
 </body>
 </html>
+
 
 
 
