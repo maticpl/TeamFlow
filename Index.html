@@ -1572,9 +1572,11 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                 const isCompleted = !!findCompletedProject(state.currentProjectId);
                 const isOwner = project && project.ownerId === state.currentUser.uid;
                 
-                projectActionsEl.style.display = project && isOwner ? 'flex' : 'none';
+                // POPRAWIONA LOGIKA: Ukryj przyciski, jeśli to Skrzynka Zadań
+                const canShowActions = project && isOwner && !project.isInbox;
+                projectActionsEl.style.display = canShowActions ? 'flex' : 'none';
 
-                if (project && isOwner) {
+                if (canShowActions) {
                     editProjectBtn.style.display = 'inline-block';
                     deleteProjectBtn.style.display = 'inline-block';
                     completeProjectBtn.style.display = isCompleted ? 'none' : 'inline-block';
@@ -2246,13 +2248,27 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                 submitBtn.textContent = 'Rejestrowanie...';
                 try {
                     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                    const user = userCredential.user; 
+                    const user = userCredential.user;
+
+                    // Utworzenie dokumentu użytkownika
                     await setDoc(doc(usersRef, user.uid), {
                         uid: user.uid,
                         email: user.email,
                         name: name,
                         avatarColor: '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')
                     });
+
+                    // DODANA LOGIKA: Utworzenie specjalnego projektu "Skrzynka zadań"
+                    const inboxProject = {
+                        name: "Skrzynka zadań",
+                        ownerId: user.uid,
+                        members: [user.uid],
+                        tasks: [],
+                        isInbox: true, // Nasz identyfikator specjalnego projektu
+                        createdAt: Date.now()
+                    };
+                    await addDoc(projectsRef, inboxProject);
+
                 } catch (error) {
                     console.error("Błąd rejestracji:", error);
                     authErrorRegister.textContent = error.message;
@@ -2868,6 +2884,7 @@ taskModal.assigneesEdit.addEventListener('click', (e) => {
     </script>
 </body>
 </html>
+
 
 
 
