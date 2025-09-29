@@ -2177,6 +2177,28 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                 const projectsQuery = query(projectsRef, where("members", "array-contains", userId));
                 state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
                     state.projects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                    // DODANA LOGIKA: Sprawdzanie i tworzenie "Skrzynki zadań" dla istniejących użytkowników
+                    // Sprawdzamy, czy snapshot (który właśnie otrzymaliśmy) zawiera już projekt-skrzynkę.
+                    // Używamy .some(), aby efektywnie przeszukać tablicę.
+                    const inboxExists = state.projects.some(p => p.isInbox === true);
+
+                    // Jeśli po załadowaniu wszystkich projektów skrzynka nie istnieje, tworzymy ją.
+                    if (!inboxExists) {
+                        const inboxProject = {
+                            name: "Skrzynka zadań",
+                            ownerId: state.currentUser.uid,
+                            members: [state.currentUser.uid],
+                            tasks: [],
+                            isInbox: true, // Kluczowy identyfikator
+                            createdAt: Date.now()
+                        };
+                        // Używamy `addDoc` do utworzenia nowego projektu.
+                        // Nie musimy nic robić po tym - onSnapshot sam wykryje zmianę i odświeży widok.
+                        addDoc(projectsRef, inboxProject);
+                    }
+                    // Koniec dodanej logiki
+
                     const isCurrentProjectActive = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
                     if (!isCurrentProjectActive && state.ui.currentView !== 'my-dashboard') {
                         state.currentProjectId = state.projects.length > 0 ? state.projects[0].id : null;
@@ -2884,6 +2906,7 @@ taskModal.assigneesEdit.addEventListener('click', (e) => {
     </script>
 </body>
 </html>
+
 
 
 
