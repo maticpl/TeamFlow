@@ -1438,7 +1438,48 @@
                     renderMyDashboardView();
                 }
             }
+taskModal.commentsList.addEventListener('click', async (e) => {
+    const deleteBtn = e.target.closest('.delete-comment-btn');
+    if (!deleteBtn) return;
 
+    const commentId = deleteBtn.dataset.commentId;
+    const taskId = taskModal.overlay.dataset.taskId;
+    const { task, project } = findTask(taskId);
+
+    if (!task || !project || !commentId) return;
+
+    const commentToDelete = (task.comments || []).find(c => (c.id || `comment_${c.timestamp}`) === commentId);
+    if (!commentToDelete || commentToDelete.userId !== state.currentUser.uid) {
+        showNotification("Nie masz uprawnień do usunięcia tego komentarza.", "Błąd");
+        return;
+    }
+
+    showConfirmation(
+        "Potwierdź usunięcie",
+        "Czy na pewno chcesz usunąć ten komentarz?",
+        async (confirmed) => {
+            if (confirmed) {
+                try {
+                    const updatedComments = task.comments.filter(c => (c.id || `comment_${c.timestamp}`) !== commentId);
+                    const updatedTask = { ...task, comments: updatedComments };
+                    const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+
+                    const projectDocRef = findProject(project.id)
+                        ? doc(projectsRef, project.id)
+                        : doc(completedProjectsRef, project.id);
+                    
+                    await updateDoc(projectDocRef, { tasks: updatedTasks });
+                    openTaskModal(taskId);
+                    showNotification("Komentarz został usunięty.", "Sukces");
+                } catch (error) {
+                    console.error("Błąd podczas usuwania komentarza:", error);
+                    showNotification("Wystąpił błąd podczas usuwania komentarza.", "Błąd");
+                }
+            }
+        },
+        true 
+    );
+});
             function renderSidebar() {
                 mainNav.querySelector('a').classList.toggle('active', state.ui.currentView === 'my-dashboard');
                 const renderProjectList = (projects, listEl) => {
@@ -2732,4 +2773,5 @@
     </script>
 </body>
 </html>
+
 
