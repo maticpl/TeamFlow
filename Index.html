@@ -853,7 +853,7 @@
                    <div class="sidebar-detail" id="modal-task-assignees-wrapper">
                         <label>Przypisane osoby</label>
                         <div id="modal-task-assignees-list"></div>
-                        <div id="modal-task-assignees-edit" class="members-selection" style="display: none;"></div>
+                        <div id="modal-task-assignees-edit" class="members-selection-pills" style="display: none;"></div>
                     </div>
                     <div class="sidebar-detail">
                         <label for="modal-task-priority">Priorytet</label>
@@ -942,7 +942,7 @@
                     </div>
                      <div class="form-group">
                         <label>Członkowie zespołu</label>
-                        <div id="edit-project-members" class="members-selection" style="flex-direction: row; flex-wrap: wrap;">
+                        <div id="edit-project-members" class="members-selection-pills"></div>
                             </div>
                     </div>
                 </div>
@@ -1828,12 +1828,16 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                     taskModal.assigneesEdit.style.display = 'block';
                     const membersOptions = (project.members || []).map(memberId => findUser(memberId)).filter(Boolean);
                     
-                    taskModal.assigneesEdit.innerHTML = membersOptions.map(user => 
-                        `<div class="member-option">
-                            <input type="checkbox" id="edit-task-multi-${user.id}" value="${user.id}" ${task.assignees.includes(user.id) ? 'checked' : ''}>
-                            <label for="edit-task-multi-${user.id}">${user.name || user.email}</label>
-                        </div>`
-                    ).join('');
+                    taskModal.assigneesEdit.innerHTML = membersOptions.map(user => {
+    const isSelected = task.assignees.includes(user.id);
+    const initials = (user.name || user.email).substring(0, 2).toUpperCase();
+    return `
+        <div class="member-pill ${isSelected ? 'selected' : ''}" data-user-id="${user.id}" title="${user.name}">
+            <div class="member-pill-avatar" style="background-color: ${user.avatarColor || '#ccc'}">${initials}</div>
+            <span>${user.name}</span>
+        </div>
+    `;
+}).join('');
                     taskModal.saveBtn.style.display = 'block';
                     taskModal.deleteBtn.style.display = 'none';
                     taskModal.editBtn.style.display = 'none';
@@ -1924,7 +1928,7 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                     return;
                 }
 
-                const newAssignees = Array.from(taskModal.assigneesEdit.querySelectorAll('input:checked')).map(input => input.value);
+                const newAssignees = Array.from(taskModal.assigneesEdit.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
                 if (newAssignees.length === 0) {
                     showNotification("Zadanie musi być przypisane do co najmniej jednej osoby.", "Błąd");
                     return;
@@ -2039,15 +2043,24 @@ taskModal.commentsList.addEventListener('click', async (e) => {
             }
 
             function openEditProjectModal(projectId) {
-                const project = findProject(projectId);
-                if (!project) return;
-                editProjectModal.overlay.dataset.projectId = projectId;
-                editProjectModal.nameInput.value = project.name;
-                editProjectModal.membersContainer.innerHTML = state.users.map(user => 
-                    `<div class="member-option"><input type="checkbox" id="edit-user-sel-${user.id}" value="${user.id}" ${project.members.includes(user.id) ? 'checked' : ''}><label for="edit-user-sel-${user.id}">${user.name || user.email}</label></div>`
-                ).join('');
-                openModal(editProjectModal.overlay);
-            }
+    const project = findProject(projectId);
+    if (!project) return;
+    editProjectModal.overlay.dataset.projectId = projectId;
+    editProjectModal.nameInput.value = project.name;
+    editProjectModal.membersContainer.innerHTML = state.users.map(user => {
+        const isSelected = project.members.includes(user.id);
+        const isOwner = user.id === project.ownerId; // Właściciel projektu jest zawsze zaznaczony i zablokowany
+        const initials = (user.name || user.email).substring(0, 2).toUpperCase();
+
+        return `
+            <div class="member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}" data-user-id="${user.id}" title="${user.name || user.email}">
+                <div class="member-pill-avatar" style="background-color: ${user.avatarColor || '#ccc'}">${initials}</div>
+                <span>${user.name || user.email}</span>
+            </div>
+        `;
+    }).join('');
+    openModal(editProjectModal.overlay);
+}
 
             async function handleDeleteProject(projectId) {
                 const project = findProject(projectId) || findCompletedProject(projectId);
@@ -2213,7 +2226,22 @@ taskModal.commentsList.addEventListener('click', async (e) => {
             });
             
             logoutBtn.addEventListener('click', () => signOut(auth));
-            
+
+            // NOWA LOGIKA: Obsługa klikania pigułek w oknie edycji projektu
+editProjectModal.membersContainer.addEventListener('click', (e) => {
+    const pill = e.target.closest('.member-pill:not(.disabled)');
+    if (pill) {
+        pill.classList.toggle('selected');
+    }
+});
+
+// NOWA LOGIKA: Obsługa klikania pigułek w oknie edycji zadania
+taskModal.assigneesEdit.addEventListener('click', (e) => {
+    const pill = e.target.closest('.member-pill:not(.disabled)');
+    if (pill) {
+        pill.classList.toggle('selected');
+    }
+});
             // NOWA LOGIKA: Obsługa zmiany hasła
             const changePasswordBtn = document.getElementById('change-password-btn');
 
@@ -2361,17 +2389,17 @@ taskModal.commentsList.addEventListener('click', async (e) => {
             deleteProjectBtn.addEventListener('click', () => handleDeleteProject(state.currentProjectId));
 
             editProjectModal.form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const projectId = editProjectModal.overlay.dataset.projectId;
-                const newName = editProjectModal.nameInput.value.trim();
-                if (!projectId || !newName) return;
-                const selectedMembers = Array.from(editProjectModal.membersContainer.querySelectorAll('input:checked')).map(input => input.value);
-                if (!selectedMembers.includes(state.currentUser.uid)) {
-                    selectedMembers.push(state.currentUser.uid);
-                }
-                await updateDoc(doc(projectsRef, projectId), { name: newName, members: selectedMembers });
-                closeModal(editProjectModal.overlay);
-            });
+    e.preventDefault();
+    const projectId = editProjectModal.overlay.dataset.projectId;
+    const newName = editProjectModal.nameInput.value.trim();
+    if (!projectId || !newName) return;
+    const selectedMembers = Array.from(editProjectModal.membersContainer.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
+
+    // Logika z "push" nie jest już potrzebna, bo właściciel jest zablokowany i zawsze zaznaczony
+
+    await updateDoc(doc(projectsRef, projectId), { name: newName, members: selectedMembers });
+    closeModal(editProjectModal.overlay);
+});
 
             completeProjectBtn.addEventListener('click', async () => {
                 const project = findProject(state.currentProjectId);
@@ -2784,6 +2812,7 @@ taskModal.commentsList.addEventListener('click', async (e) => {
     </script>
 </body>
 </html>
+
 
 
 
