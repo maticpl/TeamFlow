@@ -1483,28 +1483,32 @@
             };
 
             function render() {
-                if(!state.currentUser) return;
-                applyTheme();
-                renderSidebar();
+    if(!state.currentUser) return;
+    applyTheme();
+    renderSidebar();
 
-                const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
-                const isDashboardView = state.ui.currentView === 'my-dashboard';
-                sortBtn.style.display = isProjectView || isDashboardView ? 'flex' : 'none';
+    const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
+    const isDashboardView = state.ui.currentView === 'my-dashboard';
+    sortBtn.style.display = isProjectView || isDashboardView ? 'flex' : 'none';
 
-                // === POPRAWKA 4: Uproszczona i poprawiona logika widoczności przycisku FAB ===
-                // Przycisk jest widoczny, gdy mamy wybrany jakikolwiek projekt.
-                // Używamy klasy 'hidden' dla płynnej animacji zdefiniowanej w CSS.
-                if (fabAddTask) {
-                    fabAddTask.classList.toggle('hidden', !isProjectView);
-                }
+    if (fabAddTask) {
+        fabAddTask.classList.toggle('hidden', !isProjectView);
+    }
+
+    // ZMIANA: Zarządzanie klasą CSS kontenera w zależności od widoku
+    // To zapobiega nadpisywaniu stylów i rozwiązuje problem z układem
+    kanbanBoardEl.classList.remove('dashboard-view');
+    kanbanBoardEl.classList.remove('project-view');
 
 
-                if (isProjectView) {
-                    renderCurrentProjectView();
-                } else if (isDashboardView) {
-                    renderMyDashboardView();
-                }
-            }
+    if (isProjectView) {
+        kanbanBoardEl.classList.add('project-view');
+        renderCurrentProjectView();
+    } else if (isDashboardView) {
+        kanbanBoardEl.classList.add('dashboard-view');
+        renderMyDashboardView();
+    }
+}
 taskModal.commentsList.addEventListener('click', async (e) => {
     const deleteBtn = e.target.closest('.delete-comment-btn');
     if (!deleteBtn) return;
@@ -1669,10 +1673,9 @@ taskModal.commentsList.addEventListener('click', async (e) => {
     projectMembersHeaderEl.innerHTML = '';
     projectActionsEl.style.display = 'none';
     projectProgressEl.innerHTML = ''; 
-    // Usunięto wadliwą linię, która ukrywała przycisk
 
     const myTasks = getAllMyTasks();
-    
+
     myTasks.sort((a, b) => {
         const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
         const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
@@ -1681,7 +1684,7 @@ taskModal.commentsList.addEventListener('click', async (e) => {
         if (dateB === Infinity) return -1;
         return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
     });
-    
+
     const overdueTasks = getOverdueTasks(myTasks);
     const todoCount = myTasks.filter(t => t.status === 'todo').length;
     const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
@@ -1689,7 +1692,7 @@ taskModal.commentsList.addEventListener('click', async (e) => {
 
     const todoHeight = totalActiveTasks > 0 ? Math.round((todoCount / totalActiveTasks) * 100) : 0;
     const inProgressHeight = totalActiveTasks > 0 ? Math.round((inProgressCount / totalActiveTasks) * 100) : 0;
-    
+
     kanbanBoardEl.innerHTML = `
         <div class="dashboard-container">
             <div class="dashboard-grid">
@@ -1719,41 +1722,42 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                     </div>
                 </div>
             </div>
-            
+
             <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Wszystkie Twoje Zadania</h2>
             <section id="my-tasks-kanban" class="kanban-board-mini">
             </section>
         </div>
     `;
-    
+
     const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
-    
+
     const renderMyTasksKanban = (tasks, targetElement) => {
         targetElement.innerHTML = '';
         targetElement.style.display = 'grid';
         targetElement.style.gridTemplateColumns = 'repeat(3, 1fr)';
         targetElement.style.gap = '16px';
         targetElement.style.overflowX = 'auto'; 
-        
+
         Object.keys(STATUSES).forEach(statusKey => {
             const column = document.createElement('div');
             column.className = 'kanban-column';
             column.dataset.status = statusKey;
             const tasksInColumn = tasks.filter(t => t.status === statusKey); 
-            
+
             column.innerHTML = `<div class="kanban-column-header"><h3>${STATUSES[statusKey]}</h3><span class="task-count">${tasksInColumn.length}</span></div><ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true)).join('')}</ul>`;
             targetElement.appendChild(column);
         });
     };
-    
+
     renderMyTasksKanban(myTasks, myTasksKanbanEl);
-    
+
     document.querySelectorAll('.overdue-item').forEach(item => {
         item.addEventListener('click', (e) => {
             const taskId = e.currentTarget.dataset.taskId;
             openTaskModal(taskId);
         });
     });
+}
     
     kanbanBoardEl.style.display = 'block';
     kanbanBoardEl.style.overflow = 'visible';
@@ -2431,17 +2435,30 @@ taskModal.assigneesEdit.addEventListener('click', (e) => {
             completedProjectsListEl.addEventListener('click', handleProjectLinkClick);
             
             mainNav.addEventListener('click', (e) => {
-                e.preventDefault();
-                const link = e.target.closest('a');
-                if(link && link.dataset.view) {
-                    state.currentProjectId = null;
-                    state.ui.currentView = link.dataset.view;
-                    saveUiState();
-                    render();
-                    sidebar.classList.remove('open');
-                    sidebarOverlay.classList.remove('visible');
-                }
-            });
+    e.preventDefault();
+    const link = e.target.closest('a');
+    if (!link) return;
+
+    // Sprawdzamy, czy kliknięto link do zmiany widoku (np. "Moje zadania")
+    if (link.dataset.view) {
+        state.currentProjectId = null;
+        state.ui.currentView = link.dataset.view;
+    } 
+    // Sprawdzamy, czy kliknięto link do projektu (np. "Skrzynka zadań")
+    else if (link.dataset.projectId) {
+        state.currentProjectId = link.dataset.projectId;
+        state.ui.currentView = 'projects';
+    } 
+    // Jeśli link nie ma żadnego z powyższych, nic nie robimy
+    else {
+        return;
+    }
+
+    saveUiState();
+    render();
+    sidebar.classList.remove('open');
+    sidebarOverlay.classList.remove('visible');
+});
 
             newProjectBtn.addEventListener('click', () => {
                  newProjectModal.form.reset();
@@ -2924,6 +2941,7 @@ taskModal.assigneesEdit.addEventListener('click', (e) => {
     </script>
 </body>
 </html>
+
 
 
 
