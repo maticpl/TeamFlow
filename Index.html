@@ -1918,91 +1918,93 @@ taskModal.commentsList.addEventListener('click', async (e) => {
             }
 
            async function saveTaskFromModal() {
-                const taskId = taskModal.overlay.dataset.taskId;
-                const { task, project } = findTask(taskId);
-                if (!task || !project) return;
+    const taskId = taskModal.overlay.dataset.taskId;
+    const { task, project } = findTask(taskId);
+    if (!task || !project) return;
 
-                const newTitle = taskModal.titleInput.value.trim();
-                if (!newTitle) {
-                    showNotification("Tytuł zadania nie może być pusty.", "Błąd");
-                    return;
-                }
+    const newTitle = taskModal.titleInput.value.trim();
+    if (!newTitle) {
+        showNotification("Tytuł zadania nie może być pusty.", "Błąd");
+        return;
+    }
 
-                const newAssignees = Array.from(taskModal.assigneesEdit.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
-                if (newAssignees.length === 0) {
-                    showNotification("Zadanie musi być przypisane do co najmniej jednej osoby.", "Błąd");
-                    return;
-                }
-               // ✅ NOWA LOGIKA: Automatyczna zmiana typu zadania
-                const newType = newAssignees.length > 1 ? 'multi' : 'single';
-                const oldStatus = task.status;
-                const newStatus = taskModal.status.value;
-                const oldPriority = task.priority;
-                const newPriority = taskModal.priority.value;
+    // ✅ POPRAWKA 1: Poprawne pobieranie przypisanych osób z "pigułek"
+    const newAssignees = Array.from(taskModal.assigneesEdit.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
+    if (newAssignees.length === 0) {
+        showNotification("Zadanie musi być przypisane do co najmniej jednej osoby.", "Błąd");
+        return;
+    }
 
-                if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < newAssignees.length) {
-                    showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
-                    taskModal.status.value = oldStatus;
-                    return;
-                }
+    const newType = newAssignees.length > 1 ? 'multi' : 'single';
+    const oldStatus = task.status;
+    const newStatus = taskModal.status.value;
+    const oldPriority = task.priority;
+    const newPriority = taskModal.priority.value;
 
-                let updatedTask = {
-                    ...task,
-                    title: newTitle,
-                    assignees: newAssignees,
-                    description: taskModal.description.value,
-                    status: newStatus,
-                    priority: newPriority,
-                    dueDate: taskModal.dueDate.value,
-                };
+    if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < newAssignees.length) {
+        showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
+        taskModal.status.value = oldStatus;
+        return;
+    }
 
-                 if (taskModal.completed.checked && updatedTask.status !== 'done') {
-                    updatedTask.status = 'done';
-                }
+    let updatedTask = {
+        ...task,
+        title: newTitle,
+        assignees: newAssignees,
+        type: newType, // ✅ POPRAWKA 2: Dodanie zaktualizowanego typu do zapisywanego zadania
+        description: taskModal.description.value,
+        status: newStatus,
+        priority: newPriority,
+        dueDate: taskModal.dueDate.value,
+    };
 
-                if (taskModal.isRecurring.checked) {
-                    updatedTask.recurrence = {
-                        type: taskModal.recurrenceType.value,
-                        day: taskModal.recurrenceType.value === 'dayOfMonth' ? parseInt(taskModal.recurrenceDay.value) || 1 : null
-                    };
-                } else {
-                    updatedTask.recurrence = null;
-                }
+    if (taskModal.completed.checked && updatedTask.status !== 'done') {
+        updatedTask.status = 'done';
+    }
 
-                if (oldStatus !== newStatus) {
-                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
-                }
-                if (oldPriority !== newPriority) {
-                    updatedTask = addActivity(updatedTask, 'priority', oldPriority, newPriority);
-                }
+    if (taskModal.isRecurring.checked) {
+        updatedTask.recurrence = {
+            type: taskModal.recurrenceType.value,
+            day: taskModal.recurrenceType.value === 'dayOfMonth' ? parseInt(taskModal.recurrenceDay.value) || 1 : null
+        };
+    } else {
+        updatedTask.recurrence = null;
+    }
 
-                let tasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+    if (oldStatus !== newStatus) {
+        updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+    }
+    if (oldPriority !== newPriority) {
+        updatedTask = addActivity(updatedTask, 'priority', oldPriority, newPriority);
+    }
 
-                if (oldStatus !== 'done' && newStatus === 'done' && updatedTask.recurrence) {
-                    const nextDueDate = calculateNextDueDate(updatedTask.dueDate, updatedTask.recurrence);
-                    const nextTask = {
-                        ...updatedTask,
-                        id: `task${Date.now()}`,
-                        status: 'todo',
-                        dueDate: nextDueDate,
-                        completedBy: [],
-                        activityLog: [],
-                    };
-                    tasks.push(nextTask);
-                }
-                
-                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                
-                try {
-                    await updateDoc(projectDocRef, { tasks: tasks });
-                    if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
-                    showNotification("Zmiany w zadaniu zostały zapisane.", "Sukces");
-                    closeModal(taskModal.overlay);
-                } catch (error) {
-                    console.error("Błąd zapisu zmian w zadaniu:", error);
-                    showNotification("Wystąpił błąd podczas zapisu zmian.", "Błąd");
-                }
-            }
+    let tasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+
+    if (oldStatus !== 'done' && newStatus === 'done' && updatedTask.recurrence) {
+        const nextDueDate = calculateNextDueDate(updatedTask.dueDate, updatedTask.recurrence);
+        const nextTask = {
+            ...updatedTask,
+            id: `task${Date.now()}`,
+            status: 'todo',
+            dueDate: nextDueDate,
+            completedBy: [],
+            activityLog: [],
+        };
+        tasks.push(nextTask);
+    }
+    
+    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+    
+    try {
+        await updateDoc(projectDocRef, { tasks: tasks });
+        if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
+        showNotification("Zmiany w zadaniu zostały zapisane.", "Sukces");
+        closeModal(taskModal.overlay);
+    } catch (error) {
+        console.error("Błąd zapisu zmian w zadaniu:", error);
+        showNotification("Wystąpił błąd podczas zapisu zmian.", "Błąd");
+    }
+}
             
             function openNewTaskModal(isFab = false) {
                 const project = findProject(state.currentProjectId);
@@ -2814,6 +2816,7 @@ taskModal.assigneesEdit.addEventListener('click', (e) => {
     </script>
 </body>
 </html>
+
 
 
 
