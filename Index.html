@@ -669,6 +669,17 @@
         cursor: pointer; 
         z-index: 1002;
         transition: opacity 0.3s, transform 0.3s; /* Dodajemy płynne przejście */
+        .fab-add-task-special {
+    display: block; /* Upewniamy się, że jest widoczny na mobile */
+    background-color: var(--danger-primary); /* Czerwony kolor */
+    bottom: 96px; /* Pozycja nad pierwszym przyciskiem (24px + 56px wysokości + 16px marginesu) */
+    transition: opacity 0.3s, transform 0.3s;
+}
+.fab-add-task-special.hidden {
+    opacity: 0;
+    transform: scale(0.5);
+    pointer-events: none;
+}
     }
     .fab-add-task.hidden {
         opacity: 0;
@@ -875,6 +886,7 @@
             </section>
             
             <button id="fab-add-task" class="fab-add-task">+</button>
+            <button id="fab-add-special-task" class="fab-add-task fab-add-task-special">+</button>
         </main>
     </div>
 
@@ -1318,6 +1330,10 @@
             const showLoginBtn = document.getElementById('show-login');
             const authErrorLogin = document.getElementById('auth-error-login');
             const authErrorRegister = document.getElementById('auth-error-register');
+            const newProjectBtn = document.getElementById('new-project-btn');
+const fabAddTask = document.getElementById('fab-add-task');
+const fabAddSpecialTask = document.getElementById('fab-add-special-task'); // <-- DODAJ TĘ LINIĘ
+const loginForm = document.getElementById('login-form');
             const taskModal = {
                 overlay: document.getElementById('task-modal'),
                 title: document.getElementById('modal-task-title'),
@@ -2174,43 +2190,72 @@ taskModal.commentsList.addEventListener('click', async (e) => {
     }
 }
             
-            function openNewTaskModal(isFab = false) {
-                const project = findProject(state.currentProjectId);
-                newTaskModal.projectGroup.style.display = isFab ? 'block' : 'none';
-                if (isFab) {
-                    newTaskModal.projectSelect.innerHTML = state.projects.map(p => `<option value="${p.id}" ${p.id === state.currentProjectId ? 'selected' : ''}>${p.name}</option>`).join('');
-                }
-                const targetProject = isFab ? findProject(newTaskModal.projectSelect.value) : project;
-                if (!targetProject) {
-                    showNotification("Stwórz lub wybierz projekt, aby dodać zadanie.");
-                    return;
-                };
-                newTaskModal.form.reset();
-                newTaskModal.isRecurring.checked = false;
-                newTaskModal.recurrenceOptions.style.display = 'none';
-                newTaskModal.recurrenceDayWrapper.style.display = 'none';
+            function openNewTaskModal(options = {}) {
+                const { isFab = false, isSpecial = false } = options;
 
-                const membersOptions = (targetProject.members || []).map(memberId => {
-                    const user = findUser(memberId);
-                    return user ? {id: user.id, name: user.name || user.email, avatarColor: user.avatarColor} : null;
-                }).filter(Boolean);
-                
-                newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
-                
-                newTaskModal.assigneeMultiList.innerHTML = membersOptions.map(u => {
-                    const isCurrentUser = u.id === state.currentUser.uid;
-                    const initials = (u.name || u.email).substring(0,2).toUpperCase();
-                    return `
-                        <div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${u.id}" title="${u.name}">
-                            <div class="member-pill-avatar" style="background-color: ${u.avatarColor || '#ccc'}">${initials}</div>
-                            <span>${u.name}</span>
-                        </div>
-                    `;
-                }).join('');
-                
+                // Zawsze resetuj formularz i pokazuj domyślne pola
+                newTaskModal.form.reset();
+                newTaskModal.projectGroup.style.display = 'block';
                 newTaskModal.assigneeSingleWrapper.style.display = 'block';
                 newTaskModal.assigneeMultiWrapper.style.display = 'none';
                 document.getElementById('task-type-single').checked = true;
+
+                let targetProject;
+
+                // === LOGIKA DLA ZADANIA SPECJALNEGO (CZERWONY PLUS) ===
+                if (isSpecial) {
+                    // 1. Automatycznie przypisz do "Skrzynki zadań" i ukryj wybór
+                    const inboxProject = state.projects.find(p => p.isInbox);
+                    if (inboxProject) {
+                        newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}">${inboxProject.name}</option>`;
+                        newTaskModal.projectGroup.style.display = 'none';
+                        targetProject = inboxProject;
+                    }
+
+                    // 2. Automatycznie przypisz zalogowanego użytkownika i ukryj wybór
+                    const currentUser = findUser(state.currentUser.uid);
+                    if (currentUser) {
+                         newTaskModal.assigneeSingleSelect.innerHTML = `<option value="${currentUser.id}">${currentUser.name || currentUser.email}</option>`;
+                         newTaskModal.assigneeSingleWrapper.style.display = 'none';
+                    }
+
+                    // 3. Automatycznie ustaw datę na jutro o 10:00
+                    const tomorrow = new Date();
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    tomorrow.setHours(10, 0, 0, 0);
+                    
+                    // Formatowanie daty do YYYY-MM-DDTHH:MM
+                    const pad = (num) => num.toString().padStart(2, '0');
+                    const formattedDate = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T${pad(tomorrow.getHours())}:${pad(tomorrow.getMinutes())}`;
+                    newTaskModal.dueDate.value = formattedDate;
+
+                } 
+                // === LOGIKA DLA ZWYKŁEGO ZADANIA (z projektu lub niebieskiego plusa) ===
+                else {
+                    targetProject = isFab ? findProject(state.currentProjectId) : findProject(state.currentProjectId);
+                    if (isFab) {
+                        newTaskModal.projectSelect.innerHTML = state.projects.filter(p => !p.isInbox).map(p => `<option value="${p.id}" ${p.id === state.currentProjectId ? 'selected' : ''}>${p.name}</option>`).join('');
+                    } else {
+                         newTaskModal.projectGroup.style.display = 'none';
+                    }
+                }
+
+                if (!targetProject) {
+                    showNotification("Wybierz projekt, aby dodać zadanie.", "Błąd");
+                    return;
+                }
+
+                // Wypełnij listę członków dla zwykłego zadania
+                if (!isSpecial) {
+                    const membersOptions = (targetProject.members || []).map(memberId => findUser(memberId)).filter(Boolean);
+                    newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+                    newTaskModal.assigneeMultiList.innerHTML = membersOptions.map(u => {
+                        const isCurrentUser = u.id === state.currentUser.uid;
+                        const initials = (u.name || u.email).substring(0,2).toUpperCase();
+                        return `<div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${u.id}" title="${u.name}"><div class="member-pill-avatar" style="background-color: ${u.avatarColor || '#ccc'}">${initials}</div><span>${u.name}</span></div>`;
+                    }).join('');
+                }
+                
                 openModal(newTaskModal.overlay);
             }
 
@@ -2831,7 +2876,7 @@ taskModal.assigneesEdit.addEventListener('click', (e) => {
             });
 
             fabAddTask.addEventListener('click', () => openNewTaskModal(true));
-
+fabAddSpecialTask.addEventListener('click', () => openNewTaskModal({ isSpecial: true }));
             document.querySelectorAll('.modal-overlay').forEach(overlay => {
                 overlay.addEventListener('click', e => {
                     if (e.target === overlay || e.target.closest('.modal-close-btn')) {
@@ -3073,6 +3118,7 @@ taskModal.assigneesEdit.addEventListener('click', (e) => {
     </script>
 </body>
 </html>
+
 
 
 
