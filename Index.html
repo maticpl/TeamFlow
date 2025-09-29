@@ -711,11 +711,12 @@
             <button class="new-project-btn" id="new-project-btn">+ Nowy Projekt</button>
 
             <div class="sidebar-footer">
-                <p class="user-info">Zalogowano jako:<br><span id="user-email-display"></span></p>
-                <button id="logout-btn" class="btn">Wyloguj</button>
-            </div>
-        </aside>
-        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <p class="user-info">Zalogowano jako:<br><span id="user-email-display"></span></p>
+    <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button id="change-password-btn" class="btn btn-secondary" style="flex: 1;">Zmień hasło</button>
+        <button id="logout-btn" class="btn" style="flex: 1;">Wyloguj</button>
+    </div>
+</div>
 
         <main class="main-content">
             <header class="mobile-header">
@@ -1068,13 +1069,42 @@
             </div>
         </div>
     </div>
+    <div class="modal-overlay" id="change-password-modal">
+    <div class="modal">
+        <form id="change-password-form">
+            <div class="modal-header">
+                <h2>Zmień hasło</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <div class="form-group">
+                    <label for="current-password">Bieżące hasło</label>
+                    <input type="password" id="current-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="new-password">Nowe hasło (min. 6 znaków)</label>
+                    <input type="password" id="new-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="confirm-password">Potwierdź nowe hasło</label>
+                    <input type="password" id="confirm-password" required>
+                </div>
+                <p id="change-password-error" class="error-message"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="submit" class="btn btn-primary">Zmień hasło</button>
+            </div>
+        </form>
+    </div>
+</div>
 
     <script type="module">
         // ============================
         // 1. IMPORTY
         // ============================
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
@@ -1211,6 +1241,14 @@
                 membersContainer: document.getElementById('new-project-members'),
                 tasksTextarea: document.getElementById('new-project-tasks'),
             };
+            const changePasswordModal = {
+    overlay: document.getElementById('change-password-modal'),
+    form: document.getElementById('change-password-form'),
+    currentPassword: document.getElementById('current-password'),
+    newPassword: document.getElementById('new-password'),
+    confirmPassword: document.getElementById('confirm-password'),
+    error: document.getElementById('change-password-error'),
+};
             const editProjectModal = {
                 overlay: document.getElementById('edit-project-modal'),
                 form: document.getElementById('edit-project-form'),
@@ -2260,6 +2298,68 @@ taskModal.completed.addEventListener('change', async () => {
             });
             
             logoutBtn.addEventListener('click', () => signOut(auth));
+             const changePasswordBtn = document.getElementById('change-password-btn');
+
+            changePasswordBtn.addEventListener('click', () => {
+                changePasswordModal.form.reset();
+                changePasswordModal.error.textContent = '';
+                openModal(changePasswordModal.overlay);
+            });
+
+            changePasswordModal.form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const currentPassword = changePasswordModal.currentPassword.value;
+                const newPassword = changePasswordModal.newPassword.value;
+                const confirmPassword = changePasswordModal.confirmPassword.value;
+                const submitBtn = e.target.querySelector('button[type="submit"]');
+
+                // Walidacja po stronie klienta
+                if (newPassword !== confirmPassword) {
+                    changePasswordModal.error.textContent = 'Nowe hasła nie są takie same.';
+                    return;
+                }
+                if (newPassword.length < 6) {
+                    changePasswordModal.error.textContent = 'Nowe hasło musi mieć co najmniej 6 znaków.';
+                    return;
+                }
+
+                changePasswordModal.error.textContent = '';
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Zmienianie...';
+
+                const user = auth.currentUser;
+                if (!user) {
+                    changePasswordModal.error.textContent = 'Błąd: Użytkownik nie jest zalogowany.';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Zmień hasło';
+                    return;
+                }
+
+                try {
+                    // Krok 1: Ponowne uwierzytelnienie użytkownika (ze względów bezpieczeństwa)
+                    const credential = EmailAuthProvider.credential(user.email, currentPassword);
+                    await reauthenticateWithCredential(user, credential);
+
+                    // Krok 2: Jeśli ponowne uwierzytelnienie się powiedzie, zmień hasło
+                    await updatePassword(user, newPassword);
+
+                    showNotification("Hasło zostało pomyślnie zmienione.", "Sukces");
+                    closeModal(changePasswordModal.overlay);
+
+                } catch (error) {
+                    console.error("Błąd podczas zmiany hasła:", error);
+                    if (error.code === 'auth/wrong-password') {
+                        changePasswordModal.error.textContent = 'Bieżące hasło jest nieprawidłowe.';
+                    } else if (error.code === 'auth/weak-password') {
+                        changePasswordModal.error.textContent = 'Nowe hasło jest zbyt słabe.';
+                    } else {
+                        changePasswordModal.error.textContent = 'Wystąpił nieoczekiwany błąd. Spróbuj ponownie.';
+                    }
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Zmień hasło';
+                }
+            });
             notificationToggleBtn.addEventListener('click', requestNotificationPermission);
             
             const handleProjectLinkClick = (e) => {
@@ -2783,6 +2883,7 @@ taskModal.completed.addEventListener('change', async () => {
     </script>
 </body>
 </html>
+
 
 
 
