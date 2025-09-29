@@ -109,6 +109,24 @@
     display: flex;
     flex-direction: column;
 }
+        /* Style dla listy wyboru projektów do przeniesienia zadania */
+        .project-selection-item {
+            display: block;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+        .project-selection-item:hover {
+            background-color: var(--bg-tertiary);
+        }
+        .project-selection-item input {
+            margin-right: 12px;
+        }
+        .project-selection-item label {
+            cursor: pointer;
+        }
         
         /* NOWE STYLE DLA PRZYCISKÓW W STOPCE */
         .sidebar-footer-buttons {
@@ -924,6 +942,10 @@
                         <label for="modal-task-dueDate">Termin wykonania</label>
                         <input type="datetime-local" id="modal-task-dueDate">
                     </div>
+                    <div class="sidebar-detail">
+    <label>Akcje</label>
+    <button type="button" id="move-task-btn" class="btn btn-secondary" style="width: 100%;">Przenieś do innego projektu</button>
+</div>
                      <div class="sidebar-detail">
                         <div class="form-group-checkbox">
                             <input type="checkbox" id="modal-task-is-recurring">
@@ -1313,6 +1335,7 @@
                 membersContainer: document.getElementById('new-project-members'),
                 tasksTextarea: document.getElementById('new-project-tasks'),
             };
+            
             const editProjectModal = {
                 overlay: document.getElementById('edit-project-modal'),
                 form: document.getElementById('edit-project-form'),
@@ -1343,6 +1366,12 @@
                 overlay: document.getElementById('search-modal'),
                 input: document.getElementById('modal-search-input'),
                 resultsList: document.getElementById('search-results-list'),
+            };
+            // DODAJ CAŁY NOWY OBIEKT PONIŻEJ
+            const moveTaskModal = {
+                overlay: document.getElementById('move-task-modal'),
+                projectList: document.getElementById('move-task-project-list'),
+                confirmBtn: document.getElementById('confirm-move-task-btn')
             };
             const notificationModal = {
                 overlay: document.getElementById('notification-modal'),
@@ -1471,7 +1500,36 @@
                         .map(t => ({ ...t, projectName: p.name, projectId: p.id }))
                 );
             }
-            
+            function openMoveTaskDialog(taskId, currentProjectId) {
+                // Filtrujemy listę, aby pokazać tylko projekty, do których można przenieść zadanie
+                const availableProjects = state.projects.filter(p => p.id !== currentProjectId && !p.isInbox);
+                
+                moveTaskModal.projectList.innerHTML = ''; // Wyczyść starą listę
+
+                if (availableProjects.length === 0) {
+                    moveTaskModal.projectList.innerHTML = '<p>Brak innych projektów, do których można przenieść to zadanie.</p>';
+                    moveTaskModal.confirmBtn.disabled = true;
+                } else {
+                    availableProjects.forEach(project => {
+                        const item = document.createElement('div');
+                        item.className = 'project-selection-item';
+                        item.innerHTML = `
+                            <label>
+                                <input type="radio" name="destination-project" value="${project.id}">
+                                ${project.name}
+                            </label>
+                        `;
+                        moveTaskModal.projectList.appendChild(item);
+                    });
+                    moveTaskModal.confirmBtn.disabled = false;
+                }
+
+                // Zapisz potrzebne dane w atrybutach modala
+                moveTaskModal.overlay.dataset.taskId = taskId;
+                moveTaskModal.overlay.dataset.sourceProjectId = currentProjectId;
+                
+                openModal(moveTaskModal.overlay);
+            }
             function getOverdueTasks(tasks) {
                 const now = Date.now();
                 return tasks.filter(t => 
@@ -1929,6 +1987,14 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                 };
 
                 taskModal.editBtn.onclick = setEditMode;
+               // Listener dla nowego przycisku przenoszenia
+                taskModal.moveBtn.onclick = () => {
+                    const taskId = taskModal.overlay.dataset.taskId;
+                    const { project } = findTask(taskId);
+                    if (project) {
+                        openMoveTaskDialog(taskId, project.id);
+                    }
+                };
                 setViewMode();
             }
             
@@ -2330,7 +2396,51 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                      submitBtn.textContent = 'Zarejestruj się';
                 }
             });
+moveTaskModal.confirmBtn.addEventListener('click', async () => {
+                const { taskId, sourceProjectId } = moveTaskModal.overlay.dataset;
+                const selectedRadio = moveTaskModal.projectList.querySelector('input[name="destination-project"]:checked');
 
+                if (!selectedRadio) {
+                    showNotification("Musisz wybrać projekt docelowy.", "Błąd");
+                    return;
+                }
+
+                const destinationProjectId = selectedRadio.value;
+
+                // Znajdź projekt źródłowy, docelowy i zadanie
+                const sourceProject = findProject(sourceProjectId);
+                const destinationProject = findProject(destinationProjectId);
+                if (!sourceProject || !destinationProject || !taskId) {
+                     showNotification("Wystąpił błąd podczas przenoszenia zadania.", "Błąd");
+                     return;
+                }
+                
+                const taskToMove = sourceProject.tasks.find(t => t.id === taskId);
+                if (!taskToMove) return;
+
+                // Przygotuj nowe listy zadań
+                const updatedSourceTasks = sourceProject.tasks.filter(t => t.id !== taskId);
+                const updatedDestinationTasks = [...(destinationProject.tasks || []), taskToMove];
+
+                // Użyj operacji wsadowej (batch), aby zapewnić integralność danych
+                const batch = writeBatch(db);
+                
+                const sourceDocRef = doc(projectsRef, sourceProjectId);
+                batch.update(sourceDocRef, { tasks: updatedSourceTasks });
+
+                const destinationDocRef = doc(projectsRef, destinationProjectId);
+                batch.update(destinationDocRef, { tasks: updatedDestinationTasks });
+
+                try {
+                    await batch.commit();
+                    closeModal(moveTaskModal.overlay);
+                    closeModal(taskModal.overlay);
+                    showNotification("Zadanie zostało pomyślnie przeniesione.", "Sukces");
+                } catch (error) {
+                    console.error("Błąd podczas przenoszenia zadania:", error);
+                    showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+                }
+            });
             loginForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const email = document.getElementById('login-email').value;
@@ -2949,6 +3059,7 @@ taskModal.assigneesEdit.addEventListener('click', (e) => {
     </script>
 </body>
 </html>
+
 
 
 
