@@ -1756,101 +1756,111 @@ taskModal.commentsList.addEventListener('click', async (e) => {
             }
             
             function renderMyDashboardView() {
-    projectNameHeaderEl.textContent = 'Mój Pulpit';
-    mobileHeaderTitle.textContent = 'Mój Pulpit';
-    projectMembersHeaderEl.innerHTML = '';
-    projectActionsEl.style.display = 'none';
-    projectProgressEl.innerHTML = ''; 
-    // Usunięto wadliwą linię, która ukrywała przycisk
+                projectNameHeaderEl.textContent = 'Mój Pulpit';
+                mobileHeaderTitle.textContent = 'Mój Pulpit';
+                projectMembersHeaderEl.innerHTML = '';
+                projectActionsEl.style.display = 'none';
+                projectProgressEl.innerHTML = '';
+            
+                // === POCZĄTEK POPRAWKI ===
+                // Zmieniamy styl kontenera, aby pasował do widoku pulpitu
+                kanbanBoardEl.style.display = 'block';
+                kanbanBoardEl.style.height = 'auto';
+                // === KONIEC POPRAWKI ===
 
-    const myTasks = getAllMyTasks();
-    
-    myTasks.sort((a, b) => {
-        const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
-        const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-        if (dateA === Infinity && dateB === Infinity) return 0;
-        if (dateA === Infinity) return 1;
-        if (dateB === Infinity) return -1;
-        return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
-    });
-    
-    const overdueTasks = getOverdueTasks(myTasks);
-    const todoCount = myTasks.filter(t => t.status === 'todo').length;
-    const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
-    const totalActiveTasks = todoCount + inProgressCount;
+                const myTasks = getAllMyTasks();
+                
+                myTasks.sort((a, b) => {
+                    const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+                    const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+                    if (dateA === Infinity && dateB === Infinity) return 0;
+                    if (dateA === Infinity) return 1;
+                    if (dateB === Infinity) return -1;
+                    return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - a;
+                });
+                
+                const overdueTasks = getOverdueTasks(myTasks);
+                const todoCount = myTasks.filter(t => t.status === 'todo').length;
+                const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
+                const totalActiveTasks = todoCount + inProgressCount;
 
-    const todoHeight = totalActiveTasks > 0 ? Math.round((todoCount / totalActiveTasks) * 100) : 0;
-    const inProgressHeight = totalActiveTasks > 0 ? Math.round((inProgressCount / totalActiveTasks) * 100) : 0;
-    
-    kanbanBoardEl.innerHTML = `
-        <div class="dashboard-container">
-            <div class="dashboard-grid">
-                <div class="dashboard-card">
-                    <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
-                    <div class="overdue-list-container">
-                        ${overdueTasks.length > 0 ? 
-                            overdueTasks.map(task => `
-                                <div class="overdue-item" data-task-id="${task.id}" data-project-id="${task.projectId}">
-                                    <span class="overdue-item-title">${task.title}</span>
-                                    <span class="overdue-item-date">${new Date(task.dueDate).toLocaleDateString('pl-PL')}</span>
+                const todoHeight = totalActiveTasks > 0 ? Math.round((todoCount / totalActiveTasks) * 100) : 0;
+                const inProgressHeight = totalActiveTasks > 0 ? Math.round((inProgressCount / totalActiveTasks) * 100) : 0;
+                
+                kanbanBoardEl.innerHTML = `
+                    <div class="dashboard-container">
+                        <div class="dashboard-grid">
+                            <div class="dashboard-card">
+                                <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
+                                <div class="overdue-list-container">
+                                    ${overdueTasks.length > 0 ? 
+                                        overdueTasks.map(task => `
+                                            <div class="overdue-item" data-task-id="${task.id}" data-project-id="${task.projectId}">
+                                                <span class="overdue-item-title">${task.title}</span>
+                                                <span class="overdue-item-date">${new Date(task.dueDate).toLocaleDateString('pl-PL')}</span>
+                                            </div>
+                                        `).join('') :
+                                        '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'
+                                    }
                                 </div>
-                            `).join('') :
-                            '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'
-                        }
+                            </div>
+                            <div class="dashboard-card">
+                                <h3>Obciążenie zadaniami (Aktywne: ${totalActiveTasks})</h3>
+                                <div class="chart-mockup">
+                                    <div class="chart-bar" style="height: ${todoHeight}% !important; background-color: var(--danger-primary);" title="${todoCount} Do realizacji">${todoCount}</div>
+                                    <div class="chart-bar" style="height: ${inProgressHeight}% !important; background-color: var(--accent-primary);" title="${inProgressCount} W trakcie">${inProgressCount}</div>
+                                </div>
+                                <div style="display: flex; justify-content: space-around; margin-top: 8px;">
+                                    <div class="chart-label" style="width: 40%; color: var(--danger-primary);">Do realizacji</div>
+                                    <div class="chart-label" style="width: 40%; color: var(--accent-primary);">W trakcie</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Wszystkie Twoje Zadania</h2>
+                        <section id="my-tasks-kanban" class="kanban-board-mini">
+                        </section>
                     </div>
-                </div>
-                <div class="dashboard-card">
-                    <h3>Obciążenie zadaniami (Aktywne: ${totalActiveTasks})</h3>
-                    <div class="chart-mockup">
-                        <div class="chart-bar" style="height: ${todoHeight}% !important; background-color: var(--danger-primary);" title="${todoCount} Do realizacji">${todoCount}</div>
-                        <div class="chart-bar" style="height: ${inProgressHeight}% !important; background-color: var(--accent-primary);" title="${inProgressCount} W trakcie">${inProgressCount}</div>
-                    </div>
-                    <div style="display: flex; justify-content: space-around; margin-top: 8px;">
-                        <div class="chart-label" style="width: 40%; color: var(--danger-primary);">Do realizacji</div>
-                        <div class="chart-label" style="width: 40%; color: var(--accent-primary);">W trakcie</div>
-                    </div>
-                </div>
-            </div>
-            
-            <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Wszystkie Twoje Zadania</h2>
-            <section id="my-tasks-kanban" class="kanban-board-mini">
-            </section>
-        </div>
-    `;
-    
-    const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
-    
-    const renderMyTasksKanban = (tasks, targetElement) => {
-        targetElement.innerHTML = '';
-        targetElement.style.display = 'grid';
-        targetElement.style.gridTemplateColumns = 'repeat(3, 1fr)';
-        targetElement.style.gap = '16px';
-        targetElement.style.width = '100%';
-        targetElement.style.overflowX = 'auto'; 
-        
-        Object.keys(STATUSES).forEach(statusKey => {
-            const column = document.createElement('div');
-            column.className = 'kanban-column';
-            column.dataset.status = statusKey;
-            const tasksInColumn = tasks.filter(t => t.status === statusKey); 
-            
-            column.innerHTML = `<div class="kanban-column-header"><h3>${STATUSES[statusKey]}</h3><span class="task-count">${tasksInColumn.length}</span></div><ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true)).join('')}</ul>`;
-            targetElement.appendChild(column);
-        });
-    };
-    
-    renderMyTasksKanban(myTasks, myTasksKanbanEl);
-    
-    document.querySelectorAll('.overdue-item').forEach(item => {
-        item.addEventListener('click', (e) => {
-            const taskId = e.currentTarget.dataset.taskId;
-            openTaskModal(taskId);
-        });
-    });
-}
+                `;
+                
+                const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
+                
+                const renderMyTasksKanban = (tasks, targetElement) => {
+                    targetElement.innerHTML = '';
+                    targetElement.style.display = 'grid';
+                    targetElement.style.gridTemplateColumns = 'repeat(3, 1fr)';
+                    targetElement.style.gap = '16px';
+                    targetElement.style.width = '100%';
+                    targetElement.style.overflowX = 'auto'; 
+                    
+                    Object.keys(STATUSES).forEach(statusKey => {
+                        const column = document.createElement('div');
+                        column.className = 'kanban-column';
+                        column.dataset.status = statusKey;
+                        const tasksInColumn = tasks.filter(t => t.status === statusKey); 
+                        
+                        column.innerHTML = `<div class="kanban-column-header"><h3>${STATUSES[statusKey]}</h3><span class="task-count">${tasksInColumn.length}</span></div><ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true)).join('')}</ul>`;
+                        targetElement.appendChild(column);
+                    });
+                };
+                
+                renderMyTasksKanban(myTasks, myTasksKanbanEl);
+                
+                document.querySelectorAll('.overdue-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        const taskId = e.currentTarget.dataset.taskId;
+                        openTaskModal(taskId);
+                    });
+                });
+            }
 
             function renderKanbanBoard(tasks, isInteractive) {
     kanbanBoardEl.innerHTML = '';
+                // === POCZĄTEK POPRAWKI ===
+                // Przywracamy styl siatki dla widoku projektu
+                kanbanBoardEl.style.display = 'grid';
+                kanbanBoardEl.style.height = '100%';
+                // === KONIEC POPRAWKI ===
     // Usunięto linie JS, które na sztywno ustawiały styl siatki.
     // Teraz wygląd jest w 100% kontrolowany przez CSS.
     
@@ -3128,6 +3138,7 @@ fabAddSpecialTask.addEventListener('click', () => openNewTaskModal({ isSpecial: 
     </script>
 </body>
 </html>
+
 
 
 
