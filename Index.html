@@ -1702,38 +1702,48 @@ let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
     applyTheme();
     renderSidebar();
 
-    // Ukrywamy/pokazujemy odpowiednie kontenery
     calendarViewEl.style.display = state.ui.isCalendarView ? 'block' : 'none';
     kanbanBoardEl.style.display = state.ui.isCalendarView ? 'none' : 'block';
 
-    // === POCZĄTEK POPRAWKI 2: Podświetlenie aktywnej ikonki ===
-    // Ustawiamy aktywny stan dla OBU przycisków kalendarza (desktop + mobile)
     document.querySelectorAll('#calendar-toggle-btn, #calendar-toggle-btn-mobile').forEach(btn => {
         btn.classList.toggle('active', state.ui.isCalendarView);
     });
-    // === KONIEC POPRAWKI 2 ===
+
+    // === POCZĄTEK NOWEJ, SKONSOLIDOWANEJ LOGIKI DLA PRZYCISKÓW "+" ===
+    const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
+    const isModalOpen = !!document.querySelector('.modal-overlay.visible'); // Sprawdza, czy jakiekolwiek okno jest otwarte
+
+    // Definiujemy warunki, kiedy przyciski mają być widoczne:
+    // 1. NIE jesteśmy w kalendarzu ORAZ
+    // 2. Jesteśmy w widoku projektu ORAZ
+    // 3. ŻADNE okno modalne nie jest otwarte.
+    const shouldShowFabs = !state.ui.isCalendarView && isProjectView && !isModalOpen;
+
+    if (fabAddTask) {
+        fabAddTask.style.display = shouldShowFabs ? 'block' : 'none';
+    }
+    if (fabAddSpecialTask) {
+        fabAddSpecialTask.style.display = shouldShowFabs ? 'block' : 'none';
+    }
+    // === KONIEC NOWEJ LOGIKI ===
 
     if (state.ui.isCalendarView) {
-        // Jeśli widok kalendarza jest aktywny, ładujemy do niego zadania
+        // Logika dla kalendarza (już nie musi przejmować się przyciskami "+")
         const myTasks = getAllMyTasks();
         const calendarEvents = myTasks
-    .filter(task => task.dueDate && task.status !== 'done') // Zmiana tutaj: pokazuj tylko zadania, które NIE są wykonane
-    .map(task => ({
-        id: task.id,
-        title: task.title,
-        start: task.dueDate, // Używamy dueDate jako daty startu
-        backgroundColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)',
-        borderColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)'
-    }));
+            .filter(task => task.dueDate && task.status !== 'done')
+            .map(task => ({
+                id: task.id,
+                title: task.title,
+                start: task.dueDate,
+                backgroundColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)',
+                borderColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)'
+            }));
         
         if (calendarInstance) {
-            // === POCZĄTEK GŁÓWNEJ POPRAWKI 1: Odświeżenie widoku ===
-            // Ta linia każe kalendarzowi przeliczyć swój rozmiar po tym, jak stał się widoczny
             calendarInstance.updateSize();
-            // === KONIEC GŁÓWNEJ POPRAWKI 1 ===
-
-            calendarInstance.removeAllEvents(); // Czyścimy stare zadania
-            calendarInstance.addEventSource(calendarEvents); // Dodajemy nowe
+            calendarInstance.removeAllEvents();
+            calendarInstance.addEventSource(calendarEvents);
         }
         
         projectNameHeaderEl.textContent = 'Kalendarz Zadań';
@@ -1744,18 +1754,10 @@ let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
         projectMembersHeaderEl.style.display = 'none';
 
     } else {
-        // W przeciwnym wypadku, renderujemy widok Kanban/Pulpit
-        const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
-        const isDashboardView = state.ui.currentView === 'my-dashboard';
-        sortBtn.style.display = isProjectView || isDashboardView ? 'flex' : 'none';
-
-        if (fabAddTask) {
-            fabAddTask.classList.toggle('hidden', !isProjectView);
-        }
-
+        // Logika dla pulpitu/projektu (już nie musi przejmować się przyciskami "+")
         if (isProjectView) {
             renderCurrentProjectView();
-        } else if (isDashboardView) {
+        } else if (state.ui.currentView === 'my-dashboard') {
             renderMyDashboardView();
         }
         projectMembersHeaderEl.style.display = 'flex';
@@ -2090,14 +2092,11 @@ taskModal.commentsList.addEventListener('click', async (e) => {
             
             function openModal(modal) {
     modal.classList.add('visible');
-    // Dodana logika: ukryj oba przyciski "+"
-    if (fabAddTask) fabAddTask.style.display = 'none';
-    if (fabAddSpecialTask) fabAddSpecialTask.style.display = 'none';
+    render(); // Wywołaj render(), aby poprawnie ukryć przyciski
 }
             function closeModal(modal) {
     modal.classList.remove('visible');
-    // Dodana logika: wywołaj funkcję render(), aby poprawnie przywrócić widoczność przycisków
-    render();
+    render(); // Ta linia jest kluczowa i już powinna tu być
 }
             function showNotification(message, title = 'Powiadomienie') {
                 notificationModal.title.textContent = title;
@@ -3317,6 +3316,7 @@ fabAddSpecialTask.addEventListener('click', () => openNewTaskModal({ isSpecial: 
     </script>
 </body>
 </html>
+
 
 
 
