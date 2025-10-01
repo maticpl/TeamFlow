@@ -10,6 +10,8 @@
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.14/index.global.min.js'></script>
     <script src='https://cdn.jsdelivr.net/npm/@fullcalendar/core/locales/pl.global.min.js'></script>
     <script src="https://cdn.jsdelivr.net/npm/rrule@2.8.1/dist/es5/rrule.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/locale/pl/cdn.min.js"></script>
     <style>
         /* CAŁY TWÓJ KOD CSS POZOSTAJE BEZ ZMIAN */
         :root {
@@ -760,6 +762,87 @@
             border-radius: 4px !important;
         }
         /* === KONIEC: NOWE STYLE DLA KALENDARZA === */
+        /* === POCZĄTEK: STYLE DLA NOWEGO KALENDARZA MOBILNEGO === */
+        #mobile-calendar-view {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .date-scroller {
+            flex-shrink: 0;
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 16px 8px;
+            scrollbar-width: none; /* Ukryj pasek przewijania dla Firefox */
+        }
+        .date-scroller::-webkit-scrollbar {
+            display: none; /* Ukryj pasek przewijania dla Chrome, Safari */
+        }
+
+        .date-item {
+            flex: 0 0 50px; /* Każdy element ma stałą szerokość */
+            padding: 8px 4px;
+            border-radius: var(--border-radius);
+            text-align: center;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .date-item:hover {
+            background-color: var(--bg-tertiary);
+        }
+        .date-item.active {
+            background-color: var(--accent-primary);
+            color: var(--text-on-accent);
+            border-color: var(--accent-hover);
+        }
+        .date-item.today {
+            border-color: var(--accent-primary);
+        }
+        .date-item .day-name {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .date-item .day-number {
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .task-list-for-day {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 0 16px;
+        }
+
+        .task-list-item {
+            display: flex;
+            gap: 16px;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+        }
+        .task-list-item:hover {
+             background-color: var(--bg-tertiary);
+        }
+        .task-time {
+            font-weight: 600;
+            width: 50px;
+            flex-shrink: 0;
+        }
+        .task-title {
+            font-weight: 500;
+        }
+        .no-tasks-message {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+        /* === KONIEC: STYLE DLA NOWEGO KALENDARZA MOBILNEGO === */
     </style>
 </head>
 <body>
@@ -950,6 +1033,10 @@
             </section>
 
             <div id="calendar-view" style="display: none; height: 100%;"></div>
+            <div id="mobile-calendar-view" style="display: none;">
+                <div class="date-scroller"></div>
+                <div class="task-list-for-day"></div>
+            </div>
             <button id="fab-add-task" class="fab-add-task">+</button>
             <button id="fab-add-special-task" class="fab-add-task fab-add-task-special">+</button>
         </main>
@@ -1331,6 +1418,7 @@
         // 1. IMPORTY
         // ============================
         const { RRule } = rrule;
+        const { format, addDays, subDays, startOfDay, isSameDay, isToday } = dateFns;
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         // ZMIANA: Dodano importy potrzebne do zmiany hasła
         import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -1396,6 +1484,7 @@
                     theme: 'light',
                     currentView: 'my-dashboard',
                     isCalendarView: false,
+                    mobileCalendarSelectedDate: new Date().toISOString(),
                     sortMyTasksByDate: 'asc',
                     projectSortOrders: {},
                     unsubscribeProjects: null,
@@ -1424,6 +1513,7 @@
             const calendarToggleBtn = document.getElementById('calendar-toggle-btn');
 const calendarViewEl = document.getElementById('calendar-view');
 let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
+            const mobileCalendarViewEl = document.getElementById('mobile-calendar-view');
             const sortBtn = document.getElementById('sort-btn');
             const searchInput = document.getElementById('search-input');
             const projectActionsEl = document.getElementById('project-actions');
@@ -1584,6 +1674,67 @@ let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
     });
     calendarInstance = calendar;
     calendar.render();
+}
+
+            function renderMobileCalendarView() {
+    const selectedDate = new Date(state.ui.mobileCalendarSelectedDate);
+
+    // 1. Renderuj poziomy pasek z datami
+    const dateScroller = mobileCalendarViewEl.querySelector('.date-scroller');
+    const days = Array.from({ length: 30 }).map((_, i) => subDays(new Date(), 15 - i));
+
+    dateScroller.innerHTML = days.map(day => {
+        const isActive = isSameDay(day, selectedDate);
+        const isTodaysDate = isToday(day);
+        return `
+            <div 
+                class="date-item ${isActive ? 'active' : ''} ${isTodaysDate ? 'today' : ''}" 
+                data-date="${day.toISOString()}"
+            >
+                <div class="day-name">${format(day, 'E', { locale: dateFns.locale.pl })}</div>
+                <div class="day-number">${format(day, 'd')}</div>
+            </div>
+        `;
+    }).join('');
+
+    // Przewiń do aktywnego elementu
+    const activeItem = dateScroller.querySelector('.date-item.active');
+    if (activeItem) {
+        activeItem.scrollIntoView({ behavior: 'smooth', inline: 'center' });
+    }
+
+    // 2. Renderuj listę zadań dla wybranego dnia
+    const taskListContainer = mobileCalendarViewEl.querySelector('.task-list-for-day');
+    const allTasks = getAllMyTasks().filter(task => task.dueDate && task.status !== 'done');
+    const tasksForDay = allTasks
+        .filter(task => isSameDay(new Date(task.dueDate), selectedDate))
+        .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+
+    if (tasksForDay.length > 0) {
+        taskListContainer.innerHTML = tasksForDay.map(task => `
+            <div class="task-list-item" data-task-id="${task.id}">
+                <div class="task-time">${format(new Date(task.dueDate), 'HH:mm')}</div>
+                <div class="task-title">${task.title}</div>
+            </div>
+        `).join('');
+    } else {
+        taskListContainer.innerHTML = `<p class="no-tasks-message">Brak zadań na ten dzień.</p>`;
+    }
+}
+
+function handleMobileDateClick(e) {
+    const dateItem = e.target.closest('.date-item');
+    if (dateItem && dateItem.dataset.date) {
+        state.ui.mobileCalendarSelectedDate = dateItem.dataset.date;
+        render(); // Przerenderuj widok, aby pokazać zadania dla nowej daty
+    }
+}
+
+function handleMobileTaskClick(e) {
+    const taskItem = e.target.closest('.task-list-item');
+    if (taskItem && taskItem.dataset.taskId) {
+        openTaskModal(taskItem.dataset.taskId);
+    }
 }
 
             function calculateNextDueDate(currentDueDate, recurrenceRule) {
@@ -1757,50 +1908,28 @@ let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
     applyTheme();
     renderSidebar();
 
-    calendarViewEl.style.display = state.ui.isCalendarView ? 'block' : 'none';
-    kanbanBoardEl.style.display = state.ui.isCalendarView ? 'none' : 'block';
+    const isMobile = window.innerWidth < 768;
 
+    // Pokaż/ukryj odpowiednie przyciski "+"
+    const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
+    const isModalOpen = !!document.querySelector('.modal-overlay.visible');
+    const shouldShowFabs = !state.ui.isCalendarView && isProjectView && !isModalOpen;
+
+    if (fabAddTask) fabAddTask.style.display = shouldShowFabs ? 'block' : 'none';
+    if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block' : 'none';
+
+    // Ustaw aktywny stan przycisków kalendarza
     document.querySelectorAll('#calendar-toggle-btn, #calendar-toggle-btn-mobile').forEach(btn => {
         btn.classList.toggle('active', state.ui.isCalendarView);
     });
 
-    // === POCZĄTEK NOWEJ, SKONSOLIDOWANEJ LOGIKI DLA PRZYCISKÓW "+" ===
-    const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
-    const isModalOpen = !!document.querySelector('.modal-overlay.visible'); // Sprawdza, czy jakiekolwiek okno jest otwarte
-
-    // Definiujemy warunki, kiedy przyciski mają być widoczne:
-    // 1. NIE jesteśmy w kalendarzu ORAZ
-    // 2. Jesteśmy w widoku projektu ORAZ
-    // 3. ŻADNE okno modalne nie jest otwarte.
-    const shouldShowFabs = !state.ui.isCalendarView && isProjectView && !isModalOpen;
-
-    if (fabAddTask) {
-        fabAddTask.style.display = shouldShowFabs ? 'block' : 'none';
-    }
-    if (fabAddSpecialTask) {
-        fabAddSpecialTask.style.display = shouldShowFabs ? 'block' : 'none';
-    }
-    // === KONIEC NOWEJ LOGIKI ===
+    // Ukryj wszystkie główne kontenery na start
+    kanbanBoardEl.style.display = 'none';
+    calendarViewEl.style.display = 'none';
+    mobileCalendarViewEl.style.display = 'none';
 
     if (state.ui.isCalendarView) {
-        // Logika dla kalendarza (już nie musi przejmować się przyciskami "+")
-        const myTasks = getAllMyTasks();
-        const calendarEvents = myTasks
-            .filter(task => task.dueDate && task.status !== 'done')
-            .map(task => ({
-                id: task.id,
-                title: task.title,
-                start: task.dueDate,
-                backgroundColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)',
-                borderColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)'
-            }));
-        
-        if (calendarInstance) {
-            calendarInstance.updateSize();
-            calendarInstance.removeAllEvents();
-            calendarInstance.addEventSource(calendarEvents);
-        }
-        
+        // Jesteśmy w trybie kalendarza
         projectNameHeaderEl.textContent = 'Kalendarz Zadań';
         mobileHeaderTitle.textContent = 'Kalendarz Zadań';
         projectActionsEl.style.display = 'none';
@@ -1808,9 +1937,34 @@ let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
         projectProgressEl.style.display = 'none';
         projectMembersHeaderEl.style.display = 'none';
 
+        if (isMobile) {
+            // Na telefonie pokaż nasz nowy, niestandardowy kalendarz
+            mobileCalendarViewEl.style.display = 'flex';
+            renderMobileCalendarView();
+        } else {
+            // Na komputerze pokaż stary, dobry FullCalendar
+            calendarViewEl.style.display = 'block';
+            const myTasks = getAllMyTasks();
+            const calendarEvents = myTasks
+                .filter(task => task.dueDate && task.status !== 'done')
+                .map(task => ({
+                    id: task.id,
+                    title: task.title,
+                    start: task.dueDate,
+                    backgroundColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)',
+                    borderColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)'
+                }));
+
+            if (calendarInstance) {
+                calendarInstance.updateSize();
+                calendarInstance.removeAllEvents();
+                calendarInstance.addEventSource(calendarEvents);
+            }
+        }
     } else {
-        // Logika dla pulpitu/projektu (już nie musi przejmować się przyciskami "+")
-        if (isProjectView) {
+        // Jesteśmy w trybie pulpitu lub projektu
+        kanbanBoardEl.style.display = 'grid'; // Upewnij się, że Kanban ma poprawny styl
+        if (state.ui.currentView === 'projects' && state.currentProjectId) {
             renderCurrentProjectView();
         } else if (state.ui.currentView === 'my-dashboard') {
             renderMyDashboardView();
@@ -3380,6 +3534,10 @@ fabAddSpecialTask.addEventListener('click', () => openNewTaskModal({ isSpecial: 
             }
             setupRecurrenceUIListeners(newTaskModal);
             setupRecurrenceUIListeners(taskModal);
+            // === POCZĄTEK: LISTENERY DLA NOWEGO KALENDARZA ===
+mobileCalendarViewEl.querySelector('.date-scroller').addEventListener('click', handleMobileDateClick);
+mobileCalendarViewEl.querySelector('.task-list-for-day').addEventListener('click', handleMobileTaskClick);
+// === KONIEC: LISTENERY DLA NOWEGO KALENDARZA ===
             // === POCZĄTEK: NOWY LISTENER DLA IKONY KALENDARZA ===
             document.querySelectorAll('#calendar-toggle-btn, #calendar-toggle-btn-mobile').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -3393,6 +3551,7 @@ fabAddSpecialTask.addEventListener('click', () => openNewTaskModal({ isSpecial: 
     </script>
 </body>
 </html>
+
 
 
 
