@@ -1694,13 +1694,45 @@
             }
 
             function calculateNextDueDate(currentDueDate, recurrenceRule) {
-                const baseDate = currentDueDate ? new Date(currentDueDate) : new Date();
-                const options = {
-                    dtstart: baseDate,
-                    tzid: 'Europe/Warsaw'
-                };
+    const baseDate = currentDueDate ? new Date(currentDueDate) : new Date();
+    const options = {
+        dtstart: baseDate,
+        tzid: 'Europe/Warsaw'
+    };
+    switch (recurrenceRule.type) {
+        case 'weekly':
+            options.freq = RRule.WEEKLY;
+            options.interval = 1;
+            break;
+        case 'biweekly':
+            options.freq = RRule.WEEKLY;
+            options.interval = 2;
+            break;
+        case 'monthly':
+            options.freq = RRule.MONTHLY;
+            options.interval = 1;
+            break;
+        case 'dayOfMonth':
+            options.freq = RRule.MONTHLY;
+            options.bymonthday = recurrenceRule.day;
+            break;
+        case 'nthDayOfMonth':
+            options.freq = RRule.MONTHLY;
+            options.bysetpos = parseInt(recurrenceRule.nth);
+            const weekdays = [RRule.MO, RRule.TU, RRule.WE, RRule.TH, RRule.FR, RRule.SA, RRule.SU];
+            options.byweekday = weekdays[parseInt(recurrenceRule.weekday)];
+            break;
+        default:
+            return null;
+    }
+    const rule = new RRule(options);
+    const nextDate = rule.after(baseDate);
+    if (!nextDate) return null;
+    const pad = (num) => num.toString().padStart(2, '0');
+    return `${nextDate.getFullYear()}-${pad(nextDate.getMonth() + 1)}-${pad(nextDate.getDate())}T${pad(baseDate.getHours())}:${pad(baseDate.getMinutes())}`;
+}
 
-            function renderAttachments(task) {
+function renderAttachments(task) {
     taskModal.attachmentsList.innerHTML = '';
     if (!task.attachments || task.attachments.length === 0) {
         taskModal.attachmentsList.innerHTML = '<li><small>Brak załączników.</small></li>';
@@ -1724,46 +1756,8 @@
         taskModal.attachmentsList.appendChild(li);
     });
 }
-                
-    switch (recurrenceRule.type) {
-        case 'weekly':
-            options.freq = RRule.WEEKLY;
-            options.interval = 1;
-            break;
-        case 'biweekly':
-            options.freq = RRule.WEEKLY;
-            options.interval = 2; // Powtarzaj co 2 tygodnie
-            break;
-        case 'monthly':
-            options.freq = RRule.MONTHLY;
-            options.interval = 1;
-            break;
-        case 'dayOfMonth':
-            options.freq = RRule.MONTHLY;
-            options.bymonthday = recurrenceRule.day;
-            break;
-        case 'nthDayOfMonth':
-            options.freq = RRule.MONTHLY;
-            options.bysetpos = parseInt(recurrenceRule.nth); // np. 1, 2, -1
-            // RRule używa RRule.MO, RRule.TU itd.
-            const weekdays = [RRule.MO, RRule.TU, RRule.WE, RRule.TH, RRule.FR, RRule.SA, RRule.SU];
-            options.byweekday = weekdays[parseInt(recurrenceRule.weekday)];
-            break;
-        default:
-            return null; // Nieznana reguła
-    }
 
-    const rule = new RRule(options);
-    const nextDate = rule.after(baseDate);
-
-    if (!nextDate) return null; // Jeśli nie ma następnej daty
-
-    // Formatowanie daty z powrotem do YYYY-MM-DDTHH:MM
-    const pad = (num) => num.toString().padStart(2, '0');
-    return `${nextDate.getFullYear()}-${pad(nextDate.getMonth() + 1)}-${pad(nextDate.getDate())}T${pad(baseDate.getHours())}:${pad(baseDate.getMinutes())}`;
-}
-
-            function showConfirmation(title, message, callback, danger = false) {
+function showConfirmation(title, message, callback, danger = false) {
                 confirmationModal.title.textContent = title;
                 confirmationModal.message.textContent = message;
                 confirmationModal.confirmBtn.onclick = () => {
@@ -3634,6 +3628,7 @@ if (projectSelect.options.length === 1 && newTaskModal.projectGroup.style.displa
     </script>
 </body>
 </html>
+
 
 
 
