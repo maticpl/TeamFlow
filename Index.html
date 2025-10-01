@@ -760,6 +760,65 @@
             border-radius: 4px !important;
         }
         /* === KONIEC: NOWE STYLE DLA KALENDARZA === */
+         /* === POCZĄTEK: NOWE STYLE DLA ZMODERNIZOWANEGO PULPITU === */
+
+        /* Lepszy wygląd kontenera na opóźnione zadania */
+        .overdue-list-container {
+            max-height: 250px; /* Zwiększamy nieco wysokość */
+            overflow-y: auto;
+            padding: 4px;
+        }
+        /* Dodajemy odstęp między kartami w liście opóźnionych */
+        .overdue-list-container .task-card {
+            margin-bottom: 8px;
+        }
+
+        /* Style dla nowego, nowoczesnego wykresu */
+        .modern-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 16px; /* Odstęp między wierszami wykresu */
+            margin-top: 16px;
+        }
+        .chart-row {
+            width: 100%;
+        }
+        .chart-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+        .chart-label strong {
+            font-weight: 600;
+            color: var(--text-primary);
+            background-color: var(--bg-tertiary);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .chart-bar-wrapper {
+            height: 12px;
+            background-color: var(--bg-tertiary);
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .chart-bar-fill {
+            height: 100%;
+            border-radius: 6px;
+            transition: width 0.6s cubic-bezier(0.25, 1, 0.5, 1); /* Płynna animacja */
+        }
+        .chart-bar-fill.todo {
+            background: linear-gradient(90deg, var(--danger-hover), var(--danger-primary));
+        }
+        .chart-bar-fill.inprogress {
+            background: linear-gradient(90deg, var(--accent-hover), var(--accent-primary));
+        }
+
+        /* === KONIEC: NOWE STYLE DLA ZMODERNIZOWANEGO PULPITU === */
     </style>
 </head>
 <body>
@@ -1979,11 +2038,8 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                 projectActionsEl.style.display = 'none';
                 projectProgressEl.innerHTML = '';
             
-                // === POCZĄTEK POPRAWKI ===
-                // Zmieniamy styl kontenera, aby pasował do widoku pulpitu
                 kanbanBoardEl.style.display = 'block';
                 kanbanBoardEl.style.height = 'auto';
-                // === KONIEC POPRAWKI ===
 
                 const myTasks = getAllMyTasks();
                 
@@ -2001,8 +2057,10 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                 const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
                 const totalActiveTasks = todoCount + inProgressCount;
 
-                const todoHeight = totalActiveTasks > 0 ? Math.round((todoCount / totalActiveTasks) * 100) : 0;
-                const inProgressHeight = totalActiveTasks > 0 ? Math.round((inProgressCount / totalActiveTasks) * 100) : 0;
+                // === ZMIANA START: Nowe obliczenia procentowe dla wykresu ===
+                const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
+                const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
+                // === ZMIANA KONIEC ===
                 
                 kanbanBoardEl.innerHTML = `
                     <div class="dashboard-container">
@@ -2011,27 +2069,36 @@ taskModal.commentsList.addEventListener('click', async (e) => {
                                 <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
                                 <div class="overdue-list-container">
                                     ${overdueTasks.length > 0 ? 
-                                        overdueTasks.map(task => `
-                                            <div class="overdue-item" data-task-id="${task.id}" data-project-id="${task.projectId}">
-                                                <span class="overdue-item-title">${task.title}</span>
-                                                <span class="overdue-item-date">${new Date(task.dueDate).toLocaleDateString('pl-PL')}</span>
-                                            </div>
-                                        `).join('') :
+                                        // === ZMIANA START: Używamy funkcji createTaskCardHTML do renderowania opóźnionych zadań ===
+                                        overdueTasks.map(task => createTaskCardHTML(task, true)).join('') :
+                                        // === ZMIANA KONIEC ===
                                         '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'
                                     }
                                 </div>
                             </div>
                             <div class="dashboard-card">
                                 <h3>Obciążenie zadaniami (Aktywne: ${totalActiveTasks})</h3>
-                                <div class="chart-mockup">
-                                    <div class="chart-bar" style="height: ${todoHeight}% !important; background-color: var(--danger-primary);" title="${todoCount} Do realizacji">${todoCount}</div>
-                                    <div class="chart-bar" style="height: ${inProgressHeight}% !important; background-color: var(--accent-primary);" title="${inProgressCount} W trakcie">${inProgressCount}</div>
+                                <div class="modern-chart">
+                                    <div class="chart-row">
+                                        <div class="chart-label">
+                                            <span>Do realizacji</span>
+                                            <strong>${todoCount}</strong>
+                                        </div>
+                                        <div class="chart-bar-wrapper">
+                                            <div class="chart-bar-fill todo" style="width: ${todoPercent}%;" title="${todoCount} zad. (${todoPercent.toFixed(1)}%)"></div>
+                                        </div>
+                                    </div>
+                                     <div class="chart-row">
+                                        <div class="chart-label">
+                                            <span>W trakcie</span>
+                                            <strong>${inProgressCount}</strong>
+                                        </div>
+                                        <div class="chart-bar-wrapper">
+                                            <div class="chart-bar-fill inprogress" style="width: ${inProgressPercent}%;" title="${inProgressCount} zad. (${inProgressPercent.toFixed(1)}%)"></div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div style="display: flex; justify-content: space-around; margin-top: 8px;">
-                                    <div class="chart-label" style="width: 40%; color: var(--danger-primary);">Do realizacji</div>
-                                    <div class="chart-label" style="width: 40%; color: var(--accent-primary);">W trakcie</div>
                                 </div>
-                            </div>
                         </div>
                         
                         <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Wszystkie Twoje Zadania</h2>
@@ -3396,6 +3463,7 @@ if (projectSelect.options.length === 1 && newTaskModal.projectGroup.style.displa
     </script>
 </body>
 </html>
+
 
 
 
