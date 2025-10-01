@@ -718,6 +718,36 @@
             .dashboard-grid {
                 grid-template-columns: 1fr;
             }
+            /* === POCZĄTEK: NOWE STYLE DLA MOBILNEGO WIDOKU KALENDARZA === */
+        #calendar-view {
+            display: flex !important; /* Nadpisujemy styl inline 'block' z JS */
+            flex-direction: column;
+            height: calc(100vh - 70px); /* Wypełnij wysokość ekranu pod nagłówkiem */
+            overflow: hidden;
+        }
+        #calendar-view-month {
+            flex-shrink: 0; /* Zapobiega kurczeniu się kalendarza miesięcznego */
+        }
+        #calendar-view-agenda {
+            flex-grow: 1; /* Wypełnia resztę dostępnego miejsca */
+            overflow-y: auto; /* Umożliwia przewijanie listy zadań */
+            border-top: 1px solid var(--border-color);
+        }
+        /* Poprawki wizualne, aby przypominało zrzut ekranu */
+        #calendar-view-agenda .fc-header-toolbar {
+             display: none !important; /* Ukrywamy nagłówek w liście zadań */
+        }
+        #calendar-view-month .fc-toolbar-title {
+            font-size: 1.1em; /* Zmniejszamy tytuł miesiąca, by się zmieścił */
+        }
+        #calendar-view-agenda .fc-list-day-cushion {
+            background-color: var(--bg-primary) !important;
+            padding: 8px 12px;
+        }
+        #calendar-view-agenda .fc-list-event:hover td {
+            background-color: var(--bg-tertiary) !important;
+        }
+        /* === KONIEC: NOWE STYLE DLA MOBILNEGO WIDOKU KALENDARZA === */
         }
          /* === POCZĄTEK: NOWE STYLE DLA KALENDARZA === */
         #calendar-view {
@@ -949,7 +979,10 @@
             <section class="kanban-board" id="kanban-board">
             </section>
 
-            <div id="calendar-view" style="display: none; height: 100%;"></div>
+            <div id="calendar-view" style="display: none; height: 100%;">
+                <div id="calendar-view-month"></div>
+                <div id="calendar-view-agenda"></div>
+            </div>
             <button id="fab-add-task" class="fab-add-task">+</button>
             <button id="fab-add-special-task" class="fab-add-task fab-add-task-special">+</button>
         </main>
@@ -1423,7 +1456,7 @@
             const kanbanBoardEl = document.getElementById('kanban-board');
             const calendarToggleBtn = document.getElementById('calendar-toggle-btn');
 const calendarViewEl = document.getElementById('calendar-view');
-let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
+let calendarInstance = null, mobileMonthInstance = null, mobileAgendaInstance = null;
             const sortBtn = document.getElementById('sort-btn');
             const searchInput = document.getElementById('search-input');
             const projectActionsEl = document.getElementById('project-actions');
@@ -1538,53 +1571,76 @@ let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
             // --- Definicje wszystkich funkcji ---
 
             function initializeCalendar() {
-    if (calendarInstance) {
-        calendarInstance.destroy();
-    }
+                // Niszczymy wszystkie możliwe instancje kalendarza, aby uniknąć duplikatów
+                if (calendarInstance) calendarInstance.destroy();
+                if (mobileMonthInstance) mobileMonthInstance.destroy();
+                if (mobileAgendaInstance) mobileAgendaInstance.destroy();
 
-    // === POCZATEK ZMIAN ===
+                const isMobile = window.innerWidth <= 768;
 
-    // Wykrywamy, czy ekran jest wąski (typowy dla telefonu)
-    const isMobile = window.innerWidth < 768;
+                if (isMobile) {
+                    // === LOGIKA DLA URZĄDZEŃ MOBILNYCH (DWA KALENDARZE) ===
+                    const monthEl = document.getElementById('calendar-view-month');
+                    const agendaEl = document.getElementById('calendar-view-agenda');
 
-    const calendar = new FullCalendar.Calendar(calendarViewEl, {
-        locale: 'pl',
-        
-        // Jeśli mobilny, startuj z widoku listy, jeśli nie, z widoku miesiąca
-        initialView: isMobile ? 'listWeek' : 'dayGridMonth',
+                    // 1. Inicjalizacja dolnej listy zadań (Agenda)
+                    mobileAgendaInstance = new FullCalendar.Calendar(agendaEl, {
+                        locale: 'pl',
+                        initialView: 'listDay', // Widok listy dla jednego dnia
+                        headerToolbar: false, // Brak górnego paska narzędzi
+                        events: [], // Zadania zostaną dodane przez funkcję render()
+                        noEventsText: 'Brak zadań na ten dzień',
+                        eventClick: function(info) {
+                            openTaskModal(info.event.id);
+                        }
+                    });
 
-        headerToolbar: {
-            left: 'prev,next today',
-            center: 'title',
-            // Na telefonie pokazujemy mniej przycisków, aby się zmieściły
-            right: isMobile ? 'listWeek,dayGridMonth' : 'dayGridMonth,timeGridWeek,listWeek,planDniaBtn'
-        },
+                    // 2. Inicjalizacja górnego widoku miesiąca
+                    mobileMonthInstance = new FullCalendar.Calendar(monthEl, {
+                        locale: 'pl',
+                        initialView: 'dayGridMonth',
+                        headerToolbar: {
+                            left: 'prev',
+                            center: 'title',
+                            right: 'next'
+                        },
+                        events: [], // Zadania także tu, aby pokazać kropki pod dniami
+                        dateClick: function(info) {
+                            // KLUCZOWY ELEMENT: Po kliknięciu dnia, przełącz dolny widok na tę datę
+                            mobileAgendaInstance.gotoDate(info.date);
+                            // Opcjonalnie: podświetlanie klikniętego dnia
+                            document.querySelectorAll('.fc-daygrid-day.selected-day').forEach(d => d.classList.remove('selected-day'));
+                            info.dayEl.classList.add('selected-day');
+                        }
+                    });
+                    
+                    mobileAgendaInstance.render();
+                    mobileMonthInstance.render();
 
-        // === KONIEC ZMIAN ===
-
-        customButtons: {
-            planDniaBtn: {
-                text: 'Plan Dnia',
-                click: function() {
-                    calendar.changeView('listDay');
-                    calendar.today();
+                } else {
+                    // === LOGIKA DLA PC (JEDEN KALENDARZ - tak jak było) ===
+                    calendarViewEl.innerHTML = ''; // Czyścimy kontenery mobilne na wszelki wypadek
+                    calendarInstance = new FullCalendar.Calendar(calendarViewEl, {
+                        locale: 'pl',
+                        initialView: 'dayGridMonth',
+                        headerToolbar: {
+                            left: 'prev,next today',
+                            center: 'title',
+                            right: 'dayGridMonth,timeGridWeek,listWeek,planDniaBtn'
+                        },
+                        customButtons: {
+                            planDniaBtn: { text: 'Plan Dnia', click: function() { calendarInstance.changeView('listDay'); calendarInstance.today(); } }
+                        },
+                        buttonText: { today: 'Aktualna data', listWeek: 'Plan Tygodnia', listDay: 'Plan Dnia' },
+                        events: [],
+                        editable: false,
+                        eventClick: function(info) {
+                            openTaskModal(info.event.id);
+                        }
+                    });
+                    calendarInstance.render();
                 }
             }
-        },
-        buttonText: {
-            today: 'Aktualna data',
-            listWeek: 'Plan Tygodnia',
-            listDay: 'Plan Dnia'
-        },
-        events: [],
-        editable: false,
-        eventClick: function(info) {
-            openTaskModal(info.event.id);
-        }
-    });
-    calendarInstance = calendar;
-    calendar.render();
-}
 
             function calculateNextDueDate(currentDueDate, recurrenceRule) {
     const baseDate = currentDueDate ? new Date(currentDueDate) : new Date();
@@ -1798,10 +1854,23 @@ let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
                 borderColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)'
             }));
         
-        if (calendarInstance) {
-            calendarInstance.updateSize();
-            calendarInstance.removeAllEvents();
-            calendarInstance.addEventSource(calendarEvents);
+        if (window.innerWidth <= 768) {
+            // Wersja mobilna - aktualizuj oba kalendarze
+            if (mobileMonthInstance) {
+                mobileMonthInstance.removeAllEvents();
+                mobileMonthInstance.addEventSource(calendarEvents);
+            }
+            if (mobileAgendaInstance) {
+                mobileAgendaInstance.removeAllEvents();
+                mobileAgendaInstance.addEventSource(calendarEvents);
+            }
+        } else {
+            // Wersja PC - aktualizuj jeden, główny kalendarz
+            if (calendarInstance) {
+                calendarInstance.updateSize();
+                calendarInstance.removeAllEvents();
+                calendarInstance.addEventSource(calendarEvents);
+            }
         }
         
         projectNameHeaderEl.textContent = 'Kalendarz Zadań';
@@ -3396,6 +3465,7 @@ if (projectSelect.options.length === 1 && newTaskModal.projectGroup.style.displa
     </script>
 </body>
 </html>
+
 
 
 
