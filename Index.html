@@ -996,6 +996,41 @@
             color: var(--danger-primary);
             opacity: 1;
         }
+        .staged-attachment-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px;
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    margin-bottom: 8px;
+}
+.staged-attachment-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 500;
+}
+.staged-attachment-info svg {
+    width: 20px;
+    height: 20px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+.delete-staged-attachment-btn {
+     background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 20px;
+    opacity: 0.6;
+}
+.delete-staged-attachment-btn:hover {
+    color: var(--danger-primary);
+    opacity: 1;
+}
         /* === KONIEC: STYLE DLA ZAŁĄCZNIKÓW === */
     </style>
 </head>
@@ -1435,6 +1470,15 @@
                         <label for="new-task-description">Opis</label>
                         <textarea id="new-task-description" rows="3" placeholder="Dodaj więcej szczegółów..."></textarea>
                     </div>
+                    <div class="form-group">
+    <label>Załączniki</label>
+    <div class="new-task-attachments-container">
+        <input type="file" id="new-task-attachment-input" style="display: none;" multiple>
+        <button type="button" id="add-new-task-attachment-btn" class="btn btn-secondary">Dodaj załącznik</button>
+        <ul id="new-task-attachments-list" class="attachments-list" style="margin-top: 12px;">
+            </ul>
+    </div>
+</div>
                     <div style="display: flex; gap: 16px;">
                         <div class="form-group" style="flex: 1;">
                             <label for="new-task-dueDate">Termin</label>
@@ -1654,7 +1698,7 @@
             inprogress: 'W trakcie realizacji',
             done: 'Wykonane'
         };
-
+let stagedFiles = [];
         let state = {
             currentUser: null,
             users: [],
@@ -2970,7 +3014,52 @@
                 }, true
             );
         }
+const addAttachmentBtnNewTask = document.getElementById('add-new-task-attachment-btn');
+const attachmentInputNewTask = document.getElementById('new-task-attachment-input');
+const attachmentsListNewTask = document.getElementById('new-task-attachments-list');
 
+// Funkcja do renderowania listy plików oczekujących na wysłanie
+function renderStagedFiles() {
+    attachmentsListNewTask.innerHTML = '';
+    if (stagedFiles.length === 0) return;
+
+    stagedFiles.forEach((file, index) => {
+        const li = document.createElement('li');
+        li.className = 'staged-attachment-item';
+        li.innerHTML = `
+            <div class="staged-attachment-info">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.94l-7.693 7.693a2.25 2.25 0 003.182 3.182l7.693-7.693a.75.75 0 011.06 1.06l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32" /></svg>
+                <span>${file.name}</span>
+            </div>
+            <button type="button" class="delete-staged-attachment-btn" data-index="${index}" title="Usuń plik">&times;</button>
+        `;
+        attachmentsListNewTask.appendChild(li);
+    });
+}
+
+// Otwiera okno wyboru pliku
+addAttachmentBtnNewTask.addEventListener('click', () => {
+    attachmentInputNewTask.click();
+});
+
+// Po wybraniu pliku dodaje go do tablicy 'stagedFiles'
+attachmentInputNewTask.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        stagedFiles.push(...e.target.files);
+        renderStagedFiles();
+    }
+    // Czyści input, aby można było ponownie wybrać ten sam plik po jego usunięciu
+    e.target.value = ''; 
+});
+
+// Obsługuje usuwanie pliku z listy oczekujących
+attachmentsListNewTask.addEventListener('click', (e) => {
+    if (e.target.classList.contains('delete-staged-attachment-btn')) {
+        const indexToRemove = parseInt(e.target.dataset.index, 10);
+        stagedFiles.splice(indexToRemove, 1);
+        renderStagedFiles();
+    }
+});
         function showConfetti() {
             const container = document.createElement('div');
             container.className = 'confetti-container';
@@ -3531,73 +3620,116 @@
         });
 
         newTaskModal.form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const title = newTaskModal.title.value.trim();
-            if (!title) return;
-            const isFab = newTaskModal.projectGroup.style.display === 'block';
-            let projectId;
-            const projectSelect = newTaskModal.projectSelect;
+    e.preventDefault();
+    const submitBtn = e.target.querySelector('button[type="submit"]');
 
-            if (projectSelect.options.length === 1 && newTaskModal.projectGroup.style.display === 'none') {
-                projectId = projectSelect.value;
-            } else {
-                const isFab = newTaskModal.projectGroup.style.display === 'block';
-                projectId = isFab ? projectSelect.value : state.currentProjectId;
-            }
-            const project = findProject(projectId);
-            if (!project) return;
-            const taskType = document.querySelector('input[name="task-type"]:checked').value;
-            let assignees = [];
-            if (taskType === 'single') {
-                const singleAssignee = newTaskModal.assigneeSingleSelect.value;
-                if (singleAssignee) assignees.push(singleAssignee);
-            } else {
-                assignees = Array.from(newTaskModal.assigneeMultiList.querySelectorAll('.member-pill.selected'))
-                    .map(pill => pill.dataset.userId);
-            }
-            if (assignees.length === 0) {
-                showNotification("Wybierz przynajmniej jedną osobę do zadania.", "Błąd");
+    try {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Zapisywanie...';
+
+        const title = newTaskModal.title.value.trim();
+        if(!title) {
+            showNotification("Tytuł zadania jest wymagany.", "Błąd");
+            return;
+        };
+
+        const isFab = newTaskModal.projectGroup.style.display === 'block';
+        let projectId;
+        const projectSelect = newTaskModal.projectSelect;
+
+        if (projectSelect.options.length === 1 && newTaskModal.projectGroup.style.display === 'none') {
+            projectId = projectSelect.value;
+        } else {
+            const isFab = newTaskModal.projectGroup.style.display === 'block';
+            projectId = isFab ? projectSelect.value : state.currentProjectId;
+        }
+        const project = findProject(projectId);
+        if(!project) return;
+
+        const taskType = document.querySelector('input[name="task-type"]:checked').value;
+        let assignees = [];
+        if (taskType === 'single') {
+            const singleAssignee = newTaskModal.assigneeSingleSelect.value;
+            if (singleAssignee) assignees.push(singleAssignee);
+        } else {
+            assignees = Array.from(newTaskModal.assigneeMultiList.querySelectorAll('.member-pill.selected'))
+                           .map(pill => pill.dataset.userId);
+        }
+        if (assignees.length === 0) {
+             showNotification("Wybierz przynajmniej jedną osobę do zadania.", "Błąd");
+             return;
+        }
+
+        let recurrence = null;
+        if (newTaskModal.isRecurring.checked) {
+            if (!newTaskModal.dueDate.value) {
+                showNotification("Zadanie cykliczne musi mieć ustawiony termin wykonania.", "Błąd");
                 return;
             }
-
-            let recurrence = null;
-            if (newTaskModal.isRecurring.checked) {
-                if (!newTaskModal.dueDate.value) {
-                    showNotification("Zadanie cykliczne musi mieć ustawiony termin wykonania.", "Błąd");
-                    return;
-                }
-                const type = newTaskModal.recurrenceType.value;
-                recurrence = {
-                    type: type
-                };
-                if (type === 'dayOfMonth') {
-                    recurrence.day = parseInt(newTaskModal.recurrenceDay.value) || 1;
-                } else if (type === 'nthDayOfMonth') {
-                    recurrence.nth = document.getElementById('new-task-recurrence-nth').value;
-                    recurrence.weekday = document.getElementById('new-task-recurrence-weekday').value;
-                }
+            const type = newTaskModal.recurrenceType.value;
+            recurrence = { type: type };
+            if (type === 'dayOfMonth') {
+                recurrence.day = parseInt(newTaskModal.recurrenceDay.value) || 1;
+            } else if (type === 'nthDayOfMonth') {
+                recurrence.nth = document.getElementById('new-task-recurrence-nth').value;
+                recurrence.weekday = document.getElementById('new-task-recurrence-weekday').value;
             }
+        }
 
-            const newTask = {
-                id: `task${Date.now()}`,
-                title,
-                createdBy: state.currentUser.uid,
-                description: newTaskModal.description.value,
-                status: 'todo',
-                type: taskType,
-                assignees: assignees,
-                completedBy: [],
-                priority: newTaskModal.priority.value,
-                dueDate: newTaskModal.dueDate.value || null,
-                comments: [],
-                activityLog: [],
-                recurrence: recurrence
-            };
-            await updateDoc(doc(projectsRef, project.id), {
-                tasks: [...(project.tasks || []), newTask]
+        const newTask = {
+            id: `task${Date.now()}`, title,
+            createdBy: state.currentUser.uid,
+            description: newTaskModal.description.value,
+            status: 'todo', 
+            type: taskType,
+            assignees: assignees,
+            completedBy: [],
+            priority: newTaskModal.priority.value,
+            dueDate: newTaskModal.dueDate.value || null,
+            comments: [], 
+            activityLog: [],
+            recurrence: recurrence,
+            attachments: [] // <-- Ważne: dodajemy pustą tablicę na załączniki
+        };
+
+        // NOWA LOGIKA WYSYŁANIA PLIKÓW
+        if (stagedFiles.length > 0) {
+            submitBtn.textContent = `Przesyłanie ${stagedFiles.length} plik(ów)...`;
+
+            const attachmentPromises = stagedFiles.map(file => {
+                const storagePath = `attachments/${project.id}/${newTask.id}/${Date.now()}_${file.name}`;
+                const storageRef = ref(storage, storagePath);
+                return uploadBytes(storageRef, file).then(snapshot => getDownloadURL(snapshot.ref)).then(downloadURL => ({
+                    id: `att_${Date.now()}_${Math.random()}`,
+                    name: file.name,
+                    url: downloadURL,
+                    path: storagePath,
+                    uploadedBy: state.currentUser.uid,
+                    timestamp: Date.now()
+                }));
             });
-            closeModal(newTaskModal.overlay);
+
+            const uploadedAttachments = await Promise.all(attachmentPromises);
+            newTask.attachments = uploadedAttachments;
+        }
+
+        await updateDoc(doc(projectsRef, project.id), {
+            tasks: [...(project.tasks || []), newTask]
         });
+
+        closeModal(newTaskModal.overlay);
+
+    } catch (error) {
+        console.error("Błąd podczas tworzenia zadania:", error);
+        showNotification("Wystąpił błąd podczas zapisywania zadania.", "Błąd");
+    } finally {
+        // Czyści listę plików po zapisaniu zadania
+        stagedFiles = [];
+        renderStagedFiles();
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Zapisz zadanie';
+    }
+});
 
         async function handleTaskCompletion(task, project) {
             const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
@@ -4000,5 +4132,6 @@
 </script>
 </body>
 </html>
+
 
 
