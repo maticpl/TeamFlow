@@ -3846,6 +3846,48 @@ attachmentsListNewTask.addEventListener('click', (e) => {
         });
 
         taskModal.saveBtn.addEventListener('click', saveTaskFromModal);
+        // ▼▼▼ POCZĄTEK NOWEGO KODU - OBSŁUGA CHECKBOXA W MODALU ▼▼▼
+taskModal.completed.addEventListener('change', async (e) => {
+    const taskId = taskModal.overlay.dataset.taskId;
+    const { task, project } = findTask(taskId);
+    if (!task || !project) return;
+
+    // Kopiujemy istniejącą logikę z głównego widoku, aby zapewnić spójność
+    let updatedTask = { ...task };
+    const oldStatus = updatedTask.status;
+    const isChecked = e.target.checked;
+
+    // Specjalna obsługa dla zadań wieloosobowych
+    if (task.type === 'multi') {
+        if (isChecked && updatedTask.completedBy.length < updatedTask.assignees.length) {
+            showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
+            e.target.checked = false; // Cofnij zaznaczenie
+            return;
+        }
+         updatedTask.status = isChecked ? 'done' : (task.completedBy.length > 0 ? 'inprogress' : 'todo');
+    } else {
+        // Standardowa logika dla zadań jednoosobowych
+         if (isChecked) {
+            if (task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
+                showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
+                e.target.checked = false; 
+                return; 
+            }
+        }
+        updatedTask.status = isChecked ? 'done' : 'todo';
+    }
+
+    // Jeśli status faktycznie się zmienił, zapisz zmiany
+    if (updatedTask.status !== oldStatus) {
+        updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+        if (oldStatus !== 'done' && updatedTask.status === 'done') {
+            showConfetti();
+        }
+        await handleTaskCompletion(updatedTask, project);
+        closeModal(taskModal.overlay); // Zamknij okno po wykonaniu akcji
+    }
+});
+// ▲▲▲ KONIEC NOWEGO KODU ▲▲▲
 
         taskModal.addCommentBtn.addEventListener('click', async () => {
             const taskId = taskModal.overlay.dataset.taskId;
@@ -4143,6 +4185,7 @@ attachmentsListNewTask.addEventListener('click', (e) => {
 </script>
 </body>
 </html>
+
 
 
 
