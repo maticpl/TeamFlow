@@ -1260,6 +1260,19 @@
 }
 
 /* === KONIEC: Style dla ikon w rogu karty zadania === */
+        .department-header {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-top: 20px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+.department-header:first-of-type {
+    margin-top: 0;
+}
     </style>
 </head>
 <body>
@@ -1285,23 +1298,30 @@
             </form>
 
             <form id="register-form" class="auth-form">
-                <h2>Stwórz konto</h2>
-                 <div class="form-group">
-                    <label for="register-name">Nazwa użytkownika</label>
-                    <input type="text" id="register-name" required>
-                </div>
-                <div class="form-group">
-                    <label for="register-email">Email</label>
-                    <input type="email" id="register-email" required>
-                </div>
-                <div class="form-group">
-                    <label for="register-password">Hasło (min. 6 znaków)</label>
-                    <input type="password" id="register-password" required>
-                </div>
-                <button type="submit" class="btn btn-primary">Zarejestruj się</button>
-                 <p id="auth-error-register" class="error-message"></p>
-                <p class="auth-toggle">Masz już konto? <a id="show-login">Zaloguj się</a></p>
-            </form>
+    <h2>Stwórz konto</h2>
+    <div class="form-group">
+        <label for="register-name">Nazwa użytkownika</label>
+        <input type="text" id="register-name" required>
+    </div>
+    <div class="form-group">
+        <label for="register-email">Email</label>
+        <input type="email" id="register-email" required>
+    </div>
+
+    <div class="form-group">
+        <label for="register-group">Wybierz dział</label>
+        <select id="register-group" required>
+            <option value="" disabled selected>-- Wybierz z listy --</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="register-password">Hasło (min. 6 znaków)</label>
+        <input type="password" id="register-password" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Zarejestruj się</button>
+    <p id="auth-error-register" class="error-message"></p>
+    <p class="auth-toggle">Masz już konto? <a id="show-login">Zaloguj się</a></p>
+</form>
         </div>
     </div>
     
@@ -1931,6 +1951,14 @@ let stagedFiles = [];
         };
 
         const ADMIN_EMAIL = 'mateuszczerwinski0@gmail.com';
+        const DEPARTMENTS = [
+    "Dział operacyjny Non-Food",
+    "Dział operacyjny Food",
+    "Dział sprzedaży",
+    "Dział innowacji",
+    "Dział IT",
+    "Dział testowy"
+];
 
         function isCurrentUserAdmin() {
             return state.currentUser && state.currentUser.email === ADMIN_EMAIL;
@@ -1954,6 +1982,11 @@ let stagedFiles = [];
         form: document.getElementById('change-username-form'),
         input: document.getElementById('new-username-input'),
     };
+        const changeGroupModal = {
+    overlay: document.getElementById('change-group-modal'),
+    form: document.getElementById('change-group-form'),
+    select: document.getElementById('change-group-select'),
+};
         const notificationToggleBtn = document.getElementById('notification-toggle-btn');
         const sidebar = document.getElementById('sidebar');
         const sidebarOverlay = document.getElementById('sidebar-overlay');
@@ -1989,6 +2022,15 @@ let stagedFiles = [];
         const authErrorLogin = document.getElementById('auth-error-login');
         const authErrorRegister = document.getElementById('auth-error-register');
         const fabAddSpecialTask = document.getElementById('fab-add-special-task');
+        const registerGroupSelect = document.getElementById('register-group');
+if (registerGroupSelect) {
+    DEPARTMENTS.forEach(dep => {
+        const option = document.createElement('option');
+        option.value = dep;
+        option.textContent = dep;
+        registerGroupSelect.appendChild(option);
+    });
+}
         const taskModal = {
             overlay: document.getElementById('task-modal'),
             title: document.getElementById('modal-task-title'),
@@ -3572,13 +3614,16 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                 const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                 const user = userCredential.user;
 
-                await setDoc(doc(usersRef, user.uid), {
-                    uid: user.uid,
-                    email: user.email,
-                    name: name,
-                    avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-                    favorites: [],
-                });
+                const group = document.getElementById('register-group').value; // <-- DODANA LINIA
+
+await setDoc(doc(usersRef, user.uid), {
+    uid: user.uid,
+    email: user.email,
+    name: name,
+    group: group, // <-- DODANA LINIA
+    avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+    favorites: [],
+});
 
                 const inboxProject = {
                     name: "Skrzynka zadań",
@@ -3830,7 +3875,40 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                 submitBtn.textContent = 'Zmień hasło';
             }
         });
-        
+        // --- CZĘŚĆ 5: Logika zmiany działu ---
+
+// Wypełnianie listy działów w modalu zmiany działu
+DEPARTMENTS.forEach(dep => {
+    const option = document.createElement('option');
+    option.value = dep;
+    option.textContent = dep;
+    changeGroupModal.select.appendChild(option);
+});
+
+// Otwieranie modala do zmiany działu
+settingsModal.openChangeGroupBtn.addEventListener('click', () => {
+    const currentUserGroup = state.currentUser.group || "";
+    changeGroupModal.select.value = currentUserGroup;
+    openModal(changeGroupModal.overlay);
+    closeModal(settingsModal.overlay);
+});
+
+// Zapisywanie zmiany działu
+changeGroupModal.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const newGroup = changeGroupModal.select.value;
+    if (!newGroup) return;
+
+    try {
+        const userDocRef = doc(usersRef, state.currentUser.uid);
+        await updateDoc(userDocRef, { group: newGroup });
+        closeModal(changeGroupModal.overlay);
+        showNotification("Dział został pomyślnie zaktualizowany.", "Sukces");
+    } catch (error)
+        console.error("Błąd podczas aktualizacji działu:", error);
+        showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+    }
+});
         document.querySelectorAll('#notification-toggle-btn, #notification-toggle-btn-mobile').forEach(btn => {
             btn.addEventListener('click', requestNotificationPermission);
         });
@@ -3875,16 +3953,47 @@ attachmentsListNewTask.addEventListener('click', (e) => {
 
         newProjectBtn.addEventListener('click', () => {
             newProjectModal.form.reset();
-            newProjectModal.membersContainer.innerHTML = state.users.map(user => {
+            const membersContainer = newProjectModal.membersContainer;
+    membersContainer.innerHTML = ''; // 1. Czyścimy kontener na start
+
+    // 2. Grupujemy wszystkich użytkowników według ich działu
+    const usersByGroup = state.users.reduce((acc, user) => {
+        const group = user.group || 'Bez działu'; // Użytkownicy bez działu trafią do osobnej grupy
+        if (!acc[group]) {
+            acc[group] = [];
+        }
+        acc[group].push(user);
+        return acc;
+    }, {});
+
+    // 3. Iterujemy przez naszą listę DEPARTMENTS, aby zachować stałą kolejność
+    DEPARTMENTS.forEach(dep => {
+        // Sprawdzamy, czy w danym dziale jest chociaż jeden użytkownik
+        if (usersByGroup[dep] && usersByGroup[dep].length > 0) {
+            
+            // a. Tworzymy i wstawiamy nagłówek działu (np. "Dział IT")
+            const header = document.createElement('h3');
+            header.className = 'department-header';
+            header.textContent = dep;
+            membersContainer.appendChild(header);
+
+            // b. Wstawiamy wszystkich użytkowników z tego konkretnego działu
+            usersByGroup[dep].forEach(user => {
                 const isCurrentUser = user.id === state.currentUser.uid;
-                const initials = (user.name || user.email).substring(0, 2).toUpperCase();
-                return `
-                        <div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${user.id}" title="${user.name || user.email}">
-                            <div class="member-pill-avatar" style="background-color: ${user.avatarColor || '#ccc'}">${initials}</div>
-                            <span>${user.name || user.email}</span>
-                        </div>
-                    `;
-            }).join('');
+                // Używamy funkcji renderAvatarHTML, aby wyświetlić zdjęcie lub inicjały
+                const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
+                const pill = document.createElement('div');
+                pill.className = `member-pill ${isCurrentUser ? 'selected disabled' : ''}`;
+                pill.dataset.userId = user.id;
+                pill.title = user.name || user.email;
+                pill.innerHTML = `
+                    ${avatarHTML}
+                    <span>${user.name || user.email}</span>
+                `;
+                membersContainer.appendChild(pill);
+            });
+        }
+    });
             openModal(newProjectModal.overlay);
         });
 
@@ -4658,6 +4767,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 <button id="open-upload-photo-btn" class="btn btn-secondary">Zmień zdjęcie</button>
                 <button id="open-change-username-btn" class="btn btn-secondary">Zmień nazwę</button>
                 <button id="open-change-password-btn" class="btn btn-secondary">Zmień hasło</button>
+                <button id="open-change-group-btn" class="btn btn-secondary">Zmień dział</button>
             </div>
         </div>
     </div>
@@ -4683,7 +4793,26 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         </form>
     </div>
 </div>
-
+<div class="modal-overlay" id="change-group-modal">
+    <div class="modal" style="max-width: 400px;">
+        <form id="change-group-form">
+            <div class="modal-header">
+                <h2>Zmień dział</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <div class="form-group">
+                    <label for="change-group-select">Wybierz nowy dział</label>
+                    <select id="change-group-select" required></select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="submit" class="btn btn-primary">Zapisz</button>
+            </div>
+        </form>
+    </div>
+</div>
 <div class="modal-overlay" id="change-password-modal">
     <div class="modal" style="max-width: 400px;">
         <form id="change-password-form">
@@ -4718,6 +4847,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
