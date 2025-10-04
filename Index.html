@@ -3408,24 +3408,59 @@ if (registerGroupSelect) {
         }
 
         function openEditProjectModal(projectId) {
-            const project = findProject(projectId);
-            if (!project) return;
-            editProjectModal.overlay.dataset.projectId = projectId;
-            editProjectModal.nameInput.value = project.name;
-            editProjectModal.membersContainer.innerHTML = state.users.map(user => {
-                const isSelected = project.members.includes(user.id);
-                const isOwner = user.id === project.ownerId;
-                const initials = (user.name || user.email).substring(0, 2).toUpperCase();
+    const project = findProject(projectId);
+    if (!project) return;
+    editProjectModal.overlay.dataset.projectId = projectId;
+    editProjectModal.nameInput.value = project.name;
 
-                return `
-            <div class="member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}" data-user-id="${user.id}" title="${user.name || user.email}">
-                <div class="member-pill-avatar" style="background-color: ${user.avatarColor || '#ccc'}">${initials}</div>
-                <span>${user.name || user.email}</span>
-            </div>
-        `;
-            }).join('');
-            openModal(editProjectModal.overlay);
+    const membersContainer = editProjectModal.membersContainer;
+    membersContainer.innerHTML = ''; // Czyścimy kontener
+
+    const usersByGroup = state.users.reduce((acc, user) => {
+        const group = user.group || 'Bez działu';
+        if (!acc[group]) acc[group] = [];
+        acc[group].push(user);
+        return acc;
+    }, {});
+
+    DEPARTMENTS.forEach(dep => {
+        if (usersByGroup[dep] && usersByGroup[dep].length > 0) {
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'department-group';
+
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'department-header';
+            headerDiv.innerHTML = `
+                <span>${dep}</span>
+                <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+            `;
+
+            const usersDiv = document.createElement('div');
+            usersDiv.className = 'department-users collapsed';
+
+            usersByGroup[dep].forEach(user => {
+                const isSelected = project.members.includes(user.id); // Sprawdza, czy użytkownik jest już w projekcie
+                const isOwner = user.id === project.ownerId;
+                const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
+                
+                const pill = document.createElement('div');
+                pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}`;
+                pill.dataset.userId = user.id;
+                pill.title = user.name || user.email;
+                pill.innerHTML = `${avatarHTML} <span>${user.name || user.email}</span>`;
+                usersDiv.appendChild(pill);
+            });
+
+            groupDiv.appendChild(headerDiv);
+            groupDiv.appendChild(usersDiv);
+            membersContainer.appendChild(groupDiv);
         }
+    });
+
+    openModal(editProjectModal.overlay);
+}
 
          async function handleDeleteProject(projectId) {
             const project = findProject(projectId) || findCompletedProject(projectId);
@@ -3669,7 +3704,17 @@ await setDoc(doc(usersRef, user.uid), {
     avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
     favorites: [],
 });
-
+// Listener do obsługi rozwijania/zwijania działów w oknie "Edytuj Projekt"
+editProjectModal.membersContainer.addEventListener('click', (e) => {
+    const header = e.target.closest('.department-header');
+    if (header) {
+        const usersContainer = header.nextElementSibling;
+        if (usersContainer && usersContainer.classList.contains('department-users')) {
+            header.classList.toggle('active');
+            usersContainer.classList.toggle('collapsed');
+        }
+    }
+});
                 const inboxProject = {
                     name: "Skrzynka zadań",
                     ownerId: user.uid,
@@ -4912,6 +4957,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
