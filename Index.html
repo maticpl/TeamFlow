@@ -1259,16 +1259,23 @@
             </ul>
     </nav>
     <nav class="nav-section">
-         <ul class="nav-list">
-            <li class="nav-item nav-item-special">
-                <a href="#" data-view="all-projects">
-                    <svg></svg>
-                    <span>Wszystkie projekty</span>
-                </a>
+    <ul class="nav-list" id="main-nav">
+        <li class="nav-item">
+            <a href="#" data-view="my-dashboard">
+                <span>Moje zadania</span>
+            </a>
+        </li>
+        <li class="nav-item" id="inbox-nav-item" style="display: none;">
             </li>
-        </ul>
-    </nav>
-</div>
+
+        <li class="nav-item nav-item-special">
+            <a href="#" data-view="all-projects">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125A2.25 2.25 0 0 1 4.5 4.875h15a2.25 2.25 0 0 1 2.25 2.25v9.75a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V7.125Z" /></svg>
+                <span>Wszystkie projekty</span>
+            </a>
+        </li>
+    </ul>
+</nav>
             
             <button class="new-project-btn" id="new-project-btn">+ Nowy Projekt</button>
 
@@ -2723,27 +2730,81 @@ let stagedFiles = [];
             });
         }
         function renderMyDashboardView() {
-    projectNameHeaderEl.textContent = "Pulpit - Moje zadania";
-    mobileHeaderTitle.textContent = "Moje zadania";
-    projectActionsEl.style.display = 'none';
+    projectNameHeaderEl.textContent = 'Mój Pulpit';
+    mobileHeaderTitle.textContent = 'Mój Pulpit';
     projectMembersHeaderEl.innerHTML = '';
-    projectProgressEl.style.display = 'none';
+    projectActionsEl.style.display = 'none';
+    projectProgressEl.innerHTML = '';
 
-    let myTasks = getAllMyTasks();
+    // --- KLUCZOWA ZMIANA: Resetujemy style siatki, aby pulpit mógł się poprawnie wyświetlić ---
+    kanbanBoardEl.style.display = 'block';
+    kanbanBoardEl.style.height = 'auto';
+    
+    const myTasks = getAllMyTasks();
 
-    // Sortowanie zadań na pulpicie
+    // Poprawiony błąd w sortowaniu (było 'dateB - a', powinno być 'dateB - dateA')
     myTasks.sort((a, b) => {
         const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
         const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-
         if (dateA === Infinity && dateB === Infinity) return 0;
         if (dateA === Infinity) return 1;
         if (dateB === Infinity) return -1;
-        
         return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
     });
 
-    renderKanbanBoard(myTasks, true); // Używamy istniejącej funkcji do renderowania tablicy
+    const overdueTasks = getOverdueTasks(myTasks);
+    const todoCount = myTasks.filter(t => t.status === 'todo').length;
+    const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
+    const totalActiveTasks = todoCount + inProgressCount;
+    const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
+    const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
+
+    // Generujemy pełny HTML pulpitu
+    kanbanBoardEl.innerHTML = `
+        <div class="dashboard-container">
+            <div class="dashboard-grid">
+                <div class="dashboard-card">
+                    <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
+                    <div class="overdue-list-container">
+                        ${overdueTasks.length > 0 ? 
+                            overdueTasks.map(task => createTaskCardHTML(task, true)).join('') : 
+                            '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'}
+                    </div>
+                </div>
+                <div class="dashboard-card">
+                    <h3>Obciążenie zadaniami (Aktywne: ${totalActiveTasks})</h3>
+                    <div class="modern-chart">
+                        <div class="chart-row">
+                            <div class="chart-label"><span>Do realizacji</span><strong>${todoCount}</strong></div>
+                            <div class="chart-bar-wrapper"><div class="chart-bar-fill todo" style="width: ${todoPercent}%;" title="${todoCount} zad. (${todoPercent.toFixed(1)}%)"></div></div>
+                        </div>
+                        <div class="chart-row">
+                            <div class="chart-label"><span>W trakcie</span><strong>${inProgressCount}</strong></div>
+                            <div class="chart-bar-wrapper"><div class="chart-bar-fill inprogress" style="width: ${inProgressPercent}%;" title="${inProgressCount} zad. (${inProgressPercent.toFixed(1)}%)"></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <h2 style="font-size: 20px; font-weight: 600; margin: 24px 0 16px 0;">Wszystkie Twoje Zadania</h2>
+            <section id="my-tasks-kanban" class="kanban-board-mini"></section>
+        </div>
+    `;
+
+    // Renderujemy tablicę Kanban w dedykowanym miejscu wewnątrz pulpitu
+    const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
+    
+    const renderMyTasksKanban = (tasks, targetElement) => {
+        targetElement.innerHTML = '';
+        Object.keys(STATUSES).forEach(statusKey => {
+            const column = document.createElement('div');
+            column.className = 'kanban-column';
+            const tasksInColumn = tasks.filter(t => t.status === statusKey);
+            column.innerHTML = \`<div class="kanban-column-header"><h3>${STATUSES[statusKey]}</h3><span class="task-count">${tasksInColumn.length}</span></div><ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true)).join('')}</ul>\`;
+            targetElement.appendChild(column);
+        });
+    };
+
+    renderMyTasksKanban(myTasks, myTasksKanbanEl);
 }
         function createTaskCardHTML(task, isInteractive) {
             const isCompleted = task.status === 'done';
@@ -4361,6 +4422,7 @@ attachmentsListNewTask.addEventListener('click', (e) => {
 </script>
 </body>
 </html>
+
 
 
 
