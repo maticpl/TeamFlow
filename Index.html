@@ -2020,6 +2020,23 @@ let stagedFiles = [];
             return state.completedProjects.find(p => p.id === projectId);
         }
 
+        async function updateProjectLastActivity(projectId) {
+            if (!projectId) return;
+            try {
+                // Próbujemy zaktualizować w kolekcji aktywnych projektów
+                const projectRef = doc(db, `artifacts/${appId}/public/data/projects`, projectId);
+                await updateDoc(projectRef, { lastActivity: Date.now() });
+            } catch (error) {
+                // Jeśli się nie uda (np. projekt został zakończony), próbujemy w kolekcji zakończonych
+                try {
+                    const completedProjectRef = doc(db, `artifacts/${appId}/public/data/completedProjects`, projectId);
+                    await updateDoc(completedProjectRef, { lastActivity: Date.now() });
+                } catch (e) {
+                    console.warn(`Nie udało się zaktualizować daty aktywności dla projektu ${projectId}:`, e);
+                }
+            }
+        }
+
         function migrateTask(task) {
             if (!task.type) {
                 task.type = 'single';
@@ -2911,6 +2928,7 @@ let stagedFiles = [];
                 await updateDoc(projectDocRef, {
                     tasks: tasks
                 });
+                await updateProjectLastActivity(project.id);
                 if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
                 showNotification("Zmiany w zadaniu zostały zapisane.", "Sukces");
                 closeModal(taskModal.overlay);
@@ -3749,7 +3767,7 @@ attachmentsListNewTask.addEventListener('click', (e) => {
         await updateDoc(doc(projectsRef, project.id), {
             tasks: [...(project.tasks || []), newTask]
         });
-
+        await updateProjectLastActivity(project.id);
         closeModal(newTaskModal.overlay);
 
     } catch (error) {
@@ -3783,6 +3801,7 @@ attachmentsListNewTask.addEventListener('click', (e) => {
             await updateDoc(projectDocRef, {
                 tasks: tasks
             });
+            await updateProjectLastActivity(project.id);
         }
 
         async function handleTaskCheckboxClick(checkbox) {
@@ -4097,6 +4116,7 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                             await updateDoc(projectDocRef, {
                                 tasks: updatedTasks
                             });
+                            await updateProjectLastActivity(project.id);
                             closeModal(taskModal.overlay);
                             showNotification("Zadanie zostało pomyślnie usunięte.", "Sukces");
                         } catch (error) {
@@ -4165,6 +4185,7 @@ attachmentsListNewTask.addEventListener('click', (e) => {
 </script>
 </body>
 </html>
+
 
 
 
