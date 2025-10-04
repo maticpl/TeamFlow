@@ -3094,29 +3094,6 @@ attachmentsListNewTask.addEventListener('click', (e) => {
         }
 
         function setupFirestoreListeners(userId) {
-            if (!userId) return;
-            if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
-            state.ui.unsubscribeUsers = onSnapshot(query(usersRef), (snapshot) => {
-                state.users = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-                render();
-            }, (error) => console.error("Błąd odczytu użytkowników:", error));
-            if (state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
-            const projectsQuery = query(projectsRef, where("members", "array-contains", userId));
-            state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
-                state.projects = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-
-                const inboxExists = state.projects.some(p => p.isInbox === true);
-
-                if (!inboxExists) {
-                    const inboxProject = {
-                        name: "Skrzynka zadań",
-                        ownerId: state.currentUser.uid,
                         members: [state.currentUser.uid],
                         tasks: [],
                         isInbox: true, 
@@ -3136,8 +3113,16 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                 console.error("Błąd odczytu projektów:", error);
                 loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small><br><br><b>Ważne:</b> Upewnij się, że utworzyłeś/aś wymagany indeks w Firestore (zakładka Indexes -> Single Field).</p>`;
             });
+            
             if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
-            const completedQuery = query(completedProjectsRef, where("members", "array-contains", userId));
+    
+            let completedQuery;
+            if (isCurrentUserAdmin()) {
+                completedQuery = query(completedProjectsRef); // Admin pobiera wszystkie zakończone
+            } else {
+                completedQuery = query(completedProjectsRef, where("members", "array-contains", userId)); // Zwykły użytkownik tylko swoje
+            }
+            
             state.ui.unsubscribeCompleted = onSnapshot(completedQuery, (snapshot) => {
                 state.completedProjects = snapshot.docs.map(doc => ({
                     id: doc.id,
@@ -4149,5 +4134,6 @@ attachmentsListNewTask.addEventListener('click', (e) => {
 </script>
 </body>
 </html>
+
 
 
