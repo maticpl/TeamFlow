@@ -1709,6 +1709,15 @@
             inprogress: 'W trakcie realizacji',
             done: 'Wykonane'
         };
+        // NOWY KOD: Definicja listy administratorów
+        const ADMIN_EMAILS = ['mateuszczerwinski0@gmail.com'];
+
+        // NOWY KOD: Funkcja pomocnicza do sprawdzania uprawnień admina
+        function isUserAdmin(user) {
+            if (!user) return false;
+            return ADMIN_EMAILS.includes(user.email);
+        }
+
 let stagedFiles = [];
         let state = {
             currentUser: null,
@@ -2385,6 +2394,7 @@ let stagedFiles = [];
         function renderCurrentProjectView() {
             const project = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
             const isCompleted = !!findCompletedProject(state.currentProjectId);
+            const isAdmin = isUserAdmin(state.currentUser);
             const isOwner = project && project.ownerId === state.currentUser.uid;
 
             const canShowActions = project && isOwner && !project.isInbox;
@@ -2680,9 +2690,13 @@ let stagedFiles = [];
                 taskModal.assigneesEdit.style.display = 'none';
                 taskModal.assigneesList.style.display = 'flex';
                 taskModal.saveBtn.style.display = 'none';
+                const isAdmin = isUserAdmin(state.currentUser); // <-- ZMIANA
                 const isCreator = !task.createdBy || (task.createdBy && task.createdBy === state.currentUser.uid);
-                taskModal.deleteBtn.style.display = isCreator ? 'block' : 'none';
-                taskModal.editBtn.style.display = isCreator ? 'block' : 'none';
+                const isProjectOwner = project.ownerId === state.currentUser.uid;
+                const canEditOrDelete = isCreator || isProjectOwner || isAdmin; // <-- ZMIANA
+
+                taskModal.deleteBtn.style.display = canEditOrDelete ? 'block' : 'none';
+                taskModal.editBtn.style.display = canEditOrDelete ? 'block' : 'none';
 
                 if (task.type === 'multi') {
                     taskModal.completionStatusSection.style.display = 'block';
@@ -2998,7 +3012,8 @@ let stagedFiles = [];
 
         async function handleDeleteProject(projectId) {
             const project = findProject(projectId) || findCompletedProject(projectId);
-            if (!project || project.ownerId !== state.currentUser.uid) {
+            const isAdmin = isUserAdmin(state.currentUser); // <-- ZMIANA
+            if (!project || (project.ownerId !== state.currentUser.uid && !isAdmin)) { // <-- ZMIANA
                 showNotification("Brak uprawnień lub projekt nie istnieje.", "Błąd");
                 return;
             }
@@ -4099,8 +4114,12 @@ taskModal.completed.addEventListener('change', async (e) => {
             } = findTask(taskId);
 
             if (!task || !project) return;
-            if (task.createdBy !== state.currentUser.uid && project.ownerId !== state.currentUser.uid) {
-                showNotification("Nie masz uprawnień do usunięcia tego zadania. Musisz być twórcą zadania lub właścicielem projektu.", "Błąd");
+            const isAdmin = isUserAdmin(state.currentUser); // <-- ZMIANA
+            const isCreator = task.createdBy === state.currentUser.uid;
+            const isProjectOwner = project.ownerId === state.currentUser.uid;
+
+            if (!isCreator && !isProjectOwner && !isAdmin) { // <-- ZMIANA
+                showNotification("Nie masz uprawnień do usunięcia tego zadania. Musisz być jego twórcą, właścicielem projektu lub administratorem.", "Błąd");
                 return;
             }
 
@@ -4185,6 +4204,7 @@ taskModal.completed.addEventListener('change', async (e) => {
 </script>
 </body>
 </html>
+
 
 
 
