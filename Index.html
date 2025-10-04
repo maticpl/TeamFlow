@@ -390,15 +390,14 @@
         .task-type-selection input:checked + label { background-color: var(--accent-primary); color: white; border-color: var(--accent-primary); }
         
         .members-selection-pills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            background-color: var(--bg-primary);
-            padding: 12px;
-            border-radius: var(--border-radius);
-            max-height: 150px;
-            overflow-y: auto;
-        }
+    /* Usunęliśmy display: flex i flex-wrap, aby elementy układały się pionowo */
+    gap: 8px;
+    background-color: var(--bg-primary);
+    padding: 12px;
+    border-radius: var(--border-radius);
+    max-height: 250px; /* Zwiększamy nieco wysokość dla lepszej nawigacji */
+    overflow-y: auto;
+}
         .member-pill {
             display: inline-flex;
             align-items: center;
@@ -1273,6 +1272,50 @@
 .department-header:first-of-type {
     margin-top: 0;
 }
+        /* === POCZĄTEK: Style dla akordeonu działów === */
+
+.department-group {
+    margin-bottom: 8px;
+}
+
+.department-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    border-radius: var(--border-radius);
+    background-color: var(--bg-tertiary);
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+.department-header:hover {
+    background-color: var(--border-color);
+}
+.department-header .chevron {
+    width: 20px;
+    height: 20px;
+    transition: transform 0.3s ease;
+}
+.department-header.active .chevron {
+    transform: rotate(90deg);
+}
+
+.department-users {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 4px 4px 4px;
+    transition: max-height 0.3s ease-in-out;
+    overflow: hidden;
+}
+
+.department-users.collapsed {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    overflow: hidden;
+}
+/* === KONIEC: Style dla akordeonu działów === */
     </style>
 </head>
 <body>
@@ -3952,49 +3995,55 @@ changeGroupModal.form.addEventListener('submit', async (e) => {
             }
         });
 
-        newProjectBtn.addEventListener('click', () => {
-            newProjectModal.form.reset();
-            const membersContainer = newProjectModal.membersContainer;
-    membersContainer.innerHTML = ''; // 1. Czyścimy kontener na start
+        const membersContainer = newProjectModal.membersContainer;
+membersContainer.innerHTML = ''; // Czyścimy kontener
 
-    // 2. Grupujemy wszystkich użytkowników według ich działu
-    const usersByGroup = state.users.reduce((acc, user) => {
-        const group = user.group || 'Bez działu'; // Użytkownicy bez działu trafią do osobnej grupy
-        if (!acc[group]) {
-            acc[group] = [];
-        }
-        acc[group].push(user);
-        return acc;
-    }, {});
+const usersByGroup = state.users.reduce((acc, user) => {
+    const group = user.group || 'Bez działu';
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(user);
+    return acc;
+}, {});
 
-    // 3. Iterujemy przez naszą listę DEPARTMENTS, aby zachować stałą kolejność
-    DEPARTMENTS.forEach(dep => {
-        // Sprawdzamy, czy w danym dziale jest chociaż jeden użytkownik
-        if (usersByGroup[dep] && usersByGroup[dep].length > 0) {
-            
-            // a. Tworzymy i wstawiamy nagłówek działu (np. "Dział IT")
-            const header = document.createElement('h3');
-            header.className = 'department-header';
-            header.textContent = dep;
-            membersContainer.appendChild(header);
+// Tworzymy HTML dla każdego działu
+DEPARTMENTS.forEach(dep => {
+    if (usersByGroup[dep] && usersByGroup[dep].length > 0) {
+        
+        // 1. Główny kontener dla całej grupy
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'department-group';
 
-            // b. Wstawiamy wszystkich użytkowników z tego konkretnego działu
-            usersByGroup[dep].forEach(user => {
-                const isCurrentUser = user.id === state.currentUser.uid;
-                // Używamy funkcji renderAvatarHTML, aby wyświetlić zdjęcie lub inicjały
-                const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
-                const pill = document.createElement('div');
-                pill.className = `member-pill ${isCurrentUser ? 'selected disabled' : ''}`;
-                pill.dataset.userId = user.id;
-                pill.title = user.name || user.email;
-                pill.innerHTML = `
-                    ${avatarHTML}
-                    <span>${user.name || user.email}</span>
-                `;
-                membersContainer.appendChild(pill);
-            });
-        }
-    });
+        // 2. Klikalny nagłówek z nazwą działu i strzałką
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'department-header';
+        headerDiv.innerHTML = `
+            <span>${dep}</span>
+            <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+            </svg>
+        `;
+
+        // 3. Kontener na pigułki z użytkownikami (domyślnie zwinięty)
+        const usersDiv = document.createElement('div');
+        usersDiv.className = 'department-users collapsed';
+
+        usersByGroup[dep].forEach(user => {
+            const isCurrentUser = user.id === state.currentUser.uid;
+            const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
+            const pill = document.createElement('div');
+            pill.className = `member-pill ${isCurrentUser ? 'selected disabled' : ''}`;
+            pill.dataset.userId = user.id;
+            pill.title = user.name || user.email;
+            pill.innerHTML = `${avatarHTML} <span>${user.name || user.email}</span>`;
+            usersDiv.appendChild(pill);
+        });
+
+        // 4. Składamy wszystko w całość
+        groupDiv.appendChild(headerDiv);
+        groupDiv.appendChild(usersDiv);
+        membersContainer.appendChild(groupDiv);
+    }
+});
             openModal(newProjectModal.overlay);
         });
 
@@ -4060,7 +4109,18 @@ changeGroupModal.form.addEventListener('submit', async (e) => {
             });
             closeModal(editProjectModal.overlay);
         });
-
+        newProjectModal.membersContainer.addEventListener('click', (e) => {
+    const header = e.target.closest('.department-header');
+    if (header) {
+        // Znajdź kontener z użytkownikami, który jest "bratem" nagłówka
+        const usersContainer = header.nextElementSibling;
+        if (usersContainer && usersContainer.classList.contains('department-users')) {
+            // Przełącz klasy, aby pokazać/ukryć listę i obrócić strzałkę
+            header.classList.toggle('active');
+            usersContainer.classList.toggle('collapsed');
+        }
+    }
+});
         completeProjectBtn.addEventListener('click', async () => {
             const project = findProject(state.currentProjectId);
             if (!project || (project.tasks || []).some(t => t.status !== 'done')) {
@@ -4848,6 +4908,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
