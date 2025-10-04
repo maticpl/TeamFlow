@@ -1043,6 +1043,85 @@
     opacity: 1;
 }
         /* === KONIEC: STYLE DLA ZAŁĄCZNIKÓW === */
+        /* === POCZĄTEK: NOWE STYLE DLA WIDOKU WSZYSTKICH PROJEKTÓW === */
+        .all-projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .project-tile {
+            background-color: var(--bg-secondary);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            box-shadow: var(--shadow-md);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid var(--border-color);
+        }
+        .project-tile:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-lg);
+        }
+        .project-tile.owner { background-color: var(--bg-secondary); }
+        .project-tile.member { background-color: #f0f8ff; } /* Jasny niebieski */
+        .project-tile.other { background-color: #fffacd; } /* Jasny żółty */
+        .dark-mode .project-tile.member { background-color: #3d4a5f; }
+        .dark-mode .project-tile.other { background-color: #5a5a42; }
+        
+        .project-tile-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        .project-tile-header h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-right: 12px;
+            cursor: pointer;
+        }
+        .project-tile-header h3:hover {
+            color: var(--accent-primary);
+        }
+        .favorite-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            color: var(--text-secondary);
+        }
+        .favorite-btn svg {
+            width: 24px;
+            height: 24px;
+            transition: color 0.2s, transform 0.2s;
+        }
+        .favorite-btn.is-favorite svg {
+            fill: #f43f5e; /* Kolor różowy/czerwony dla ulubionych */
+            color: #f43f5e;
+        }
+        .favorite-btn:hover svg {
+            transform: scale(1.15);
+        }
+        .project-tile-details {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .project-tile-owner, .project-tile-members-list {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .project-tile-members {
+            display: flex;
+            margin-top: 8px;
+        }
+        .project-tile-members .avatar {
+            width: 28px;
+            height: 28px;
+            font-size: 12px;
+        }
+        /* === KONIEC: NOWE STYLE DLA WIDOKU WSZYSTKICH PROJEKTÓW === */
     </style>
 </head>
 <body>
@@ -1119,6 +1198,14 @@
                             <span>Moje zadania</span>
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a href="#" data-view="all-projects">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125A2.25 2.25 0 014.5 4.875h15A2.25 2.25 0 0121.75 7.125v10.5A2.25 2.25 0 0119.5 19.875h-15A2.25 2.25 0 012.25 17.625v-10.5zM22.5 9.75l-10.56-4.598a2.25 2.25 0 00-2.38 0L1.5 9.75" />
+                            </svg>
+                            <span>Wszystkie projekty</span>
+                        </a>
+                    </li>
                     <li class="nav-item" id="inbox-nav-item" style="display: none;">
                         <a href="#">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
@@ -1130,9 +1217,10 @@
                 </ul>
             </nav>
 
+            <aside class="sidebar" id="sidebar">
             <div class="sidebar-scrollable-area">
                 <nav class="nav-section">
-                    <h2>Moje projekty</h2>
+                    <h2>Ulubione projekty</h2>
                     <ul class="nav-list" id="projects-list">
                     </ul>
                 </nav>
@@ -2227,7 +2315,106 @@ let stagedFiles = [];
         `;
     }).join('');
 }
+        // NOWA FUNKCJA DO RENDEROWANIA WIDOKU WSZYSTKICH PROJEKTÓW
+        function renderAllProjectsView() {
+            projectNameHeaderEl.textContent = 'Wszystkie Projekty';
+            mobileHeaderTitle.textContent = 'Wszystkie Projekty';
+            projectMembersHeaderEl.innerHTML = '';
+            projectActionsEl.style.display = 'none';
+            projectProgressEl.innerHTML = '';
+            sortBtn.style.display = 'none';
 
+            kanbanBoardEl.innerHTML = `<div class="all-projects-grid"></div>`;
+            const grid = kanbanBoardEl.querySelector('.all-projects-grid');
+
+            const sortedProjects = [...state.projects].sort((a, b) => {
+                const aIsOwner = a.ownerId === state.currentUser.uid;
+                const bIsOwner = b.ownerId === state.currentUser.uid;
+                const aIsMember = a.members.includes(state.currentUser.uid);
+                const bIsMember = b.members.includes(state.currentUser.uid);
+
+                if (aIsOwner !== bIsOwner) return aIsOwner ? -1 : 1;
+                if (aIsMember !== bIsMember) return aIsMember ? -1 : 1;
+                return a.name.localeCompare(b.name);
+            });
+
+            sortedProjects.forEach(project => {
+                const tile = document.createElement('div');
+                tile.className = 'project-tile';
+                tile.dataset.projectId = project.id;
+                
+                let tileClass = 'other';
+                if (project.ownerId === state.currentUser.uid) {
+                    tileClass = 'owner';
+                } else if (project.members.includes(state.currentUser.uid)) {
+                    tileClass = 'member';
+                }
+                tile.classList.add(tileClass);
+
+                const isFavorite = state.currentUser.favorites.includes(project.id);
+                const owner = findUser(project.ownerId);
+
+                const projectTasks = (project.tasks || []);
+                const totalTasks = projectTasks.length;
+                const completedTasks = projectTasks.filter(t => t.status === 'done').length;
+                const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+                
+                const membersHTML = project.members.map(memberId => {
+                    const user = findUser(memberId);
+                    if (!user) return '';
+                    const initials = (user.name || user.email).substring(0, 2).toUpperCase();
+                    return `<div class="avatar" style="background-color: ${user.avatarColor || '#ccc'}" title="${user.name || user.email}">${initials}</div>`;
+                }).join('');
+
+                tile.innerHTML = `
+                    <div class="project-tile-header">
+                        <h3 class="js-project-title">${project.name}</h3>
+                        <button class="favorite-btn ${isFavorite ? 'is-favorite' : ''}" data-project-id="${project.id}" title="${isFavorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'}">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="project-tile-details">
+                        <div class="project-tile-owner">
+                            <strong>Właściciel:</strong> ${owner ? owner.name : 'Nieznany'}
+                        </div>
+                        <div class="project-tile-members-list">
+                            <strong>Członkowie:</strong> <div class="project-tile-members">${membersHTML}</div>
+                        </div>
+                    </div>
+                    <div>
+                         <div class="progress-bar-container" title="${progressPercent}% ukończenia">
+                            <div class="progress-bar-fill" style="width: ${progressPercent}%;"></div>
+                        </div>
+                        <div class="progress-text">${completedTasks} z ${totalTasks} zadań ukończonych</div>
+                    </div>
+                `;
+                grid.appendChild(tile);
+            });
+        }
+        async function toggleFavoriteProject(projectId) {
+            if (!state.currentUser) return;
+            
+            const userRef = doc(usersRef, state.currentUser.uid);
+            const currentFavorites = state.currentUser.favorites || [];
+            let updatedFavorites;
+
+            if (currentFavorites.includes(projectId)) {
+                updatedFavorites = currentFavorites.filter(id => id !== projectId);
+            } else {
+                updatedFavorites = [...currentFavorites, projectId];
+            }
+
+            try {
+                await updateDoc(userRef, { favorites: updatedFavorites });
+                state.currentUser.favorites = updatedFavorites;
+                render(); 
+            } catch (error) {
+                console.error("Błąd podczas aktualizacji ulubionych:", error);
+                showNotification("Nie udało się zaktualizować ulubionych projektów.", "Błąd");
+            }
+        }
         function render() {
             if (!state.currentUser) return;
             applyTheme();
@@ -2293,10 +2480,12 @@ let stagedFiles = [];
                     sortBtn.style.display = 'none';
                 }
 
-                if (isProjectView) {
+                 if (isProjectView) {
                     renderCurrentProjectView();
                 } else if (isDashboardView) {
                     renderMyDashboardView();
+                } else if (state.ui.currentView === 'all-projects') {
+                    renderAllProjectsView();
                 }
                 projectMembersHeaderEl.style.display = 'flex';
             }
@@ -2354,6 +2543,7 @@ let stagedFiles = [];
 
         function renderSidebar() {
             mainNav.querySelector('a[data-view="my-dashboard"]').classList.toggle('active', state.ui.currentView === 'my-dashboard');
+            mainNav.querySelector('a[data-view="all-projects"]').classList.toggle('active', state.ui.currentView === 'all-projects');
 
             const inboxNavItem = document.getElementById('inbox-nav-item');
             const inboxProject = state.projects.find(p => p.isInbox === true);
@@ -2377,8 +2567,10 @@ let stagedFiles = [];
                 });
             };
 
-            const regularProjects = state.projects.filter(p => !p.isInbox);
-            renderProjectList(regularProjects, projectsListEl);
+            const favoriteProjects = state.projects.filter(p => 
+                !p.isInbox && state.currentUser.favorites.includes(p.id)
+            );
+            renderProjectList(favoriteProjects, projectsListEl);
 
             if (state.completedProjects.length > 0) {
                 completedProjectsSection.style.display = 'block';
@@ -3180,14 +3372,13 @@ attachmentsListNewTask.addEventListener('click', (e) => {
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 const userDoc = await getDoc(doc(usersRef, user.uid));
-                state.currentUser = userDoc.exists() ? {
+                const userData = userDoc.exists() ? userDoc.data() : {};
+                state.currentUser = {
                     id: user.uid,
                     uid: user.uid,
-                    ...userDoc.data()
-                } : {
-                    id: user.uid,
-                    uid: user.uid,
-                    email: user.email
+                    email: user.email,
+                    ...userData,
+                    favorites: userData.favorites || [] // Upewnia się, że tablica ulubionych zawsze istnieje
                 };
                 authOverlay.style.display = 'none';
                 appContainer.classList.remove('hidden');
@@ -3239,7 +3430,8 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                     uid: user.uid,
                     email: user.email,
                     name: name,
-                    avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')
+                    avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+                    favorites: [],
                 });
 
                 const inboxProject = {
@@ -3839,6 +4031,15 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                 openTaskModal(e.target.closest('.task-card').dataset.taskId);
             } else if (e.target.closest('.add-task-icon-btn')) {
                 openNewTaskModal(false);
+            } else if (e.target.closest('.favorite-btn')) {
+                const projectId = e.target.closest('.favorite-btn').dataset.projectId;
+                toggleFavoriteProject(projectId);
+            } else if (e.target.closest('.js-project-title')) {
+                const projectId = e.target.closest('.project-tile').dataset.projectId;
+                state.currentProjectId = projectId;
+                state.ui.currentView = 'projects';
+                saveUiState();
+                render();
             }
         });
 
@@ -4165,6 +4366,7 @@ attachmentsListNewTask.addEventListener('click', (e) => {
 </script>
 </body>
 </html>
+
 
 
 
