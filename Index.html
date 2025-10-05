@@ -1508,8 +1508,12 @@
         <main class="main-content">
             <header class="mobile-header">
     <button id="menu-toggle">
-         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+        </svg>
+    </button>
+    
+    <button id="back-to-projects-btn-mobile" class="header-btn" title="Wróć do wszystkich projektów" style="display: none;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 24px; height: 24px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
         </svg>
     </button>
     <h2 id="mobile-header-title"></h2>
@@ -1546,6 +1550,11 @@
                     </div>
                 </div>
                <div class="header-actions">
+    <button id="back-to-projects-btn" class="header-btn" title="Wróć do wszystkich projektów" style="display: none;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 24px; height: 24px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+        </svg>
+    </button>
     <button class="sort-btn" id="sort-btn" style="display: none;">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
            <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
@@ -1558,6 +1567,8 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0h18" />
         </svg>
     </button>
+    
+    </div>
     <button id="notification-toggle-btn" class="header-btn" title="Zarządzaj powiadomieniami">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
@@ -2037,6 +2048,7 @@ let stagedFiles = [];
             ui: {
                 theme: 'light',
                 currentView: 'my-dashboard',
+                previousView: null, // <-- DODANA LINIA
                 isCalendarView: false,
                 sortMyTasksByDate: 'asc',
                 projectSortOrders: {},
@@ -2064,7 +2076,9 @@ let stagedFiles = [];
             return state.currentUser && state.currentUser.email === ADMIN_EMAIL;
         }
         
-        // --- Pobieranie referencji do elementów HTML ---
+        / --- Pobieranie referencji do elementów HTML ---
+        const backToProjectsBtn = document.getElementById('back-to-projects-btn'); // <-- DODANA LINIA
+        const backToProjectsBtnMobile = document.getElementById('back-to-projects-btn-mobile'); // <-- DODANA LINIA
         const settingsBtn = document.getElementById('settings-btn');
     const photoUploadInput = document.getElementById('photo-upload-input');
 
@@ -2226,7 +2240,6 @@ if (registerGroupSelect) {
     confirmPassword: document.getElementById('confirm-password'),
     error: document.getElementById('change-password-error'),
 };
-
 
         // --- Definicje wszystkich funkcji ---
 
@@ -2705,6 +2718,18 @@ if (registerGroupSelect) {
             if (!state.currentUser) return;
             applyTheme();
             renderSidebar();
+
+            // ▼▼▼ NOWA LOGIKA POKAZYWANIA/UKRYWANIA PRZYCISKU "COFNIJ" ▼▼▼
+            const shouldShowBackButton = state.ui.currentView === 'projects' && state.ui.previousView === 'all-projects';
+            if (backToProjectsBtn) {
+                backToProjectsBtn.style.display = shouldShowBackButton ? 'flex' : 'none';
+            }
+            if (backToProjectsBtnMobile) {
+                backToProjectsBtnMobile.style.display = shouldShowBackButton ? 'flex' : 'none';
+                // Ukrywamy przycisk menu, gdy przycisk "Cofnij" jest widoczny
+                if(menuToggle) menuToggle.style.display = shouldShowBackButton ? 'none' : 'flex';
+            }
+            // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
 
             const isMobile = window.innerWidth <= 768;
             const mobileCalendarWrapper = document.getElementById('mobile-calendar-wrapper');
@@ -4059,10 +4084,11 @@ changeGroupModal.form.addEventListener('submit', async (e) => {
             btn.addEventListener('click', requestNotificationPermission);
         });
 
-        const handleProjectLinkClick = (e) => {
+         const handleProjectLinkClick = (e) => {
             e.preventDefault();
             const link = e.target.closest('a');
             if (link && link.dataset.projectId) {
+                state.ui.previousView = null; // <-- DODANA LINIA
                 state.currentProjectId = link.dataset.projectId;
                 state.ui.currentView = 'projects';
                 state.ui.isCalendarView = false;
@@ -4080,10 +4106,12 @@ changeGroupModal.form.addEventListener('submit', async (e) => {
             const link = e.target.closest('a');
             if (!link) return;
 
+            state.ui.previousView = null; // <-- DODANA LINIA
+
             if (link.dataset.view) {
                 state.currentProjectId = null;
                 state.ui.currentView = link.dataset.view;
-                state.ui.isCalendarView = false; // <-- DODANA LINIA
+                state.ui.isCalendarView = false; 
                 saveUiState();
                 render();
                 sidebar.classList.remove('open');
@@ -4091,7 +4119,7 @@ changeGroupModal.form.addEventListener('submit', async (e) => {
             } else if (link.dataset.projectId) {
                 state.currentProjectId = link.dataset.projectId;
                 state.ui.currentView = 'projects';
-                state.ui.isCalendarView = false; // <-- DODANA LINIA
+                state.ui.isCalendarView = false; 
                 saveUiState();
                 render();
                 sidebar.classList.remove('open');
@@ -4457,7 +4485,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             await handleTaskCompletion(updatedTask, project);
         }
 
-        kanbanBoardEl.addEventListener('click', (e) => {
+         kanbanBoardEl.addEventListener('click', (e) => {
             if (e.target.closest('.task-card-checkbox')) {
                 handleTaskCheckboxClick(e.target.closest('.task-card-checkbox'));
             } else if (e.target.closest('.task-card')) {
@@ -4470,6 +4498,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             } else if (e.target.closest('.js-project-title')) {
                 const projectId = e.target.closest('.project-tile').dataset.projectId;
                 state.currentProjectId = projectId;
+                state.ui.previousView = state.ui.currentView; // <-- DODANA LINIA
                 state.ui.currentView = 'projects';
                 saveUiState();
                 render();
@@ -4992,6 +5021,21 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         submitBtn.textContent = 'Zmień hasło';
     }
 });
+   // ▼▼▼ DODAJ NOWY LISTENER DLA PRZYCISKÓW "COFNIJ" ▼▼▼
+        const handleBackButtonClick = (e) => {
+            e.preventDefault();
+            if (state.ui.previousView) {
+                state.ui.currentView = state.ui.previousView;
+                state.ui.previousView = null;
+                state.currentProjectId = null;
+                saveUiState();
+                render();
+            }
+        };
+
+        backToProjectsBtn.addEventListener('click', handleBackButtonClick);
+        backToProjectsBtnMobile.addEventListener('click', handleBackButtonClick);
+        // ▲▲▲ KONIEC NOWEGO LISTNERA ▲▲▲
     });
 </script>
     <div class="modal-overlay" id="settings-modal">
@@ -5103,6 +5147,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
