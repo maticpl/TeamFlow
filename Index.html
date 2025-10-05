@@ -2964,42 +2964,52 @@ if (registerGroupSelect) {
             const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
             const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
 
+            // ▼▼▼ NOWA, POPRAWIONA LOGIKA RENDEROWANIA KART ▼▼▼
+
+            // 1. Zamiast gotowego HTML, tworzymy funkcje, które generują WEWNĘTRZNĄ treść kart
             const cardContents = {
-                'my-overdue': `
-                        <h3>Moje Opóźnione Zadania (${overdueTasks.length})</h3>
-                        <div class="overdue-list-container">
-                            ${overdueTasks.length > 0 ? overdueTasks.map(task => createTaskCardHTML(task, true)).join('') : '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'}
-                        </div>`,
-                'team-delays': `
-                        <h3>Opóźnienia w Moich Projektach</h3>
-                        <div class="overdue-list-container" id="dashboard-team-delays-list"></div>`,
-                'upcoming': `
-                        <h3>Nadchodzące Terminy (dziś i jutro)</h3>
-                        <div class="overdue-list-container" id="dashboard-upcoming-list"></div>`,
-                'workload': `
-                        <h3>Moje Obciążenie (Aktywne: ${totalActiveTasks})</h3>
-                        <div class="modern-chart">
-                            <div class="chart-row">
-                                <div class="chart-label"><span>Do realizacji</span><strong>${todoCount}</strong></div>
-                                <div class="chart-bar-wrapper"><div class="chart-bar-fill todo" style="width: ${todoPercent}%;"></div></div>
-                            </div>
-                            <div class="chart-row">
-                                <div class="chart-label"><span>W trakcie</span><strong>${inProgressCount}</strong></div>
-                                <div class="chart-bar-wrapper"><div class="chart-bar-fill inprogress" style="width: ${inProgressPercent}%;"></div></div>
-                            </div>
-                        </div>`,
-                'activity': `
-                        <h3>Ostatnia Aktywność</h3>
-                        <ul class="activity-list" id="dashboard-activity-list"></ul>`
+                'my-overdue': () => `
+                    <h3>Moje Opóźnione Zadania (${overdueTasks.length})</h3>
+                    <div class="overdue-list-container">
+                        ${overdueTasks.length > 0 ? overdueTasks.map(task => createTaskCardHTML(task, true)).join('') : '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'}
+                    </div>`,
+                'team-delays': () => `
+                    <h3>Opóźnienia w Moich Projektach</h3>
+                    <div class="overdue-list-container" id="dashboard-team-delays-list"></div>`,
+                'upcoming': () => `
+                    <h3>Nadchodzące Terminy (dziś i jutro)</h3>
+                    <div class="overdue-list-container" id="dashboard-upcoming-list"></div>`,
+                'workload': () => `
+                    <h3>Moje Obciążenie (Aktywne: ${totalActiveTasks})</h3>
+                    <div class="modern-chart">
+                        <div class="chart-row">
+                            <div class="chart-label"><span>Do realizacji</span><strong>${todoCount}</strong></div>
+                            <div class="chart-bar-wrapper"><div class="chart-bar-fill todo" style="width: ${todoPercent}%;"></div></div>
+                        </div>
+                        <div class="chart-row">
+                            <div class="chart-label"><span>W trakcie</span><strong>${inProgressCount}</strong></div>
+                            <div class="chart-bar-wrapper"><div class="chart-bar-fill inprogress" style="width: ${inProgressPercent}%;"></div></div>
+                        </div>
+                    </div>`,
+                'activity': () => `
+                    <h3>Ostatnia Aktywność</h3>
+                    <ul class="activity-list" id="dashboard-activity-list"></ul>`
             };
             
-            const orderedCardsHTML = state.ui.dashboardLayout.map(widget => `
-                <div class="dashboard-card ${widget.size}" data-id="${widget.id}">
-                    <div class="dashboard-card-handle">⠿</div>
-                    ${cardContents[widget.id]}
-                </div>
-            `).join('');
+            // 2. Składamy HTML w pętli, dynamicznie wywołując funkcje z treścią
+            const orderedCardsHTML = state.ui.dashboardLayout.map(widget => {
+                // Sprawdzamy, czy funkcja dla danego ID istnieje, zanim ją wywołamy
+                const contentFunction = cardContents[widget.id];
+                const content = contentFunction ? contentFunction() : '<h3>Błąd ładowania sekcji</h3>';
 
+                return `
+                    <div class="dashboard-card ${widget.size}" data-id="${widget.id}">
+                        <div class="dashboard-card-handle">⠿</div>
+                        ${content}
+                    </div>`;
+            }).join('');
+
+            // 3. Renderujemy główną strukturę (bez zmian)
             kanbanBoardEl.innerHTML = `
                 <div class="dashboard-container">
                     <div class="dashboard-grid" id="dashboard-grid-main">
@@ -3011,6 +3021,8 @@ if (registerGroupSelect) {
             `;
             
             document.getElementById('dashboard-grid-main').classList.toggle('dashboard-edit-mode', state.ui.dashboardEditMode);
+            
+            // ▲▲▲ KONIEC POPRAWIONEJ LOGIKI ▲▲▲
 
             renderDashboardActivityFeed();
             renderDashboardTeamDelays();
@@ -5323,6 +5335,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
