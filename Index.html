@@ -2964,79 +2964,57 @@ if (registerGroupSelect) {
             const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
             const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
 
-            const cardHTMLs = {
-                'my-overdue': `
-                    <div class="dashboard-card" data-id="my-overdue">
-                        <div class="dashboard-card-handle">⠿</div>
-                        <h3>Moje Opóźnione Zadania (${overdueTasks.length})</h3>
-                        <div class="overdue-list-container">
-                            ${overdueTasks.length > 0 ? overdueTasks.map(task => createTaskCardHTML(task, true)).join('') : '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'}
-                        </div>
-                    </div>`,
-                'team-delays': `
-                    <div class="dashboard-card" data-id="team-delays">
-                        <div class="dashboard-card-handle">⠿</div>
-                        <h3>Opóźnienia w Moich Projektach</h3>
-                        <div class="overdue-list-container" id="dashboard-team-delays-list"></div>
-                    </div>`,
-                'upcoming': `
-                    <div class="dashboard-card" data-id="upcoming">
-                        <div class="dashboard-card-handle">⠿</div>
-                        <h3>Nadchodzące Terminy (dziś i jutro)</h3>
-                        <div class="overdue-list-container" id="dashboard-upcoming-list"></div>
-                    </div>`,
-                'workload': `
-                    <div class="dashboard-card" data-id="workload">
-                        <div class="dashboard-card-handle">⠿</div>
-                        <h3>Moje Obciążenie (Aktywne: ${totalActiveTasks})</h3>
-                        <div class="modern-chart">
-                            <div class="chart-row">
-                                <div class="chart-label"><span>Do realizacji</span><strong>${todoCount}</strong></div>
-                                <div class="chart-bar-wrapper"><div class="chart-bar-fill todo" style="width: ${todoPercent}%;"></div></div>
-                            </div>
-                            <div class="chart-row">
-                                <div class="chart-label"><span>W trakcie</span><strong>${inProgressCount}</strong></div>
-                                <div class="chart-bar-wrapper"><div class="chart-bar-fill inprogress" style="width: ${inProgressPercent}%;"></div></div>
-                            </div>
-                        </div>
-                    </div>`,
-                'activity': `
-                    <div class="dashboard-card" data-id="activity">
-                        <div class="dashboard-card-handle">⠿</div>
-                        <h3>Ostatnia Aktywność</h3>
-                        <ul class="activity-list" id="dashboard-activity-list"></ul>
-                    </div>`
-            };
-            
-            // ▼▼▼ TUTAJ JEST KLUCZOWA POPRAWKA ▼▼▼
-            // Wracamy do prostszej logiki, która nie próbuje wywoływać tekstu jako funkcji.
-            const orderedCardsHTML = state.ui.dashboardLayout.map(widget => {
-                let html = cardHTMLs[widget.id] || ''; // Pobieramy gotowy HTML
-                if (html) {
-                    // Po prostu dodajemy klasę rozmiaru do pobranego tekstu HTML
-                    return html.replace('class="dashboard-card"', `class="dashboard-card ${widget.size}"`);
-                }
-                return '<div>Błąd karty</div>'; // Zabezpieczenie
-            }).join('');
+            // ▼▼▼ NOWA, POPRAWIONA LOGIKA RENDEROWANIA ▼▼▼
 
+            // 1. Najpierw tworzymy GŁÓWNĄ strukturę HTML z pustymi kontenerami
             kanbanBoardEl.innerHTML = `
                 <div class="dashboard-container">
                     <div class="dashboard-grid" id="dashboard-grid-main">
-                        ${orderedCardsHTML}
-                    </div>
+                        </div>
                     <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; margin-top: 24px;">Wszystkie Moje Zadania</h2>
                     <section id="my-tasks-kanban" class="kanban-board-mini"></section>
                 </div>
             `;
-            
-            document.getElementById('dashboard-grid-main').classList.toggle('dashboard-edit-mode', state.ui.dashboardEditMode);
 
+            // 2. Pobieramy referencję do pustego kontenera siatki
+            const gridMainEl = document.getElementById('dashboard-grid-main');
+            
+            // 3. Definiujemy wewnętrzną treść kart (tak jak ostatnio)
+            const cardContents = {
+                'my-overdue': `<h3>Moje Opóźnione Zadania (${overdueTasks.length})</h3><div class="overdue-list-container">${overdueTasks.length > 0 ? overdueTasks.map(task => createTaskCardHTML(task, true)).join('') : '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'}</div>`,
+                'team-delays': `<h3>Opóźnienia w Moich Projektach</h3><div class="overdue-list-container" id="dashboard-team-delays-list"></div>`,
+                'upcoming': `<h3>Nadchodzące Terminy (dziś i jutro)</h3><div class="overdue-list-container" id="dashboard-upcoming-list"></div>`,
+                'workload': `<h3>Moje Obciążenie (Aktywne: ${totalActiveTasks})</h3><div class="modern-chart"><div class="chart-row"><div class="chart-label"><span>Do realizacji</span><strong>${todoCount}</strong></div><div class="chart-bar-wrapper"><div class="chart-bar-fill todo" style="width: ${todoPercent}%;"></div></div></div><div class="chart-row"><div class="chart-label"><span>W trakcie</span><strong>${inProgressCount}</strong></div><div class="chart-bar-wrapper"><div class="chart-bar-fill inprogress" style="width: ${inProgressPercent}%;"></div></div></div></div>`,
+                'activity': `<h3>Ostatnia Aktywność</h3><ul class="activity-list" id="dashboard-activity-list"></ul>`
+            };
+
+            // 4. Budujemy karty w pętli i od razu wstawiamy je do siatki
+            state.ui.dashboardLayout.forEach(widget => {
+                const card = document.createElement('div');
+                card.className = `dashboard-card ${widget.size}`;
+                card.dataset.id = widget.id;
+                
+                const handle = document.createElement('div');
+                handle.className = 'dashboard-card-handle';
+                handle.innerHTML = '⠿';
+                
+                const content = cardContents[widget.id] || '<h3>Błąd karty</h3>';
+
+                card.appendChild(handle);
+                card.innerHTML += content; // Używamy += aby nie nadpisać uchwytu
+                gridMainEl.appendChild(card);
+            });
+
+            gridMainEl.classList.toggle('dashboard-edit-mode', state.ui.dashboardEditMode);
+            
+            // 5. DOPIERO TERAZ, gdy wszystkie kontenery są w DOM, wywołujemy funkcje, które je wypełniają
             renderDashboardActivityFeed();
             renderDashboardTeamDelays();
             renderDashboardUpcomingTasks(); 
 
-            const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
+            // ▲▲▲ KONIEC POPRAWIONEJ LOGIKI ▲▲▲
 
+            const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
             const renderMyTasksKanban = (tasks, targetElement) => {
                 targetElement.innerHTML = '';
                 targetElement.style.display = 'grid';
@@ -3044,18 +3022,15 @@ if (registerGroupSelect) {
                 targetElement.style.gap = '16px';
                 targetElement.style.width = '100%';
                 targetElement.style.overflowX = 'auto';
-
                 Object.keys(STATUSES).forEach(statusKey => {
                     const column = document.createElement('div');
                     column.className = 'kanban-column';
                     column.dataset.status = statusKey;
                     const tasksInColumn = tasks.filter(t => t.status === statusKey);
-
                     column.innerHTML = `<div class="kanban-column-header"><h3>${STATUSES[statusKey]}</h3><span class="task-count">${tasksInColumn.length}</span></div><ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true)).join('')}</ul>`;
                     targetElement.appendChild(column);
                 });
             };
-
             renderMyTasksKanban(myTasks, myTasksKanbanEl);
 
             document.querySelectorAll('.overdue-item').forEach(item => {
@@ -3065,7 +3040,6 @@ if (registerGroupSelect) {
                 });
             });
         }
-
         function renderKanbanBoard(tasks, isInteractive) {
             kanbanBoardEl.innerHTML = '';
             Object.keys(STATUSES).forEach(statusKey => {
@@ -5343,6 +5317,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
