@@ -2980,9 +2980,10 @@ if (registerGroupSelect) {
             const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
             const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
 
+            // Zmieniamy układ siatki na 3 kolumny
             kanbanBoardEl.innerHTML = `
                     <div class="dashboard-container">
-                        <div class="dashboard-grid">
+                        <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr 1.5fr;">
                             <div class="dashboard-card">
                                 <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
                                 <div class="overdue-list-container">
@@ -3014,14 +3015,21 @@ if (registerGroupSelect) {
                                         </div>
                                     </div>
                                 </div>
-                                </div>
-                        </div>
+                            </div>
+                            <div class="dashboard-card">
+                                <h3>Ostatnia Aktywność</h3>
+                                <ul class="activity-list" id="dashboard-activity-list" style="max-height: 280px; overflow-y: auto; padding-right: 8px; border: none;">
+                                    </ul>
+                            </div>
+                            </div>
                         
                         <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Wszystkie Twoje Zadania</h2>
                         <section id="my-tasks-kanban" class="kanban-board-mini">
                         </section>
                     </div>
                 `;
+
+            renderDashboardActivityFeed(); // <-- DODANA LINIA (wywołanie nowej funkcji)
 
             const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
 
@@ -3590,6 +3598,79 @@ const addAttachmentBtnNewTask = document.getElementById('add-new-task-attachment
 const attachmentInputNewTask = document.getElementById('new-task-attachment-input');
 const attachmentsListNewTask = document.getElementById('new-task-attachments-list');
 
+        function renderDashboardActivityFeed() {
+            const activityListEl = document.getElementById('dashboard-activity-list');
+            if (!activityListEl) return;
+
+            // 1. Zbierz wszystkie projekty, w których jest użytkownik
+            const myProjects = state.projects.filter(p => p.members.includes(state.currentUser.uid));
+            
+            let allActivities = [];
+
+            // 2. Przejdź przez każdy projekt i jego zadania, aby zebrać aktywności
+            myProjects.forEach(project => {
+                (project.tasks || []).forEach(task => {
+                    // Dodaj "syntetyczne" zdarzenie o utworzeniu zadania
+                    const taskCreationTimestamp = parseInt(task.id.replace('task', ''));
+                    allActivities.push({
+                        type: 'creation',
+                        timestamp: taskCreationTimestamp,
+                        userId: task.createdBy,
+                        taskTitle: task.title,
+                        projectName: project.name,
+                        taskId: task.id // Dodajemy ID zadania do nawigacji
+                    });
+
+                    // Dodaj rzeczywiste aktywności z logu
+                    (task.activityLog || []).forEach(log => {
+                        allActivities.push({
+                            ...log,
+                            taskTitle: task.title,
+                            projectName: project.name,
+                            taskId: task.id // Dodajemy ID zadania do nawigacji
+                        });
+                    });
+                });
+            });
+
+            // 3. Posortuj wszystkie aktywności malejąco po dacie i weź 15 najnowszych
+            allActivities.sort((a, b) => b.timestamp - a.timestamp);
+            const recentActivities = allActivities.slice(0, 15);
+
+            if (recentActivities.length === 0) {
+                activityListEl.innerHTML = '<li class="activity-item">Brak aktywności w Twoich projektach.</li>';
+                return;
+            }
+
+            // 4. Wygeneruj HTML i wstaw do listy
+            activityListEl.innerHTML = recentActivities.map(activity => {
+                const user = findUser(activity.userId);
+                const userName = user ? user.name : 'Ktoś';
+                const dateStr = new Date(activity.timestamp).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+                let message = '';
+                switch (activity.type) {
+                    case 'creation':
+                        message = `utworzył zadanie "<strong>${activity.taskTitle}</strong>" w projekcie <em>${activity.projectName}</em>.`;
+                        break;
+                    case 'status':
+                        message = `zmienił status zadania "<strong>${activity.taskTitle}</strong>" na ${activity.newValue}.`;
+                        break;
+                    case 'comment':
+                        message = `dodał komentarz w zadaniu "<strong>${activity.taskTitle}</strong>".`;
+                        break;
+                    case 'completion':
+                         message = `ukończył swoją część zadania "<strong>${activity.taskTitle}</strong>".`;
+                        break;
+                    default:
+                        message = `wykonał nieznaną akcję w zadaniu "<strong>${activity.taskTitle}</strong>".`;
+                }
+
+                return `<li class="activity-item" data-task-id="${activity.taskId}" style="cursor: pointer;" title="Kliknij, aby zobaczyć zadanie">
+                            [${dateStr}] <strong>${userName}</strong> ${message}
+                        </li>`;
+            }).join('');
+        }
 // Funkcja do renderowania listy plików oczekujących na wysłanie
 function renderStagedFiles() {
     attachmentsListNewTask.innerHTML = '';
@@ -4510,7 +4591,15 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 if (item && item.dataset.taskId) {
                     openTaskModal(item.dataset.taskId);
                 }
+            } 
+            // ▼▼▼ DODANY NOWY WARUNEK ▼▼▼
+            else if (e.target.closest('#dashboard-activity-list .activity-item')) {
+                const item = e.target.closest('.activity-item');
+                if (item && item.dataset.taskId) {
+                    openTaskModal(item.dataset.taskId);
+                }
             }
+            // ▲▲▲ KONIEC NOWEGO WARUNKU ▲▲▲
         });
 
         fabAddTask.addEventListener('click', () => openNewTaskModal({
@@ -5146,6 +5235,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
