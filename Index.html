@@ -15,6 +15,7 @@
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <style>
         /* CAŁY TWÓJ KOD CSS POZOSTAJE BEZ ZMIAN */
         :root {
@@ -688,7 +689,27 @@
             width: 100%;
             flex-shrink: 0; /* Zapobiega ściskaniu */
         }
-
+    /* === POCZĄTEK: Style dla edycji dashboardu === */
+        .dashboard-card-handle {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            color: var(--border-color);
+            cursor: grab;
+            display: none; /* Ukryty domyślnie */
+        }
+        .dashboard-edit-mode .dashboard-card-handle {
+            display: block; /* Widoczny tylko w trybie edycji */
+        }
+        .dashboard-edit-mode .dashboard-card:hover {
+            border-color: var(--accent-primary);
+        }
+        .sortable-ghost {
+            opacity: 0.4;
+            background: var(--accent-primary);
+            border: 2px dashed var(--accent-hover);
+        }
+        /* === KONIEC: Style dla edycji dashboardu === */
         @media (max-width: 768px) {
     .app-container { flex-direction: column; overflow-y: auto; }
     .sidebar { position: fixed; top: 0; left: 0; height: 100%; z-index: 2000; transform: translateX(-100%); border-right: 1px solid var(--border-color); }
@@ -1552,16 +1573,17 @@
                     <div id="project-progress" style="margin-top: 16px;">
                     </div>
                 </div>
-               <div class="header-actions">
+                <div class="header-actions">
     <button id="back-to-projects-btn" class="header-btn" title="Wróć do wszystkich projektów" style="display: none;">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 24px; height: 24px;">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+        </button>
+
+    <button id="edit-dashboard-layout-btn" class="sort-btn" style="display: none;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
         </svg>
+        <span>Edytuj układ</span>
     </button>
     <button class="sort-btn" id="sort-btn" style="display: none;">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-           <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
-        </svg>
         <span>Sortuj po dacie</span>
     </button>
     <button id="calendar-toggle-btn" class="header-btn" title="Pokaż kalendarz">
@@ -2049,6 +2071,8 @@ let stagedFiles = [];
                 theme: 'light',
                 currentView: 'my-dashboard',
                 previousView: null, // <-- DODANA LINIA
+                dashboardEditMode: false, // <-- DODANA LINIA
+                dashboardLayout: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'], // <-- DODANA LINIA (domyślny układ)
                 isCalendarView: false,
                 sortMyTasksByDate: 'asc',
                 projectSortOrders: {},
@@ -2077,6 +2101,7 @@ let stagedFiles = [];
         }
         
         // --- Pobieranie referencji do elementów HTML ---
+        const editDashboardLayoutBtn = document.getElementById('edit-dashboard-layout-btn'); // <-- DODANA LINIA
         const backToProjectsBtn = document.getElementById('back-to-projects-btn'); // <-- DODANA LINIA
         const backToProjectsBtnMobile = document.getElementById('back-to-projects-btn-mobile'); // <-- DODANA LINIA
         const settingsBtn = document.getElementById('settings-btn');
@@ -2952,18 +2977,22 @@ if (registerGroupSelect) {
             renderKanbanBoard(projectTasks, !isCompleted);
         }
 
-        function renderMyDashboardView() {
+         function renderMyDashboardView() {
             projectNameHeaderEl.textContent = 'Mój Pulpit';
             mobileHeaderTitle.textContent = 'Mój Pulpit';
             projectMembersHeaderEl.innerHTML = '';
             projectActionsEl.style.display = 'none';
             projectProgressEl.innerHTML = '';
 
+            // Pokazujemy przycisk do edycji układu TYLKO na dashboardzie
+            if(editDashboardLayoutBtn) editDashboardLayoutBtn.style.display = 'flex';
+            
             kanbanBoardEl.style.display = 'block';
             kanbanBoardEl.style.height = 'auto';
 
             const myTasks = getAllMyTasks();
 
+            // ... (logika sortowania myTasks pozostaje bez zmian) ...
             myTasks.sort((a, b) => {
                 const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
                 const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
@@ -2977,78 +3006,83 @@ if (registerGroupSelect) {
             const todoCount = myTasks.filter(t => t.status === 'todo').length;
             const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
             const totalActiveTasks = todoCount + inProgressCount;
-
             const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
             const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
 
-            kanbanBoardEl.innerHTML = `
-                    <div class="dashboard-container">
-                        <div class="dashboard-grid" style="grid-template-columns: repeat(3, 1fr);">
-                            <div class="dashboard-card">
-                                <h3>Moje Opóźnione Zadania (${overdueTasks.length})</h3>
-                                <div class="overdue-list-container">
-                                    ${overdueTasks.length > 0 ? 
-                                        overdueTasks.map(task => createTaskCardHTML(task, true)).join('') :
-                                        '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'
-                                    }
-                                </div>
-                            </div>
-                            
-                            <div class="dashboard-card">
-                                <h3>Opóźnienia w Moich Projektach</h3>
-                                <div class="overdue-list-container" id="dashboard-team-delays-list">
-                                    </div>
-                            </div>
+            // ▼▼▼ NOWA LOGIKA RENDEROWANIA KART ▼▼▼
 
-                            <div class="dashboard-card">
-                                <h3>Nadchodzące Terminy (dziś i jutro)</h3>
-                                <div class="overdue-list-container" id="dashboard-upcoming-list">
-                                    </div>
+            // 1. Definiujemy HTML dla każdej karty w obiekcie
+            const cardHTMLs = {
+                'my-overdue': `
+                    <div class="dashboard-card" data-id="my-overdue">
+                        <div class="dashboard-card-handle">⠿</div>
+                        <h3>Moje Opóźnione Zadania (${overdueTasks.length})</h3>
+                        <div class="overdue-list-container">
+                            ${overdueTasks.length > 0 ? overdueTasks.map(task => createTaskCardHTML(task, true)).join('') : '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'}
+                        </div>
+                    </div>`,
+                'team-delays': `
+                    <div class="dashboard-card" data-id="team-delays">
+                        <div class="dashboard-card-handle">⠿</div>
+                        <h3>Opóźnienia w Moich Projektach</h3>
+                        <div class="overdue-list-container" id="dashboard-team-delays-list"></div>
+                    </div>`,
+                'upcoming': `
+                    <div class="dashboard-card" data-id="upcoming">
+                        <div class="dashboard-card-handle">⠿</div>
+                        <h3>Nadchodzące Terminy (dziś i jutro)</h3>
+                        <div class="overdue-list-container" id="dashboard-upcoming-list"></div>
+                    </div>`,
+                'workload': `
+                    <div class="dashboard-card" data-id="workload">
+                        <div class="dashboard-card-handle">⠿</div>
+                        <h3>Moje Obciążenie (Aktywne: ${totalActiveTasks})</h3>
+                        <div class="modern-chart">
+                            <div class="chart-row">
+                                <div class="chart-label"><span>Do realizacji</span><strong>${todoCount}</strong></div>
+                                <div class="chart-bar-wrapper"><div class="chart-bar-fill todo" style="width: ${todoPercent}%;"></div></div>
                             </div>
-                            </div>
-
-                        <div class="dashboard-grid" style="grid-template-columns: 1fr 1.5fr; margin-top: 24px;">
-                             <div class="dashboard-card">
-                                <h3>Moje Obciążenie (Aktywne: ${totalActiveTasks})</h3>
-                                <div class="modern-chart">
-                                    <div class="chart-row">
-                                        <div class="chart-label">
-                                            <span>Do realizacji</span>
-                                            <strong>${todoCount}</strong>
-                                        </div>
-                                        <div class="chart-bar-wrapper">
-                                            <div class="chart-bar-fill todo" style="width: ${todoPercent}%;" title="${todoCount} zad. (${todoPercent.toFixed(1)}%)"></div>
-                                        </div>
-                                    </div>
-                                     <div class="chart-row">
-                                        <div class="chart-label">
-                                            <span>W trakcie</span>
-                                            <strong>${inProgressCount}</strong>
-                                        </div>
-                                        <div class="chart-bar-wrapper">
-                                            <div class="chart-bar-fill inprogress" style="width: ${inProgressPercent}%;" title="${inProgressCount} zad. (${inProgressPercent.toFixed(1)}%)"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="dashboard-card">
-                                <h3>Ostatnia Aktywność</h3>
-                                <ul class="activity-list" id="dashboard-activity-list" style="max-height: 280px; overflow-y: auto; padding-right: 8px; border: none;">
-                                    </ul>
+                            <div class="chart-row">
+                                <div class="chart-label"><span>W trakcie</span><strong>${inProgressCount}</strong></div>
+                                <div class="chart-bar-wrapper"><div class="chart-bar-fill inprogress" style="width: ${inProgressPercent}%;"></div></div>
                             </div>
                         </div>
-                        
-                        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; margin-top: 24px;">Wszystkie Moje Zadania</h2>
-                        <section id="my-tasks-kanban" class="kanban-board-mini">
-                        </section>
-                    </div>
-                `;
+                    </div>`,
+                'activity': `
+                    <div class="dashboard-card" data-id="activity">
+                        <div class="dashboard-card-handle">⠿</div>
+                        <h3>Ostatnia Aktywność</h3>
+                        <ul class="activity-list" id="dashboard-activity-list" style="max-height: 280px; overflow-y: auto; padding-right: 8px; border: none;"></ul>
+                    </div>`
+            };
+            
+            // 2. Składamy HTML w kolejności zapisanej w stanie
+            const orderedCardsHTML = state.ui.dashboardLayout.map(id => cardHTMLs[id]).join('');
 
+            // 3. Renderujemy główną strukturę z uporządkowanymi kartami
+            kanbanBoardEl.innerHTML = `
+                <div class="dashboard-container">
+                    <div class="dashboard-grid" id="dashboard-grid-main" style="grid-template-columns: repeat(3, 1fr);">
+                        ${orderedCardsHTML}
+                    </div>
+                    
+                    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; margin-top: 24px;">Wszystkie Moje Zadania</h2>
+                    <section id="my-tasks-kanban" class="kanban-board-mini"></section>
+                </div>
+            `;
+            
+            // Zmieniamy klasę kontenera w zależności od trybu edycji
+            document.getElementById('dashboard-grid-main').classList.toggle('dashboard-edit-mode', state.ui.dashboardEditMode);
+
+            // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
+
+            // Wywołujemy funkcje wypełniające karty danymi
             renderDashboardActivityFeed();
             renderDashboardTeamDelays();
-            renderDashboardUpcomingTasks(); // <-- DODANA LINIA (wywołanie nowej funkcji)
+            renderDashboardUpcomingTasks(); 
 
-            const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
+            // ... (reszta funkcji renderMyDashboardView, czyli renderMyTasksKanban i listener, pozostaje bez zmian) ...
+             const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
 
             const renderMyTasksKanban = (tasks, targetElement) => {
                 targetElement.innerHTML = '';
@@ -5208,6 +5242,41 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         backToProjectsBtn.addEventListener('click', handleBackButtonClick);
         backToProjectsBtnMobile.addEventListener('click', handleBackButtonClick);
         // ▲▲▲ KONIEC NOWEGO LISTNERA ▲▲▲
+          // --- LOGIKA EDYCJI UKŁADU DASHBOARDU ---
+        let sortableInstance = null;
+
+        editDashboardLayoutBtn.addEventListener('click', () => {
+            state.ui.dashboardEditMode = !state.ui.dashboardEditMode;
+            
+            if (state.ui.dashboardEditMode) {
+                // Włączamy tryb edycji
+                editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
+                const grid = document.getElementById('dashboard-grid-main');
+                sortableInstance = new Sortable(grid, {
+                    animation: 150,
+                    handle: '.dashboard-card-handle', // Ustawiamy uchwyt do przeciągania
+                    ghostClass: 'sortable-ghost',
+                    onEnd: (evt) => {
+                        // Po zakończeniu przeciągania, zapisz nową kolejność
+                        const newOrder = sortableInstance.toArray();
+                        state.ui.dashboardLayout = newOrder;
+                        saveUiState();
+                    }
+                });
+            } else {
+                // Wyłączamy tryb edycji
+                editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
+                if (sortableInstance) {
+                    sortableInstance.destroy();
+                    sortableInstance = null;
+                }
+            }
+            // Przełącz klasę CSS na kontenerze
+            document.getElementById('dashboard-grid-main').classList.toggle('dashboard-edit-mode', state.ui.dashboardEditMode);
+        });
+
+        const handleBackButtonClick = (e) => {
+        // ... (istniejąca funkcja bez zmian) ...
     });
 </script>
     <div class="modal-overlay" id="settings-modal">
@@ -5319,6 +5388,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
