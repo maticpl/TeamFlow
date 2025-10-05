@@ -339,8 +339,11 @@
         .kanban-tasks { list-style: none; flex-grow: 1; overflow-y: auto; padding-right: 4px; }
         .kanban-tasks::-webkit-scrollbar { width: 6px; }
         .kanban-tasks::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 3px; }
-        .task-card { background-color: var(--bg-secondary); border-left: 4px solid transparent; border-radius: var(--border-radius); padding: 12px 12px 12px 36px; margin-bottom: 12px; box-shadow: var(--shadow-sm); cursor: pointer; transition: box-shadow 0.2s, background-color 0.2s; position: relative; }
-        .task-card.priority-high { background-color: var(--priority-high-bg); border-left-color: var(--priority-high-border); }
+         .task-card { background-color: var(--bg-secondary); border-left: 4px solid transparent; border-radius: var(--border-radius); padding: 12px 12px 12px 36px; margin-bottom: 12px; box-shadow: var(--shadow-sm); cursor: pointer; transition: all 0.2s; position: relative; border-top: 4px solid transparent; }
+       .task-card.priority-high {
+            border-top: 4px solid var(--priority-high-border);
+            padding-top: 8px; /* Zmniejszamy górny padding, bo ramka zajmuje miejsce */
+        }
         .task-card:hover { box-shadow: var(--shadow-md); }
         .task-card.dragging { opacity: 0.5; transform: rotate(3deg); }
         .task-card-checkbox { position: absolute; left: 12px; top: 14px; width: 18px; height: 18px; cursor: pointer; }
@@ -1089,6 +1092,26 @@
     opacity: 1;
 }
         /* === KONIEC: STYLE DLA ZAŁĄCZNIKÓW === */
+        /* === POCZĄTEK: NOWE STYLE DLA KOLOROWANIA ZADAŃ === */
+
+        /* Nowa zmienna dla koloru tła zadań innej osoby */
+        :root {
+            --task-bg-other-member: #eef2ff;
+        }
+        .dark-mode {
+            --task-bg-other-member: #374151;
+        }
+
+        /* Styl dla zadania przypisanego do kogoś innego */
+        .task-card.other-member {
+            background-color: var(--task-bg-other-member);
+        }
+
+        /* Styl dla zadania wieloosobowego z gradientem */
+        .task-card.multi-member {
+            background: linear-gradient(to right, var(--bg-secondary) 50%, var(--task-bg-other-member) 50%);
+        }
+        /* === KONIEC: NOWE STYLE DLA KOLOROWANIA ZADAŃ === */
         /* === POCZĄTEK: NOWE STYLE DLA WIDOKU WSZYSTKICH PROJEKTÓW === */
         .all-projects-grid {
             display: grid;
@@ -1111,9 +1134,9 @@
             box-shadow: var(--shadow-lg);
         }
         .project-tile.owner { background-color: var(--bg-secondary); }
-        .project-tile.member { background-color: #f0f8ff; } /* Jasny niebieski */
+        .project-tile.member { background-color: #e0e7ff; } /* Bardziej widoczny niebieski */
         .project-tile.other { background-color: #fffacd; } /* Jasny żółty */
-        .dark-mode .project-tile.member { background-color: #3d4a5f; }
+        .dark-mode .project-tile.member { background-color: #313b5b; } /* Dostosowany niebieski dla trybu ciemnego */
         .dark-mode .project-tile.other { background-color: #5a5a42; }
         
         .project-tile-header {
@@ -3015,14 +3038,28 @@ if (registerGroupSelect) {
             const priorityClass = task.priority === 'high' ? 'priority-high' : '';
             const projectNameHTML = task.projectName ? `<span class="task-project-name">${task.projectName}</span>` : '';
 
+            // ▼▼▼ NOWA LOGIKA ▼▼▼
+            let assignmentClass = '';
+            // Sprawdzamy, czy widok to pulpit "Moje zadania" - tam nie kolorujemy
+            const isMyDashboard = state.ui.currentView === 'my-dashboard';
+
+            if (!isMyDashboard && task.status !== 'done') {
+                if (task.type === 'multi') {
+                    assignmentClass = 'multi-member';
+                } else if (task.assignees.length > 0 && task.assignees[0] !== state.currentUser.uid) {
+                    assignmentClass = 'other-member';
+                }
+            }
+            // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
+
             const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
             const tooltipText = shouldBeDisabled ? `title="Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części."` : '';
 
             const assigneesHTML = (task.assignees || [])
-    .map(assigneeId => findUser(assigneeId))
-    .filter(Boolean)
-    .map(user => renderAvatarHTML(user))
-    .join('');
+                .map(assigneeId => findUser(assigneeId))
+                .filter(Boolean)
+                .map(user => renderAvatarHTML(user))
+                .join('');
 
             const isOverdue = task.dueDate && new Date(task.dueDate).getTime() < Date.now() && task.status !== 'done';
             const overdueClass = isOverdue ? 'overdue' : '';
@@ -3047,16 +3084,17 @@ if (registerGroupSelect) {
         </svg>
     </div>` : '';
 
-            return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}">
-        <div class="task-card-icons">${multiUserIcon}${recurringIcon}</div>
-        <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isInteractive ? '' : 'disabled'} ${shouldBeDisabled ? 'disabled' : ''} ${tooltipText}>
-        ${projectNameHTML}
-        <h4>${task.title}</h4>
-        <div class="task-meta">
-            <div class="task-details">${dueDateHTML}</div>
-            <div class="task-assignees">${assigneesHTML}</div>
-        </div>
-    </li>`;
+            // Zmieniamy tylko tę jedną linię, dodając nową zmienną
+            return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}">
+                <div class="task-card-icons">${multiUserIcon}${recurringIcon}</div>
+                <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isInteractive ? '' : 'disabled'} ${shouldBeDisabled ? 'disabled' : ''} ${tooltipText}>
+                ${projectNameHTML}
+                <h4>${task.title}</h4>
+                <div class="task-meta">
+                    <div class="task-details">${dueDateHTML}</div>
+                    <div class="task-assignees">${assigneesHTML}</div>
+                </div>
+            </li>`;
         }
         
         function openModal(modal) {
@@ -4981,6 +5019,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
