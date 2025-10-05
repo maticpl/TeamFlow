@@ -601,6 +601,7 @@
             padding: 20px;
             border-radius: var(--border-radius);
             box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-color); /* <-- DODANA LINIA */
         }
         .dashboard-card h3 {
             font-size: 18px;
@@ -2980,12 +2981,11 @@ if (registerGroupSelect) {
             const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
             const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
 
-            // Zmieniamy układ siatki na 3 kolumny
             kanbanBoardEl.innerHTML = `
                     <div class="dashboard-container">
-                        <div class="dashboard-grid" style="grid-template-columns: 1fr 1fr 1.5fr;">
+                        <div class="dashboard-grid" style="grid-template-columns: repeat(3, 1fr);">
                             <div class="dashboard-card">
-                                <h3>Opóźnione Zadania (${overdueTasks.length})</h3>
+                                <h3>Moje Opóźnione Zadania (${overdueTasks.length})</h3>
                                 <div class="overdue-list-container">
                                     ${overdueTasks.length > 0 ? 
                                         overdueTasks.map(task => createTaskCardHTML(task, true)).join('') :
@@ -2993,8 +2993,23 @@ if (registerGroupSelect) {
                                     }
                                 </div>
                             </div>
+                            
                             <div class="dashboard-card">
-                                <h3>Obciążenie zadaniami (Aktywne: ${totalActiveTasks})</h3>
+                                <h3>Opóźnienia w Moich Projektach</h3>
+                                <div class="overdue-list-container" id="dashboard-team-delays-list">
+                                    </div>
+                            </div>
+
+                            <div class="dashboard-card">
+                                <h3>Nadchodzące Terminy (dziś i jutro)</h3>
+                                <div class="overdue-list-container" id="dashboard-upcoming-list">
+                                    </div>
+                            </div>
+                            </div>
+
+                        <div class="dashboard-grid" style="grid-template-columns: 1fr 1.5fr; margin-top: 24px;">
+                             <div class="dashboard-card">
+                                <h3>Moje Obciążenie (Aktywne: ${totalActiveTasks})</h3>
                                 <div class="modern-chart">
                                     <div class="chart-row">
                                         <div class="chart-label">
@@ -3021,15 +3036,17 @@ if (registerGroupSelect) {
                                 <ul class="activity-list" id="dashboard-activity-list" style="max-height: 280px; overflow-y: auto; padding-right: 8px; border: none;">
                                     </ul>
                             </div>
-                            </div>
+                        </div>
                         
-                        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Wszystkie Twoje Zadania</h2>
+                        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; margin-top: 24px;">Wszystkie Moje Zadania</h2>
                         <section id="my-tasks-kanban" class="kanban-board-mini">
                         </section>
                     </div>
                 `;
 
-            renderDashboardActivityFeed(); // <-- DODANA LINIA (wywołanie nowej funkcji)
+            renderDashboardActivityFeed();
+            renderDashboardTeamDelays();
+            renderDashboardUpcomingTasks(); // <-- DODANA LINIA (wywołanie nowej funkcji)
 
             const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
 
@@ -3633,16 +3650,21 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
                 });
             });
 
-            // 3. Posortuj wszystkie aktywności malejąco po dacie i weź 15 najnowszych
-            allActivities.sort((a, b) => b.timestamp - a.timestamp);
-            const recentActivities = allActivities.slice(0, 15);
+            // ▼▼▼ DODANA ZMIANA ▼▼▼
+            // 3. Odsiej własne aktywności
+            const otherUsersActivities = allActivities.filter(activity => activity.userId !== state.currentUser.uid);
+            
+            // 4. Posortuj wszystkie aktywności malejąco po dacie i weź 15 najnowszych
+            otherUsersActivities.sort((a, b) => b.timestamp - a.timestamp);
+            const recentActivities = otherUsersActivities.slice(0, 15);
+            // ▲▲▲ KONIEC ZMIANY ▲▲▲
 
             if (recentActivities.length === 0) {
-                activityListEl.innerHTML = '<li class="activity-item">Brak aktywności w Twoich projektach.</li>';
+                activityListEl.innerHTML = '<li class="activity-item" style="font-style: italic;">Brak aktywności ze strony innych członków zespołu.</li>';
                 return;
             }
 
-            // 4. Wygeneruj HTML i wstaw do listy
+            // 5. Wygeneruj HTML i wstaw do listy
             activityListEl.innerHTML = recentActivities.map(activity => {
                 const user = findUser(activity.userId);
                 const userName = user ? user.name : 'Ktoś';
@@ -3670,6 +3692,68 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
                             [${dateStr}] <strong>${userName}</strong> ${message}
                         </li>`;
             }).join('');
+        }
+
+        function renderDashboardTeamDelays() {
+            const delaysListEl = document.getElementById('dashboard-team-delays-list');
+            if (!delaysListEl) return;
+
+            // 1. Znajdź projekty, których właścicielem jest zalogowany użytkownik
+            const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
+            
+            // 2. Zbierz wszystkie opóźnione zadania z tych projektów, które NIE są przypisane do Ciebie
+            const teamOverdueTasks = myOwnedProjects.flatMap(project =>
+                (project.tasks || [])
+                    .filter(task =>
+                        task.status !== 'done' &&                                  // Zadanie nie jest ukończone
+                        task.dueDate && new Date(task.dueDate).getTime() < Date.now() && // Ma termin i jest po terminie
+                        !task.assignees.includes(state.currentUser.uid)           // NIE jest przypisane do mnie
+                    )
+                    .map(task => ({ ...task, projectName: project.name })) // Dodaj nazwę projektu do zadania
+            );
+            
+            // 3. Posortuj znalezione zadania od najstarszego
+            teamOverdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+            // 4. Wygeneruj HTML i wstaw go do kontenera
+            if (teamOverdueTasks.length === 0) {
+                delaysListEl.innerHTML = '<p class="no-overdue-tasks">Żaden członek zespołu nie ma opóźnień. Świetna robota!</p>';
+            } else {
+                // Używamy tej samej funkcji co do renderowania kart zadań
+                delaysListEl.innerHTML = teamOverdueTasks.map(task => createTaskCardHTML(task, true)).join('');
+            }
+        }
+         function renderDashboardUpcomingTasks() {
+            const upcomingListEl = document.getElementById('dashboard-upcoming-list');
+            if (!upcomingListEl) return;
+
+            // 1. Zbierz wszystkie zadania przypisane do Ciebie
+            const myTasks = getAllMyTasks();
+
+            // 2. Ustaw granice czasowe: od teraz do końca jutra
+            const now = new Date();
+            const endOfTomorrow = new Date();
+            endOfTomorrow.setDate(endOfTomorrow.getDate() + 2);
+            endOfTomorrow.setHours(0, 0, 0, 0); // Ustawia na początek pojutrza
+
+            // 3. Filtruj zadania, aby znaleźć te z terminem na dziś lub jutro
+            const upcomingTasks = myTasks.filter(task => {
+                if (!task.dueDate || task.status === 'done') {
+                    return false;
+                }
+                const dueDate = new Date(task.dueDate);
+                return dueDate >= now && dueDate < endOfTomorrow;
+            });
+
+            // 4. Posortuj zadania od najbliższego terminu
+            upcomingTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+            
+            // 5. Wygeneruj HTML i wstaw go do kontenera
+            if (upcomingTasks.length === 0) {
+                upcomingListEl.innerHTML = '<p class="no-overdue-tasks">Brak zadań z terminem na dziś lub jutro. Czas na planowanie!</p>';
+            } else {
+                upcomingListEl.innerHTML = upcomingTasks.map(task => createTaskCardHTML(task, true)).join('');
+            }
         }
 // Funkcja do renderowania listy plików oczekujących na wysłanie
 function renderStagedFiles() {
@@ -5235,6 +5319,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
