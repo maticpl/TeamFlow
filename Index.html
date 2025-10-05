@@ -11,7 +11,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.14/index.global.min.js'></script>
     <script src='https://cdn.jsdelivr.net/npm/@fullcalendar/core/locales/pl.global.min.js'></script>
-    <script src="https://cdn.jsdelivr.net/npm/rrule@2.8.1/dist/es5/rrule.min.js"></script>
+     <script src='https://cdn.jsdelivr.net/npm/rrule@2.8.1/dist/es5/rrule.min.js'></script>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.js"></script>
     <style>
         /* CAŁY TWÓJ KOD CSS POZOSTAJE BEZ ZMIAN */
         :root {
@@ -1368,6 +1371,13 @@
     overflow: hidden;
 }
 /* === KONIEC: Style dla akordeonu działów === */
+        /* === POCZĄTEK: Style dla edytora Croppie === */
+#croppie-container {
+    width: 300px;
+    height: 300px;
+    margin: 0 auto;
+}
+/* === KONIEC: Style dla edytora Croppie === */
     </style>
 </head>
 <body>
@@ -4814,40 +4824,98 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
     closeModal(settingsModal.overlay); // Zamyka główne menu ustawień
 });
 
-// --- CZĘŚĆ 2: Logika wysyłania zdjęcia do Firebase ---
+// --- CZĘŚĆ 2: Logika wysyłania zdjęcia (z kadrowaniem) ---
 
-// Ten listener reaguje, gdy użytkownik wybierze plik ze swojego komputera.
-photoUploadInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0]; // Pobiera wybrany plik
-    const user = state.currentUser;
-    if (!file || !user) return;
+        // Pobieramy referencje do nowego modala i jego elementów
+        const cropPhotoModal = {
+            overlay: document.getElementById('crop-photo-modal'),
+            container: document.getElementById('croppie-container'),
+            saveBtn: document.getElementById('save-cropped-photo-btn')
+        };
+        // Zmienna, która będzie przechowywać instancję edytora Croppie
+        let croppieInstance = null;
 
-    showNotification("Przesyłanie zdjęcia...", "Informacja");
-    // Tworzy unikalną ścieżkę do pliku w Firebase Storage
-    const filePath = `profile-pictures/${user.uid}/${file.name}`;
-    const fileRef = ref(storage, filePath);
+        // Ten listener reaguje, gdy użytkownik wybierze plik ze swojego komputera.
+        photoUploadInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
 
-    try {
-        // 1. Wysyła plik do Firebase
-        await uploadBytes(fileRef, file);
-        // 2. Pobiera publiczny adres URL do wysłanego pliku
-        const photoURL = await getDownloadURL(fileRef);
-        // 3. Znajduje dokument użytkownika w bazie Firestore
-        const userDocRef = doc(usersRef, user.uid);
-        // 4. Aktualizuje pole 'photoURL' w dokumencie, zapisując link do zdjęcia
-        await updateDoc(userDocRef, { photoURL: photoURL });
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                // Zamykamy okno ustawień
+                closeModal(settingsModal.overlay);
+                // Otwieramy okno kadrowania
+                openModal(cropPhotoModal.overlay);
 
-        showNotification("Zdjęcie profilowe zostało zaktualizowane.", "Sukces");
-        closeModal(settingsModal.overlay); // Zamyka okno ustawień
-        // Reszta interfejsu odświeży się automatycznie dzięki onSnapshot!
-        
-    } catch (error) {
-        console.error("Błąd podczas wysyłania zdjęcia:", error);
-        showNotification("Wystąpił błąd podczas zmiany zdjęcia.", "Błąd");
-    } finally {
-        photoUploadInput.value = ''; // Czyści input, aby można było wysłać ten sam plik ponownie
-    }
-});
+                // Niszczymy starą instancję, jeśli istnieje
+                if (croppieInstance) {
+                    croppieInstance.destroy();
+                }
+                
+                // Tworzymy nową instancję Croppie
+                croppieInstance = new Croppie(cropPhotoModal.container, {
+                    viewport: { width: 250, height: 250, type: 'circle' },
+                    boundary: { width: 300, height: 300 },
+                    enableExif: true
+                });
+
+                // Ładujemy obrazek do edytora
+                croppieInstance.bind({
+                    url: event.target.result,
+                });
+            }
+            // Czytamy plik jako URL, co jest potrzebne dla Croppie
+            reader.readAsDataURL(file);
+        });
+
+        // Ten listener reaguje na kliknięcie "Zapisz" w oknie kadrowania
+        cropPhotoModal.saveBtn.addEventListener('click', async () => {
+            const user = state.currentUser;
+            if (!croppieInstance || !user) return;
+
+            // Zmieniamy tekst na przycisku, aby dać znać, że coś się dzieje
+            cropPhotoModal.saveBtn.disabled = true;
+            cropPhotoModal.saveBtn.textContent = 'Przesyłanie...';
+
+            try {
+                // Pobieramy wykadrowany obrazek jako obiekt Blob (optymalny do wysyłania)
+                const blob = await croppieInstance.result({
+                    type: 'blob',
+                    size: { width: 400, height: 400 }, // Definiujemy finalny rozmiar awatara
+                    format: 'jpeg',
+                    quality: 0.9,
+                    circle: false 
+                });
+
+                // Tworzymy unikalną ścieżkę do pliku w Firebase Storage
+                const filePath = `profile-pictures/${user.uid}/avatar.jpeg`;
+                const fileRef = ref(storage, filePath);
+
+                // 1. Wysyła WYKADROWANY plik do Firebase
+                await uploadBytes(fileRef, blob);
+                
+                // 2. Pobiera publiczny adres URL do wysłanego pliku
+                const photoURL = await getDownloadURL(fileRef);
+                
+                // 3. Znajduje dokument użytkownika w bazie Firestore
+                const userDocRef = doc(usersRef, user.uid);
+                
+                // 4. Aktualizuje pole 'photoURL' w dokumencie
+                await updateDoc(userDocRef, { photoURL: photoURL });
+
+                showNotification("Zdjęcie profilowe zostało zaktualizowane.", "Sukces");
+            
+            } catch (error) {
+                console.error("Błąd podczas wysyłania zdjęcia:", error);
+                showNotification("Wystąpił błąd podczas zmiany zdjęcia.", "Błąd");
+            } finally {
+                // Niezależnie od wyniku, przywracamy przycisk i zamykamy modal
+                cropPhotoModal.saveBtn.disabled = false;
+                cropPhotoModal.saveBtn.textContent = 'Zapisz';
+                closeModal(cropPhotoModal.overlay);
+                photoUploadInput.value = ''; // Czyści input
+            }
+        });
 
 // --- CZĘŚĆ 3: Logika zmiany nazwy użytkownika ---
 
@@ -5014,11 +5082,26 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         </form>
     </div>
 </div>
-
+<div class="modal-overlay" id="crop-photo-modal">
+    <div class="modal" style="max-width: 450px;">
+        <div class="modal-header">
+            <h2>Wykadruj zdjęcie</h2>
+            <button type="button" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="form-modal-content" style="padding-bottom: 16px;">
+            <div id="croppie-container"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+            <button type="button" id="save-cropped-photo-btn" class="btn btn-primary">Zapisz</button>
+        </div>
+    </div>
+</div>
 <input type="file" id="photo-upload-input" style="display: none;" accept="image/png, image/jpeg">
 
 </body>
 </html>
+
 
 
 
