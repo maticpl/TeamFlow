@@ -757,8 +757,8 @@
 
         .all-projects-edit-mode .project-tile {
             cursor: grab; /* Zmieniamy kursor na "łapkę" w trybie edycji */
+            user-select: none; /* === TO JEST NASZA POPRAWKA === */
         }
-
         .all-projects-edit-mode .project-tile:hover {
             border-color: var(--accent-primary); /* Niebieska ramka po najechaniu */
             box-shadow: var(--shadow-lg);
@@ -2726,17 +2726,42 @@ if (registerGroupSelect) {
             kanbanBoardEl.innerHTML = `<div class="all-projects-grid"></div>`;
             const grid = kanbanBoardEl.querySelector('.all-projects-grid');
 
-             grid.classList.toggle('all-projects-edit-mode', state.ui.projectEditMode);
+              grid.classList.toggle('all-projects-edit-mode', state.ui.projectEditMode);
+            let sortedProjects;
 
-            const projectMap = new Map(state.projects.map(p => [p.id, p]));
-            const layout = state.ui.projectLayout;
-            
-            const sortedProjects = [...new Set([...layout, ...state.projects.map(p => p.id)])]
-                .map(id => projectMap.get(id))
-                .filter(Boolean);
-            
-            if(layout.length === 0 && sortedProjects.length > 0){
-                state.ui.projectLayout = sortedProjects.map(p => p.id);
+            if (state.ui.projectEditMode) {
+                // JEŚLI JESTEŚMY W TRYBIE EDYCJI - użyj zapisanego układu
+                const projectMap = new Map(state.projects.map(p => [p.id, p]));
+                const layout = state.ui.projectLayout;
+                
+                // Bierzemy zapisaną kolejność i dodajemy na końcu nowe projekty, których nie ma w układzie
+                sortedProjects = [...new Set([...layout, ...state.projects.map(p => p.id)])]
+                    .map(id => projectMap.get(id))
+                    .filter(Boolean);
+                
+                // Jeśli układ był pusty, inicjalizujemy go domyślną kolejnością
+                if(layout.length === 0 && sortedProjects.length > 0){
+                    state.ui.projectLayout = sortedProjects.map(p => p.id);
+                }
+            } else {
+                // W PRZECIWNYM RAZIE (WIDOK DOMYŚLNY) - użyj sortowania wg kategorii
+                sortedProjects = [...state.projects].sort((a, b) => {
+                    const aIsOwner = a.ownerId === state.currentUser.uid;
+                    const bIsOwner = b.ownerId === state.currentUser.uid;
+                    const aIsMember = a.members.includes(state.currentUser.uid);
+                    const bIsMember = b.members.includes(state.currentUser.uid);
+
+                    // Logika sortowania: Właściciel (-1) > Członek (0) > Inny (1)
+                    const getWeight = (isOwner, isMember) => isOwner ? -1 : (isMember ? 0 : 1);
+                    const weightA = getWeight(aIsOwner, aIsMember);
+                    const weightB = getWeight(bIsOwner, bIsMember);
+
+                    if (weightA !== weightB) {
+                        return weightA - weightB;
+                    }
+                    // Jeśli waga jest taka sama, sortuj alfabetycznie
+                    return a.name.localeCompare(b.name);
+                });
             }
 
             sortedProjects.forEach(project => {
@@ -5326,11 +5351,11 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         // ▲▲▲ KONIEC NOWEGO LISTNERA ▲▲▲
         
           // --- LOGIKA EDYCJI UKŁADU DASHBOARDU ---
-         editLayoutBtn.addEventListener('click', () => {
+         editLayoutTbn.addEventListener('click', () => {
             const isDashboard = state.ui.currentView === 'my-dashboard';
 
             if (isDashboard) {
-                // Logika dla pulpitu, która już działa - bez zmian
+                // Logika dla pulpitu - bez zmian
                 state.ui.dashboardEditMode = !state.ui.dashboardEditMode;
                 render(); 
 
@@ -5338,9 +5363,10 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                     editLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
                     const grid = document.getElementById('dashboard-grid-main');
                     sortableInstance = new Sortable(grid, {
-                        animation: 200, // Zwiększmy animację dla lepszego efektu
+                        animation: 200,
                         handle: '.dashboard-card-handle',
                         ghostClass: 'sortable-ghost',
+                        dragClass: 'sortable-drag',
                         onEnd: () => {
                             state.ui.dashboardLayout = sortableInstance.toArray();
                             saveUiState();
@@ -5350,37 +5376,39 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                     if (sortableInstance) sortableInstance.destroy();
                 }
             } else { 
-                // === POCZĄTEK TWOJEJ NOWEJ, POPRAWIONEJ LOGIKI ===
-                state.ui.projectEditMode = !state.ui.projectEditMode;
+                // === POCZĄTEK TWOJEJ FINALNEJ POPRAWKI ===
                 const grid = kanbanBoardEl.querySelector('.all-projects-grid');
 
+                // Sprawdzamy, czy JUŻ JESTEŚMY w trybie edycji
                 if (state.ui.projectEditMode) {
-                    // WŁĄCZAMY TRYB EDYCJI
-                    editLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
+                    // JEŚLI TAK - WYŁĄCZAMY GO (to jest "Zapisz układ")
+                    state.ui.projectEditMode = false;
                     
-                    // Ręcznie dodajemy klasę, zamiast przerysowywać cały widok
-                    grid.classList.add('all-projects-edit-mode');
+                    if (sortableInstance) {
+                        sortableInstance.destroy(); // Niszczymy logikę przeciągania
+                    }
+                    // Odświeżamy widok, który teraz użyje domyślnego sortowania
+                    render();
+                } else {
+                    // JEŚLI NIE - WŁĄCZAMY GO
+                    state.ui.projectEditMode = true;
+                    
+                    // Odświeżamy widok, aby posortował się wg zapisanego układu i pokazał "mgłę"
+                    render();
 
-                    // Inicjalizujemy SortableJS
-                    sortableInstance = new Sortable(grid, {
-                        animation: 200, // Ładniejsza, płynniejsza animacja
-                        ghostClass: 'sortable-ghost', // Styl elementu-ducha
-                        dragClass: 'sortable-drag',   // Styl elementu przeciąganego
+                    // Uruchamiamy logikę przeciągania na nowo wyrenderowanej siatce
+                    const newGrid = kanbanBoardEl.querySelector('.all-projects-grid');
+                    sortableInstance = new Sortable(newGrid, {
+                        animation: 200,
+                        ghostClass: 'sortable-ghost',
+                        dragClass: 'sortable-drag',
                         onEnd: () => {
-                            // Po upuszczeniu zapisujemy nową kolejność
                             state.ui.projectLayout = sortableInstance.toArray();
                             saveUiState();
                         }
                     });
-                } else {
-                    // WYŁĄCZAMY TRYB EDYCJI
-                    if (sortableInstance) {
-                        sortableInstance.destroy(); // Niszczymy instancję SortableJS
-                    }
-                    // Pełny render na koniec, aby wszystko posprzątać i wrócić do normy
-                    render();
                 }
-                // === KONIEC TWOJEJ NOWEJ, POPRAWIONEJ LOGIKI ===
+                // === KONIEC TWOJEJ FINALNEJ POPRAWKI ===
             }
         });
     });
@@ -5494,6 +5522,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
