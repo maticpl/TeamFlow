@@ -712,10 +712,35 @@
         .dashboard-edit-mode .dashboard-card:hover {
             border-color: var(--accent-primary);
         }
-        .sortable-ghost {
+        sortable-ghost {
             opacity: 0.4;
-            background: var(--accent-primary);
+ background: var(--accent-primary);
             border: 2px dashed var(--accent-hover);
+        }
+        /* === KONIEC: Style dla edycji dashboardu === */
+
+        /* === POCZĄTEK TWOJEJ ZMIANY === */
+        .project-tile-handle {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            color: var(--text-secondary);
+            cursor: grab;
+            display: none;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+        }
+
+        .all-projects-edit-mode .project-tile-handle {
+            display: block;
+        }
+
+        .all-projects-edit-mode .project-tile:hover {
+            border-color: var(--accent-primary);
+        }
+        
+        .all-projects-edit-mode .project-tile-handle:hover {
+            opacity: 1;
         }
         /* === KONIEC: Style dla edycji dashboardu === */
         @media (max-width: 768px) {
@@ -1588,8 +1613,9 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
         </svg>
         </button>
-    <button id="edit-dashboard-layout-btn" class="sort-btn" style="display: none;">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;">
+    <button id="edit-layout-btn" class="sort-btn" style="display: none;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px;
+ height: 16px;">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
         </svg>
         <span>Edytuj układ</span>
@@ -2082,19 +2108,27 @@ let stagedFiles = [];
             completedProjects: [],
             currentProjectId: null,
             ui: {
-                theme: 'light',
+         
+               theme: 'light',
                 currentView: 'my-dashboard',
-                previousView: null, // <-- DODANA LINIA
-                dashboardEditMode: false, // <-- DODANA LINIA
-                dashboardLayout: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'], // <-- DODANA LINIA (domyślny układ)
-                isCalendarView: false,
+                previousView: null, 
+                dashboardEditMode: false, 
+                dashboardLayout: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+                
+                // === POCZĄTEK TWOJEJ ZMIANY ===
+                projectEditMode: false, 
+                projectLayout: [],      
+                // === KONIEC TWOJEJ ZMIANY ===
+
+           isCalendarView: false,
                 sortMyTasksByDate: 'asc',
                 projectSortOrders: {},
                 unsubscribeProjects: null,
                 unsubscribeCompleted: null,
                 unsubscribeUsers: null,
-                chartInstance: null, // <-- POPRAWKA: Dodano brakujący przecinek!
-                mobileCalendarDate: new Date().toISOString(), // Data dla widoku miesiąca
+    
+             chartInstance: null, 
+ mobileCalendarDate: new Date().toISOString(), 
                 mobileCalendarSelectedDate: new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().split('T')[0]
             }
         };
@@ -2116,6 +2150,7 @@ let stagedFiles = [];
         
         // --- Pobieranie referencji do elementów HTML ---
         const editDashboardLayoutBtn = document.getElementById('edit-dashboard-layout-btn'); // <-- DODANA LINIA
+        const editLayoutBtn = document.getElementById('edit-layout-btn');
         const backToProjectsBtn = document.getElementById('back-to-projects-btn'); // <-- DODANA LINIA
         const backToProjectsBtnMobile = document.getElementById('back-to-projects-btn-mobile'); // <-- DODANA LINIA
         const settingsBtn = document.getElementById('settings-btn');
@@ -2666,16 +2701,18 @@ if (registerGroupSelect) {
             kanbanBoardEl.innerHTML = `<div class="all-projects-grid"></div>`;
             const grid = kanbanBoardEl.querySelector('.all-projects-grid');
 
-            const sortedProjects = [...state.projects].sort((a, b) => {
-                const aIsOwner = a.ownerId === state.currentUser.uid;
-                const bIsOwner = b.ownerId === state.currentUser.uid;
-                const aIsMember = a.members.includes(state.currentUser.uid);
-                const bIsMember = b.members.includes(state.currentUser.uid);
+             grid.classList.toggle('all-projects-edit-mode', state.ui.projectEditMode);
 
-                if (aIsOwner !== bIsOwner) return aIsOwner ? -1 : 1;
-                if (aIsMember !== bIsMember) return aIsMember ? -1 : 1;
-                return a.name.localeCompare(b.name);
-            });
+            const projectMap = new Map(state.projects.map(p => [p.id, p]));
+            const layout = state.ui.projectLayout;
+            
+            const sortedProjects = [...new Set([...layout, ...state.projects.map(p => p.id)])]
+                .map(id => projectMap.get(id))
+                .filter(Boolean);
+            
+            if(layout.length === 0 && sortedProjects.length > 0){
+                state.ui.projectLayout = sortedProjects.map(p => p.id);
+            }
 
             sortedProjects.forEach(project => {
                 const tile = document.createElement('div');
@@ -2705,6 +2742,7 @@ if (registerGroupSelect) {
     .join('');
 
                 tile.innerHTML = `
+                    <div class="project-tile-handle">⠿</div>
                     <div class="project-tile-header">
                         <h3 class="js-project-title">${project.name}</h3>
                         <button class="favorite-btn ${isFavorite ? 'is-favorite' : ''}" data-project-id="${project.id}" title="${isFavorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'}">
@@ -2825,8 +2863,11 @@ if (registerGroupSelect) {
                 const isDashboardView = state.ui.currentView === 'my-dashboard';
 
                 // ▼▼▼ DODAJ TEN BLOK KODU ▼▼▼
-                if (editDashboardLayoutBtn) {
-                    editDashboardLayoutBtn.style.display = isDashboardView ? 'flex' : 'none';
+                const isAllProjectsView = state.ui.currentView === 'all-projects';
+
+                if (editLayoutBtn) {
+                    editLayoutBtn.style.display = (isDashboardView || isAllProjectsView) ?
+ 'flex' : 'none';
                 }
                 // ▲▲▲ KONIEC NOWEGO BLOKU ▲▲▲
 
@@ -5261,35 +5302,55 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         
           // --- LOGIKA EDYCJI UKŁADU DASHBOARDU ---
         let sortableInstance = null;
+        editLayoutBtn.addEventListener('click', () => {
+            const isDashboard = state.ui.currentView === 'my-dashboard';
 
-        editDashboardLayoutBtn.addEventListener('click', () => {
-            state.ui.dashboardEditMode = !state.ui.dashboardEditMode;
-            
-            if (state.ui.dashboardEditMode) {
-                // Włączamy tryb edycji
-                editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
-                const grid = document.getElementById('dashboard-grid-main');
-                sortableInstance = new Sortable(grid, {
-                    animation: 150,
-                    handle: '.dashboard-card-handle', // Ustawiamy uchwyt do przeciągania
-                    ghostClass: 'sortable-ghost',
-                    onEnd: (evt) => {
-                        // Po zakończeniu przeciągania, zapisz nową kolejność
-                        const newOrder = sortableInstance.toArray();
-                        state.ui.dashboardLayout = newOrder;
-                        saveUiState();
-                    }
-                });
-            } else {
-                // Wyłączamy tryb edycji
-                editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
-                if (sortableInstance) {
-                    sortableInstance.destroy();
-                    sortableInstance = null;
+            if (isDashboard) {
+                // Logika dla edycji pulpitu (pozostaje taka sama)
+                state.ui.dashboardEditMode = !state.ui.dashboardEditMode;
+                if (state.ui.dashboardEditMode) {
+                    editLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
+                    const grid = document.getElementById('dashboard-grid-main');
+                    sortableInstance = new Sortable(grid, {
+                        animation: 150,
+                        handle: '.dashboard-card-handle',
+                        ghostClass: 'sortable-ghost',
+                        onEnd: () => {
+                            state.ui.dashboardLayout = sortableInstance.toArray();
+                            saveUiState();
+                        }
+                    });
+                } else {
+                    editLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
+                    if (sortableInstance) sortableInstance.destroy();
                 }
+                render(); // Wywołujemy render, aby odświeżyć widok pulpitu
+            } else { 
+                // === POCZĄTEK TWOJEJ ZMIANY (NOWA LOGIKA) ===
+                // Logika dla edycji widoku "Wszystkie projekty"
+                state.ui.projectEditMode = !state.ui.projectEditMode;
+                if (state.ui.projectEditMode) {
+                    editLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
+                    const grid = kanbanBoardEl.querySelector('.all-projects-grid');
+                    sortableInstance = new Sortable(grid, {
+                        animation: 150,
+                        handle: '.project-tile-handle', // Używamy nowego uchwytu
+                        ghostClass: 'sortable-ghost',
+                        onEnd: () => {
+                            // Po zakończeniu przeciągania zapisujemy nowy układ projektów
+                            state.ui.projectLayout = sortableInstance.toArray();
+                            saveUiState();
+                        }
+                    });
+                } else {
+                    editLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
+                    if (sortableInstance) {
+                        sortableInstance.destroy(); // Niszczymy instancję po wyjściu z trybu edycji
+                    }
+                }
+                render(); // Wywołujemy render, aby odświeżyć widok projektów
+                 // === KONIEC TWOJEJ ZMIANY ===
             }
-            // Przełącz klasę CSS na kontenerze
-            document.getElementById('dashboard-grid-main').classList.toggle('dashboard-edit-mode', state.ui.dashboardEditMode);
         });
     });
 </script>
@@ -5402,6 +5463,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
