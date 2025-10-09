@@ -16,6 +16,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    
+    <script src="https://unpkg.com/@popperjs/core@2"></script>
+    <script src="https://unpkg.com/tippy.js@6"></script>
     <style>
         /* CAŁY TWÓJ KOD CSS POZOSTAJE BEZ ZMIAN */
         :root {
@@ -2330,20 +2333,15 @@ if (registerGroupSelect) {
             const isMobile = window.innerWidth < 768;
             const calendar = new FullCalendar.Calendar(calendarViewEl, {
                 locale: 'pl',
-                // ZMIANA: Domyślny widok dla PC to teraz siatka tygodniowa
                 initialView: isMobile ? 'listWeek' : 'timeGridWeek', 
                 headerToolbar: {
                     left: 'prev,next today',
                     center: 'title',
-                    // ZMIANA: Usunięto przestarzałe przyciski, dodano timeGridDay
                     right: isMobile ? 'listWeek,dayGridMonth' : 'dayGridMonth,timeGridWeek,timeGridDay' 
                 },
-                // USUNIĘCIE: Niestandardowy przycisk nie jest już potrzebny
-                // customButtons: { ... },
                 buttonText: {
                     today: 'Dzisiaj',
                     month: 'Miesiąc',
-                    // ZMIANA: Nowe, krótsze i bardziej standardowe nazwy
                     timeGridWeek: 'Tydzień', 
                     timeGridDay: 'Dzień',
                     listWeek: 'Agenda'
@@ -2353,15 +2351,27 @@ if (registerGroupSelect) {
                 eventClick: function(info) {
                     openTaskModal(info.event.id);
                 },
-                // ================== NOWE OPCJE ==================
-                // Włącza wskaźnik bieżącej godziny
+                // ================== NOWY HOOK ==================
+                eventDidMount: function(info) {
+                    tippy(info.el, {
+                        // Tworzy treść dymka w HTML, pobierając dane z extendedProps
+                        content: `
+                            <div style="text-align: left; padding: 4px;">
+                                <div><strong>Projekt:</strong> ${info.event.extendedProps.projectName}</div>
+                                <div><strong>Właściciel:</strong> ${info.event.extendedProps.ownerName}</div>
+                                <hr style="margin: 4px 0; border-color: #ddd;">
+                                <div><strong>Zadanie:</strong> ${info.event.title}</div>
+                                <div style="margin-top: 4px;"><em>${info.event.extendedProps.description}</em></div>
+                            </div>
+                        `,
+                        // Pozwala na użycie HTML w treści dymka
+                        allowHTML: true,
+                    });
+                },
                 nowIndicator: true, 
-                // Ukrywa sekcję "cały dzień", co czyści interfejs
                 allDaySlot: false, 
-                // Ogranicza widok do godzin roboczych, redukując scrollowanie
                 slotMinTime: '06:00:00', 
                 slotMaxTime: '22:00:00',
-                 // Poprawia wygląd zdarzeń
                 eventDisplay: 'block'
             });
             calendarInstance = calendar;
@@ -2881,13 +2891,25 @@ if (registerGroupSelect) {
                     const myTasks = getAllMyTasks();
                     const calendarEvents = myTasks
                         .filter(task => task.dueDate && task.status !== 'done')
-                        .map(task => ({
-                            id: task.id,
-                            title: task.title,
-                            start: task.dueDate,
-                            backgroundColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)',
-                            borderColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)'
-                        }));
+                        .map(task => {
+                            // Znajdujemy projekt, do którego należy zadanie, aby pobrać właściciela
+                            const project = findProject(task.projectId) || findCompletedProject(task.projectId);
+                            const owner = project ? findUser(project.ownerId) : null;
+
+                            return {
+                                id: task.id,
+                                title: task.title,
+                                start: task.dueDate,
+                                backgroundColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)',
+                                borderColor: task.priority === 'high' ? 'var(--danger-primary)' : 'var(--accent-primary)',
+                                // NOWA WŁAŚCIWOŚĆ: Przechowuje dodatkowe dane dla dymka
+                                extendedProps: {
+                                    projectName: task.projectName || 'Brak projektu',
+                                    description: task.description || 'Brak opisu.',
+                                    ownerName: owner ? owner.name : 'Nieznany'
+                                }
+                            };
+                        });
 
                     if (calendarInstance) {
                         calendarInstance.updateSize();
@@ -5524,6 +5546,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
