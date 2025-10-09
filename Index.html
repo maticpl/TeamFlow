@@ -1512,6 +1512,14 @@
         .my-day-project-name {
             font-weight: 500;
         }
+        .my-day-separator {
+            padding: 12px 0 4px 0;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            border-bottom: 2px solid var(--border-color);
+        }
         /* === KONIEC: NOWE STYLE DLA WIDOKU "MÓJ DZIEŃ" === */
     </style>
 </head>
@@ -2552,18 +2560,21 @@ if (registerGroupSelect) {
             const dueDate = new Date(task.dueDate);
             const timeString = dueDate.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
             const isOverdue = new Date(task.dueDate).getTime() < new Date().setHours(0,0,0,0) && task.status !== 'done';
+            
+            const isCompleted = task.status === 'done'; // Sprawdzamy, czy zadanie jest ukończone
 
             return `
                 <li class="my-day-task-item ${statusClass}" data-task-id="${task.id}">
+                    <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''}>
                     <div class="my-day-task-item-content">
                         <div class="my-day-task-item-header">
-                            <span class="my-day-task-item-title">${task.title}</span>
+                            <h4 class="my-day-task-item-title">${task.title}</h4>
                             <span class="task-status-pill ${statusClass}">${statusText}</span>
                         </div>
                         <div class="my-day-task-item-meta">
                             <div class="my-day-project-name">
                                 Z projektu: <strong>${task.projectName}</strong>
-                                | Termin: <span style="${isOverdue ? 'color: var(--danger-primary);' : ''}">${timeString}</span>
+                                | Termin: <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${timeString}</span>
                             </div>
                             <div class="task-assignees">${assigneesHTML}</div>
                         </div>
@@ -2573,7 +2584,6 @@ if (registerGroupSelect) {
         }
 
         function renderMyDayView() {
-            // 1. ZMIANA: Ustawienie nagłówka - teraz czyta datę ze stanu i ją wyświetla
             const selectedDate = new Date(state.ui.myDayDate);
             if(myDayNav.dateDisplay) {
                 myDayNav.dateDisplay.textContent = selectedDate.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -2587,30 +2597,50 @@ if (registerGroupSelect) {
 
             const myTasks = getAllMyTasks();
 
-            // 3. ZMIANA: Logika filtrowania oparta o datę ze stanu
+            // ================== NOWA, POPRAWIONA LOGIKA FILTROWANIA ==================
+            
             const selectedDateStartOfDay = new Date(state.ui.myDayDate);
             selectedDateStartOfDay.setHours(0, 0, 0, 0);
 
-            const tasksForSelectedDay = myTasks.filter(task => {
+            // 1. Osobno filtrujemy zadania ZALEGŁE
+            const overdueTasks = myTasks.filter(task => {
                 if (!task.dueDate || task.status === 'done') return false;
-                
                 const taskDueDate = new Date(task.dueDate);
-                // Sprawdzamy czy zadanie jest zaległe WZGLĘDEM WYBRANEGO DNIA
-                const isOverdue = taskDueDate < selectedDateStartOfDay;
-                const isOnSelectedDay = task.dueDate.startsWith(state.ui.myDayDate);
-                
-                return isOnSelectedDay || isOverdue;
+                return taskDueDate < selectedDateStartOfDay;
             });
 
-            tasksForSelectedDay.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+            // 2. Osobno filtrujemy zadania NA WYBRANY DZIEŃ
+            const tasksForDate = myTasks.filter(task => {
+                if (!task.dueDate) return false;
+                return task.dueDate.startsWith(state.ui.myDayDate);
+            });
 
-            // 5. Renderowanie listy (zmiana nazwy zmiennej)
-            if (tasksForSelectedDay.length === 0) {
+            // 3. Sortujemy obie grupy
+            overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+            tasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+            // 4. Budujemy widok HTML
+            if (overdueTasks.length === 0 && tasksForDate.length === 0) {
                 kanbanBoardEl.innerHTML = `<div class="no-tasks-message" style="text-align: left; padding: 20px 0;">Brak zadań na ten dzień. 💪</div>`;
                 kanbanBoardEl.className = '';
             } else {
+                let html = '';
+                // Sekcja zadań zaległych
+                if (overdueTasks.length > 0) {
+                    html += `<li class="my-day-separator">Zaległe</li>`;
+                    html += overdueTasks.map(createMyDayTaskItemHTML).join('');
+                }
+                // Sekcja zadań z wybranego dnia
+                if (tasksForDate.length > 0) {
+                    // Dodaj nagłówek tylko jeśli były też zadania zaległe (dla lepszej czytelności)
+                    if (overdueTasks.length > 0) {
+                         html += `<li class="my-day-separator">Zaplanowane na dziś</li>`;
+                    }
+                    html += tasksForDate.map(createMyDayTaskItemHTML).join('');
+                }
+                
                 kanbanBoardEl.className = 'my-day-list';
-                kanbanBoardEl.innerHTML = tasksForSelectedDay.map(createMyDayTaskItemHTML).join('');
+                kanbanBoardEl.innerHTML = html;
             }
         }
         function showConfirmation(title, message, callback, danger = false) {
@@ -3204,7 +3234,10 @@ if (registerGroupSelect) {
         }
 
         function renderCurrentProjectView() {
+            // NOWA LINIA: Resetowanie klasy kontenera do domyślnej klasy Kanban
+            kanbanBoardEl.className = 'kanban-board';
             kanbanBoardEl.removeAttribute('style');
+            
             const project = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
             const isCompleted = !!findCompletedProject(state.currentProjectId);
             const isOwner = project && (project.ownerId === state.currentUser.uid || isCurrentUserAdmin());
@@ -3265,6 +3298,8 @@ if (registerGroupSelect) {
         }
 
          function renderMyDashboardView() {
+            // NOWA LINIA: Resetowanie klasy kontenera do domyślnej klasy Kanban
+            kanbanBoardEl.className = 'kanban-board';
             projectNameHeaderEl.textContent = 'Mój Pulpit';
             mobileHeaderTitle.textContent = 'Mój Pulpit';
             projectMembersHeaderEl.innerHTML = '';
@@ -4998,17 +5033,21 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         }
 
          kanbanBoardEl.addEventListener('click', (e) => {
-            if (e.target.closest('.task-card-checkbox')) {
-                handleTaskCheckboxClick(e.target.closest('.task-card-checkbox'));
-            } else if (e.target.closest('.task-card')) {
-                openTaskModal(e.target.closest('.task-card').dataset.taskId);
+            const checkbox = e.target.closest('.task-card-checkbox');
+            // ZMIANA: Uogólniony selektor dla każdego rodzaju zadania
+            const taskItem = e.target.closest('.task-card, .my-day-task-item'); 
+
+            if (checkbox) {
+                handleTaskCheckboxClick(checkbox);
+            } else if (taskItem) {
+                openTaskModal(taskItem.dataset.taskId);
             } else if (e.target.closest('.add-task-icon-btn')) {
                 openNewTaskModal(false);
             } else if (e.target.closest('.favorite-btn')) {
                 const projectId = e.target.closest('.favorite-btn').dataset.projectId;
                 toggleFavoriteProject(projectId);
             } else if (e.target.closest('.js-project-title')) {
-                const projectId = e.target.closest('.project-tile').dataset.id; // <-- POPRAWKA JEST TUTAJ
+                const projectId = e.target.closest('.project-tile').dataset.id;
                 state.currentProjectId = projectId;
                 state.ui.previousView = state.ui.currentView;
                 state.ui.currentView = 'projects';
@@ -5733,6 +5772,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
