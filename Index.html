@@ -2563,7 +2563,10 @@ if (registerGroupSelect) {
             const isCompleted = task.status === 'done';
             const statusText = STATUSES[task.status] || 'Nieznany';
             const completedClass = isCompleted ? 'completed' : '';
-            const statusClass = `status-${task.status}`;
+            // Dla zadań wykonanych, pigułka zawsze będzie zielona
+            const statusClassForPill = isCompleted ? 'status-done' : `status-${task.status}`;
+            const statusClassForBorder = `status-${task.status}`;
+
 
             const assigneesHTML = (task.assignees || [])
                 .map(assigneeId => findUser(assigneeId))
@@ -2576,12 +2579,12 @@ if (registerGroupSelect) {
             const isOverdue = new Date(task.dueDate).getTime() < new Date().setHours(0,0,0,0) && !isCompleted;
 
             return `
-                <li class="my-day-task-item ${statusClass} ${completedClass}" data-task-id="${task.id}">
-                    <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked disabled' : ''}>
+                <li class="my-day-task-item ${statusClassForBorder} ${completedClass}" data-task-id="${task.id}">
+                    <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''}>
                     <div class="my-day-task-item-content">
                         <div class="my-day-task-item-header">
                             <h4 class="my-day-task-item-title">${task.title}</h4>
-                            <span class="task-status-pill ${statusClass}">${statusText}</span>
+                            <span class="task-status-pill ${statusClassForPill}">${statusText}</span>
                         </div>
                         <div class="my-day-task-item-meta">
                             <div class="my-day-project-name">
@@ -2608,36 +2611,40 @@ if (registerGroupSelect) {
             kanbanBoardEl.removeAttribute('style');
 
             const myTasks = getAllMyTasks();
-
-            // KROK 1: FILTROWANIE (teraz uwzględnia zadania 'done')
             const selectedDateStartOfDay = new Date(state.ui.myDayDate);
             selectedDateStartOfDay.setHours(0, 0, 0, 0);
 
-            const tasksForView = myTasks.filter(task => {
-                if (!task.dueDate) return false;
-                
-                const taskDueDate = new Date(task.dueDate);
-                const isOverdue = taskDueDate < selectedDateStartOfDay && task.status !== 'done';
-                const isOnSelectedDay = task.dueDate.startsWith(state.ui.myDayDate);
-                
-                return isOnSelectedDay || isOverdue;
+            // ================== NOWA, POPRAWIONA LOGIKA FILTROWANIA ==================
+
+            // 1. Zadania ZALEGŁE (aktywne, z terminem przed wybranym dniem)
+            const overdueTasks = myTasks.filter(task => {
+                if (!task.dueDate || task.status === 'done') return false;
+                return new Date(task.dueDate) < selectedDateStartOfDay;
             });
 
-            // KROK 2: NOWE, DWUPOZIOMOWE SORTOWANIE
-            const statusOrder = { todo: 1, inprogress: 2, done: 3 };
-            tasksForView.sort((a, b) => {
-                const statusA = statusOrder[a.status] || 99;
-                const statusB = statusOrder[b.status] || 99;
-
-                // 1. Główny klucz sortowania: status (aktywne przed ukończonymi)
-                if (statusA !== statusB) {
-                    return statusA - statusB;
-                }
-                // 2. Drugi klucz sortowania: data (jeśli statusy są takie same)
-                return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+            // 2. Zadania NA WYBRANY DZIEŃ (aktywne, z terminem na dziś)
+            const activeTasksForDate = myTasks.filter(task => {
+                if (!task.dueDate || task.status === 'done') return false;
+                return task.dueDate.startsWith(state.ui.myDayDate);
             });
 
-            // KROK 3: RENDEROWANIE
+            // 3. Zadania WYKONANE W WYBRANYM DNIU
+            const completedTasksForDate = myTasks.filter(task => {
+                if (!task.dueDate || task.status !== 'done') return false;
+                // Tutaj potrzebujemy logiki sprawdzającej, kiedy zadanie zostało faktycznie ukończone.
+                // Na razie, upraszczając, pokażemy zadania wykonane, które miały termin na dziś.
+                // W przyszłości można dodać pole 'completedAt' do zadania dla większej precyzji.
+                return task.dueDate.startsWith(state.ui.myDayDate);
+            });
+
+            // Sortujemy każdą grupę osobno
+            overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+            activeTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+            completedTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+            // Łączymy wszystko w jedną listę
+            const tasksForView = [...overdueTasks, ...activeTasksForDate, ...completedTasksForDate];
+            
             if (tasksForView.length === 0) {
                 kanbanBoardEl.innerHTML = `<div class="no-tasks-message" style="text-align: left; padding: 20px 0;">Brak zadań na ten dzień. 💪</div>`;
                 kanbanBoardEl.className = '';
@@ -5775,6 +5782,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
