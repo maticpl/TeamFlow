@@ -3906,19 +3906,16 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
             } = options;
 
             newTaskModal.form.reset();
-            // === POCZĄTEK ZMIANY ===
-            // Upewniamy się, że wszystkie pola są domyślnie widoczne
             newTaskModal.projectGroup.style.display = 'block';
             newTaskModal.assigneeSingleWrapper.style.display = 'block';
             newTaskModal.assigneeMultiWrapper.style.display = 'none';
             newTaskModal.taskTypeSelection.style.display = 'block'; 
-            // === KONIEC ZMIANY ===
             document.getElementById('task-type-single').checked = true;
 
             let targetProject;
 
             if (isSpecial) {
-                const inboxProject = state.projects.find(p => p.isInbox);
+                const inboxProject = state.projects.find(p => p.isInbox && p.ownerId === state.currentUser.uid);
                 if (inboxProject) {
                     newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}">${inboxProject.name}</option>`;
                     newTaskModal.projectGroup.style.display = 'none';
@@ -3928,10 +3925,8 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
                 const currentUser = findUser(state.currentUser.uid);
                 if (currentUser) {
                     newTaskModal.assigneeSingleSelect.innerHTML = `<option value="${currentUser.id}">${currentUser.name || currentUser.email}</option>`;
-                    newTaskModal.assigneeSingleSelect.value = currentUser.id;
+                    newTaskModal.assigneeSingleSelect.value = currentUser.id; 
                     newTaskModal.assigneeSingleWrapper.style.display = 'none';
-                    // === POCZĄTEK ZMIANY ===
-                    // Ukrywamy również przełącznik typu zadania
                     newTaskModal.taskTypeSelection.style.display = 'none';
                 }
 
@@ -3946,28 +3941,25 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
             } else {
                 const inProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
 
-                // Scenariusz 1: Użytkownik jest w widoku konkretnego projektu.
                 if (inProjectView) {
                     targetProject = findProject(state.currentProjectId);
                     newTaskModal.projectSelect.innerHTML = `<option value="${targetProject.id}" selected>${targetProject.name}</option>`;
                     newTaskModal.projectGroup.style.display = 'none';
                 
-                // Scenariusz 2: Użytkownik jest w "Mój dzień" i klika niebieski plus (FAB).
                 } else if (isFab && state.ui.currentView === 'my-day') {
-                    // === NOWA, BARDZIEJ PRECYZYJNA ZMIANA ===
-                    // Wyszukujemy skrzynkę, która należy do zalogowanego użytkownika
                     const inboxProject = state.projects.find(p => p.isInbox && p.ownerId === state.currentUser.uid);
                     if (inboxProject) {
                         targetProject = inboxProject;
                         newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}" selected>${inboxProject.name}</option>`;
                         newTaskModal.projectGroup.style.display = 'none';
                     }
-                    // === KONIEC ZMIANY ===
-
-                // Scenariusz 3: Domyślne zachowanie (np. na pulpicie "Moje zadania").
+                
                 } else {
                     const nonInbox = state.projects.filter(p => !p.isInbox);
-                    const inbox = state.projects.find(p => p.isInbox);
+                    // === POCZĄTEK ZMIANY ===
+                    // Używamy spójnej, bezpiecznej logiki do znalezienia skrzynki użytkownika
+                    const inbox = state.projects.find(p => p.isInbox && p.ownerId === state.currentUser.uid);
+                    // === KONIEC ZMIANY ===
                     const preselect = (nonInbox[0] && nonInbox[0].id) || (inbox && inbox.id) || '';
 
                     newTaskModal.projectSelect.innerHTML = state.projects
@@ -3979,19 +3971,15 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
                 }
             }
 
-             if (!targetProject) {
-                showNotification("Wybierz projekt, aby dodać zadanie.", "Błąd");
+            if (!targetProject) {
+                showNotification("Nie można zidentyfikować projektu docelowego.", "Błąd");
                 return;
             }
             
-            // === POCZĄTEK ZMIANY ===
-            // Wywołujemy tę funkcję tylko wtedy, gdy zadanie NIE jest "specjalne",
-            // aby nie nadpisać automatycznego przypisania do bieżącego użytkownika.
             if (!isSpecial) {
                 populateAssigneesForProject(targetProject.id);
             }
-            // === KONIEC ZMIANY ===
-
+            
             openModal(newTaskModal.overlay);
         }
 
@@ -5943,6 +5931,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
