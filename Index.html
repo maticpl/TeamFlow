@@ -2614,25 +2614,10 @@ if (registerGroupSelect) {
             const selectedDateStartOfDay = new Date(state.ui.myDayDate);
             selectedDateStartOfDay.setHours(0, 0, 0, 0);
 
-            // ================== NOWA, POPRAWIONA LOGIKA FILTROWANIA ==================
-
-            // 1. Zadania ZALEGŁE (aktywne, z terminem PRZED wybranym dniem)
-            const overdueTasks = myTasks.filter(task => {
-                if (!task.dueDate || task.status === 'done') return false;
-                return new Date(task.dueDate) < selectedDateStartOfDay;
-            });
-
-            // 2. Zadania AKTYWNE na wybrany dzień
-            const activeTasksForDate = myTasks.filter(task => {
-                if (task.status === 'done' || !task.dueDate) return false;
-                return task.dueDate.startsWith(state.ui.myDayDate);
-            });
-
-            // 3. Zadania UKOŃCZONE na wybrany dzień
-            const completedTasksForDate = myTasks.filter(task => {
-                if (task.status !== 'done' || !task.dueDate) return false;
-                return task.dueDate.startsWith(state.ui.myDayDate);
-            });
+            // Poprawne filtrowanie i mapowanie zadań
+            const overdueTasks = myTasks.filter(task => task.dueDate && task.status !== 'done' && new Date(task.dueDate) < selectedDateStartOfDay);
+            const activeTasksForDate = myTasks.filter(task => task.dueDate && task.status !== 'done' && task.dueDate.startsWith(state.ui.myDayDate));
+            const completedTasksForDate = myTasks.filter(task => task.dueDate && task.status === 'done' && task.dueDate.startsWith(state.ui.myDayDate));
 
             // Sortowanie każdej grupy z osobna
             overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
@@ -2646,17 +2631,17 @@ if (registerGroupSelect) {
                 // Render the overdue section if it has tasks
                 if (overdueTasks.length > 0) {
                     html += `<li class="my-day-separator">Zaległe (${overdueTasks.length})</li>`;
-                    html += overdueTasks.map(createMyDayTaskItemHTML).join('');
+                    html += overdueTasks.map(task => createMyDayTaskItemHTML(task)).join('');
                 }
                 // Render tasks for the selected day if they exist
                 if (activeTasksForDate.length > 0) {
                     html += `<li class="my-day-separator">Do zrobienia (${activeTasksForDate.length})</li>`;
-                    html += activeTasksForDate.map(createMyDayTaskItemHTML).join('');
+                    html += activeTasksForDate.map(task => createMyDayTaskItemHTML(task)).join('');
                 }
                  // Render completed tasks for the day if they exist
                 if (completedTasksForDate.length > 0) {
                     html += `<li class="my-day-separator">Wykonane (${completedTasksForDate.length})</li>`;
-                    html += completedTasksForDate.map(createMyDayTaskItemHTML).join('');
+                    html += completedTasksForDate.map(task => createMyDayTaskItemHTML(task)).join('');
                 }
                 
                 // Wrap the final HTML in a UL tag
@@ -5033,18 +5018,24 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         }
 
          kanbanBoardEl.addEventListener('click', (e) => {
+            // Pierwszeństwo ma obsługa checkboxa
             const checkbox = e.target.closest('.task-card-checkbox');
             if (checkbox) {
+                // Zapobiegamy dalszemu bąbelkowaniu zdarzenia, co było częścią problemu
+                e.stopPropagation();
                 handleTaskCheckboxClick(checkbox);
-                return; // Natychmiast zakończ działanie funkcji, aby nie otworzyć modalu.
+                // Natychmiast przerywamy działanie funkcji, aby uniknąć uruchomienia poniższych warunków
+                return;
             }
 
+            // Dopiero jeśli nie kliknięto checkboxa, sprawdzamy kliknięcie na cały element
             const taskItem = e.target.closest('.task-card, .my-day-task-item');
             if (taskItem) {
                 openTaskModal(taskItem.dataset.taskId);
-                return; // Dobra praktyka, aby zakończyć po znalezieniu dopasowania.
+                return;
             }
             
+            // Pozostałe warunki bez zmian
             if (e.target.closest('.add-task-icon-btn')) {
                 openNewTaskModal(false);
             } else if (e.target.closest('.favorite-btn')) {
@@ -5776,6 +5767,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
