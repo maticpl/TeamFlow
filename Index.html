@@ -2608,49 +2608,60 @@ if (registerGroupSelect) {
             projectActionsEl.style.display = 'none';
             projectProgressEl.innerHTML = '';
             sortBtn.style.display = 'none';
+            kanbanBoardEl.className = ''; // Resetowanie klasy na start
             kanbanBoardEl.removeAttribute('style');
 
             const myTasks = getAllMyTasks();
             const selectedDateStartOfDay = new Date(state.ui.myDayDate);
             selectedDateStartOfDay.setHours(0, 0, 0, 0);
 
-            // ================== NOWA, POPRAWIONA LOGIKA FILTROWANIA ==================
+            // ================== NOWA, POPRAWNA LOGIKA FILTROWANIA ==================
 
-            // 1. Zadania ZALEGŁE (aktywne, z terminem przed wybranym dniem)
+            // 1. Zadania ZALEGŁE (aktywne, z terminem PRZED wybranym dniem)
             const overdueTasks = myTasks.filter(task => {
                 if (!task.dueDate || task.status === 'done') return false;
                 return new Date(task.dueDate) < selectedDateStartOfDay;
             });
 
-            // 2. Zadania NA WYBRANY DZIEŃ (aktywne, z terminem na dziś)
+            // 2. Zadania AKTYWNE na wybrany dzień
             const activeTasksForDate = myTasks.filter(task => {
-                if (!task.dueDate || task.status === 'done') return false;
+                if (task.status === 'done' || !task.dueDate) return false;
                 return task.dueDate.startsWith(state.ui.myDayDate);
             });
 
-            // 3. Zadania WYKONANE W WYBRANYM DNIU
+            // 3. Zadania UKOŃCZONE na wybrany dzień
             const completedTasksForDate = myTasks.filter(task => {
-                if (!task.dueDate || task.status !== 'done') return false;
-                // Tutaj potrzebujemy logiki sprawdzającej, kiedy zadanie zostało faktycznie ukończone.
-                // Na razie, upraszczając, pokażemy zadania wykonane, które miały termin na dziś.
-                // W przyszłości można dodać pole 'completedAt' do zadania dla większej precyzji.
+                if (task.status !== 'done' || !task.dueDate) return false;
+                // Pokaż zadania ukończone, które miały termin na wybrany dzień
                 return task.dueDate.startsWith(state.ui.myDayDate);
             });
 
-            // Sortujemy każdą grupę osobno
+            // Sortowanie każdej grupy z osobna
             overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
             activeTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
             completedTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
-            // Łączymy wszystko w jedną listę
+            // Łączenie w finalną listę do wyświetlenia
             const tasksForView = [...overdueTasks, ...activeTasksForDate, ...completedTasksForDate];
             
             if (tasksForView.length === 0) {
                 kanbanBoardEl.innerHTML = `<div class="no-tasks-message" style="text-align: left; padding: 20px 0;">Brak zadań na ten dzień. 💪</div>`;
-                kanbanBoardEl.className = '';
             } else {
                 kanbanBoardEl.className = 'my-day-list';
-                kanbanBoardEl.innerHTML = tasksForView.map(createMyDayTaskItemHTML).join('');
+                let html = '';
+                if (overdueTasks.length > 0) {
+                    html += `<li class="my-day-separator">Zaległe (${overdueTasks.length})</li>`;
+                    html += overdueTasks.map(createMyDayTaskItemHTML).join('');
+                }
+                if (activeTasksForDate.length > 0) {
+                    html += `<li class="my-day-separator">Do zrobienia (${activeTasksForDate.length})</li>`;
+                    html += activeTasksForDate.map(createMyDayTaskItemHTML).join('');
+                }
+                if (completedTasksForDate.length > 0) {
+                    html += `<li class="my-day-separator">Wykonane (${completedTasksForDate.length})</li>`;
+                    html += completedTasksForDate.map(createMyDayTaskItemHTML).join('');
+                }
+                kanbanBoardEl.innerHTML = html;
             }
         }
         function showConfirmation(title, message, callback, danger = false) {
@@ -2910,8 +2921,8 @@ if (registerGroupSelect) {
 }
         // NOWA FUNKCJA DO RENDEROWANIA WIDOKU WSZYSTKICH PROJEKTÓW
         function renderAllProjectsView() {
-            kanbanBoardEl.style.display = 'block';
-            kanbanBoardEl.style.height = 'auto';
+            kanbanBoardEl.className = 'kanban-board'; // Resetowanie klasy na wypadek "przeciekania" z "Mój dzień"
+            kanbanBoardEl.removeAttribute('style');
             projectNameHeaderEl.textContent = 'Wszystkie Projekty';
             mobileHeaderTitle.textContent = 'Wszystkie Projekty';
             projectMembersHeaderEl.innerHTML = '';
@@ -2923,26 +2934,8 @@ if (registerGroupSelect) {
             const grid = kanbanBoardEl.querySelector('.all-projects-grid');
             grid.classList.toggle('layout-edit-mode', state.ui.allProjectsEditMode);
 
-            const userProjectLayout = state.currentUser.layouts.allProjects || [];
-            const layoutSet = new Set(userProjectLayout);
-            const otherAdminProjects = [], newOwnedProjects = [], newMemberProjects = [];
-
-            state.projects.forEach(p => {
-                if (p.isInbox) return;
-                const isOwner = p.ownerId === state.currentUser.uid;
-                const isMember = p.members.includes(state.currentUser.uid) && !isOwner;
-                if (!isOwner && !isMember) otherAdminProjects.push(p);
-                else if (!layoutSet.has(p.id)) {
-                    if (isOwner) newOwnedProjects.push(p);
-                    else newMemberProjects.push(p);
-                }
-            });
-
-            const sortedProjects = userProjectLayout.map(projectId => state.projects.find(p => p.id === projectId)).filter(Boolean);
-            const finalProjectList = [...sortedProjects, ...newOwnedProjects.sort((a,b) => a.name.localeCompare(b.name)), ...newMemberProjects.sort((a,b) => a.name.localeCompare(b.name))];
-            
-            grid.innerHTML = finalProjectList.map(project => {
-                let tileClass = project.ownerId === state.currentUser.uid ? 'owner' : 'member';
+            // Funkcja pomocnicza do generowania HTML pojedynczego kafelka
+            const createProjectTileHTML = (project, tileClass) => {
                 const isFavorite = state.currentUser.favorites.includes(project.id);
                 const owner = findUser(project.ownerId);
                 const projectTasks = (project.tasks || []);
@@ -2952,7 +2945,6 @@ if (registerGroupSelect) {
                 const membersHTML = project.members.map(memberId => findUser(memberId)).filter(Boolean).map(user => renderAvatarHTML(user)).join('');
                 
                 return `<div class="project-tile ${tileClass}" data-id="${project.id}">
-                    <div class="dashboard-card-handle">⠿</div>
                     <div class="project-tile-header">
                         <h3 class="js-project-title">${project.name}</h3>
                         <button class="favorite-btn ${isFavorite ? 'is-favorite' : ''}" data-project-id="${project.id}">
@@ -2968,47 +2960,47 @@ if (registerGroupSelect) {
                         <div class="progress-text">${completedTasks} z ${totalTasks} zadań ukończonych</div>
                     </div>
                 </div>`;
-            }).join('');
-            
-            otherAdminProjects.sort((a, b) => a.name.localeCompare(b.name)).forEach(project => {
-                const tileClass = 'other';
-                const isFavorite = state.currentUser.favorites.includes(project.id);
-                const owner = findUser(project.ownerId);
-                const projectTasks = (project.tasks || []);
-                const totalTasks = projectTasks.length;
-                const completedTasks = projectTasks.filter(t => t.status === 'done').length;
-                const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-                const membersHTML = project.members.map(memberId => findUser(memberId)).filter(Boolean).map(user => renderAvatarHTML(user)).join('');
-                const tileHTML = `<div class="project-tile ${tileClass}" data-id="${project.id}">
-                    <div class="project-tile-header">
-                        <h3 class="js-project-title">${project.name}</h3>
-                        <button class="favorite-btn ${isFavorite ? 'is-favorite' : ''}" data-project-id="${project.id}">
-                             <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                        </button>
-                    </div>
-                     <div class="project-tile-details">
-                        <div class="project-tile-owner"><strong>Właściciel:</strong> ${owner ? owner.name : 'Nieznany'}</div>
-                        <div class="project-tile-members-list"><strong>Członkowie:</strong> <div class="project-tile-members">${membersHTML}</div></div>
-                    </div>
-                    <div>
-                         <div class="progress-bar-container"><div class="progress-bar-fill" style="width: ${progressPercent}%;"></div></div>
-                        <div class="progress-text">${completedTasks} z ${totalTasks} zadań ukończonych</div>
-                    </div>
-                </div>`;
-                grid.insertAdjacentHTML('beforeend', tileHTML);
+            };
+
+            // NOWA, UPROSZCZONA LOGIKA KATEGORYZACJI PROJEKTÓW
+            const ownedProjects = [];
+            const memberProjects = [];
+            const otherProjects = [];
+
+            state.projects.forEach(p => {
+                if (p.isInbox) return; // Zawsze ignoruj skrzynkę zadań w tym widoku
+                
+                if (p.ownerId === state.currentUser.uid) {
+                    ownedProjects.push(p);
+                } else if (p.members.includes(state.currentUser.uid)) {
+                    memberProjects.push(p);
+                } else if (isCurrentUserAdmin()) { // Pokaż "inne" projekty tylko jeśli jesteś adminem
+                    otherProjects.push(p);
+                }
             });
 
-            // NOWY BLOK LOGIKI DO ZARZĄDZANIA SORTABLE.JS
+            // Sortowanie alfabetyczne w każdej grupie
+            ownedProjects.sort((a,b) => a.name.localeCompare(b.name));
+            memberProjects.sort((a,b) => a.name.localeCompare(b.name));
+            otherProjects.sort((a,b) => a.name.localeCompare(b.name));
+
+            // Składanie finalnego HTML w poprawnej kolejności
+            let finalHTML = '';
+            finalHTML += ownedProjects.map(p => createProjectTileHTML(p, 'owner')).join('');
+            finalHTML += memberProjects.map(p => createProjectTileHTML(p, 'member')).join('');
+            finalHTML += otherProjects.map(p => createProjectTileHTML(p, 'other')).join('');
+            
+            grid.innerHTML = finalHTML;
+
+            // Logika do edycji układu (Sortable.js)
             if (sortableProjects) {
                 sortableProjects.destroy();
                 sortableProjects = null;
             }
-
             if (state.ui.allProjectsEditMode) {
                 if (grid) {
                     sortableProjects = new Sortable(grid, {
                         animation: 150,
-                        // handle: '.dashboard-card-handle', <-- USUNIĘTA LINIA
                         ghostClass: 'sortable-ghost',
                         filter: '.other', 
                     });
@@ -5782,6 +5774,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
