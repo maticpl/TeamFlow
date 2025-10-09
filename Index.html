@@ -3070,10 +3070,10 @@ if (registerGroupSelect) {
 
             const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
             const isModalOpen = !!document.querySelector('.modal-overlay.visible');
-            const shouldShowFabs = isMobile && !state.ui.isCalendarView && isProjectView && !isModalOpen;
+            const shouldShowFabs = isMobile && !state.ui.isCalendarView && (isProjectView || isMyDayView) && !isModalOpen;
 
-            if (fabAddTask) fabAddTask.style.display = shouldShowFabs ? 'block' : 'none';
-            if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block' : 'none';
+if (fabAddTask) fabAddTask.style.display = shouldShowFabs ? 'block' : 'none';
+if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block' : 'none';
 
             if (state.ui.isCalendarView) {
                 projectNameHeaderEl.textContent = 'Kalendarz Zadań';
@@ -3857,13 +3857,36 @@ if (registerGroupSelect) {
                 newTaskModal.dueDate.value = formattedDate;
 
             } else {
-                targetProject = isFab ? findProject(state.currentProjectId) : findProject(state.currentProjectId);
-                if (isFab) {
-                    newTaskModal.projectSelect.innerHTML = state.projects.filter(p => !p.isInbox).map(p => `<option value="${p.id}" ${p.id === state.currentProjectId ? 'selected' : ''}>${p.name}</option>`).join('');
-                } else {
-                    newTaskModal.projectGroup.style.display = 'none';
-                }
-            }
+    const inProjectView = state.ui.currentView === 'projects';
+    const hasCurrentProject = !!state.currentProjectId;
+
+    if (isFab && inProjectView && hasCurrentProject) {
+        // FAB w widoku projektu – zachowuj się jak wcześniej
+        targetProject = findProject(state.currentProjectId);
+        newTaskModal.projectSelect.innerHTML = state.projects
+          .filter(p => !p.isInbox)
+          .map(p => `<option value="${p.id}" ${p.id === state.currentProjectId ? 'selected' : ''}>${p.name}</option>`)
+          .join('');
+    } else {
+        // FAB z "Mój dzień" (lub brak currentProject) – pokaż selector
+        const nonInbox = state.projects.filter(p => !p.isInbox);
+        const inbox = state.projects.find(p => p.isInbox);
+        const preselect = (nonInbox[0] && nonInbox[0].id) || (inbox && inbox.id) || '';
+
+        newTaskModal.projectSelect.innerHTML = state.projects
+          .map(p => `<option value="${p.id}" ${p.id === preselect ? 'selected' : ''}>${p.name}</option>`)
+          .join('');
+
+        newTaskModal.projectGroup.style.display = 'block';
+        targetProject = findProject(preselect);
+    }
+
+    // Jeżeli z jakiegoś powodu nadal brak projektu – pokaż komunikat
+    if (!targetProject) {
+        showNotification("Wybierz projekt, aby dodać zadanie.", "Błąd");
+        return;
+    }
+}
 
             if (!targetProject) {
                 showNotification("Wybierz projekt, aby dodać zadanie.", "Błąd");
@@ -4279,6 +4302,9 @@ attachmentsListNewTask.addEventListener('click', (e) => {
             state.ui.dashboardLayout = state.currentUser.layouts.dashboard;
                 state.ui.currentView = 'my-dashboard'; // Zawsze ustawiaj widok na pulpit
                 state.currentProjectId = null;       // Zawsze resetuj wybrany projekt
+                if (window.innerWidth <= 768) {
+  state.ui.currentView = 'my-day';
+}
                 authOverlay.style.display = 'none';
                 appContainer.classList.remove('hidden');
                 loadingOverlay.style.display = 'flex';
@@ -5793,6 +5819,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
