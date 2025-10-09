@@ -2613,19 +2613,17 @@ if (registerGroupSelect) {
             projectActionsEl.style.display = 'none';
             projectProgressEl.innerHTML = '';
             sortBtn.style.display = 'none';
-            kanbanBoardEl.className = ''; // Reset the main container's class
+            kanbanBoardEl.className = '';
             kanbanBoardEl.removeAttribute('style');
 
             const myTasks = getAllMyTasks();
             const selectedDateStartOfDay = new Date(state.ui.myDayDate);
             selectedDateStartOfDay.setHours(0, 0, 0, 0);
 
-            // Poprawne filtrowanie i mapowanie zadań
             const overdueTasks = myTasks.filter(task => task.dueDate && task.status !== 'done' && new Date(task.dueDate) < selectedDateStartOfDay);
             const activeTasksForDate = myTasks.filter(task => task.dueDate && task.status !== 'done' && task.dueDate.startsWith(state.ui.myDayDate));
             const completedTasksForDate = myTasks.filter(task => task.dueDate && task.status === 'done' && task.dueDate.startsWith(state.ui.myDayDate));
 
-            // Sortowanie każdej grupy z osobna
             overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
             activeTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
             completedTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
@@ -2634,24 +2632,42 @@ if (registerGroupSelect) {
                 kanbanBoardEl.innerHTML = `<div class="no-tasks-message" style="text-align: left; padding: 20px 0;">Brak zadań na ten dzień. 💪</div>`;
             } else {
                 let html = '';
-                // Render the overdue section if it has tasks
                 if (overdueTasks.length > 0) {
                     html += `<li class="my-day-separator">Zaległe (${overdueTasks.length})</li>`;
                     html += overdueTasks.map(task => createMyDayTaskItemHTML(task)).join('');
                 }
-                // Render tasks for the selected day if they exist
                 if (activeTasksForDate.length > 0) {
                     html += `<li class="my-day-separator">Do zrobienia (${activeTasksForDate.length})</li>`;
                     html += activeTasksForDate.map(task => createMyDayTaskItemHTML(task)).join('');
                 }
-                 // Render completed tasks for the day if they exist
                 if (completedTasksForDate.length > 0) {
                     html += `<li class="my-day-separator">Wykonane (${completedTasksForDate.length})</li>`;
                     html += completedTasksForDate.map(task => createMyDayTaskItemHTML(task)).join('');
                 }
                 
-                // Wrap the final HTML in a UL tag
                 kanbanBoardEl.innerHTML = `<ul class="my-day-list">${html}</ul>`;
+                
+                // NOWA LOGIKA: Podpinamy dedykowany listener
+                const myDayList = kanbanBoardEl.querySelector('.my-day-list');
+                if (myDayList) {
+                    myDayList.addEventListener('click', handleMyDayClick);
+                }
+            }
+        }
+
+        function handleMyDayClick(e) {
+            // Ta funkcja obsługuje TYLKO kliknięcia w liście "Mój dzień"
+            const taskItem = e.target.closest('.my-day-task-item');
+            if (!taskItem) return; // Kliknięto w listę, ale nie w zadanie
+
+            // Sprawdzamy, czy kliknięto checkbox, czy resztę zadania
+            if (e.target.matches('.task-card-checkbox')) {
+                handleTaskCheckboxClick(e.target, e);
+            } else if (e.target.closest('a[data-project-id]')) {
+                // Obsługa kliknięcia w link projektu wewnątrz zadania
+                handleProjectLinkClick(e);
+            } else {
+                openTaskModal(taskItem.dataset.taskId);
             }
         }
         function showConfirmation(title, message, callback, danger = false) {
@@ -5025,16 +5041,18 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         }
 
          kanbanBoardEl.addEventListener('click', (e) => {
-            // Używamy e.target, czyli DOKŁADNIE klikniętego elementu.
-            // To jest najbardziej precyzyjna metoda.
+            // NOWY WARUNEK: Jeśli kliknięcie pochodzi z listy "Mój dzień", ignoruj je,
+            // ponieważ ma ono swój własny, dedykowany listener.
+            if (e.target.closest('.my-day-list')) {
+                return;
+            }
+
             if (e.target.matches('.task-card-checkbox')) {
-                // Przekazujemy teraz również obiekt zdarzenia 'e'
                 handleTaskCheckboxClick(e.target, e);
                 return;
             }
 
-            // Pozostała logika bez zmian.
-            const taskItem = e.target.closest('.task-card, .my-day-task-item');
+            const taskItem = e.target.closest('.task-card'); // Usunięto .my-day-task-item
             if (taskItem) {
                 openTaskModal(taskItem.dataset.taskId);
                 return;
@@ -5771,6 +5789,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
