@@ -4190,36 +4190,44 @@ attachmentsListNewTask.addEventListener('click', (e) => {
             }
     
             state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
-                state.projects = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
+    state.projects = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+    }));
 
-                const inboxExists = state.projects.some(p => p.isInbox === true);
+    // Upewnij się, że istnieje "Skrzynka zadań"
+    const inboxExists = state.projects.some(p => p.isInbox === true);
+    if (!inboxExists) {
+        const inboxProject = {
+            name: "Skrzynka zadań",
+            ownerId: state.currentUser.uid,
+            members: [state.currentUser.uid],
+            tasks: [],
+            isInbox: true,
+            createdAt: Date.now()
+        };
+        addDoc(projectsRef, inboxProject);
+    }
 
-                if (!inboxExists) {
-                    const inboxProject = {
-                        name: "Skrzynka zadań",
-                        ownerId: state.currentUser.uid,
-                        members: [state.currentUser.uid],
-                        tasks: [],
-                        isInbox: true, 
-                        createdAt: Date.now()
-                    };
-                    addDoc(projectsRef, inboxProject);
-                }
+    // TYLKO jeśli aktualnie jesteś w widoku projektów,
+    // pilnuj spójności currentProjectId.
+    const isProjectView = state.ui.currentView === 'projects';
+    if (isProjectView) {
+        const stillExists =
+            !!findProject(state.currentProjectId) || !!findCompletedProject(state.currentProjectId);
 
-                const isCurrentProjectActive = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
-                if (!isCurrentProjectActive && state.ui.currentView !== 'my-dashboard') {
-                    state.currentProjectId = state.projects.length > 0 ? state.projects[0].id : null;
-                    state.ui.currentView = state.currentProjectId ? 'projects' : 'my-dashboard';
-                }
-                loadingOverlay.style.display = 'none';
-                render();
-            }, (error) => {
-                console.error("Błąd odczytu projektów:", error);
-                loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small><br><br><b>Ważne:</b> Upewnij się, że utworzyłeś/aś wymagany indeks w Firestore (zakładka Indexes -> Single Field).</p>`;
-            });
+        if (!stillExists) {
+            state.currentProjectId = state.projects[0]?.id || null;
+            // UWAGA: nie zmieniamy state.ui.currentView tutaj
+        }
+    }
+
+    loadingOverlay.style.display = 'none';
+    render();
+}, (error) => {
+    console.error("Błąd odczytu projektów:", error);
+    loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small><br><br><b>Ważne:</b> Upewnij się, że utworzyłeś/aś wymagany indeks w Firestore (zakładka Indexes -> Single Field).</p>`;
+});
             
             if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
     
@@ -5785,6 +5793,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
