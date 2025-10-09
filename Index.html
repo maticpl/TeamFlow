@@ -2907,8 +2907,13 @@ if (registerGroupSelect) {
                 const isDashboardView = state.ui.currentView === 'my-dashboard';
 
                 // ▼▼▼ DODAJ TEN BLOK KODU ▼▼▼
+                const isAllProjectsView = state.ui.currentView === 'all-projects';
+
                 if (editDashboardLayoutBtn) {
                     editDashboardLayoutBtn.style.display = isDashboardView ? 'flex' : 'none';
+                }
+                if (editProjectsLayoutBtn) {
+                    editProjectsLayoutBtn.style.display = isAllProjectsView ? 'flex' : 'none';
                 }
                 // ▲▲▲ KONIEC NOWEGO BLOKU ▲▲▲
 
@@ -4029,7 +4034,7 @@ attachmentsListNewTask.addEventListener('click', (e) => {
             }
         }
 
-        onAuthStateChanged(auth, async (user) => {
+         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 const userDoc = await getDoc(doc(usersRef, user.uid));
                 const userData = userDoc.exists() ? userDoc.data() : {};
@@ -4038,8 +4043,8 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                     uid: user.uid,
                     email: user.email,
                     ...userData,
-                    favorites: userData.favorites || [] // Upewnia się, że tablica ulubionych zawsze istnieje
-                    layouts: { // <-- NOWY OBIEKT
+                    favorites: userData.favorites || [], // <-- TUTAJ DODANO BRAKUJĄCY PRZECINEK
+                    layouts: { 
                         dashboard: userData.layouts?.dashboard || ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
                         allProjects: userData.layouts?.allProjects || []
                     }
@@ -5347,60 +5352,77 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         // ▲▲▲ KONIEC NOWEGO LISTNERA ▲▲▲
         
           // --- LOGIKA EDYCJI UKŁADU DASHBOARDU ---
-        let sortableInstance = null;
+        let sortableDashboard = null;
         let sortableProjects = null;
 
-         editDashboardLayoutBtn.addEventListener('click', async () => {
-            // Przełączamy flagę trybu edycji w stanie aplikacji
+        editDashboardLayoutBtn.addEventListener('click', async () => {
             state.ui.dashboardEditMode = !state.ui.dashboardEditMode;
             const grid = document.getElementById('dashboard-grid-main');
             
-            // Sprawdzamy, czy wchodzimy w tryb edycji
             if (state.ui.dashboardEditMode) {
-                // Zmieniamy wygląd przycisku
                 editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
-                
-                // Inicjalizujemy SortableJS, aby umożliwić przeciąganie
                 sortableDashboard = new Sortable(grid, {
                     animation: 150,
                     handle: '.dashboard-card-handle', 
                     ghostClass: 'sortable-ghost',
                 });
-
-            } else { // To jest blok kodu, który wykonuje się po kliknięciu "Zapisz układ"
-                
-                // Pobieramy nową kolejność kart jako tablicę ich atrybutów `data-id`
-                const newOrder = sortableDashboard.toArray();
-                
-                // Aktualizujemy lokalny stan w obiekcie currentUser
-                state.currentUser.layouts.dashboard = newOrder;
-                
-                try {
-                    // Przygotowujemy referencję do dokumentu zalogowanego użytkownika
-                    const userRef = doc(usersRef, state.currentUser.uid);
-                    
-                    // Asynchronicznie aktualizujemy pole w Firestore
-                    // Używamy notacji kropkowej, aby zaktualizować tylko zagnieżdżone pole
-                    await updateDoc(userRef, { "layouts.dashboard": newOrder });
-                    
-                    showNotification("Układ pulpitu został zapisany.", "Sukces");
-                } catch (error) {
-                    console.error("Błąd zapisu układu pulpitu:", error);
-                    showNotification("Nie udało się zapisać układu.", "Błąd");
-                }
-            
-                // Przywracamy pierwotny wygląd przycisku
-                editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
-                
-                // Niszczymy instancję SortableJS, aby zablokować przeciąganie
+            } else { 
                 if (sortableDashboard) {
+                    const newOrder = sortableDashboard.toArray();
+                    state.currentUser.layouts.dashboard = newOrder;
+                    
+                    try {
+                        const userRef = doc(usersRef, state.currentUser.uid);
+                        await updateDoc(userRef, { "layouts.dashboard": newOrder });
+                        showNotification("Układ pulpitu został zapisany.", "Sukces");
+                    } catch (error) {
+                        console.error("Błąd zapisu układu pulpitu:", error);
+                        showNotification("Nie udało się zapisać układu.", "Błąd");
+                    }
+                
+                    editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
+                    
                     sortableDashboard.destroy();
                     sortableDashboard = null;
                 }
             }
-            
-            // Na koniec, w obu przypadkach, przełączamy klasę CSS na siatce
             grid.classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
+        });
+
+        // DODANY BRAKUJĄCY LISTENER DLA PROJEKTÓW
+        editProjectsLayoutBtn.addEventListener('click', async () => {
+            state.ui.allProjectsEditMode = !state.ui.allProjectsEditMode;
+            
+            if (state.ui.allProjectsEditMode) {
+                editProjectsLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
+                const grid = kanbanBoardEl.querySelector('.all-projects-grid');
+                if (grid) {
+                    sortableProjects = new Sortable(grid, {
+                        animation: 150,
+                        handle: '.dashboard-card-handle',
+                        ghostClass: 'sortable-ghost',
+                        filter: '.other', 
+                    });
+                }
+            } else {
+                if(sortableProjects) {
+                    const newOrder = sortableProjects.toArray();
+                    state.currentUser.layouts.allProjects = newOrder;
+                     try {
+                        const userRef = doc(usersRef, state.currentUser.uid);
+                        await updateDoc(userRef, { "layouts.allProjects": newOrder });
+                        showNotification("Układ projektów został zapisany.", "Sukces");
+                    } catch (error) {
+                        console.error("Błąd zapisu układu projektów:", error);
+                        showNotification("Nie udało się zapisać układu.", "Błąd");
+                    }
+
+                    sortableProjects.destroy();
+                    sortableProjects = null;
+                }
+                editProjectsLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
+            }
+            render();
         });
 </script>
     <div class="modal-overlay" id="settings-modal">
@@ -5512,6 +5534,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
