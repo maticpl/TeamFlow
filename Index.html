@@ -694,24 +694,68 @@
         .dashboard-card-handle {
             position: absolute;
             top: 16px;
-            right: 16px; /* ZMIANA: z 'left' na 'right' */
-            color: var(--text-secondary); /* ZMIANA: na ciemniejszy kolor */
+            right: 16px; 
+            color: var(--text-secondary); 
             cursor: grab;
             display: none;
-            opacity: 0.6; /* DODANE: lekka przezroczystość */
-            transition: opacity 0.2s; /* DODANE: płynne przejście */
+            opacity: 0.6;
+            transition: opacity 0.2s; 
+            z-index: 5; /* Dodajemy z-index, by uchwyt był nad mgłą */
         }
         
-        /* ▼▼▼ DODAJEMY NOWĄ REGUŁĘ DLA HOVERA ▼▼▼ */
-        .dashboard-edit-mode .dashboard-card-handle:hover {
+        .layout-edit-mode .dashboard-card-handle,
+        .layout-edit-mode .project-tile .dashboard-card-handle { /* <-- NOWA REGUŁA DLA PROJEKTÓW */
+            display: block;
+        }
+        .layout-edit-mode .dashboard-card-handle:hover {
             opacity: 1;
         }
-        .dashboard-edit-mode .dashboard-card-handle {
-            display: block; /* Widoczny tylko w trybie edycji */
+        
+        /* === NOWE, UNIWERSALNE STYLE DLA TRYBU EDYCJI UKŁADU === */
+        .layout-edit-mode > .dashboard-card,
+        .layout-edit-mode > .project-tile {
+            position: relative; /* Wymagane dla pseudo-elementów */
         }
-        .dashboard-edit-mode .dashboard-card:hover {
-            border-color: var(--accent-primary);
+
+        .layout-edit-mode > .dashboard-card:hover,
+        .layout-edit-mode > .project-tile:hover {
+             border-color: var(--accent-primary); /* Zachowujemy starą ramkę */
         }
+
+        /* "Mgła" - nakładka */
+        .layout-edit-mode > .dashboard-card:hover::before,
+        .layout-edit-mode > .project-tile:not(.other):hover::before { /* <-- DODANO :not(.other) */
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(79, 70, 229, 0.2); /* Półprzezroczysty niebieski */
+            border-radius: var(--border-radius);
+            z-index: 1;
+            transition: background-color 0.2s;
+            pointer-events: none; /* Pozwala na klikanie przez warstwę */
+        }
+        
+        /* Tekst "Chwyć i przenieś" */
+        .layout-edit-mode > .dashboard-card:hover::after,
+        .layout-edit-mode > .project-tile:not(.other):hover::after { /* <-- DODANO :not(.other) */
+            content: 'Chwyć i przenieś';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: var(--accent-primary);
+            color: var(--text-on-accent);
+            padding: 8px 16px;
+            border-radius: var(--border-radius);
+            font-weight: 600;
+            font-size: 14px;
+            z-index: 2;
+            pointer-events: none; /* Pozwala na klikanie przez warstwę */
+        }
+
         .sortable-ghost {
             opacity: 0.4;
             background: var(--accent-primary);
@@ -1584,9 +1628,6 @@
                 <div class="header-actions">
     <div class="header-actions">
     <button id="back-to-projects-btn" class="header-btn" title="Wróć do wszystkich projektów" style="display: none;">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 24px; height: 24px;">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-        </svg>
         </button>
     <button id="edit-dashboard-layout-btn" class="sort-btn" style="display: none;">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;">
@@ -1594,12 +1635,16 @@
         </svg>
         <span>Edytuj układ</span>
     </button>
-    <button class="sort-btn" id="sort-btn" style="display: none;">
+    <button id="edit-projects-layout-btn" class="sort-btn" style="display: none;">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;">
-           <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
         </svg>
+        <span>Edytuj układ</span>
+    </button>
+    <button class="sort-btn" id="sort-btn" style="display: none;">
         <span>Sortuj po dacie</span>
     </button>
+    </div>
     <button id="calendar-toggle-btn" class="header-btn" title="Pokaż kalendarz">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0h18" />
@@ -2085,8 +2130,9 @@ let stagedFiles = [];
                 theme: 'light',
                 currentView: 'my-dashboard',
                 previousView: null, // <-- DODANA LINIA
-                dashboardEditMode: false, // <-- DODANA LINIA
-                dashboardLayout: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'], // <-- DODANA LINIA (domyślny układ)
+                dashboardEditMode: false, 
+                dashboardLayout: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+                allProjectsEditMode: false, // <-- NOWA LINIA
                 isCalendarView: false,
                 sortMyTasksByDate: 'asc',
                 projectSortOrders: {},
@@ -2116,6 +2162,7 @@ let stagedFiles = [];
         
         // --- Pobieranie referencji do elementów HTML ---
         const editDashboardLayoutBtn = document.getElementById('edit-dashboard-layout-btn'); // <-- DODANA LINIA
+        const editProjectsLayoutBtn = document.getElementById('edit-projects-layout-btn'); // <-- NOWA LINIA
         const backToProjectsBtn = document.getElementById('back-to-projects-btn'); // <-- DODANA LINIA
         const backToProjectsBtnMobile = document.getElementById('back-to-projects-btn-mobile'); // <-- DODANA LINIA
         const settingsBtn = document.getElementById('settings-btn');
@@ -2654,8 +2701,8 @@ if (registerGroupSelect) {
 }
         // NOWA FUNKCJA DO RENDEROWANIA WIDOKU WSZYSTKICH PROJEKTÓW
         function renderAllProjectsView() {
-            kanbanBoardEl.style.display = 'block'; // <-- DODAJ TĘ LINIĘ
-            kanbanBoardEl.style.height = 'auto'; // <-- I TĘ LINIĘ
+            kanbanBoardEl.style.display = 'block';
+            kanbanBoardEl.style.height = 'auto';
             projectNameHeaderEl.textContent = 'Wszystkie Projekty';
             mobileHeaderTitle.textContent = 'Wszystkie Projekty';
             projectMembersHeaderEl.innerHTML = '';
@@ -2665,70 +2712,105 @@ if (registerGroupSelect) {
 
             kanbanBoardEl.innerHTML = `<div class="all-projects-grid"></div>`;
             const grid = kanbanBoardEl.querySelector('.all-projects-grid');
+            grid.classList.toggle('layout-edit-mode', state.ui.allProjectsEditMode);
 
-            const sortedProjects = [...state.projects].sort((a, b) => {
-                const aIsOwner = a.ownerId === state.currentUser.uid;
-                const bIsOwner = b.ownerId === state.currentUser.uid;
-                const aIsMember = a.members.includes(state.currentUser.uid);
-                const bIsMember = b.members.includes(state.currentUser.uid);
+            // 1. Podziel projekty na kategorie
+            const userProjectLayout = state.currentUser.layouts.allProjects || [];
+            const layoutSet = new Set(userProjectLayout);
 
-                if (aIsOwner !== bIsOwner) return aIsOwner ? -1 : 1;
-                if (aIsMember !== bIsMember) return aIsMember ? -1 : 1;
-                return a.name.localeCompare(b.name);
+            const otherAdminProjects = [];
+            const newOwnedProjects = [];
+            const newMemberProjects = [];
+
+            state.projects.forEach(p => {
+                if (p.isInbox) return;
+                const isOwner = p.ownerId === state.currentUser.uid;
+                const isMember = p.members.includes(state.currentUser.uid) && !isOwner;
+                
+                if (!isOwner && !isMember) {
+                    otherAdminProjects.push(p);
+                } else if (!layoutSet.has(p.id)) {
+                    if (isOwner) newOwnedProjects.push(p);
+                    else newMemberProjects.push(p);
+                }
             });
 
-            sortedProjects.forEach(project => {
-                const tile = document.createElement('div');
-                tile.className = 'project-tile';
-                tile.dataset.projectId = project.id;
-                
+            // 2. Utwórz posortowaną listę na podstawie układu użytkownika
+            const sortedProjects = userProjectLayout
+                .map(projectId => state.projects.find(p => p.id === projectId))
+                .filter(Boolean);
+
+            // 3. Połącz wszystkie części w finalną listę
+            const finalProjectList = [
+                ...sortedProjects,
+                ...newOwnedProjects.sort((a,b) => a.name.localeCompare(b.name)),
+                ...newMemberProjects.sort((a,b) => a.name.localeCompare(b.name)),
+            ];
+            
+            // 4. Renderuj siatkę sortowalnych projektów
+            grid.innerHTML = finalProjectList.map(project => {
                 let tileClass = 'other';
-                if (project.ownerId === state.currentUser.uid) {
-                    tileClass = 'owner';
-                } else if (project.members.includes(state.currentUser.uid)) {
-                    tileClass = 'member';
-                }
-                tile.classList.add(tileClass);
-
+                if (project.ownerId === state.currentUser.uid) tileClass = 'owner';
+                else if (project.members.includes(state.currentUser.uid)) tileClass = 'member';
                 const isFavorite = state.currentUser.favorites.includes(project.id);
+                // ... (reszta logiki do pobierania ownera, postępu, członków) ...
                 const owner = findUser(project.ownerId);
-
                 const projectTasks = (project.tasks || []);
                 const totalTasks = projectTasks.length;
                 const completedTasks = projectTasks.filter(t => t.status === 'done').length;
                 const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+                const membersHTML = project.members.map(memberId => findUser(memberId)).filter(Boolean).map(user => renderAvatarHTML(user)).join('');
                 
-                const membersHTML = project.members
-    .map(memberId => findUser(memberId))
-    .filter(Boolean) // Usuwa puste wpisy, jeśli użytkownik nie został znaleziony
-    .map(user => renderAvatarHTML(user))
-    .join('');
-
-                tile.innerHTML = `
+                return `
+                <div class="project-tile ${tileClass}" data-id="${project.id}">
+                    <div class="dashboard-card-handle">⠿</div>
                     <div class="project-tile-header">
                         <h3 class="js-project-title">${project.name}</h3>
-                        <button class="favorite-btn ${isFavorite ? 'is-favorite' : ''}" data-project-id="${project.id}" title="${isFavorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'}">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                            </svg>
+                        <button class="favorite-btn ${isFavorite ? 'is-favorite' : ''}" data-project-id="${project.id}">
+                            <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
                         </button>
                     </div>
-                    <div class="project-tile-details">
-                        <div class="project-tile-owner">
-                            <strong>Właściciel:</strong> ${owner ? owner.name : 'Nieznany'}
-                        </div>
-                        <div class="project-tile-members-list">
-                            <strong>Członkowie:</strong> <div class="project-tile-members">${membersHTML}</div>
-                        </div>
+                     <div class="project-tile-details">
+                        <div class="project-tile-owner"><strong>Właściciel:</strong> ${owner ? owner.name : 'Nieznany'}</div>
+                        <div class="project-tile-members-list"><strong>Członkowie:</strong> <div class="project-tile-members">${membersHTML}</div></div>
                     </div>
                     <div>
-                         <div class="progress-bar-container" title="${progressPercent}% ukończenia">
-                            <div class="progress-bar-fill" style="width: ${progressPercent}%;"></div>
-                        </div>
+                         <div class="progress-bar-container"><div class="progress-bar-fill" style="width: ${progressPercent}%;"></div></div>
                         <div class="progress-text">${completedTasks} z ${totalTasks} zadań ukończonych</div>
                     </div>
-                `;
-                grid.appendChild(tile);
+                </div>`;
+            }).join('');
+            
+            // 5. Renderuj niesortowalne projekty na końcu
+            otherAdminProjects.sort((a, b) => a.name.localeCompare(b.name)).forEach(project => {
+                 // ... (ta sama logika renderowania co wyżej, ale dla projektów 'other') ...
+                const tileClass = 'other';
+                const isFavorite = state.currentUser.favorites.includes(project.id);
+                const owner = findUser(project.ownerId);
+                const projectTasks = (project.tasks || []);
+                const totalTasks = projectTasks.length;
+                const completedTasks = projectTasks.filter(t => t.status === 'done').length;
+                const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+                const membersHTML = project.members.map(memberId => findUser(memberId)).filter(Boolean).map(user => renderAvatarHTML(user)).join('');
+
+                const tileHTML = `
+                <div class="project-tile ${tileClass}" data-id="${project.id}">
+                    <div class="project-tile-header">
+                        <h3 class="js-project-title">${project.name}</h3>
+                        <button class="favorite-btn ${isFavorite ? 'is-favorite' : ''}" data-project-id="${project.id}">
+                             <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                        </button>
+                    </div>
+                     <div class="project-tile-details">
+                        <div class="project-tile-owner"><strong>Właściciel:</strong> ${owner ? owner.name : 'Nieznany'}</div>
+                        <div class="project-tile-members-list"><strong>Członkowie:</strong> <div class="project-tile-members">${membersHTML}</div></div>
+                    </div>
+                    <div>
+                         <div class="progress-bar-container"><div class="progress-bar-fill" style="width: ${progressPercent}%;"></div></div>
+                        <div class="progress-text">${completedTasks} z ${totalTasks} zadań ukończonych</div>
+                    </div>
+                </div>`;
+                grid.insertAdjacentHTML('beforeend', tileHTML);
             });
         }
         async function toggleFavoriteProject(projectId) {
@@ -3957,7 +4039,12 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                     email: user.email,
                     ...userData,
                     favorites: userData.favorites || [] // Upewnia się, że tablica ulubionych zawsze istnieje
+                    layouts: { // <-- NOWY OBIEKT
+                        dashboard: userData.layouts?.dashboard || ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+                        allProjects: userData.layouts?.allProjects || []
+                    }
                 };
+            state.ui.dashboardLayout = state.currentUser.layouts.dashboard;
                 authOverlay.style.display = 'none';
                 appContainer.classList.remove('hidden');
                 loadingOverlay.style.display = 'flex';
@@ -5261,37 +5348,60 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         
           // --- LOGIKA EDYCJI UKŁADU DASHBOARDU ---
         let sortableInstance = null;
+        let sortableProjects = null;
 
-        editDashboardLayoutBtn.addEventListener('click', () => {
+         editDashboardLayoutBtn.addEventListener('click', async () => {
+            // Przełączamy flagę trybu edycji w stanie aplikacji
             state.ui.dashboardEditMode = !state.ui.dashboardEditMode;
+            const grid = document.getElementById('dashboard-grid-main');
             
+            // Sprawdzamy, czy wchodzimy w tryb edycji
             if (state.ui.dashboardEditMode) {
-                // Włączamy tryb edycji
+                // Zmieniamy wygląd przycisku
                 editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
-                const grid = document.getElementById('dashboard-grid-main');
-                sortableInstance = new Sortable(grid, {
+                
+                // Inicjalizujemy SortableJS, aby umożliwić przeciąganie
+                sortableDashboard = new Sortable(grid, {
                     animation: 150,
-                    handle: '.dashboard-card-handle', // Ustawiamy uchwyt do przeciągania
+                    handle: '.dashboard-card-handle', 
                     ghostClass: 'sortable-ghost',
-                    onEnd: (evt) => {
-                        // Po zakończeniu przeciągania, zapisz nową kolejność
-                        const newOrder = sortableInstance.toArray();
-                        state.ui.dashboardLayout = newOrder;
-                        saveUiState();
-                    }
                 });
-            } else {
-                // Wyłączamy tryb edycji
+
+            } else { // To jest blok kodu, który wykonuje się po kliknięciu "Zapisz układ"
+                
+                // Pobieramy nową kolejność kart jako tablicę ich atrybutów `data-id`
+                const newOrder = sortableDashboard.toArray();
+                
+                // Aktualizujemy lokalny stan w obiekcie currentUser
+                state.currentUser.layouts.dashboard = newOrder;
+                
+                try {
+                    // Przygotowujemy referencję do dokumentu zalogowanego użytkownika
+                    const userRef = doc(usersRef, state.currentUser.uid);
+                    
+                    // Asynchronicznie aktualizujemy pole w Firestore
+                    // Używamy notacji kropkowej, aby zaktualizować tylko zagnieżdżone pole
+                    await updateDoc(userRef, { "layouts.dashboard": newOrder });
+                    
+                    showNotification("Układ pulpitu został zapisany.", "Sukces");
+                } catch (error) {
+                    console.error("Błąd zapisu układu pulpitu:", error);
+                    showNotification("Nie udało się zapisać układu.", "Błąd");
+                }
+            
+                // Przywracamy pierwotny wygląd przycisku
                 editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
-                if (sortableInstance) {
-                    sortableInstance.destroy();
-                    sortableInstance = null;
+                
+                // Niszczymy instancję SortableJS, aby zablokować przeciąganie
+                if (sortableDashboard) {
+                    sortableDashboard.destroy();
+                    sortableDashboard = null;
                 }
             }
-            // Przełącz klasę CSS na kontenerze
-            document.getElementById('dashboard-grid-main').classList.toggle('dashboard-edit-mode', state.ui.dashboardEditMode);
+            
+            // Na koniec, w obu przypadkach, przełączamy klasę CSS na siatce
+            grid.classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
         });
-    });
 </script>
     <div class="modal-overlay" id="settings-modal">
     <div class="modal" style="max-width: 420px;">
@@ -5402,6 +5512,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
