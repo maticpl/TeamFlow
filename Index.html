@@ -2650,7 +2650,7 @@ if (registerGroupSelect) {
                 // NOWA LOGIKA: Podpinamy dedykowany listener
                 const myDayList = kanbanBoardEl.querySelector('.my-day-list');
                 if (myDayList) {
-                    myDayList.addEventListener('click', handleMyDayClick);
+                    myDayList.addEventListener('click', handleMyDayClick, { capture: true });
                 }
             }
         }
@@ -4990,60 +4990,51 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         }
 
         async function handleTaskCheckboxClick(checkbox, event) {
-    // zatrzymaj bąbelkowanie i domyślne zachowanie checkboxa,
-    // zanim cokolwiek innego się odpali
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        // na wszelki wypadek, gdyby były inne listenery na tym samym elemencie
-        if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+  if (event) {
+    // Zatrzymaj bąbelkowanie, ale nie blokuj domyślnej zmiany stanu checkboxa
+    event.stopPropagation();
+    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+  }
+
+  const taskId = checkbox.dataset.taskId;
+  const { task, project } = findTask(taskId);
+  if (!task || !project) return;
+
+  let updatedTask = { ...task };
+  const oldStatus = updatedTask.status;
+
+  if (task.type === 'multi') {
+    const userId = state.currentUser.uid;
+    if (checkbox.checked) {
+      if (!updatedTask.completedBy.includes(userId)) updatedTask.completedBy.push(userId);
+    } else {
+      updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
     }
+    updatedTask.status =
+      updatedTask.completedBy.length === updatedTask.assignees.length
+        ? 'done'
+        : (oldStatus === 'done' ? 'inprogress' : oldStatus);
+    if (updatedTask.status !== oldStatus) {
+      updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+    } else if (checkbox.checked && updatedTask.status !== 'done' && !updatedTask.activityLog.some(a => a.type === 'completion' && a.userId === state.currentUser.uid)) {
+      updatedTask = addActivity(updatedTask, 'completion');
+    }
+  } else {
+    if (checkbox.checked && task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
+      showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
+      checkbox.checked = false;
+      return;
+    }
+    updatedTask.status = checkbox.checked ? 'done' : 'todo';
+    if (updatedTask.status !== oldStatus) {
+      updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+    }
+  }
 
-    const taskId = checkbox.dataset.taskId;
-            const {
-                task,
-                project
-            } = findTask(taskId);
-            if (!task || !project) return;
+  if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
+  await handleTaskCompletion(updatedTask, project);
+}
 
-            let updatedTask = { ...task
-            };
-            const oldStatus = updatedTask.status;
-
-            if (task.type === 'multi') {
-                const userId = state.currentUser.uid;
-                if (checkbox.checked) {
-                    if (!updatedTask.completedBy.includes(userId)) updatedTask.completedBy.push(userId);
-                } else {
-                    updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
-                }
-                if (updatedTask.completedBy.length === updatedTask.assignees.length) {
-                    updatedTask.status = 'done';
-                } else {
-                    updatedTask.status = oldStatus === 'done' ? 'inprogress' : oldStatus;
-                }
-                if (updatedTask.status !== oldStatus) {
-                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-                } else if (checkbox.checked && updatedTask.status !== 'done' && !updatedTask.activityLog.some(a => a.type === 'completion' && a.userId === state.currentUser.uid)) {
-                    updatedTask = addActivity(updatedTask, 'completion');
-                }
-            } else {
-                if (checkbox.checked) {
-                    if (task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
-                        showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
-                        checkbox.checked = false;
-                        return;
-                    }
-                }
-                updatedTask.status = checkbox.checked ? 'done' : 'todo';
-                if (updatedTask.status !== oldStatus) {
-                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-                }
-            }
-
-            if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
-            await handleTaskCompletion(updatedTask, project);
-        }
 
          kanbanBoardEl.addEventListener('click', (e) => {
             // NOWY WARUNEK: Jeśli kliknięcie pochodzi z listy "Mój dzień", ignoruj je,
@@ -5794,6 +5785,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
