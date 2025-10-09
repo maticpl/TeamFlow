@@ -3925,15 +3925,27 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
                 newTaskModal.dueDate.value = formattedDate;
 
             } else {
-                const inProjectView = state.ui.currentView === 'projects';
-                const hasCurrentProject = !!state.currentProjectId;
+                const inProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
 
-                if (isFab && inProjectView && hasCurrentProject) {
+                // Scenariusz 1: Użytkownik jest w widoku konkretnego projektu.
+                if (inProjectView) {
                     targetProject = findProject(state.currentProjectId);
-                    newTaskModal.projectSelect.innerHTML = state.projects
-                      .filter(p => !p.isInbox)
-                      .map(p => `<option value="${p.id}" ${p.id === state.currentProjectId ? 'selected' : ''}>${p.name}</option>`)
-                      .join('');
+                    newTaskModal.projectSelect.innerHTML = `<option value="${targetProject.id}" selected>${targetProject.name}</option>`;
+                    newTaskModal.projectGroup.style.display = 'none';
+                
+                // Scenariusz 2: Użytkownik jest w "Mój dzień" i klika niebieski plus (FAB).
+                } else if (isFab && state.ui.currentView === 'my-day') {
+                    // === NOWA, BARDZIEJ PRECYZYJNA ZMIANA ===
+                    // Wyszukujemy skrzynkę, która należy do zalogowanego użytkownika
+                    const inboxProject = state.projects.find(p => p.isInbox && p.ownerId === state.currentUser.uid);
+                    if (inboxProject) {
+                        targetProject = inboxProject;
+                        newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}" selected>${inboxProject.name}</option>`;
+                        newTaskModal.projectGroup.style.display = 'none';
+                    }
+                    // === KONIEC ZMIANY ===
+
+                // Scenariusz 3: Domyślne zachowanie (np. na pulpicie "Moje zadania").
                 } else {
                     const nonInbox = state.projects.filter(p => !p.isInbox);
                     const inbox = state.projects.find(p => p.isInbox);
@@ -5897,6 +5909,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
