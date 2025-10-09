@@ -2851,6 +2851,8 @@ if (registerGroupSelect) {
                     unsubscribeUsers: state.ui.unsubscribeUsers
                 };
             }
+            // ZAWSZE ustawiaj datę na dzisiaj podczas ładowania aplikacji, ignorując starą wartość z pamięci
+            state.ui.myDayDate = getLocalDateString();
         };
         
         function applyTheme() {
@@ -4671,10 +4673,21 @@ const myDayNav = {
             dateDisplay: document.getElementById('my-day-date-display-mobile'),
         };
 
-        const changeMyDayDate = (days) => {
-            const currentDate = new Date(state.ui.myDayDate);
-            currentDate.setDate(currentDate.getDate() + days);
-            state.ui.myDayDate = currentDate.toISOString().split('T')[0];
+         const changeMyDayDate = (days) => {
+            // Dzielimy datę na komponenty, aby uniknąć problemów z parsowaniem w różnych przeglądarkach
+            const [year, month, day] = state.ui.myDayDate.split('-').map(Number);
+            // Tworzymy datę w UTC - miesiąc w konstruktorze jest 0-indeksowany, więc odejmujemy 1
+            const currentDate = new Date(Date.UTC(year, month - 1, day));
+        
+            // Bezpiecznie dodajemy lub odejmujemy dni w kontekście UTC
+            currentDate.setUTCDate(currentDate.getUTCDate() + days);
+        
+            // Formatujemy datę z powrotem do stringa YYYY-MM-DD
+            const newYear = currentDate.getUTCFullYear();
+            const newMonth = String(currentDate.getUTCMonth() + 1).padStart(2, '0');
+            const newDay = String(currentDate.getUTCDate()).padStart(2, '0');
+            
+            state.ui.myDayDate = `${newYear}-${newMonth}-${newDay}`;
             render();
         };
 
@@ -4684,6 +4697,8 @@ const myDayNav = {
             state.ui.myDayDate = getLocalDateString();
             render();
         });
+        myDayNavMobile.prevBtn.addEventListener('click', () => changeMyDayDate(-1));
+        myDayNavMobile.nextBtn.addEventListener('click', () => changeMyDayDate(1));
         myDayNavMobile.todayBtn.addEventListener('click', () => {
             state.ui.myDayDate = getLocalDateString();
             render();
@@ -4751,7 +4766,7 @@ changeGroupModal.form.addEventListener('submit', async (e) => {
             if (link.dataset.view) {
                 // NOWY WARUNEK: Resetowanie daty przy wejściu w "Mój dzień"
                 if (link.dataset.view === 'my-day') {
-                    state.ui.myDayDate = new Date().toISOString().split('T')[0];
+                    state.ui.myDayDate = getLocalDateString();
                 }
                 state.currentProjectId = null;
                 state.ui.currentView = link.dataset.view;
@@ -5878,6 +5893,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
