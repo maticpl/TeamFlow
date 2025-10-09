@@ -2714,46 +2714,27 @@ if (registerGroupSelect) {
             const grid = kanbanBoardEl.querySelector('.all-projects-grid');
             grid.classList.toggle('layout-edit-mode', state.ui.allProjectsEditMode);
 
-            // 1. Podziel projekty na kategorie
             const userProjectLayout = state.currentUser.layouts.allProjects || [];
             const layoutSet = new Set(userProjectLayout);
-
-            const otherAdminProjects = [];
-            const newOwnedProjects = [];
-            const newMemberProjects = [];
+            const otherAdminProjects = [], newOwnedProjects = [], newMemberProjects = [];
 
             state.projects.forEach(p => {
                 if (p.isInbox) return;
                 const isOwner = p.ownerId === state.currentUser.uid;
                 const isMember = p.members.includes(state.currentUser.uid) && !isOwner;
-                
-                if (!isOwner && !isMember) {
-                    otherAdminProjects.push(p);
-                } else if (!layoutSet.has(p.id)) {
+                if (!isOwner && !isMember) otherAdminProjects.push(p);
+                else if (!layoutSet.has(p.id)) {
                     if (isOwner) newOwnedProjects.push(p);
                     else newMemberProjects.push(p);
                 }
             });
 
-            // 2. Utwórz posortowaną listę na podstawie układu użytkownika
-            const sortedProjects = userProjectLayout
-                .map(projectId => state.projects.find(p => p.id === projectId))
-                .filter(Boolean);
-
-            // 3. Połącz wszystkie części w finalną listę
-            const finalProjectList = [
-                ...sortedProjects,
-                ...newOwnedProjects.sort((a,b) => a.name.localeCompare(b.name)),
-                ...newMemberProjects.sort((a,b) => a.name.localeCompare(b.name)),
-            ];
+            const sortedProjects = userProjectLayout.map(projectId => state.projects.find(p => p.id === projectId)).filter(Boolean);
+            const finalProjectList = [...sortedProjects, ...newOwnedProjects.sort((a,b) => a.name.localeCompare(b.name)), ...newMemberProjects.sort((a,b) => a.name.localeCompare(b.name))];
             
-            // 4. Renderuj siatkę sortowalnych projektów
             grid.innerHTML = finalProjectList.map(project => {
-                let tileClass = 'other';
-                if (project.ownerId === state.currentUser.uid) tileClass = 'owner';
-                else if (project.members.includes(state.currentUser.uid)) tileClass = 'member';
+                let tileClass = project.ownerId === state.currentUser.uid ? 'owner' : 'member';
                 const isFavorite = state.currentUser.favorites.includes(project.id);
-                // ... (reszta logiki do pobierania ownera, postępu, członków) ...
                 const owner = findUser(project.ownerId);
                 const projectTasks = (project.tasks || []);
                 const totalTasks = projectTasks.length;
@@ -2761,8 +2742,7 @@ if (registerGroupSelect) {
                 const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
                 const membersHTML = project.members.map(memberId => findUser(memberId)).filter(Boolean).map(user => renderAvatarHTML(user)).join('');
                 
-                return `
-                <div class="project-tile ${tileClass}" data-id="${project.id}">
+                return `<div class="project-tile ${tileClass}" data-id="${project.id}">
                     <div class="dashboard-card-handle">⠿</div>
                     <div class="project-tile-header">
                         <h3 class="js-project-title">${project.name}</h3>
@@ -2781,9 +2761,7 @@ if (registerGroupSelect) {
                 </div>`;
             }).join('');
             
-            // 5. Renderuj niesortowalne projekty na końcu
             otherAdminProjects.sort((a, b) => a.name.localeCompare(b.name)).forEach(project => {
-                 // ... (ta sama logika renderowania co wyżej, ale dla projektów 'other') ...
                 const tileClass = 'other';
                 const isFavorite = state.currentUser.favorites.includes(project.id);
                 const owner = findUser(project.ownerId);
@@ -2792,9 +2770,7 @@ if (registerGroupSelect) {
                 const completedTasks = projectTasks.filter(t => t.status === 'done').length;
                 const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
                 const membersHTML = project.members.map(memberId => findUser(memberId)).filter(Boolean).map(user => renderAvatarHTML(user)).join('');
-
-                const tileHTML = `
-                <div class="project-tile ${tileClass}" data-id="${project.id}">
+                const tileHTML = `<div class="project-tile ${tileClass}" data-id="${project.id}">
                     <div class="project-tile-header">
                         <h3 class="js-project-title">${project.name}</h3>
                         <button class="favorite-btn ${isFavorite ? 'is-favorite' : ''}" data-project-id="${project.id}">
@@ -2812,6 +2788,23 @@ if (registerGroupSelect) {
                 </div>`;
                 grid.insertAdjacentHTML('beforeend', tileHTML);
             });
+
+            // NOWY BLOK LOGIKI DO ZARZĄDZANIA SORTABLE.JS
+            if (sortableProjects) {
+                sortableProjects.destroy();
+                sortableProjects = null;
+            }
+
+            if (state.ui.allProjectsEditMode) {
+                if (grid) {
+                    sortableProjects = new Sortable(grid, {
+                        animation: 150,
+                        handle: '.dashboard-card-handle',
+                        ghostClass: 'sortable-ghost',
+                        filter: '.other', 
+                    });
+                }
+            }
         }
         async function toggleFavoriteProject(projectId) {
             if (!state.currentUser) return;
@@ -5391,24 +5384,12 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
         // DODANY BRAKUJĄCY LISTENER DLA PROJEKTÓW
         editProjectsLayoutBtn.addEventListener('click', async () => {
-            state.ui.allProjectsEditMode = !state.ui.allProjectsEditMode;
-            
+            // Sprawdzamy, czy jesteśmy w trybie edycji. Jeśli tak, to znaczy, że kliknięto "Zapisz układ".
             if (state.ui.allProjectsEditMode) {
-                editProjectsLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
-                const grid = kanbanBoardEl.querySelector('.all-projects-grid');
-                if (grid) {
-                    sortableProjects = new Sortable(grid, {
-                        animation: 150,
-                        handle: '.dashboard-card-handle',
-                        ghostClass: 'sortable-ghost',
-                        filter: '.other', 
-                    });
-                }
-            } else {
-                if(sortableProjects) {
+                if (sortableProjects) {
                     const newOrder = sortableProjects.toArray();
                     state.currentUser.layouts.allProjects = newOrder;
-                     try {
+                    try {
                         const userRef = doc(usersRef, state.currentUser.uid);
                         await updateDoc(userRef, { "layouts.allProjects": newOrder });
                         showNotification("Układ projektów został zapisany.", "Sukces");
@@ -5416,12 +5397,16 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                         console.error("Błąd zapisu układu projektów:", error);
                         showNotification("Nie udało się zapisać układu.", "Błąd");
                     }
-
-                    sortableProjects.destroy();
-                    sortableProjects = null;
                 }
+                // Wyłączamy tryb edycji
+                state.ui.allProjectsEditMode = false;
                 editProjectsLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
+            } else {
+                // Jeśli nie jesteśmy w trybie edycji, włączamy go
+                state.ui.allProjectsEditMode = true;
+                editProjectsLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
             }
+            // Na koniec zawsze odświeżamy widok, aby zastosować zmiany
             render();
         });
         });
@@ -5535,6 +5520,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
