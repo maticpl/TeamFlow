@@ -3906,6 +3906,7 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
             } = options;
 
             newTaskModal.form.reset();
+            // Domyślnie wszystko jest widoczne, logika poniżej może ukryć.
             newTaskModal.projectGroup.style.display = 'block';
             newTaskModal.assigneeSingleWrapper.style.display = 'block';
             newTaskModal.assigneeMultiWrapper.style.display = 'none';
@@ -3913,9 +3914,11 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
             document.getElementById('task-type-single').checked = true;
 
             let targetProject;
+            const inboxProject = state.projects.find(p => p.isInbox && p.ownerId === state.currentUser.uid);
+            const isTargetingInbox = isSpecial || (isFab && state.ui.currentView === 'my-day');
 
             if (isSpecial) {
-                const inboxProject = state.projects.find(p => p.isInbox && p.ownerId === state.currentUser.uid);
+                // CZERWONY FAB: Zawsze kieruje do Inboxa, jest jednoosobowe, ukrywa wybór.
                 if (inboxProject) {
                     newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}">${inboxProject.name}</option>`;
                     newTaskModal.projectGroup.style.display = 'none';
@@ -3924,6 +3927,7 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
 
                 const currentUser = findUser(state.currentUser.uid);
                 if (currentUser) {
+                    // Wymuś przypisanie do siebie i ukryj wybór.
                     newTaskModal.assigneeSingleSelect.innerHTML = `<option value="${currentUser.id}">${currentUser.name || currentUser.email}</option>`;
                     newTaskModal.assigneeSingleSelect.value = currentUser.id; 
                     newTaskModal.assigneeSingleWrapper.style.display = 'none';
@@ -3939,28 +3943,28 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
                 newTaskModal.dueDate.value = formattedDate;
 
             } else {
+                // ZWYKŁY FAB lub przycisk "Dodaj nowe zadanie"
                 const inProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
 
                 if (inProjectView) {
+                    // 1. Jesteśmy w widoku PROJEKTU - domyślnie wybierz ten projekt.
                     targetProject = findProject(state.currentProjectId);
-                    newTaskModal.projectSelect.innerHTML = `<option value="${targetProject.id}" selected>${targetProject.name}</option>`;
-                    newTaskModal.projectGroup.style.display = 'none';
-                
-                } else if (isFab && state.ui.currentView === 'my-day') {
-                    const inboxProject = state.projects.find(p => p.isInbox && p.ownerId === state.currentUser.uid);
-                    if (inboxProject) {
-                        targetProject = inboxProject;
-                        newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}" selected>${inboxProject.name}</option>`;
+                    if (targetProject) {
+                        newTaskModal.projectSelect.innerHTML = `<option value="${targetProject.id}" selected>${targetProject.name}</option>`;
                         newTaskModal.projectGroup.style.display = 'none';
                     }
                 
+                } else if (isTargetingInbox && inboxProject) {
+                    // 2. Jesteśmy na PULPICIE/MÓJ DZIEŃ (FAB), mamy Inboxa - domyślnie wybierz Inboxa.
+                    targetProject = inboxProject;
+                    newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}" selected>${inboxProject.name}</option>`;
+                    newTaskModal.projectGroup.style.display = 'none';
+                
                 } else {
+                    // 3. Jesteśmy na PULPICIE/MÓJ DZIEŃ (przycisk na górze) lub w widoku 'all-projects'
+                    // Wyświetl pełną listę projektów z domyślnym wyborem (albo Inbox, albo pierwszy non-Inbox).
                     const nonInbox = state.projects.filter(p => !p.isInbox);
-                    // === POCZĄTEK ZMIANY ===
-                    // Używamy spójnej, bezpiecznej logiki do znalezienia skrzynki użytkownika
-                    const inbox = state.projects.find(p => p.isInbox && p.ownerId === state.currentUser.uid);
-                    // === KONIEC ZMIANY ===
-                    const preselect = (nonInbox[0] && nonInbox[0].id) || (inbox && inbox.id) || '';
+                    const preselect = (inboxProject && inboxProject.id) || (nonInbox[0] && nonInbox[0].id) || '';
 
                     newTaskModal.projectSelect.innerHTML = state.projects
                       .map(p => `<option value="${p.id}" ${p.id === preselect ? 'selected' : ''}>${p.name}</option>`)
@@ -3976,12 +3980,14 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
                 return;
             }
             
+            // Poprawne uzupełnienie listy przypisanych osób dla wybranego projektu (jeśli nie jest to flow specjalny)
             if (!isSpecial) {
                 populateAssigneesForProject(targetProject.id);
             }
             
             openModal(newTaskModal.overlay);
         }
+
 
         function openEditProjectModal(projectId) {
             const project = findProject(projectId);
@@ -5942,6 +5948,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
