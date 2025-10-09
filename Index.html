@@ -2613,36 +2613,32 @@ if (registerGroupSelect) {
             const selectedDateStartOfDay = new Date(state.ui.myDayDate);
             selectedDateStartOfDay.setHours(0, 0, 0, 0);
 
-            // 1. Get overdue tasks (active, with a due date before the selected day)
+            // ================== NOWA, POPRAWIONA LOGIKA FILTROWANIA ==================
+
+            // 1. Zadania ZALEGŁE (aktywne, z terminem PRZED wybranym dniem)
             const overdueTasks = myTasks.filter(task => {
                 if (!task.dueDate || task.status === 'done') return false;
                 return new Date(task.dueDate) < selectedDateStartOfDay;
             });
 
-            // 2. Get tasks FOR the selected day (both active and completed)
-            const tasksForDate = myTasks.filter(task => {
-                if (!task.dueDate) return false;
+            // 2. Zadania AKTYWNE na wybrany dzień
+            const activeTasksForDate = myTasks.filter(task => {
+                if (task.status === 'done' || !task.dueDate) return false;
                 return task.dueDate.startsWith(state.ui.myDayDate);
             });
 
-            // Sort each group separately
-            overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-            
-            // Sort tasks for the day by status first, then by date
-            const statusOrder = { todo: 1, inprogress: 2, done: 3 };
-            tasksForDate.sort((a, b) => {
-                const statusA = statusOrder[a.status] || 99;
-                const statusB = statusOrder[b.status] || 99;
-                if (statusA !== statusB) {
-                    return statusA - statusB;
-                }
-                return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+            // 3. Zadania UKOŃCZONE na wybrany dzień
+            const completedTasksForDate = myTasks.filter(task => {
+                if (task.status !== 'done' || !task.dueDate) return false;
+                return task.dueDate.startsWith(state.ui.myDayDate);
             });
 
-            // Combine everything into one list for rendering
-            const tasksForView = [...overdueTasks, ...tasksForDate];
+            // Sortowanie każdej grupy z osobna
+            overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+            activeTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+            completedTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
             
-            if (tasksForView.length === 0) {
+            if (overdueTasks.length === 0 && activeTasksForDate.length === 0 && completedTasksForDate.length === 0) {
                 kanbanBoardEl.innerHTML = `<div class="no-tasks-message" style="text-align: left; padding: 20px 0;">Brak zadań na ten dzień. 💪</div>`;
             } else {
                 let html = '';
@@ -2652,12 +2648,14 @@ if (registerGroupSelect) {
                     html += overdueTasks.map(createMyDayTaskItemHTML).join('');
                 }
                 // Render tasks for the selected day if they exist
-                if (tasksForDate.length > 0) {
-                    // Add a separator only if there was an overdue section before it
-                    if (overdueTasks.length > 0) {
-                         html += `<li class="my-day-separator">Zadania na ten dzień (${tasksForDate.length})</li>`;
-                    }
-                    html += tasksForDate.map(createMyDayTaskItemHTML).join('');
+                if (activeTasksForDate.length > 0) {
+                    html += `<li class="my-day-separator">Do zrobienia (${activeTasksForDate.length})</li>`;
+                    html += activeTasksForDate.map(createMyDayTaskItemHTML).join('');
+                }
+                 // Render completed tasks for the day if they exist
+                if (completedTasksForDate.length > 0) {
+                    html += `<li class="my-day-separator">Wykonane (${completedTasksForDate.length})</li>`;
+                    html += completedTasksForDate.map(createMyDayTaskItemHTML).join('');
                 }
                 
                 // Wrap the final HTML in a UL tag
@@ -5774,6 +5772,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
