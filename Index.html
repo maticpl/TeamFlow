@@ -3870,7 +3870,13 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
                 showNotification("Wystąpił błąd podczas zapisu zmian.", "Błąd");
             }
         }
-
+function populateAssigneesForProject(projectId) {
+            const project = findProject(projectId);
+            if (!project) {
+                newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Brak projektu</option>';
+                newTaskModal.assigneeMultiList.innerHTML = 'Wybierz projekt, aby zobaczyć członków.';
+                return;
+            }
         function openNewTaskModal(options = {}) {
             const {
                 isFab = false, isSpecial = false
@@ -3933,26 +3939,14 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
 
     // Jeżeli z jakiegoś powodu nadal brak projektu – pokaż komunikat
     if (!targetProject) {
-        showNotification("Wybierz projekt, aby dodać zadanie.", "Błąd");
-        return;
-    }
-}
-
-            if (!targetProject) {
                 showNotification("Wybierz projekt, aby dodać zadanie.", "Błąd");
                 return;
             }
 
-            if (!isSpecial) {
-                const membersOptions = (targetProject.members || []).map(memberId => findUser(memberId)).filter(Boolean);
-                newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
-                newTaskModal.assigneeMultiList.innerHTML = membersOptions.map(u => {
-                    const isCurrentUser = u.id === state.currentUser.uid;
-                    const initials = (u.name || u.email).substring(0, 2).toUpperCase();
-                    return `<div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${u.id}" title="${u.name}"><div class="member-pill-avatar" style="background-color: ${u.avatarColor || '#ccc'}">${initials}</div><span>${u.name}</span></div>`;
-                }).join('');
-            }
-
+            // Używamy nowej funkcji do wypełnienia listy osób na podstawie projektu,
+            // który został automatycznie wybrany przy otwarciu okna.
+            populateAssigneesForProject(targetProject.id);
+            
             openModal(newTaskModal.overlay);
         }
 
@@ -4499,7 +4493,9 @@ await setDoc(doc(usersRef, user.uid), {
         });
 
         logoutBtn.addEventListener('click', () => signOut(auth));
-
+        newTaskModal.projectSelect.addEventListener('change', (e) => {
+            populateAssigneesForProject(e.target.value);
+        });
         
 
         taskModal.addAttachmentBtn.addEventListener('click', () => {
@@ -5893,6 +5889,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
