@@ -2563,8 +2563,8 @@ if (registerGroupSelect) {
             const isCompleted = task.status === 'done';
             const statusText = STATUSES[task.status] || 'Nieznany';
             const completedClass = isCompleted ? 'completed' : '';
-            // Dla zadań wykonanych pigułka i border zawsze będą zielone
-            const statusClass = isCompleted ? 'status-done' : `status-${task.status}`;
+            // For completed tasks, the pill and border will always be green
+            const statusClassForVisuals = isCompleted ? 'status-done' : `status-${task.status}`;
 
             const assigneesHTML = (task.assignees || [])
                 .map(assigneeId => findUser(assigneeId))
@@ -2573,21 +2573,22 @@ if (registerGroupSelect) {
                 .join('');
             
             const dueDate = new Date(task.dueDate);
-            const timeString = dueDate.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+            // Correctly format the full date and time
+            const dateTimeString = dueDate.toLocaleString('pl-PL', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
             const isOverdue = new Date(task.dueDate).getTime() < new Date().setHours(0,0,0,0) && !isCompleted;
 
             return `
-                <li class="my-day-task-item ${statusClass} ${completedClass}" data-task-id="${task.id}">
+                <li class="my-day-task-item ${statusClassForVisuals} ${completedClass}" data-task-id="${task.id}">
                     <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''}>
                     <div class="my-day-task-item-content">
                         <div class="my-day-task-item-header">
                             <h4 class="my-day-task-item-title">${task.title}</h4>
-                            <span class="task-status-pill ${statusClass}">${statusText}</span>
+                            <span class="task-status-pill ${statusClassForVisuals}">${statusText}</span>
                         </div>
                         <div class="my-day-task-item-meta">
                             <div class="my-day-project-name">
                                 Z projektu: <strong>${task.projectName}</strong>
-                                | Termin: <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${timeString}</span>
+                                | Termin: <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${dateTimeString}</span>
                             </div>
                             <div class="task-assignees">${assigneesHTML}</div>
                         </div>
@@ -2605,28 +2606,31 @@ if (registerGroupSelect) {
             projectActionsEl.style.display = 'none';
             projectProgressEl.innerHTML = '';
             sortBtn.style.display = 'none';
-            kanbanBoardEl.className = ''; // Czyścimy klasę głównego kontenera
+            kanbanBoardEl.className = ''; // Reset the main container's class
             kanbanBoardEl.removeAttribute('style');
 
             const myTasks = getAllMyTasks();
-
             const selectedDateStartOfDay = new Date(state.ui.myDayDate);
             selectedDateStartOfDay.setHours(0, 0, 0, 0);
 
-            // Filtrowanie zadań (logika pozostaje taka sama jak w Twoim pliku)
-            const tasksForView = myTasks.filter(task => {
-                if (!task.dueDate) return false;
-                
-                const taskDueDate = new Date(task.dueDate);
-                const isOverdue = taskDueDate < selectedDateStartOfDay && task.status !== 'done';
-                const isOnSelectedDay = task.dueDate.startsWith(state.ui.myDayDate);
-                
-                return isOnSelectedDay || isOverdue;
+            // 1. Get overdue tasks (active, with a due date before the selected day)
+            const overdueTasks = myTasks.filter(task => {
+                if (!task.dueDate || task.status === 'done') return false;
+                return new Date(task.dueDate) < selectedDateStartOfDay;
             });
 
-            // Sortowanie (logika pozostaje taka sama jak w Twoim pliku)
+            // 2. Get tasks FOR the selected day (both active and completed)
+            const tasksForDate = myTasks.filter(task => {
+                if (!task.dueDate) return false;
+                return task.dueDate.startsWith(state.ui.myDayDate);
+            });
+
+            // Sort each group separately
+            overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+            
+            // Sort tasks for the day by status first, then by date
             const statusOrder = { todo: 1, inprogress: 2, done: 3 };
-            tasksForView.sort((a, b) => {
+            tasksForDate.sort((a, b) => {
                 const statusA = statusOrder[a.status] || 99;
                 const statusB = statusOrder[b.status] || 99;
                 if (statusA !== statusB) {
@@ -2635,14 +2639,29 @@ if (registerGroupSelect) {
                 return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
             });
 
-            // POPRAWIONA LOGIKA RENDEROWANIA
+            // Combine everything into one list for rendering
+            const tasksForView = [...overdueTasks, ...tasksForDate];
+            
             if (tasksForView.length === 0) {
                 kanbanBoardEl.innerHTML = `<div class="no-tasks-message" style="text-align: left; padding: 20px 0;">Brak zadań na ten dzień. 💪</div>`;
             } else {
-                // Tworzymy string z elementami <li>
-                const listItemsHTML = tasksForView.map(createMyDayTaskItemHTML).join('');
-                // Wstawiamy gotowe <li> do nowego kontenera <ul>
-                kanbanBoardEl.innerHTML = `<ul class="my-day-list">${listItemsHTML}</ul>`;
+                let html = '';
+                // Render the overdue section if it has tasks
+                if (overdueTasks.length > 0) {
+                    html += `<li class="my-day-separator">Zaległe (${overdueTasks.length})</li>`;
+                    html += overdueTasks.map(createMyDayTaskItemHTML).join('');
+                }
+                // Render tasks for the selected day if they exist
+                if (tasksForDate.length > 0) {
+                    // Add a separator only if there was an overdue section before it
+                    if (overdueTasks.length > 0) {
+                         html += `<li class="my-day-separator">Zadania na ten dzień (${tasksForDate.length})</li>`;
+                    }
+                    html += tasksForDate.map(createMyDayTaskItemHTML).join('');
+                }
+                
+                // Wrap the final HTML in a UL tag
+                kanbanBoardEl.innerHTML = `<ul class="my-day-list">${html}</ul>`;
             }
         }
         function showConfirmation(title, message, callback, danger = false) {
@@ -5755,6 +5774,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
