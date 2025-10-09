@@ -3870,13 +3870,25 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
                 showNotification("Wystąpił błąd podczas zapisu zmian.", "Błąd");
             }
         }
-function populateAssigneesForProject(projectId) {
+        
+        function populateAssigneesForProject(projectId) {
             const project = findProject(projectId);
             if (!project) {
                 newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Brak projektu</option>';
                 newTaskModal.assigneeMultiList.innerHTML = 'Wybierz projekt, aby zobaczyć członków.';
                 return;
             }
+
+            const membersOptions = (project.members || []).map(memberId => findUser(memberId)).filter(Boolean);
+            newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => `<option value="${u.id}">${u.name || u.email}</option>`).join('');
+            
+            newTaskModal.assigneeMultiList.innerHTML = membersOptions.map(u => {
+                const isCurrentUser = u.id === state.currentUser.uid;
+                const initials = (u.name || u.email).substring(0, 2).toUpperCase();
+                return `<div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${u.id}" title="${u.name}"><div class="member-pill-avatar" style="background-color: ${u.avatarColor || '#ccc'}">${initials}</div><span>${u.name || u.email}</span></div>`;
+            }).join('');
+        }
+
         function openNewTaskModal(options = {}) {
             const {
                 isFab = false, isSpecial = false
@@ -3913,97 +3925,93 @@ function populateAssigneesForProject(projectId) {
                 newTaskModal.dueDate.value = formattedDate;
 
             } else {
-    const inProjectView = state.ui.currentView === 'projects';
-    const hasCurrentProject = !!state.currentProjectId;
+                const inProjectView = state.ui.currentView === 'projects';
+                const hasCurrentProject = !!state.currentProjectId;
 
-    if (isFab && inProjectView && hasCurrentProject) {
-        // FAB w widoku projektu – zachowuj się jak wcześniej
-        targetProject = findProject(state.currentProjectId);
-        newTaskModal.projectSelect.innerHTML = state.projects
-          .filter(p => !p.isInbox)
-          .map(p => `<option value="${p.id}" ${p.id === state.currentProjectId ? 'selected' : ''}>${p.name}</option>`)
-          .join('');
-    } else {
-        // FAB z "Mój dzień" (lub brak currentProject) – pokaż selector
-        const nonInbox = state.projects.filter(p => !p.isInbox);
-        const inbox = state.projects.find(p => p.isInbox);
-        const preselect = (nonInbox[0] && nonInbox[0].id) || (inbox && inbox.id) || '';
+                if (isFab && inProjectView && hasCurrentProject) {
+                    targetProject = findProject(state.currentProjectId);
+                    newTaskModal.projectSelect.innerHTML = state.projects
+                      .filter(p => !p.isInbox)
+                      .map(p => `<option value="${p.id}" ${p.id === state.currentProjectId ? 'selected' : ''}>${p.name}</option>`)
+                      .join('');
+                } else {
+                    const nonInbox = state.projects.filter(p => !p.isInbox);
+                    const inbox = state.projects.find(p => p.isInbox);
+                    const preselect = (nonInbox[0] && nonInbox[0].id) || (inbox && inbox.id) || '';
 
-        newTaskModal.projectSelect.innerHTML = state.projects
-          .map(p => `<option value="${p.id}" ${p.id === preselect ? 'selected' : ''}>${p.name}</option>`)
-          .join('');
+                    newTaskModal.projectSelect.innerHTML = state.projects
+                      .map(p => `<option value="${p.id}" ${p.id === preselect ? 'selected' : ''}>${p.name}</option>`)
+                      .join('');
 
-        newTaskModal.projectGroup.style.display = 'block';
-        targetProject = findProject(preselect);
-    }
+                    newTaskModal.projectGroup.style.display = 'block';
+                    targetProject = findProject(preselect);
+                }
+            }
 
-    // Jeżeli z jakiegoś powodu nadal brak projektu – pokaż komunikat
-    if (!targetProject) {
+            if (!targetProject) {
                 showNotification("Wybierz projekt, aby dodać zadanie.", "Błąd");
                 return;
             }
 
-            // Używamy nowej funkcji do wypełnienia listy osób na podstawie projektu,
-            // który został automatycznie wybrany przy otwarciu okna.
             populateAssigneesForProject(targetProject.id);
             
             openModal(newTaskModal.overlay);
         }
 
         function openEditProjectModal(projectId) {
-    const project = findProject(projectId);
-    if (!project) return;
-    editProjectModal.overlay.dataset.projectId = projectId;
-    editProjectModal.nameInput.value = project.name;
+            const project = findProject(projectId);
+            if (!project) return;
+            editProjectModal.overlay.dataset.projectId = projectId;
+            editProjectModal.nameInput.value = project.name;
 
-    const membersContainer = editProjectModal.membersContainer;
-    membersContainer.innerHTML = ''; // Czyścimy kontener
+            const membersContainer = editProjectModal.membersContainer;
+            membersContainer.innerHTML = ''; 
 
-    const usersByGroup = state.users.reduce((acc, user) => {
-        const group = user.group || 'Bez działu';
-        if (!acc[group]) acc[group] = [];
-        acc[group].push(user);
-        return acc;
-    }, {});
+            const usersByGroup = state.users.reduce((acc, user) => {
+                const group = user.group || 'Bez działu';
+                if (!acc[group]) acc[group] = [];
+                acc[group].push(user);
+                return acc;
+            }, {});
 
-    DEPARTMENTS.forEach(dep => {
-        if (usersByGroup[dep] && usersByGroup[dep].length > 0) {
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'department-group';
+            DEPARTMENTS.forEach(dep => {
+                if (usersByGroup[dep] && usersByGroup[dep].length > 0) {
+                    const groupDiv = document.createElement('div');
+                    groupDiv.className = 'department-group';
 
-            const headerDiv = document.createElement('div');
-            headerDiv.className = 'department-header';
-            headerDiv.innerHTML = `
-                <span>${dep}</span>
-                <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                </svg>
-            `;
+                    const headerDiv = document.createElement('div');
+                    headerDiv.className = 'department-header';
+                    headerDiv.innerHTML = `
+                        <span>${dep}</span>
+                        <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                    `;
 
-            const usersDiv = document.createElement('div');
-            usersDiv.className = 'department-users collapsed';
+                    const usersDiv = document.createElement('div');
+                    usersDiv.className = 'department-users collapsed';
 
-            usersByGroup[dep].forEach(user => {
-                const isSelected = project.members.includes(user.id); // Sprawdza, czy użytkownik jest już w projekcie
-                const isOwner = user.id === project.ownerId;
-                const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
-                
-                const pill = document.createElement('div');
-                pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}`;
-                pill.dataset.userId = user.id;
-                pill.title = user.name || user.email;
-                pill.innerHTML = `${avatarHTML} <span>${user.name || user.email}</span>`;
-                usersDiv.appendChild(pill);
+                    usersByGroup[dep].forEach(user => {
+                        const isSelected = project.members.includes(user.id);
+                        const isOwner = user.id === project.ownerId;
+                        const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
+                        
+                        const pill = document.createElement('div');
+                        pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}`;
+                        pill.dataset.userId = user.id;
+                        pill.title = user.name || user.email;
+                        pill.innerHTML = `${avatarHTML} <span>${user.name || user.email}</span>`;
+                        usersDiv.appendChild(pill);
+                    });
+
+                    groupDiv.appendChild(headerDiv);
+                    groupDiv.appendChild(usersDiv);
+                    membersContainer.appendChild(groupDiv);
+                }
             });
 
-            groupDiv.appendChild(headerDiv);
-            groupDiv.appendChild(usersDiv);
-            membersContainer.appendChild(groupDiv);
+            openModal(editProjectModal.overlay);
         }
-    });
-
-    openModal(editProjectModal.overlay);
-}
 
          async function handleDeleteProject(projectId) {
             const project = findProject(projectId) || findCompletedProject(projectId);
@@ -5889,6 +5897,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
