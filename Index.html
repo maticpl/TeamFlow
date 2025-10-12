@@ -3509,55 +3509,57 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
             }
         }
         
-        taskModal.commentsList.addEventListener('click', async (e) => {
-            const deleteBtn = e.target.closest('.delete-comment-btn');
-            if (!deleteBtn) return;
-
-            const commentId = deleteBtn.dataset.commentId;
-            const taskId = taskModal.overlay.dataset.taskId;
-            const {
-                task,
-                project
-            } = findTask(taskId);
-
-            if (!task || !project || !commentId) return;
-
-            const commentToDelete = (task.comments || []).find(c => (c.id || `comment_${c.timestamp}`) === commentId);
-            if (!commentToDelete || (commentToDelete.userId !== state.currentUser.uid && !isCurrentUserAdmin())) {
-                showNotification("Nie masz uprawnień do usunięcia tego komentarza.", "Błąd");
-                return;
-            }
-
-            showConfirmation(
-                "Potwierdź usunięcie",
-                "Czy na pewno chcesz usunąć ten komentarz?",
-                async (confirmed) => {
-                    if (confirmed) {
-                        try {
-                            const updatedComments = task.comments.filter(c => (c.id || `comment_${c.timestamp}`) !== commentId);
-                            const updatedTask = { ...task,
-                                comments: updatedComments
-                            };
-                            const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
-
-                            const projectDocRef = findProject(project.id) ?
-                                doc(projectsRef, project.id) :
-                                doc(completedProjectsRef, project.id);
-
-                            await updateDoc(projectDocRef, {
-                                tasks: updatedTasks
-                            });
-                            openTaskModal(taskId);
-                            showNotification("Komentarz został usunięty.", "Sukces");
-                        } catch (error) {
-                            console.error("Błąd podczas usuwania komentarza:", error);
-                            showNotification("Wystąpił błąd podczas usuwania komentarza.", "Błąd");
+        if (taskModal.commentsList) {
+            taskModal.commentsList.addEventListener('click', async (e) => {
+                const deleteBtn = e.target.closest('.delete-comment-btn');
+                if (!deleteBtn) return;
+    
+                const commentId = deleteBtn.dataset.commentId;
+                const taskId = taskModal.overlay.dataset.taskId;
+                const {
+                    task,
+                    project
+                } = findTask(taskId);
+    
+                if (!task || !project || !commentId) return;
+    
+                const commentToDelete = (task.comments || []).find(c => (c.id || `comment_${c.timestamp}`) === commentId);
+                if (!commentToDelete || (commentToDelete.userId !== state.currentUser.uid && !isCurrentUserAdmin())) {
+                    showNotification("Nie masz uprawnień do usunięcia tego komentarza.", "Błąd");
+                    return;
+                }
+    
+                showConfirmation(
+                    "Potwierdź usunięcie",
+                    "Czy na pewno chcesz usunąć ten komentarz?",
+                    async (confirmed) => {
+                        if (confirmed) {
+                            try {
+                                const updatedComments = task.comments.filter(c => (c.id || `comment_${c.timestamp}`) !== commentId);
+                                const updatedTask = { ...task,
+                                    comments: updatedComments
+                                };
+                                const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+    
+                                const projectDocRef = findProject(project.id) ?
+                                    doc(projectsRef, project.id) :
+                                    doc(completedProjectsRef, project.id);
+    
+                                await updateDoc(projectDocRef, {
+                                    tasks: updatedTasks
+                                });
+                                openTaskModal(taskId);
+                                showNotification("Komentarz został usunięty.", "Sukces");
+                            } catch (error) {
+                                console.error("Błąd podczas usuwania komentarza:", error);
+                                showNotification("Wystąpił błąd podczas usuwania komentarza.", "Błąd");
+                            }
                         }
-                    }
-                },
-                true
-            );
-        });
+                    },
+                    true
+                );
+            });
+        }
 
          function renderSidebar() {
             // NOWA LINIA - obsługa podświetlenia dla "Mój dzień"
@@ -4916,23 +4918,25 @@ await setDoc(doc(usersRef, user.uid), {
             populateAssigneesForProject(e.target.value);
         });
         
-        document.getElementById('task-detail-tabs')?.addEventListener('click', (e) => {
-    const tabItem = e.target.closest('.tab-item');
-    if (!tabItem) return;
-
-    const tabName = tabItem.dataset.tab;
+        const tabsContainer = document.getElementById('task-detail-tabs');
+        if (tabsContainer) {
+            tabsContainer.addEventListener('click', (e) => {
+                const tabItem = e.target.closest('.tab-item');
+                if (!tabItem) return;
+        
+                const tabName = tabItem.dataset.tab;
+                
+                // Usuń klasę 'active' ze wszystkich zakładek i paneli
+                tabsContainer.querySelectorAll('.tab-item').forEach(tab => tab.classList.remove('active'));
+                
+                const contentContainer = document.querySelector('.task-detail-content-container');
+                contentContainer.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
     
-    // Usuń klasę 'active' ze wszystkich zakładek i paneli
-    const tabsContainer = tabItem.parentElement;
-    tabsContainer.querySelectorAll('.tab-item').forEach(tab => tab.classList.remove('active'));
-    
-    const contentContainer = document.querySelector('.task-detail-content-container');
-    contentContainer.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-
-    // Dodaj klasę 'active' do klikniętej zakładki i jej panelu
-    tabItem.classList.add('active');
-    document.getElementById(`tab-content-${tabName}`).classList.add('active');
-});
+                // Dodaj klasę 'active' do klikniętej zakładki i jej panelu
+                tabItem.classList.add('active');
+                document.getElementById(`tab-content-${tabName}`).classList.add('active');
+            });
+        }
         taskModal.addAttachmentBtn.addEventListener('click', () => {
             taskModal.attachmentFileInput.click();
         });
@@ -6395,6 +6399,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
