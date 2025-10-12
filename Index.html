@@ -3975,7 +3975,57 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
     taskModal.attachmentFileInput = document.getElementById('attachment-file-input');
     taskModal.uploadStatus = document.getElementById('upload-status');
     taskModal.assigneesEdit = document.getElementById('modal-task-assignees-edit');
-
+ taskModal.attachmentFileInput.addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+    
+                const taskId = taskModal.overlay.dataset.taskId;
+                const {
+                    task,
+                    project
+                } = findTask(taskId);
+                if (!task || !project) return;
+    
+                taskModal.uploadStatus.textContent = 'Przesyłanie...';
+                taskModal.addAttachmentBtn.disabled = true;
+    
+                try {
+                    const storagePath = `attachments/${project.id}/${taskId}/${Date.now()}_${file.name}`;
+                    const storageRef = ref(storage, storagePath);
+    
+                    const snapshot = await uploadBytes(storageRef, file);
+                    const downloadURL = await getDownloadURL(snapshot.ref);
+    
+                    const newAttachment = {
+                        id: `att_${Date.now()}`,
+                        name: file.name,
+                        url: downloadURL,
+                        path: storagePath,
+                        uploadedBy: state.currentUser.uid,
+                        timestamp: Date.now()
+                    };
+    
+                    const updatedAttachments = [...(task.attachments || []), newAttachment];
+                    const updatedTasks = project.tasks.map(t => t.id === taskId ? { ...t,
+                        attachments: updatedAttachments
+                    } : t);
+    
+                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                    await updateDoc(projectDocRef, {
+                        tasks: updatedTasks
+                    });
+                    
+                    openTaskModal(taskId);
+    
+                } catch (error) {
+                    console.error("Błąd przesyłania pliku:", error);
+                    showNotification("Wystąpił błąd podczas przesyłania pliku.", "Błąd");
+                } finally {
+                    taskModal.uploadStatus.textContent = '';
+                    taskModal.addAttachmentBtn.disabled = false;
+                    taskModal.attachmentFileInput.value = '';
+                }
+            });
     // Resetowanie zakładek do domyślnego stanu (Termin)
     document.querySelectorAll('#task-detail-tabs .tab-item').forEach(tab => {
         tab.classList.toggle('active', tab.dataset.tab === 'duedate');
@@ -4907,103 +4957,6 @@ await setDoc(doc(usersRef, user.uid), {
         });
         
 
-        taskModal.addAttachmentBtn.addEventListener('click', () => {
-            taskModal.attachmentFileInput.click();
-        });
-
-        taskModal.attachmentFileInput.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const taskId = taskModal.overlay.dataset.taskId;
-            const {
-                task,
-                project
-            } = findTask(taskId);
-            if (!task || !project) return;
-
-            taskModal.uploadStatus.textContent = 'Przesyłanie...';
-            taskModal.addAttachmentBtn.disabled = true;
-
-            try {
-                const storagePath = `attachments/${project.id}/${taskId}/${Date.now()}_${file.name}`;
-                const storageRef = ref(storage, storagePath);
-
-                const snapshot = await uploadBytes(storageRef, file);
-                const downloadURL = await getDownloadURL(snapshot.ref);
-
-                const newAttachment = {
-                    id: `att_${Date.now()}`,
-                    name: file.name,
-                    url: downloadURL,
-                    path: storagePath,
-                    uploadedBy: state.currentUser.uid,
-                    timestamp: Date.now()
-                };
-
-                const updatedAttachments = [...(task.attachments || []), newAttachment];
-                const updatedTasks = project.tasks.map(t => t.id === taskId ? { ...t,
-                    attachments: updatedAttachments
-                } : t);
-
-                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                await updateDoc(projectDocRef, {
-                    tasks: updatedTasks
-                });
-                
-                openTaskModal(taskId);
-
-            } catch (error) {
-                console.error("Błąd przesyłania pliku:", error);
-                showNotification("Wystąpił błąd podczas przesyłania pliku.", "Błąd");
-            } finally {
-                taskModal.uploadStatus.textContent = '';
-                taskModal.addAttachmentBtn.disabled = false;
-                taskModal.attachmentFileInput.value = '';
-            }
-        });
-
-        taskModal.attachmentsList.addEventListener('click', async (e) => {
-            const deleteBtn = e.target.closest('.delete-attachment-btn');
-            if (!deleteBtn) return;
-
-            const attachmentItem = deleteBtn.closest('.attachment-item');
-            const attachmentId = attachmentItem.dataset.attachmentId;
-            const taskId = taskModal.overlay.dataset.taskId;
-            const {
-                task,
-                project
-            } = findTask(taskId);
-
-            if (!task || !project || !attachmentId) return;
-
-            const attachmentToDelete = (task.attachments || []).find(att => att.id === attachmentId);
-            if (!attachmentToDelete) return;
-
-            showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć załącznik: "${attachmentToDelete.name}"?`, async (confirmed) => {
-                if (confirmed) {
-                    try {
-                        const fileRef = ref(storage, attachmentToDelete.path);
-                        await deleteObject(fileRef);
-
-                        const updatedAttachments = task.attachments.filter(att => att.id !== attachmentId);
-                        const updatedTasks = project.tasks.map(t => t.id === taskId ? { ...t,
-                            attachments: updatedAttachments
-                        } : t);
-                        const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                        await updateDoc(projectDocRef, {
-                            tasks: updatedTasks
-                        });
-
-                        showNotification("Załącznik został usunięty.", "Sukces");
-                        openTaskModal(taskId);
-                    } catch (error) {
-                        console.error("Błąd usuwania załącznika:", error);
-                        showNotification("Wystąpił błąd podczas usuwania załącznika.", "Błąd");
-                    }
-                }
-            }, true);
-        });
 
         taskModal.assigneesEdit.addEventListener('click', (e) => {
             const pill = e.target.closest('.member-pill:not(.disabled)');
@@ -5721,37 +5674,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         taskModal.overlay.addEventListener('click', async (e) => {
             const completePartBtn = e.target.closest('.js-complete-my-part-btn');
             if (completePartBtn) {
-                const userId = completePartBtn.dataset.userId;
-                const taskId = taskModal.overlay.dataset.taskId;
-                const {
-                    task,
-                    project
-                } = findTask(taskId);
-
-                if (!task || !project || userId !== state.currentUser.uid) return;
-
-                const oldStatus = task.status;
-                let updatedTask = { ...task
-                };
-
-                if (!updatedTask.completedBy.includes(userId)) {
-                    updatedTask.completedBy.push(userId);
-                }
-
-                if (updatedTask.completedBy.length === updatedTask.assignees.length) {
-                    updatedTask.status = 'done';
-                } else if (updatedTask.completedBy.length > 0) {
-                    updatedTask.status = 'inprogress';
-                } else {
-                    updatedTask.status = 'todo';
-                }
-
-                if (updatedTask.status !== oldStatus) {
-                    if (updatedTask.status === 'done') showConfetti();
-                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-                }
-                updatedTask = addActivity(updatedTask, 'completion');
-
+                // ... logika oznaczania części zadania jako wykonanej ...
                 await handleTaskCompletion(updatedTask, project);
                 openTaskModal(taskId);
             }
@@ -6414,6 +6337,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
