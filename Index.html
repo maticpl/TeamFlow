@@ -3124,12 +3124,48 @@ if (registerGroupSelect) {
                 }
             });
 
-            // Sortowanie alfabetyczne w każdej grupie
-            ownedProjects.sort((a,b) => a.name.localeCompare(b.name));
-            memberProjects.sort((a,b) => a.name.localeCompare(b.name));
-            otherProjects.sort((a,b) => a.name.localeCompare(b.name));
-
-            // Składanie finalnego HTML w poprawnej kolejności
+            // NOWA LOGIKA SORTOWANIA: uwzględnia zapisany układ i rozdziela grupy
+            const customOrder = state.currentUser.layouts.allProjects || [];
+            
+            // Funkcja pomocnicza do sortowania pojedynczej listy projektów
+            const sortProjectList = (projectList) => {
+                // Jeśli nie ma zapisanej kolejności, sortuj alfabetycznie i zakończ
+                if (customOrder.length === 0) {
+                    projectList.sort((a, b) => a.name.localeCompare(b.name));
+                    return;
+                }
+            
+                // Jeśli jest zapisana kolejność, sortuj bardziej zaawansowanie
+                const orderMap = new Map(customOrder.map((id, index) => [id, index]));
+                
+                projectList.sort((a, b) => {
+                    const indexA = orderMap.get(a.id);
+                    const indexB = orderMap.get(b.id);
+            
+                    // Jeśli oba projekty są w zapisanej kolejności, sortuj według niej
+                    if (indexA !== undefined && indexB !== undefined) {
+                        return indexA - indexB;
+                    }
+                    // Jeśli tylko A jest w kolejności, A idzie "wyżej"
+                    if (indexA !== undefined) {
+                        return -1;
+                    }
+                    // Jeśli tylko B jest w kolejności, B idzie "wyżej"
+                    if (indexB !== undefined) {
+                        return 1;
+                    }
+                    // Jeśli żadnego nie ma w zapisanej kolejności (są to nowe projekty),
+                    // sortuj je alfabetycznie między sobą na końcu grupy
+                    return a.name.localeCompare(b.name);
+                });
+            };
+            
+            // Sortujemy każdą grupę osobno
+            sortProjectList(ownedProjects);
+            sortProjectList(memberProjects);
+            otherProjects.sort((a, b) => a.name.localeCompare(b.name));
+            
+            // Składanie finalnego HTML w poprawnej kolejności grup
             let finalHTML = '';
             finalHTML += ownedProjects.map(p => createProjectTileHTML(p, 'owner')).join('');
             finalHTML += memberProjects.map(p => createProjectTileHTML(p, 'member')).join('');
@@ -6129,6 +6165,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
