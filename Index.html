@@ -4220,30 +4220,43 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
         function renderDashboardActivityFeed() {
             const activityListEl = document.getElementById('dashboard-activity-list');
             if (!activityListEl) return;
-
-            // 1. Zbierz wszystkie projekty, w których jest użytkownik
-// ...
-            // 4. Posortuj wszystkie aktywności malejąco po dacie i weź 15 najnowszych
+        
+            // 1. Zbierz wszystkie projekty, w których bierze udział zalogowany użytkownik.
+            const userProjects = [...state.projects, ...state.completedProjects].filter(p => p.members.includes(state.currentUser.uid));
+        
+            // 2. Zbierz wszystkie aktywności ze wszystkich zadań w tych projektach.
+            const allActivities = userProjects.flatMap(project =>
+                (project.tasks || []).flatMap(task =>
+                    (task.activityLog || []).map(log => ({
+                        ...log,
+                        taskId: task.id,
+                        taskTitle: task.title,
+                        projectId: project.id,
+                        projectName: project.name
+                    }))
+                )
+            );
+        
+            // 3. Odfiltruj aktywności wykonane przez samego zalogowanego użytkownika.
+            const otherUsersActivities = allActivities.filter(activity => activity.userId !== state.currentUser.uid);
+        
+            // 4. Posortuj wszystkie aktywności malejąco po dacie i weź 15 najnowszych.
             otherUsersActivities.sort((a, b) => b.timestamp - a.timestamp);
             const recentActivities = otherUsersActivities.slice(0, 15);
-            // ▲▲▲ KONIEC ZMIANY ▲▲▲
-
+        
             if (recentActivities.length === 0) {
                 activityListEl.innerHTML = '<li class="activity-item" style="font-style: italic;">Brak aktywności ze strony innych członków zespołu.</li>';
                 return;
             }
-
-            // 5. Wygeneruj HTML i wstaw do listy
+        
+            // 5. Wygeneruj HTML i wstaw do listy.
             activityListEl.innerHTML = recentActivities.map(activity => {
                 const user = findUser(activity.userId);
                 const userName = user ? user.name : 'Ktoś';
                 const dateStr = new Date(activity.timestamp).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-
+        
                 let message = '';
                 switch (activity.type) {
-                    case 'creation':
-                        message = `utworzył zadanie "<strong>${activity.taskTitle}</strong>" w projekcie <em>${activity.projectName}</em>.`;
-                        break;
                     case 'status':
                         message = `zmienił status zadania "<strong>${activity.taskTitle}</strong>" na ${activity.newValue}.`;
                         break;
@@ -4254,9 +4267,9 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
                          message = `ukończył swoją część zadania "<strong>${activity.taskTitle}</strong>".`;
                         break;
                     default:
-                        message = `wykonał nieznaną akcję w zadaniu "<strong>${activity.taskTitle}</strong>".`;
+                        message = `wykonał akcję w zadaniu "<strong>${activity.taskTitle}</strong>" w projekcie <em>${activity.projectName}</em>.`;
                 }
-
+        
                 return `<li class="activity-item" data-task-id="${activity.taskId}" style="cursor: pointer;" title="Kliknij, aby zobaczyć zadanie">
                             [${dateStr}] <strong>${userName}</strong> ${message}
                         </li>`;
@@ -5932,34 +5945,33 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         let sortableDashboard = null;
         let sortableProjects = null;
 
-          editDashboardLayoutBtn.addEventListener('click', async () => {
-            state.ui.dashboardEditMode = !state.ui.dashboardEditMode;
-            
-            // Musimy ZAPISAĆ układ PRZED przełączeniem trybu, jeśli wychodzimy z edycji
-            if (!state.ui.dashboardEditMode && sortableDashboard) {
-                 const newOrder = sortableDashboard.toArray();
-                 state.currentUser.layouts.dashboard = newOrder;
-                 
-                 try {
-                     const userRef = doc(usersRef, state.currentUser.uid);
-                     await updateDoc(userRef, { "layouts.dashboard": newOrder });
-                     showNotification("Układ pulpitu został zapisany.", "Sukces");
-                 } catch (error) {
-                     console.error("Błąd zapisu układu pulpitu:", error);
-                     showNotification("Nie udało się zapisać układu.", "Błąd");
-                 }
-            }
-            
-            // Zmiana tekstu PRZED renderowaniem
+        editDashboardLayoutBtn.addEventListener('click', async () => {
+            // Sprawdzamy, czy jesteśmy w trybie edycji. Jeśli tak, to znaczy, że kliknięto "Zapisz układ".
             if (state.ui.dashboardEditMode) {
-                 editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
+                if (sortableDashboard) {
+                    const newOrder = sortableDashboard.toArray();
+                    state.currentUser.layouts.dashboard = newOrder;
+                    try {
+                        const userRef = doc(usersRef, state.currentUser.uid);
+                        await updateDoc(userRef, { "layouts.dashboard": newOrder });
+                        showNotification("Układ pulpitu został zapisany.", "Sukces");
+                    } catch (error) {
+                        console.error("Błąd zapisu układu pulpitu:", error);
+                        showNotification("Nie udało się zapisać układu.", "Błąd");
+                    }
+                }
+                // Wyłączamy tryb edycji
+                state.ui.dashboardEditMode = false;
+                editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
             } else {
-                 editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
+                // Jeśli nie jesteśmy w trybie edycji, włączamy go
+                state.ui.dashboardEditMode = true;
+                editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
             }
             
-            render(); // render() wywoła renderMyDashboardView, które zajmie się SortableJS
+            // Na koniec zawsze odświeżamy widok, aby zastosować zmiany
+            render();
         });
-
         // DODANY BRAKUJĄCY LISTENER DLA PROJEKTÓW
         editProjectsLayoutBtn.addEventListener('click', async () => {
             // Sprawdzamy, czy jesteśmy w trybie edycji. Jeśli tak, to znaczy, że kliknięto "Zapisz układ".
@@ -6107,6 +6119,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
