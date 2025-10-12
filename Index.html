@@ -19,10 +19,6 @@
     
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
-    
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/pl.js"></script>
     <style>
         /* CAŁY TWÓJ KOD CSS POZOSTAJE BEZ ZMIAN */
         @keyframes animated-gradient {
@@ -392,16 +388,7 @@
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--bg-overlay); display: flex; align-items: center; justify-content: center; opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; z-index: 1000; }
         .modal-overlay.visible { opacity: 1; visibility: visible; }
           .modal { background-color: var(--bg-secondary); border-radius: var(--border-radius); box-shadow: var(--shadow-lg); width: 90%; max-width: 800px; display: flex; flex-direction: column; transform: scale(0.95); transition: transform 0.3s; height: 80vh; max-height: 90vh; }
-        #notification-modal .modal, #confirmation-modal .modal, #change-password-modal .modal { max-width: 400px;
-        }
-        /* ZMIENIONO: Zwiększenie rozmiaru modala nowego zadania, aby pomieścić większy interfejs */
-        #new-task-modal .modal {
-            /* Zwiększenie szerokości do ~5cm */
-            max-width: 800px; 
-            /* Zwiększenie wysokości o ~2cm */
-            height: 95vh;
-            max-height: 100vh;
-        }
+        #notification-modal .modal, #confirmation-modal .modal, #change-password-modal .modal { max-width: 400px; }
         .modal-overlay.visible .modal { transform: scale(1); }
         .modal-header { padding: 16px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
         .modal-header h2 { font-size: 18px; }
@@ -1766,24 +1753,6 @@
             background-color: var(--success-primary);
         }
         /* === KONIEC: NOWE STYLE DLA WIDOKU "MÓJ DZIEŃ" === */
-         /* === POCZĄTEK: STYLE DLA POPRAWNEGO POZYCJONOWANIA FLATPICKR W MODALU NOWEGO ZADANIA === */
-        #flatpickr-new-task-container {
-            position: relative; /* Ustanawia kontekst pozycjonowania dla kalendarza */
-            width: 100%;
-        }
-
-        #flatpickr-new-task-container .flatpickr-calendar {
-            /* Nadpisuje domyślne style Flatpickr, aby pozycjonował się względem rodzica */
-            position: absolute !important;
-            /* ZMIANA: Przesunięcie kalendarza BARDZO blisko inputa (wyżej) */
-            top: -25px !important; 
-            /* ZMIANA: Przesunięcie kalendarza BARDZO w prawo */
-            left: 380px !important; 
-            z-index: 1001; /* Zapewnia, że kalendarz jest nad innymi elementami modala */
-            font-size: 13px !important;
-            max-width: 280px !important;
-        }
-        /* === KONIEC: STYLE DLA POPRAWNEGO POZYCJONOWANIA FLATPICKR W MODALU NOWEGO ZADANIA === */
     </style>
 </head>
 <body>
@@ -2361,13 +2330,11 @@
                     </div>
                     
                     <div id="tab-new-task-dueDate" class="task-modal-tab-content">
-        <div id="flatpickr-new-task-container">
-            <div class="form-group">
-                <label for="new-task-dueDate">Termin</label>
-                <input type="text" id="new-task-dueDate" placeholder="Wybierz datę i godzinę">
-            </div>
-        </div>
-    </div>
+                        <div class="form-group">
+                            <label for="new-task-dueDate">Termin</label>
+                            <input type="datetime-local" id="new-task-dueDate">
+                        </div>
+                    </div>
 
                     <div id="tab-new-task-priority" class="task-modal-tab-content">
                         <div class="form-group">
@@ -2750,7 +2717,6 @@ if (registerGroupSelect) {
             recurrenceDayWrapper: document.getElementById('new-task-recurrence-day-wrapper'),
             recurrenceDay: document.getElementById('new-task-recurrence-day'),
         };
-        let newTaskFlatpickr = null; // DODANO: Globalna instancja Flatpickr dla modala nowego zadania
         const searchModal = {
             overlay: document.getElementById('search-modal'),
             input: document.getElementById('modal-search-input'),
@@ -4353,36 +4319,16 @@ newTaskModal.taskTypeSelection.style.display = 'block';
             tippy('#new-task-modal .task-modal-tab'); // 1. Inicjalizacja tooltipów
             // ZMIANA: Ustawiamy domyślną zakładkę na "dueDate" (Termin)
             const defaultTab = document.getElementById('new-task-modal').querySelector('.task-modal-tab[data-tab="dueDate"]');
-            
-            // DODANO: Inicjalizacja Flatpickr
-            if (!newTaskFlatpickr) {
-                newTaskFlatpickr = flatpickr(newTaskModal.dueDate, {
-                    enableTime: true,
-                    dateFormat: "Y-m-d\\TH:i",
-                    time_24hr: true,
-                    locale: "pl",
-                    allowInput: true,
-                    defaultDate: newTaskModal.dueDate.value || null, // Zachowaj istniejącą datę (jeśli jest)
-                    // KLUCZOWA ZMIANA: Dodano opcję appendTo
-                    appendTo: document.getElementById('flatpickr-new-task-container'),
-                    // DODANO: Włączenie ikon, które ułatwiają ponowne otwarcie kalendarza
-                    wrap: true, 
-                    clickOpens: false // Ważne: Domyślnie kliknięcie w input NIE otwiera kalendarza, obsłużymy to ręcznie
-                });
-            } else {
-                // Czyścimy instancję przy ponownym otwarciu, aby nie otwierało się od razu
-                newTaskFlatpickr.clear();
-            }
-            
             if (defaultTab) {
                 // 2. Klikamy po drobnym opóźnieniu, aby upewnić się, że modal jest w DOM i CSS jest zastosowany
                 setTimeout(() => {
                     defaultTab.click();
                     
-                    // USUNIĘTO: Programowe otwieranie kalendarza
-                    // if (newTaskFlatpickr) {
-                    //     newTaskFlatpickr.open(); 
-                    // }
+                    // NOWA LOGIKA: Natychmiastowe otwarcie selektora daty/czasu (kalendarza)
+                    const dateInput = document.getElementById('new-task-dueDate');
+                    if (dateInput && dateInput.showPicker) {
+                        dateInput.showPicker();
+                    }
                 }, 50);
             }
             
@@ -5536,8 +5482,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             assignees: assignees,
             completedBy: [],
             priority: newTaskModal.priority.value,
-            // ZMIANA: Pobieranie daty z obiektu Flatpickr w formacie ISO (YYYY-MM-DDTHH:mm)
-            dueDate: newTaskFlatpickr.selectedDates.length > 0 ? newTaskFlatpickr.formatDate(newTaskFlatpickr.selectedDates[0], "Y-m-d\\TH:i") : null,
+            dueDate: newTaskModal.dueDate.value || null,
             comments: [], 
             activityLog: [],
             recurrence: recurrence,
@@ -6056,12 +6001,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         }
         setupRecurrenceUIListeners(newTaskModal);
         setupRecurrenceUIListeners(taskModal);
-        // DODANO: Manualne otwieranie Flatpickr po kliknięciu w pole
-        newTaskModal.dueDate.addEventListener('click', () => {
-             if (newTaskFlatpickr) {
-                 newTaskFlatpickr.open();
-             }
-         });
+
         document.querySelectorAll('#calendar-toggle-btn, #calendar-toggle-btn-mobile').forEach(btn => {
             btn.addEventListener('click', () => {
                 state.ui.isCalendarView = !state.ui.isCalendarView;
@@ -6097,8 +6037,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             if (taskItem && taskItem.dataset.taskId) {
                 openTaskModal(taskItem.dataset.taskId);
             }
-    
-         });
+        });
         // --- CZĘŚĆ 1: Logika otwierania okienek ---
 
 // Ten listener "nasłuchuje" na kliknięcie ikony zębatki w stopce.
@@ -6497,19 +6436,6 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
