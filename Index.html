@@ -596,6 +596,7 @@
         /* Style dla Pulpitu/Dashboard */
         .dashboard-grid {
             display: grid;
+            /* Zmiana na dwie kolumny: lewa węższa (KPI), prawa szersza (Akcja) */
             grid-template-columns: 1fr 2fr;
             gap: 24px;
             margin-bottom: 24px;
@@ -607,6 +608,67 @@
             border-radius: var(--border-radius);
             box-shadow: var(--shadow-sm);
             border: 1px solid var(--border-color);
+        }
+        .dashboard-card h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--accent-primary);
+        }
+        /* Nowe style dla kolumn i kart KPI */
+        .kpi-column {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        .kpi-column .dashboard-card {
+            cursor: pointer; /* Wykresy są klikalne */
+            transition: transform 0.2s, box-shadow 0.2s;
+            min-height: 180px;
+        }
+        .kpi-column .dashboard-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+        .action-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 2 kolumny na listy */
+            gap: 24px;
+        }
+        .action-column .dashboard-card {
+             min-height: 400px; /* Zapewnia wystarczającą wysokość dla list */
+        }
+        /* Ulepszenie wyglądu kart w Dashboardzie */
+        .dashboard-grid .dashboard-card:first-child h3 {
+             color: var(--danger-primary);
+        }
+
+        /* Nowe style dla kafelków w modalach (widok szczegółów) */
+        .dashboard-detail-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 12px;
+            max-height: 70vh;
+            overflow-y: auto;
+            padding: 12px;
+            background-color: var(--bg-primary);
+            border-radius: var(--border-radius);
+        }
+        .dashboard-detail-list .task-card {
+            margin-bottom: 0; /* Usuwamy marginesy pionowe dla kafelków w siatce */
+            padding-right: 12px;
+        }
+        /* Style dla mobilnego (wymuś stackowanie) */
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr; /* Powrót do jednej kolumny */
+            }
+            .action-column {
+                grid-template-columns: 1fr; /* Stackowanie list w widoku mobilnym */
+            }
+             .kpi-column .dashboard-card {
+                 min-height: 150px;
+            }
         }
         .dashboard-card h3 {
             font-size: 18px;
@@ -2265,7 +2327,7 @@ let stagedFiles = [];
             currentProjectId: null,
             ui: {
                 theme: 'light',
-                currentView: 'my-dashboard',
+                currentView: 'my-day', // Zmienione na 'my-day'
                 previousView: null, // <-- DODANA LINIA
                 dashboardEditMode: false, 
                 dashboardLayout: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
@@ -2474,6 +2536,13 @@ if (registerGroupSelect) {
     confirmPassword: document.getElementById('confirm-password'),
     error: document.getElementById('change-password-error'),
 };
+
+        // NOWY MODAL: Szczegóły zadań z Dashboardu
+        const dashboardDetailsModal = {
+            overlay: document.getElementById('dashboard-details-modal'),
+            title: document.getElementById('dashboard-details-title'),
+            content: document.getElementById('dashboard-details-content'),
+        };
 
         // --- Definicje wszystkich funkcji ---
 
@@ -3390,57 +3459,66 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
 
             // 1. Definiujemy HTML dla każdej karty w obiekcie
             const cardHTMLs = {
+                // Nowa karta KPI - Moje Opóźnione Zadania (Klikalny Wykres)
                 'my-overdue': `
-                    <div class="dashboard-card" data-id="my-overdue">
+                    <div class="dashboard-card kpi-card" data-id="my-overdue" data-action="show-my-overdue-details">
                         <div class="dashboard-card-handle">⠿</div>
-                        <h3>Moje Opóźnione Zadania (${overdueTasks.length})</h3>
-                        <div class="overdue-list-container">
-                            ${overdueTasks.length > 0 ? overdueTasks.map(task => createTaskCardHTML(task, true)).join('') : '<p class="no-overdue-tasks">Brak opóźnionych zadań. Dobra robota!</p>'}
-                        </div>
+                        <h3>Moje Opóźnione Zadania</h3>
+                        <div style="font-size: 36px; font-weight: 700; color: var(--danger-primary);">${overdueTasks.length}</div>
+                        <p style="font-size: 14px; color: var(--text-secondary);">Kliknij, aby zobaczyć szczegóły</p>
+                        <div id="my-overdue-chart" style="height: 60px;">[Placeholder Wykresu Dzwonowego]</div>
                     </div>`,
+                // Nowa karta KPI - Opóźnienia w Moich Projektach (Klikalny Wykres)
                 'team-delays': `
-                    <div class="dashboard-card" data-id="team-delays">
+                    <div class="dashboard-card kpi-card" data-id="team-delays" data-action="show-team-delays-details">
                         <div class="dashboard-card-handle">⠿</div>
-                        <h3>Opóźnienia w Moich Projektach</h3>
-                        <div class="overdue-list-container" id="dashboard-team-delays-list"></div>
+                        <h3>Opóźnienia w Zespole</h3>
+                        <div id="team-delays-chart-container" style="height: 120px; display: flex; align-items: center; justify-content: center;">[Placeholder Wykresu Słupkowego]</div>
+                        <p style="font-size: 14px; color: var(--text-secondary);">Kliknij, aby zobaczyć szczegóły</p>
                     </div>`,
+                // Nowa karta KPI - Moje Obciążenie (Klikalny Wykres)
+                'workload': `
+                    <div class="dashboard-card kpi-card" data-id="workload" data-action="show-workload-details">
+                        <div class="dashboard-card-handle">⠿</div>
+                        <h3>Moje Obciążenie</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-size: 24px; font-weight: 700;">${totalActiveTasks}</span>
+                            <span style="font-size: 12px; color: var(--text-secondary);">Aktywne zadania</span>
+                        </div>
+                        <div id="workload-chart-container" style="height: 100px; width: 100%;">[Placeholder Wykresu Skumulowanego]</div>
+                        <p style="font-size: 14px; color: var(--text-secondary);">Kliknij, aby zobaczyć szczegóły</p>
+                    </div>`,
+                // Ulepszona karta Akcji - Nadchodzące Terminy (Lista Timeline)
                 'upcoming': `
                     <div class="dashboard-card" data-id="upcoming">
                         <div class="dashboard-card-handle">⠿</div>
                         <h3>Nadchodzące Terminy (dziś i jutro)</h3>
-                        <div class="overdue-list-container" id="dashboard-upcoming-list"></div>
-                    </div>`,
-                'workload': `
-                    <div class="dashboard-card" data-id="workload">
-                        <div class="dashboard-card-handle">⠿</div>
-                        <h3>Moje Obciążenie (Aktywne: ${totalActiveTasks})</h3>
-                        <div class="modern-chart">
-                            <div class="chart-row">
-                                <div class="chart-label"><span>Do realizacji</span><strong>${todoCount}</strong></div>
-                                <div class="chart-bar-wrapper"><div class="chart-bar-fill todo" style="width: ${todoPercent}%;"></div></div>
-                            </div>
-                            <div class="chart-row">
-                                <div class="chart-label"><span>W trakcie</span><strong>${inProgressCount}</strong></div>
-                                <div class="chart-bar-wrapper"><div class="chart-bar-fill inprogress" style="width: ${inProgressPercent}%;"></div></div>
-                            </div>
+                        <div class="overdue-list-container" id="dashboard-upcoming-list" style="padding-bottom: 0;">
+                            <p class="no-tasks-message">Ładowanie...</p>
                         </div>
                     </div>`,
+                // Ulepszona karta Akcji - Ostatnia Aktywność (Lista z Ikonami)
                 'activity': `
                     <div class="dashboard-card" data-id="activity">
                         <div class="dashboard-card-handle">⠿</div>
                         <h3>Ostatnia Aktywność</h3>
-                        <ul class="activity-list" id="dashboard-activity-list" style="max-height: 280px; overflow-y: auto; padding-right: 8px; border: none;"></ul>
+                        <ul class="activity-list" id="dashboard-activity-list" style="max-height: 400px; overflow-y: auto; padding-right: 8px; border: none; padding-top: 0;"></ul>
                     </div>`
             };
             
-            // 2. Składamy HTML w kolejności zapisanej w stanie
-            const orderedCardsHTML = state.ui.dashboardLayout.map(id => cardHTMLs[id]).join('');
-
-            // 3. Renderujemy główną strukturę z uporządkowanymi kartami
+            // 2. Składamy HTML w nowej strukturze kolumnowej
             kanbanBoardEl.innerHTML = `
                 <div class="dashboard-container">
-                    <div class="dashboard-grid" id="dashboard-grid-main" style="grid-template-columns: repeat(3, 1fr);">
-                        ${orderedCardsHTML}
+                    <div class="dashboard-grid" id="dashboard-grid-main">
+                         <div class="kpi-column" data-sortable-id="kpi-column">
+                             ${cardHTMLs['my-overdue']}
+                             ${cardHTMLs['team-delays']}
+                             ${cardHTMLs['workload']}
+                         </div>
+                         <div class="action-column">
+                             ${cardHTMLs['upcoming']}
+                             ${cardHTMLs['activity']}
+                         </div>
                     </div>
                     
                     <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; margin-top: 24px;">Wszystkie Moje Zadania</h2>
@@ -4384,11 +4462,16 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                     }
                 };
             state.ui.dashboardLayout = state.currentUser.layouts.dashboard;
-                state.ui.currentView = 'my-dashboard'; // Zawsze ustawiaj widok na pulpit
-                state.currentProjectId = null;       // Zawsze resetuj wybrany projekt
+            
+                // Nowa logika: Domyślny widok po zalogowaniu
                 if (window.innerWidth <= 768) {
-  state.ui.currentView = 'my-day';
-}
+                    state.ui.currentView = 'my-day'; // Mobile: Mój dzień
+                } else {
+                    state.ui.currentView = 'my-dashboard'; // PC: Mój Dashboard
+                }
+                
+                state.currentProjectId = null;       // Zawsze resetuj wybrany projekt
+                
                 authOverlay.style.display = 'none';
                 appContainer.classList.remove('hidden');
                 loadingOverlay.style.display = 'flex';
@@ -5232,7 +5315,51 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
         });
 
+        function renderDashboardDetailsModal(type) {
+            const allMyTasks = getAllMyTasks();
+            let title = '';
+            let tasksToRender = [];
+            
+            switch (type) {
+                case 'show-my-overdue-details':
+                    title = 'Moje Opóźnione Zadania';
+                    tasksToRender = getOverdueTasks(allMyTasks);
+                    break;
+                case 'show-team-delays-details':
+                    title = 'Opóźnienia w Moich Projektach';
+                    const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
+                    // Zadania opóźnione w MOICH projektach, ale przypisane do INNYCH
+                    tasksToRender = myOwnedProjects.flatMap(project =>
+                        (project.tasks || [])
+                            .filter(t => t.status !== 'done' && t.dueDate && new Date(t.dueDate).getTime() < Date.now() && !t.assignees.includes(state.currentUser.uid))
+                            .map(t => ({ ...t, projectName: project.name }))
+                    );
+                    break;
+                case 'show-workload-details':
+                    title = 'Aktywne Zadania (Do zrobienia i W trakcie)';
+                    tasksToRender = allMyTasks.filter(t => t.status === 'todo' || t.status === 'inprogress');
+                    break;
+                default:
+                    return;
+            }
+            
+            dashboardDetailsModal.title.textContent = title;
+            if (tasksToRender.length === 0) {
+                 dashboardDetailsModal.content.innerHTML = '<p class="no-tasks-message">Brak zadań w tej kategorii. Gratulacje!</p>';
+            } else {
+                 // Używamy funkcji createTaskCardHTML, aby uzyskać nowoczesny kafelkowy wygląd
+                 dashboardDetailsModal.content.innerHTML = tasksToRender.map(task => createTaskCardHTML(task, true)).join('');
+            }
+            openModal(dashboardDetailsModal.overlay);
+        }
+
         document.addEventListener('click', (e) => {
+             const kpiCard = e.target.closest('.dashboard-card.kpi-card');
+             if (kpiCard && kpiCard.dataset.action) {
+                 renderDashboardDetailsModal(kpiCard.dataset.action);
+                 return;
+             }
+            
             if (e.target.closest('.overdue-item-title')) {
                 const item = e.target.closest('.overdue-item');
                 if (item && item.dataset.taskId) {
@@ -5929,25 +6056,34 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         </form>
     </div>
 </div>
+<div class="modal-overlay" id="dashboard-details-modal">
+    <div class="modal" style="max-width: 900px;">
+        <div class="modal-header">
+            <h2 id="dashboard-details-title">Szczegóły</h2>
+            <button type="button" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="form-modal-content">
+            <div id="dashboard-details-content" class="dashboard-detail-list">
+                </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close-btn">Zamknij</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-overlay" id="crop-photo-modal">
     <div class="modal" style="max-width: 450px;">
         <div class="modal-header">
             <h2>Wykadruj zdjęcie</h2>
-            <button type="button" class="modal-close-btn">&times;</button>
-        </div>
-        <div class="form-modal-content" style="padding-bottom: 16px;">
-            <div id="croppie-container"></div>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
-            <button type="button" id="save-cropped-photo-btn" class="btn btn-primary">Zapisz</button>
-        </div>
+// ... (Reszta modala crop-photo-modal)
     </div>
 </div>
 <input type="file" id="photo-upload-input" style="display: none;" accept="image/png, image/jpeg">
 
 </body>
 </html>
+
 
 
 
