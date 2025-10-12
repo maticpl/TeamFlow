@@ -3472,9 +3472,10 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
                 'team-delays': `
                     <div class="dashboard-card kpi-card" data-id="team-delays" data-action="show-team-delays-details">
                         <div class="dashboard-card-handle">⠿</div>
-                        <h3>Opóźnienia w Zespole</h3>
-                        <div id="team-delays-chart-container" style="height: 120px; display: flex; align-items: center; justify-content: center;">[Placeholder Wykresu Słupkowego]</div>
+                        <h3 style="color: ${overdueTasks.length > 0 ? 'var(--danger-primary)' : 'var(--accent-primary)'};">Opóźnienia w Zespole</h3>
+                        <div style="font-size: 36px; font-weight: 700; color: ${overdueTasks.length > 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">${overdueTasks.length}</div>
                         <p style="font-size: 14px; color: var(--text-secondary);">Kliknij, aby zobaczyć szczegóły</p>
+                        <div id="team-delays-chart-container" style="height: 60px;">[Placeholder Wykresu Słupkowego]</div>
                     </div>`,
                 // Nowa karta KPI - Moje Obciążenie (Klikalny Wykres)
                 'workload': `
@@ -4160,40 +4161,7 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
             if (!activityListEl) return;
 
             // 1. Zbierz wszystkie projekty, w których jest użytkownik
-            const myProjects = state.projects.filter(p => p.members.includes(state.currentUser.uid));
-            
-            let allActivities = [];
-
-            // 2. Przejdź przez każdy projekt i jego zadania, aby zebrać aktywności
-            myProjects.forEach(project => {
-                (project.tasks || []).forEach(task => {
-                    // Dodaj "syntetyczne" zdarzenie o utworzeniu zadania
-                    const taskCreationTimestamp = parseInt(task.id.replace('task', ''));
-                    allActivities.push({
-                        type: 'creation',
-                        timestamp: taskCreationTimestamp,
-                        userId: task.createdBy,
-                        taskTitle: task.title,
-                        projectName: project.name,
-                        taskId: task.id // Dodajemy ID zadania do nawigacji
-                    });
-
-                    // Dodaj rzeczywiste aktywności z logu
-                    (task.activityLog || []).forEach(log => {
-                        allActivities.push({
-                            ...log,
-                            taskTitle: task.title,
-                            projectName: project.name,
-                            taskId: task.id // Dodajemy ID zadania do nawigacji
-                        });
-                    });
-                });
-            });
-
-            // ▼▼▼ DODANA ZMIANA ▼▼▼
-            // 3. Odsiej własne aktywności
-            const otherUsersActivities = allActivities.filter(activity => activity.userId !== state.currentUser.uid);
-            
+// ...
             // 4. Posortuj wszystkie aktywności malejąco po dacie i weź 15 najnowszych
             otherUsersActivities.sort((a, b) => b.timestamp - a.timestamp);
             const recentActivities = otherUsersActivities.slice(0, 15);
@@ -5905,17 +5873,24 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
           editDashboardLayoutBtn.addEventListener('click', async () => {
             state.ui.dashboardEditMode = !state.ui.dashboardEditMode;
+            // Zmieniamy cel Sortable z 'dashboard-grid-main' na 'kpi-column'
+            const sortableTarget = document.querySelector('.kpi-column'); 
             const grid = document.getElementById('dashboard-grid-main');
             
+            if (!sortableTarget) return; // Zabezpieczenie
+
             if (state.ui.dashboardEditMode) {
                 editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
-                sortableDashboard = new Sortable(grid, {
+                // Używamy zagnieżdżonej kolumny jako elementu do sortowania
+                sortableDashboard = new Sortable(sortableTarget, {
                     animation: 150,
-                    // handle: '.dashboard-card-handle',  <-- USUNIĘTA LINIA
+                    // handle: '.dashboard-card-handle', 
                     ghostClass: 'sortable-ghost',
+                    group: 'dashboard-kpi'
                 });
             } else { 
                 if (sortableDashboard) {
+                    // Odczytujemy ID kart z posortowanej kolumny
                     const newOrder = sortableDashboard.toArray();
                     state.currentUser.layouts.dashboard = newOrder;
                     
@@ -5935,6 +5910,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 }
             }
             grid.classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
+            renderMyDashboardView(); // Odświeżamy widok, aby wyświetlić karty w nowej kolejności
         });
 
         // DODANY BRAKUJĄCY LISTENER DLA PROJEKTÓW
@@ -5942,6 +5918,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             // Sprawdzamy, czy jesteśmy w trybie edycji. Jeśli tak, to znaczy, że kliknięto "Zapisz układ".
             if (state.ui.allProjectsEditMode) {
                 if (sortableProjects) {
+                    // Sortablejs przechowuje kolejność ID projektów
                     const newOrder = sortableProjects.toArray();
                     state.currentUser.layouts.allProjects = newOrder;
                     try {
@@ -6083,6 +6060,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
