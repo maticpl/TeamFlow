@@ -2911,6 +2911,27 @@ if (registerGroupSelect) {
             ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
         }
 
+        function getTeamOverdueCount() {
+             const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
+             // 1. Zbierz wszystkie zadania z MOICH projektów
+             const allTasksInMyProjects = myOwnedProjects.flatMap(project =>
+                 (project.tasks || [])
+                     .map(migrateTask)
+                     .map(t => ({ ...t, projectId: project.id, projectName: project.name }))
+             );
+
+             // 2. Filtruj te zadania, które są opóźnione i NIE są przypisane do mnie
+             const now = Date.now();
+             const teamOverdueTasks = allTasksInMyProjects.filter(task =>
+                 task.dueDate && 
+                 new Date(task.dueDate).getTime() < now && 
+                 task.status !== 'done' && 
+                 !task.assignees.includes(state.currentUser.uid)
+             );
+
+             return teamOverdueTasks.length;
+        }
+
         const saveUiState = () => localStorage.setItem(`teamFlowUiState_${appId}`, JSON.stringify(state.ui));
         const loadUiState = () => {
             const savedUiState = localStorage.getItem(`teamFlowUiState_${appId}`);
@@ -3454,30 +3475,37 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
             const totalActiveTasks = todoCount + inProgressCount;
             const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
             const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
+            
+            // WYZNACZENIE OPÓŹNIEŃ ZESPOŁU
+            const teamOverdueCount = getTeamOverdueCount();
 
             // ▼▼▼ NOWA LOGIKA RENDEROWANIA KART ▼▼▼
 
             // 1. Definiujemy HTML dla każdej karty w obiekcie
             const cardHTMLs = {
-                // Nowa karta KPI - Moje Opóźnione Zadania (Klikalny Wykres)
+                // Nowa karta KPI - Moje Opóźnione Zadania (Symulacja wykresu)
                 'my-overdue': `
                     <div class="dashboard-card kpi-card" data-id="my-overdue" data-action="show-my-overdue-details">
                         <div class="dashboard-card-handle">⠿</div>
                         <h3>Moje Opóźnione Zadania</h3>
                         <div style="font-size: 36px; font-weight: 700; color: var(--danger-primary);">${overdueTasks.length}</div>
                         <p style="font-size: 14px; color: var(--text-secondary);">Kliknij, aby zobaczyć szczegóły</p>
-                        <div id="my-overdue-chart" style="height: 60px;">[Placeholder Wykresu Dzwonowego]</div>
+                        <div id="my-overdue-chart" style="height: 30px; margin-top: 10px; background-color: var(--bg-tertiary); border-radius: 4px; overflow: hidden;">
+                            <div style="height: 100%; width: ${Math.min(overdueTasks.length * 10, 100)}%; background-color: var(--danger-primary); transition: width 0.5s;"></div>
+                        </div>
                     </div>`,
-                // Nowa karta KPI - Opóźnienia w Moich Projektach (Klikalny Wykres)
+                // Nowa karta KPI - Opóźnienia w Moich Projektach (Symulacja wykresu)
                 'team-delays': `
                     <div class="dashboard-card kpi-card" data-id="team-delays" data-action="show-team-delays-details">
                         <div class="dashboard-card-handle">⠿</div>
-                        <h3 style="color: ${overdueTasks.length > 0 ? 'var(--danger-primary)' : 'var(--accent-primary)'};">Opóźnienia w Zespole</h3>
-                        <div style="font-size: 36px; font-weight: 700; color: ${overdueTasks.length > 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">${overdueTasks.length}</div>
+                        <h3 style="color: ${teamOverdueCount > 0 ? 'var(--danger-primary)' : 'var(--accent-primary)'};">Opóźnienia w Zespole</h3>
+                        <div style="font-size: 36px; font-weight: 700; color: ${teamOverdueCount > 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">${teamOverdueCount}</div>
                         <p style="font-size: 14px; color: var(--text-secondary);">Kliknij, aby zobaczyć szczegóły</p>
-                        <div id="team-delays-chart-container" style="height: 60px;">[Placeholder Wykresu Słupkowego]</div>
+                        <div id="team-delays-chart-container" style="height: 30px; margin-top: 10px; background-color: var(--bg-tertiary); border-radius: 4px; overflow: hidden;">
+                            <div style="height: 100%; width: ${Math.min(teamOverdueCount * 5, 100)}%; background-color: ${teamOverdueCount > 0 ? 'var(--danger-hover)' : 'var(--success-primary)'}; transition: width 0.5s;"></div>
+                        </div>
                     </div>`,
-                // Nowa karta KPI - Moje Obciążenie (Klikalny Wykres)
+                // Nowa karta KPI - Moje Obciążenie (Symulacja wykresu)
                 'workload': `
                     <div class="dashboard-card kpi-card" data-id="workload" data-action="show-workload-details">
                         <div class="dashboard-card-handle">⠿</div>
@@ -3486,8 +3514,13 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
                             <span style="font-size: 24px; font-weight: 700;">${totalActiveTasks}</span>
                             <span style="font-size: 12px; color: var(--text-secondary);">Aktywne zadania</span>
                         </div>
-                        <div id="workload-chart-container" style="height: 100px; width: 100%;">[Placeholder Wykresu Skumulowanego]</div>
-                        <p style="font-size: 14px; color: var(--text-secondary);">Kliknij, aby zobaczyć szczegóły</p>
+                        <div id="workload-chart-container" style="height: 16px; width: 100%; background-color: var(--bg-tertiary); border-radius: 8px; overflow: hidden;">
+                            <div style="display: flex; height: 100%;">
+                                <div title="Do realizacji: ${todoCount}" style="width: ${todoPercent}%; background-color: var(--danger-primary);"></div>
+                                <div title="W trakcie: ${inProgressCount}" style="width: ${inProgressPercent}%; background-color: var(--accent-primary);"></div>
+                            </div>
+                        </div>
+                        <p style="font-size: 14px; color: var(--text-secondary); margin-top: 16px;">Kliknij, aby zobaczyć szczegóły</p>
                     </div>`,
                 // Ulepszona karta Akcji - Nadchodzące Terminy (Lista Timeline)
                 'upcoming': `
@@ -3511,7 +3544,7 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
             kanbanBoardEl.innerHTML = `
                 <div class="dashboard-container">
                     <div class="dashboard-grid" id="dashboard-grid-main">
-                         <div class="kpi-column" data-sortable-id="kpi-column">
+                         <div class="kpi-column" id="kpi-column-sortable">
                              ${cardHTMLs['my-overdue']}
                              ${cardHTMLs['team-delays']}
                              ${cardHTMLs['workload']}
@@ -3528,7 +3561,7 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
             `;
             
             // Zmieniamy klasę kontenera w zależności od trybu edycji
-            document.getElementById('dashboard-grid-main').classList.toggle('dashboard-edit-mode', state.ui.dashboardEditMode);
+            document.getElementById('dashboard-grid-main').classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
 
             // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
 
@@ -3536,6 +3569,34 @@ if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block
             renderDashboardActivityFeed();
             renderDashboardTeamDelays();
             renderDashboardUpcomingTasks(); 
+            
+            // Logika SortableJS dla KPI
+            const kpiColumnEl = document.getElementById('kpi-column-sortable');
+
+            if (state.ui.dashboardEditMode) {
+                if (sortableDashboard) sortableDashboard.destroy(); // Niszczymy starą instancję
+                sortableDashboard = new Sortable(kpiColumnEl, {
+                    animation: 150,
+                    ghostClass: 'sortable-ghost',
+                    group: 'dashboard-kpi'
+                });
+            } else if (sortableDashboard) {
+                // Konieczne, aby usunąć sortable po wyjściu z trybu edycji
+                sortableDashboard.destroy();
+                sortableDashboard = null;
+            }
+            
+            // NAPRAWA: Zapewnienie poprawnej kolejności wyświetlania po renderowaniu.
+            // Działa, gdy nie jesteśmy w trybie edycji, wymusza kolejność z layoutu.
+            if (kpiColumnEl) {
+                 const order = state.currentUser.layouts.dashboard || ['my-overdue', 'team-delays', 'workload'];
+                 const children = Array.from(kpiColumnEl.children);
+                 order.forEach(id => {
+                     const element = children.find(c => c.dataset.id === id);
+                     if (element) kpiColumnEl.appendChild(element); // Przepinamy elementy w kolejności
+                 });
+            }
+
 
             // ... (reszta funkcji renderMyDashboardView, czyli renderMyTasksKanban i listener, pozostaje bez zmian) ...
              const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
@@ -5873,44 +5934,30 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
           editDashboardLayoutBtn.addEventListener('click', async () => {
             state.ui.dashboardEditMode = !state.ui.dashboardEditMode;
-            // Zmieniamy cel Sortable z 'dashboard-grid-main' na 'kpi-column'
-            const sortableTarget = document.querySelector('.kpi-column'); 
-            const grid = document.getElementById('dashboard-grid-main');
             
-            if (!sortableTarget) return; // Zabezpieczenie
-
-            if (state.ui.dashboardEditMode) {
-                editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
-                // Używamy zagnieżdżonej kolumny jako elementu do sortowania
-                sortableDashboard = new Sortable(sortableTarget, {
-                    animation: 150,
-                    // handle: '.dashboard-card-handle', 
-                    ghostClass: 'sortable-ghost',
-                    group: 'dashboard-kpi'
-                });
-            } else { 
-                if (sortableDashboard) {
-                    // Odczytujemy ID kart z posortowanej kolumny
-                    const newOrder = sortableDashboard.toArray();
-                    state.currentUser.layouts.dashboard = newOrder;
-                    
-                    try {
-                        const userRef = doc(usersRef, state.currentUser.uid);
-                        await updateDoc(userRef, { "layouts.dashboard": newOrder });
-                        showNotification("Układ pulpitu został zapisany.", "Sukces");
-                    } catch (error) {
-                        console.error("Błąd zapisu układu pulpitu:", error);
-                        showNotification("Nie udało się zapisać układu.", "Błąd");
-                    }
-                
-                    editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
-                    
-                    sortableDashboard.destroy();
-                    sortableDashboard = null;
-                }
+            // Musimy ZAPISAĆ układ PRZED przełączeniem trybu, jeśli wychodzimy z edycji
+            if (!state.ui.dashboardEditMode && sortableDashboard) {
+                 const newOrder = sortableDashboard.toArray();
+                 state.currentUser.layouts.dashboard = newOrder;
+                 
+                 try {
+                     const userRef = doc(usersRef, state.currentUser.uid);
+                     await updateDoc(userRef, { "layouts.dashboard": newOrder });
+                     showNotification("Układ pulpitu został zapisany.", "Sukces");
+                 } catch (error) {
+                     console.error("Błąd zapisu układu pulpitu:", error);
+                     showNotification("Nie udało się zapisać układu.", "Błąd");
+                 }
             }
-            grid.classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
-            renderMyDashboardView(); // Odświeżamy widok, aby wyświetlić karty w nowej kolejności
+            
+            // Zmiana tekstu PRZED renderowaniem
+            if (state.ui.dashboardEditMode) {
+                 editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
+            } else {
+                 editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
+            }
+            
+            render(); // render() wywoła renderMyDashboardView, które zajmie się SortableJS
         });
 
         // DODANY BRAKUJĄCY LISTENER DLA PROJEKTÓW
@@ -6060,6 +6107,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
