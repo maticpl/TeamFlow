@@ -4815,25 +4815,41 @@ attachmentsListNewTask.addEventListener('click', (e) => {
     // Jeśli Firebase twierdzi, że użytkownik jest zalogowany...
     if (user) {
         
-        // --- NOWA, OSTATECZNA WERYFIKACJA ---
-        // Sprawdźmy, czy dokument tego użytkownika FAKTYCZNIE istnieje w naszej bazie.
         const userDocRef = doc(usersRef, user.uid);
         const userDoc = await getDoc(userDocRef);
 
-        // Jeśli dokument NIE istnieje, to znaczy, że użytkownik został usunięty.
-        if (!userDoc.exists()) {
+        // --- INTELIGENTNA WERYFIKACJA ---
+        // Sprawdzamy, czy to jest świeżo zarejestrowany użytkownik.
+        const creationTime = new Date(user.metadata.creationTime).getTime();
+        const lastSignInTime = new Date(user.metadata.lastSignInTime).getTime();
+        // Jeśli logowanie nastąpiło w ciągu 5 sekund od utworzenia konta, zakładamy, że to nowa rejestracja.
+        const isNewUser = (lastSignInTime - creationTime) < 5000;
+
+        // Wyrzuć użytkownika TYLKO jeśli jego dokument nie istnieje ORAZ NIE jest to nowa rejestracja.
+        if (!userDoc.exists() && !isNewUser) {
             console.error("Weryfikacja nieudana: Użytkownik nie istnieje w bazie danych. Wymuszanie wylogowania.");
-            
-            // Natychmiast wyloguj go po stronie klienta.
             await signOut(auth);
-            
-            // Nie wykonuj dalszego kodu. Funkcja `onAuthStateChanged` uruchomi się ponownie dla stanu "wylogowany".
             return;
         }
-        // --- KONIEC NOWEJ WERYFIKACJI ---
+        
+        // Czekamy na dane użytkownika, jeśli jeszcze ich nie ma (w przypadku nowej rejestracji).
+        let userData = userDoc.data();
+        if (!userData) {
+            // Spróbujmy pobrać dane jeszcze raz po krótkiej chwili, aby dać czas na ich zapisanie.
+            await new Promise(resolve => setTimeout(resolve, 500));
+            const freshUserDoc = await getDoc(userDocRef);
+            userData = freshUserDoc.data();
+        }
 
-        // Jeśli dotarliśmy tutaj, użytkownik na 100% istnieje. Kontynuujemy normalnie.
-        const userData = userDoc.data();
+        // Jeśli po tym czasie nadal nie ma danych, coś poszło bardzo nie tak.
+        if (!userData) {
+             console.error("Krytyczny błąd: Nie udało się wczytać danych profilu po rejestracji.");
+             await signOut(auth);
+             return;
+        }
+        // --- KONIEC INTELIGENTNEJ WERYFIKACJI ---
+
+        // Jeśli dotarliśmy tutaj, użytkownik na 100% istnieje i ma dane. Kontynuujemy normalnie.
         state.currentUser = {
             id: user.uid,
             uid: user.uid,
@@ -6816,6 +6832,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
