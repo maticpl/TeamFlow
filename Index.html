@@ -1811,12 +1811,38 @@
         <input type="email" id="register-email" required>
     </div>
 
-    <div class="form-group">
-        <label for="register-group">Wybierz dział</label>
-        <select id="register-group" required>
-            <option value="" disabled selected>-- Wybierz z listy --</option>
-        </select>
+    <div class="form-group-checkbox">
+        <input type="checkbox" id="register-team-toggle">
+        <label for="register-team-toggle">Będę korzystać z aplikacji z zespołem</label>
     </div>
+
+    <div id="register-team-options" style="display: none; margin-top: 16px; background-color: var(--bg-primary); padding: 12px; border-radius: var(--border-radius);">
+        <div class="form-group" style="display: flex; gap: 20px;">
+            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 0;">
+                <input type="radio" name="group-action" value="create" checked> Stwórz nową grupę
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 0;">
+                <input type="radio" name="group-action" value="join"> Dołącz do grupy
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label for="register-group-name">Nazwa grupy</label>
+            <input type="text" id="register-group-name" placeholder="np. Firma ACME">
+        </div>
+
+        <div class="form-group" id="register-subgroup-section" style="display: none;">
+            <label for="register-subgroup-select">Wybierz podgrupę (dział)</label>
+            <select id="register-subgroup-select">
+                </select>
+        </div>
+
+        <div class="form-group" id="register-new-subgroup-section" style="display: none;">
+            <label for="register-new-subgroup-name">Nazwa nowej podgrupy</label>
+            <input type="text" id="register-new-subgroup-name" placeholder="np. Marketing">
+        </div>
+    </div>
+
     <div class="form-group">
         <label for="register-password">Hasło (min. 6 znaków)</label>
         <input type="password" id="register-password" required>
@@ -2578,16 +2604,7 @@ let stagedFiles = [];
             }
         };
 
-        const ADMIN_EMAIL = 'mateuszczerwinski123@gmail.com';
-        const DEPARTMENTS = [
-    "Dyrektor Zarządzający",
-    "Dział operacyjny Non-Food",
-    "Dział operacyjny Food",
-    "Dział sprzedaży",
-    "Dział innowacji",
-    "Dział IT",
-    "Dział testowy"
-];
+        
 // NOWA, POPRAWIONA FUNKCJA DO POBIERANIA DATY LOKALNEJ
         function getLocalDateString() {
             const date = new Date();
@@ -2663,15 +2680,7 @@ let stagedFiles = [];
         const authErrorLogin = document.getElementById('auth-error-login');
         const authErrorRegister = document.getElementById('auth-error-register');
         const fabAddSpecialTask = document.getElementById('fab-add-special-task');
-        const registerGroupSelect = document.getElementById('register-group');
-if (registerGroupSelect) {
-    DEPARTMENTS.forEach(dep => {
-        const option = document.createElement('option');
-        option.value = dep;
-        option.textContent = dep;
-        registerGroupSelect.appendChild(option);
-    });
-}
+        
         const taskModal = {
             overlay: document.getElementById('task-modal'),
             title: document.getElementById('modal-task-title'),
@@ -2761,6 +2770,14 @@ if (registerGroupSelect) {
             message: document.getElementById('confirmation-message'),
             confirmBtn: document.getElementById('confirmation-action-btn'),
         };
+        // NOWE REFERENCJE DO FORMULARZA REJESTRACJI
+        const registerTeamToggle = document.getElementById('register-team-toggle');
+        const registerTeamOptions = document.getElementById('register-team-options');
+        const registerGroupNameInput = document.getElementById('register-group-name');
+        const registerSubgroupSection = document.getElementById('register-subgroup-section');
+        const registerSubgroupSelect = document.getElementById('register-subgroup-select');
+        const registerNewSubgroupSection = document.getElementById('register-new-subgroup-section');
+        const registerNewSubgroupNameInput = document.getElementById('register-new-subgroup-name');
         const changePasswordModal = {
     overlay: document.getElementById('change-password-modal'),
     form: document.getElementById('change-password-form'),
@@ -2769,6 +2786,10 @@ if (registerGroupSelect) {
     confirmPassword: document.getElementById('confirm-password'),
     error: document.getElementById('change-password-error'),
 };
+        // NOWE REFERENCJE DO MODALA ZMIANY GRUPY
+const changeGroupNameInput = document.getElementById('change-group-name');
+const changeSubgroupSection = document.getElementById('change-subgroup-section');
+const changeSubgroupSelect = document.getElementById('change-subgroup-select');
 
         // NOWY MODAL: Szczegóły zadań z Dashboardu
         const dashboardDetailsModal = {
@@ -3440,6 +3461,59 @@ if (registerGroupSelect) {
                 showNotification("Nie udało się zaktualizować ulubionych projektów.", "Błąd");
             }
         }
+        // NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU
+function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null) {
+    containerElement.innerHTML = ''; // Zawsze czyścimy kontener na starcie
+
+    // 1. Filtrujemy wszystkich użytkowników, aby pokazać tylko tych z tej samej grupy co zalogowany użytkownik
+    const teamMembers = state.users.filter(u => u.groupId === state.currentUser.groupId);
+
+    // 2. Grupujemy odfiltrowanych członków po ich podgrupie (subgroupName)
+    const usersBySubgroup = teamMembers.reduce((acc, user) => {
+        const subgroup = user.subgroupName || 'Bez przypisanej podgrupy';
+        if (!acc[subgroup]) {
+            acc[subgroup] = [];
+        }
+        acc[subgroup].push(user);
+        return acc;
+    }, {});
+
+    // 3. Tworzymy akordeon, iterując po znalezionych podgrupach
+    Object.keys(usersBySubgroup).sort().forEach(subgroup => {
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'department-group';
+
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'department-header';
+        headerDiv.innerHTML = `
+            <span>${subgroup}</span>
+            <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+            </svg>
+        `;
+
+        const usersDiv = document.createElement('div');
+        usersDiv.className = 'department-users collapsed';
+
+        usersBySubgroup[subgroup].forEach(user => {
+            const isSelected = selectedMemberIds.includes(user.id);
+            // Sprawdzamy, czy użytkownik jest właścicielem projektu (dla edycji) LUB czy jest to aktualnie zalogowany użytkownik (dla tworzenia nowego projektu)
+            const isOwner = user.id === projectOwnerId || (!projectOwnerId && user.id === state.currentUser.uid);
+            const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
+            
+            const pill = document.createElement('div');
+            pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}`;
+            pill.dataset.userId = user.id;
+            pill.title = user.name || user.email;
+            pill.innerHTML = `${avatarHTML} <span>${user.name || user.email}</span>`;
+            usersDiv.appendChild(pill);
+        });
+
+        groupDiv.appendChild(headerDiv);
+        groupDiv.appendChild(usersDiv);
+        containerElement.appendChild(groupDiv);
+    });
+}
         function render() {
             if (!state.currentUser) return;
             applyTheme();
@@ -4424,59 +4498,17 @@ return;
 
 
         function openEditProjectModal(projectId) {
-            const project = findProject(projectId);
-            if (!project) return;
-            editProjectModal.overlay.dataset.projectId = projectId;
-            editProjectModal.nameInput.value = project.name;
+    const project = findProject(projectId);
+    if (!project) return;
 
-            const membersContainer = editProjectModal.membersContainer;
-            membersContainer.innerHTML = ''; 
+    editProjectModal.overlay.dataset.projectId = projectId;
+    editProjectModal.nameInput.value = project.name;
 
-            const usersByGroup = state.users.reduce((acc, user) => {
-                const group = user.group || 'Bez działu';
-                if (!acc[group]) acc[group] = [];
-                acc[group].push(user);
-                return acc;
-            }, {});
+    // Używamy nowej funkcji pomocniczej, przekazując listę aktualnych członków projektu oraz ID właściciela.
+    buildTeamMembersAccordion(editProjectModal.membersContainer, project.members, project.ownerId);
 
-            DEPARTMENTS.forEach(dep => {
-                if (usersByGroup[dep] && usersByGroup[dep].length > 0) {
-                    const groupDiv = document.createElement('div');
-                    groupDiv.className = 'department-group';
-
-                    const headerDiv = document.createElement('div');
-                    headerDiv.className = 'department-header';
-                    headerDiv.innerHTML = `
-                        <span>${dep}</span>
-                        <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                        </svg>
-                    `;
-
-                    const usersDiv = document.createElement('div');
-                    usersDiv.className = 'department-users collapsed';
-
-                    usersByGroup[dep].forEach(user => {
-                        const isSelected = project.members.includes(user.id);
-                        const isOwner = user.id === project.ownerId;
-                        const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
-                        
-                        const pill = document.createElement('div');
-                        pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}`;
-                        pill.dataset.userId = user.id;
-                        pill.title = user.name || user.email;
-                        pill.innerHTML = `${avatarHTML} <span>${user.name || user.email}</span>`;
-                        usersDiv.appendChild(pill);
-                    });
-
-                    groupDiv.appendChild(headerDiv);
-                    groupDiv.appendChild(usersDiv);
-                    membersContainer.appendChild(groupDiv);
-                }
-            });
-
-            openModal(editProjectModal.overlay);
-        }
+    openModal(editProjectModal.overlay);
+}
 
          async function handleDeleteProject(projectId) {
             const project = findProject(projectId) || findCompletedProject(projectId);
@@ -4866,6 +4898,65 @@ const goBackToLogin = () => {
 showLoginFromResetBtn.addEventListener('click', goBackToLogin);
 // Nadpisujemy stary listener, aby uwzględniał nowy formularz
 showLoginBtn.addEventListener('click', goBackToLogin);
+        // Listener do pokazywania/ukrywania opcji zespołowych
+registerTeamToggle.addEventListener('change', () => {
+    registerTeamOptions.style.display = registerTeamToggle.checked ? 'block' : 'none';
+});
+
+// Listener do dynamicznego sprawdzania grupy i wczytywania podgrup
+registerGroupNameInput.addEventListener('blur', async () => {
+    const groupName = registerGroupNameInput.value.trim();
+    const action = document.querySelector('input[name="group-action"]:checked').value;
+    
+    // Sprawdzamy podgrupy tylko, gdy użytkownik chce dołączyć do grupy
+    if (action !== 'join' || !groupName) {
+        registerSubgroupSection.style.display = 'none';
+        return;
+    }
+
+    try {
+        const q = query(groupsRef, where("name", "==", groupName));
+        const querySnapshot = await getDocs(q);
+        
+        if (querySnapshot.empty) {
+            registerSubgroupSection.style.display = 'none';
+            // Opcjonalnie: można tu dodać informację dla użytkownika, że grupa nie istnieje
+            return;
+        }
+
+        const groupDoc = querySnapshot.docs[0];
+        const groupData = groupDoc.data();
+        
+        if (groupData.subgroups && groupData.subgroups.length > 0) {
+            registerSubgroupSelect.innerHTML = '<option value="">-- Wybierz podgrupę --</option>';
+            groupData.subgroups.forEach(subgroup => {
+                const option = document.createElement('option');
+                option.value = subgroup;
+                option.textContent = subgroup;
+                registerSubgroupSelect.appendChild(option);
+            });
+            // Dodajemy opcję stworzenia nowej podgrupy
+            registerSubgroupSelect.innerHTML += '<option value="__CREATE_NEW__">Inna (utwórz nową)</option>';
+            registerSubgroupSection.style.display = 'block';
+        } else {
+            // Grupa istnieje, ale nie ma podgrup - dajemy od razu opcję stworzenia nowej
+            registerSubgroupSelect.innerHTML = '<option value="">Brak podgrup (opcjonalnie)</option><option value="__CREATE_NEW__">Utwórz nową podgrupę</option>';
+            registerSubgroupSection.style.display = 'block';
+        }
+    } catch (error) {
+        console.error("Błąd wczytywania podgrup:", error);
+        registerSubgroupSection.style.display = 'none';
+    }
+});
+
+// Listener do pokazywania pola na nową podgrupę
+registerSubgroupSelect.addEventListener('change', () => {
+    if (registerSubgroupSelect.value === '__CREATE_NEW__') {
+        registerNewSubgroupSection.style.display = 'block';
+    } else {
+        registerNewSubgroupSection.style.display = 'none';
+    }
+});
 
 passwordResetForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -4941,28 +5032,99 @@ passwordResetForm.addEventListener('submit', async (e) => {
     const name = document.getElementById('register-name').value.trim();
     const email = document.getElementById('register-email').value;
     const password = document.getElementById('register-password').value;
-    const group = document.getElementById('register-group').value;
+    authErrorRegister.textContent = '';
+    const submitBtn = e.target.querySelector('button[type="submit"]');
 
     if (!name) {
         authErrorRegister.textContent = 'Nazwa użytkownika jest wymagana.';
         return;
     }
-    if (!group) {
-        authErrorRegister.textContent = 'Musisz wybrać dział.';
-        return;
-    }
-    authErrorRegister.textContent = '';
-    const submitBtn = e.target.querySelector('button[type="submit"]');
+
     submitBtn.disabled = true;
     submitBtn.textContent = 'Rejestrowanie...';
+
     try {
-        // KROK 1: Utwórz użytkownika w Firebase Authentication
+        // === DANE O GRUPIE DO ZAPISU ===
+        let groupId = null;
+        let groupName = null;
+        let subgroupName = null;
+
+        // 1. Sprawdzamy, czy użytkownik pracuje w zespole
+        if (registerTeamToggle.checked) {
+            const action = document.querySelector('input[name="group-action"]:checked').value;
+            const enteredGroupName = registerGroupNameInput.value.trim();
+
+            if (!enteredGroupName) {
+                throw new Error("Nazwa grupy jest wymagana, gdy pracujesz w zespole.");
+            }
+
+            if (action === 'create') {
+                // Tworzymy nową grupę
+                // Sprawdzamy najpierw, czy grupa o takiej nazwie już nie istnieje
+                const qCheck = query(groupsRef, where("name", "==", enteredGroupName));
+                const checkSnapshot = await getDocs(qCheck);
+                if (!checkSnapshot.empty) {
+                    throw new Error("Grupa o tej nazwie już istnieje. Wybierz inną nazwę lub dołącz do istniejącej.");
+                }
+
+                groupName = enteredGroupName;
+                // groupId zostanie ustawione na UID użytkownika po jego stworzeniu
+            } else { // action === 'join'
+                // Dołączamy do istniejącej grupy
+                const q = query(groupsRef, where("name", "==", enteredGroupName));
+                const querySnapshot = await getDocs(q);
+
+                if (querySnapshot.empty) {
+                    throw new Error("Grupa o podanej nazwie nie istnieje.");
+                }
+                const groupDoc = querySnapshot.docs[0];
+                groupId = groupDoc.id;
+                groupName = groupDoc.data().name;
+
+                // Sprawdzamy podgrupę
+                if (registerSubgroupSelect.value === '__CREATE_NEW__') {
+                    subgroupName = registerNewSubgroupNameInput.value.trim();
+                    if (subgroupName) {
+                        // Aktualizujemy dokument grupy o nową podgrupę
+                        const groupRef = doc(groupsRef, groupId);
+                        const existingSubgroups = groupDoc.data().subgroups || [];
+                        if (!existingSubgroups.includes(subgroupName)) {
+                            await updateDoc(groupRef, {
+                                subgroups: [...existingSubgroups, subgroupName]
+                            });
+                        }
+                    }
+                } else {
+                    subgroupName = registerSubgroupSelect.value || null;
+                }
+            }
+        }
+
+        // KROK A: Stworzenie użytkownika w Authentication
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 
-        // KROK 2: Zapisz dane użytkownika do Firestore (przed wylogowaniem!)
+        // KROK B: Finalizacja danych o grupie (jeśli tworzymy nową)
+        if (registerTeamToggle.checked && !groupId) { // To znaczy, że tworzyliśmy nową grupę
+            groupId = user.uid; // ID grupy to UID jej założyciela
+            // Zapisujemy nowy dokument grupy
+            await setDoc(doc(groupsRef, groupId), {
+                name: groupName,
+                subgroups: [] // Na start pusta tablica podgrup
+            });
+        } else if (!registerTeamToggle.checked) {
+            // Użytkownik pracuje sam - jego grupa to on sam
+            groupId = user.uid;
+        }
+
+        // KROK C: Zapisanie danych użytkownika w Firestore
         await setDoc(doc(usersRef, user.uid), {
-            uid: user.uid, email: user.email, name: name, group: group,
+            uid: user.uid,
+            email: user.email,
+            name: name,
+            groupId: groupId,
+            groupName: groupName,
+            subgroupName: subgroupName,
             avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
             favorites: [],
             layouts: {
@@ -4971,20 +5133,18 @@ passwordResetForm.addEventListener('submit', async (e) => {
             }
         });
 
-        // KROK 3: Stwórz "Skrzynkę zadań" (przed wylogowaniem!)
+        // KROK D: Stworzenie "Skrzynki zadań" (bez zmian)
         const inboxProject = {
             name: "Skrzynka zadań", ownerId: user.uid, members: [user.uid],
             tasks: [], isInbox: true, createdAt: Date.now()
         };
         await addDoc(projectsRef, inboxProject);
 
-        // KROK 4: Wyślij e-mail weryfikacyjny
+        // KROK E i F: Wysłanie weryfikacji i wylogowanie (bez zmian)
         await sendEmailVerification(user);
-
-        // KROK 5: Teraz bezpiecznie wyloguj użytkownika
         await signOut(auth);
-
-        // KROK 6: Pokaż komunikat o sukcesie weryfikacji
+        
+        // Pokaż komunikat o sukcesie (bez zmian)
         loginForm.style.display = 'none';
         registerForm.style.display = 'none';
         document.getElementById('password-reset-form').style.display = 'none';
@@ -5012,13 +5172,9 @@ passwordResetForm.addEventListener('submit', async (e) => {
 
     } catch (error) {
         console.error("Błąd rejestracji:", error);
-        if (error.code === 'auth/email-already-in-use') {
-            authErrorRegister.textContent = 'Ten adres e-mail jest już zajęty.';
-        } else if (error.code === 'auth/weak-password') {
-            authErrorRegister.textContent = 'Hasło jest zbyt słabe. Użyj co najmniej 6 znaków.';
-        } else {
-            authErrorRegister.textContent = 'Wystąpił błąd podczas rejestracji. Sprawdź konsolę, aby uzyskać więcej informacji.';
-        }
+        authErrorRegister.textContent = error.message.includes("auth/") 
+            ? "Wystąpił błąd systemowy. Sprawdź poprawność danych." 
+            : error.message;
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Zarejestruj się';
@@ -5246,27 +5402,84 @@ DEPARTMENTS.forEach(dep => {
     changeGroupModal.select.appendChild(option);
 });
 
-// Otwieranie modala do zmiany działu
+// Listener otwierający modal zmiany grupy
 settingsModal.openChangeGroupBtn.addEventListener('click', () => {
-    const currentUserGroup = state.currentUser.group || "";
-    changeGroupModal.select.value = currentUserGroup;
+    changeGroupModal.form.reset(); // Czyści formularz
+    changeSubgroupSection.style.display = 'none'; // Ukrywa sekcję podgrup
     openModal(changeGroupModal.overlay);
     closeModal(settingsModal.overlay);
 });
 
-// Zapisywanie zmiany działu
-changeGroupModal.form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const newGroup = changeGroupModal.select.value;
-    if (!newGroup) return;
+// Listener do dynamicznego wczytywania podgrup po wpisaniu nazwy grupy
+changeGroupNameInput.addEventListener('blur', async () => {
+    const groupName = changeGroupNameInput.value.trim();
+    if (!groupName) {
+        changeSubgroupSection.style.display = 'none';
+        return;
+    }
 
     try {
+        const q = query(groupsRef, where("name", "==", groupName));
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+            changeSubgroupSection.style.display = 'none';
+            // Opcjonalnie: można tu dodać informację zwrotną dla użytkownika
+            return;
+        }
+        
+        const groupData = querySnapshot.docs[0].data();
+        if (groupData.subgroups && groupData.subgroups.length > 0) {
+            changeSubgroupSelect.innerHTML = '<option value="">-- Wybierz podgrupę (opcjonalnie) --</option>';
+            groupData.subgroups.forEach(subgroup => {
+                const option = document.createElement('option');
+                option.value = subgroup;
+                option.textContent = subgroup;
+                changeSubgroupSelect.appendChild(option);
+            });
+            changeSubgroupSection.style.display = 'block';
+        } else {
+            changeSubgroupSection.style.display = 'none';
+        }
+    } catch (error) {
+        console.error("Błąd wczytywania podgrup:", error);
+    }
+});
+
+// Listener obsługujący wysłanie formularza zmiany grupy
+changeGroupModal.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const targetGroupName = changeGroupNameInput.value.trim();
+    if (!targetGroupName) return;
+
+    try {
+        // Krok 1: Znajdź grupę docelową w bazie danych
+        const q = query(groupsRef, where("name", "==", targetGroupName));
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+            showNotification("Grupa o podanej nazwie nie istnieje.", "Błąd");
+            return;
+        }
+
+        // Krok 2: Wyciągnij potrzebne dane z znalezionej grupy
+        const groupDoc = querySnapshot.docs[0];
+        const newGroupId = groupDoc.id;
+        const newGroupName = groupDoc.data().name;
+        const newSubgroupName = changeSubgroupSelect.value || null;
+
+        // Krok 3: Zaktualizuj dokument zalogowanego użytkownika
         const userDocRef = doc(usersRef, state.currentUser.uid);
-        await updateDoc(userDocRef, { group: newGroup });
+        await updateDoc(userDocRef, {
+            groupId: newGroupId,
+            groupName: newGroupName,
+            subgroupName: newSubgroupName
+        });
+        
         closeModal(changeGroupModal.overlay);
-        showNotification("Dział został pomyślnie zaktualizowany.", "Sukces");
-    } catch (error) { // <--- POPRAWKA JEST TUTAJ
-        console.error("Błąd podczas aktualizacji działu:", error);
+        showNotification("Przynależność do grupy została zaktualizowana.", "Sukces");
+    } catch (error) {
+        console.error("Błąd podczas zmiany grupy:", error);
         showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
     }
 });
@@ -5322,58 +5535,12 @@ changeGroupModal.form.addEventListener('submit', async (e) => {
 
         newProjectBtn.addEventListener('click', () => {
     newProjectModal.form.reset();
-
-    // ▼▼▼ TERAZ CAŁA LOGIKA JEST WE WŁAŚCIWYM MIEJSCU ▼▼▼
-    const membersContainer = newProjectModal.membersContainer;
-    membersContainer.innerHTML = ''; // 1. Czyścimy kontener na start
-
-    const usersByGroup = state.users.reduce((acc, user) => {
-        const group = user.group || 'Bez działu';
-        if (!acc[group]) {
-            acc[group] = [];
-        }
-        acc[group].push(user);
-        return acc;
-    }, {});
-
-    DEPARTMENTS.forEach(dep => {
-        if (usersByGroup[dep] && usersByGroup[dep].length > 0) {
-            
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'department-group';
-
-            const headerDiv = document.createElement('div');
-            headerDiv.className = 'department-header';
-            headerDiv.innerHTML = `
-                <span>${dep}</span>
-                <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                </svg>
-            `;
-
-            const usersDiv = document.createElement('div');
-            usersDiv.className = 'department-users collapsed';
-
-            usersByGroup[dep].forEach(user => {
-                const isCurrentUser = user.id === state.currentUser.uid;
-                const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
-                const pill = document.createElement('div');
-                pill.className = `member-pill ${isCurrentUser ? 'selected disabled' : ''}`;
-                pill.dataset.userId = user.id;
-                pill.title = user.name || user.email;
-                pill.innerHTML = `${avatarHTML} <span>${user.name || user.email}</span>`;
-                usersDiv.appendChild(pill);
-            });
-
-            groupDiv.appendChild(headerDiv);
-            groupDiv.appendChild(usersDiv);
-            membersContainer.appendChild(groupDiv);
-        }
-    });
-    // ▲▲▲ KONIEC PRZENIESIONEJ LOGIKI ▲▲▲
-
-            openModal(newProjectModal.overlay);
-        });
+    
+    // Używamy nowej funkcji pomocniczej. Domyślnie zaznaczony jest tylko zalogowany użytkownik, który będzie właścicielem.
+    buildTeamMembersAccordion(newProjectModal.membersContainer, [state.currentUser.uid]);
+    
+    openModal(newProjectModal.overlay);
+});
 
         newProjectModal.membersContainer.addEventListener('click', (e) => {
     const header = e.target.closest('.department-header');
@@ -6456,18 +6623,23 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     <div class="modal" style="max-width: 400px;">
         <form id="change-group-form">
             <div class="modal-header">
-                <h2>Zmień dział</h2>
+                <h2>Zmień lub dołącz do grupy</h2>
                 <button type="button" class="modal-close-btn">&times;</button>
             </div>
             <div class="form-modal-content">
+                <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">Wpisz nazwę grupy, do której chcesz dołączyć. Twoje członkostwo w obecnych projektach pozostanie bez zmian.</p>
                 <div class="form-group">
-                    <label for="change-group-select">Wybierz nowy dział</label>
-                    <select id="change-group-select" required></select>
+                    <label for="change-group-name">Nazwa grupy docelowej</label>
+                    <input type="text" id="change-group-name" required>
+                </div>
+                <div class="form-group" id="change-subgroup-section" style="display: none;">
+                    <label for="change-subgroup-select">Wybierz podgrupę (dział)</label>
+                    <select id="change-subgroup-select"></select>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
-                <button type="submit" class="btn btn-primary">Zapisz</button>
+                <button type="submit" class="btn btn-primary">Zmień grupę</button>
             </div>
         </form>
     </div>
@@ -6536,6 +6708,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
