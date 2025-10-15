@@ -4873,36 +4873,38 @@ passwordResetForm.addEventListener('submit', async (e) => {
         // === POCZĄTEK BRAKUJĄCEGO FRAGMENTU DO WKLEJENIA ===
 
         loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-            authErrorLogin.textContent = '';
-            const submitBtn = e.target.querySelector('button[type="submit"]');
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Logowanie...';
+    e.preventDefault();
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    authErrorLogin.textContent = '';
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Logowanie...';
 
-            try {
-                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    try {
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
-                // OPCJONALNE, ALE ZALECANE: Sprawdzenie, czy e-mail został zweryfikowany
-                if (!userCredential.user.emailVerified) {
-                    authErrorLogin.textContent = 'Twoje konto nie zostało jeszcze zweryfikowane. Sprawdź e-mail.';
-                    await signOut(auth); // Ważne: wyloguj użytkownika, jeśli nie zweryfikował konta
-                }
-                // Jeśli weryfikacja jest OK, onAuthStateChanged zajmie się resztą.
+        // --- KLUCZOWY WARUNEK SPRAWDZAJĄCY ---
+        if (!userCredential.user.emailVerified) {
+            authErrorLogin.textContent = 'Twoje konto nie zostało jeszcze zweryfikowane. Sprawdź e-mail.';
+            await signOut(auth); // Wyloguj użytkownika, aby nie pozostał w stanie "pół-zalogowania"
+            // Zakończ działanie funkcji, nie pozwalając na przejście dalej
+            return; 
+        }
+        // Jeśli weryfikacja jest OK, listener onAuthStateChanged zajmie się resztą.
 
-            } catch (error) {
-                console.error("Błąd logowania:", error);
-                if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-                    authErrorLogin.textContent = "Nieprawidłowy email lub hasło.";
-                } else {
-                    authErrorLogin.textContent = "Wystąpił nieoczekiwany błąd logowania.";
-                }
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Zaloguj się';
-            }
-        });
+    } catch (error) {
+        console.error("Błąd logowania:", error);
+        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+            authErrorLogin.textContent = "Nieprawidłowy email lub hasło.";
+        } else {
+            authErrorLogin.textContent = "Wystąpił nieoczekiwany błąd logowania.";
+        }
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Zaloguj się';
+    }
+});
 
         // === KONIEC BRAKUJĄCEGO FRAGMENTU DO WKLEJENIA ===
         mobileThemeSwitcher.appendChild(desktopThemeSwitcher.cloneNode(true));
@@ -4935,49 +4937,49 @@ passwordResetForm.addEventListener('submit', async (e) => {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Rejestrowanie...';
     try {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
 
-        // KROK 1: Wyślij e-mail weryfikacyjny
-        await sendEmailVerification(user);
+    // KROK 1: Wyślij e-mail weryfikacyjny
+    await sendEmailVerification(user);
 
-        // KROK 2: Zapisz dane użytkownika
-        await setDoc(doc(usersRef, user.uid), {
-            uid: user.uid, email: user.email, name: name, group: group,
-            avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-            favorites: [],
-            layouts: {
-                dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
-                allProjects: []
-            }
-        });
+    // --- NOWA, KLUCZOWA LINIA ---
+    // Natychmiast wyloguj nowo utworzonego użytkownika.
+    await signOut(auth); 
+    // --------------------------
 
-        // KROK 3: Stwórz "Skrzynkę zadań"
-        const inboxProject = {
-            name: "Skrzynka zadań", ownerId: user.uid, members: [user.uid],
-            tasks: [], isInbox: true, createdAt: Date.now()
-        };
-        await addDoc(projectsRef, inboxProject);
+    // KROK 2: Zapisz dane użytkownika
+    await setDoc(doc(usersRef, user.uid), {
+        uid: user.uid, email: user.email, name: name, group: group,
+        avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+        favorites: [],
+        layouts: {
+            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+            allProjects: []
+        }
+    });
 
-        // KROK 4: Pokaż komunikat o konieczności weryfikacji (BEZ NISZCZENIA FORMULARZY)
+    // KROK 3: Stwórz "Skrzynkę zadań"
+    const inboxProject = {
+        name: "Skrzynka zadań", ownerId: user.uid, members: [user.uid],
+        tasks: [], isInbox: true, createdAt: Date.now()
+    };
+    await addDoc(projectsRef, inboxProject);
 
-// Ukryj wszystkie formularze
-loginForm.style.display = 'none';
-registerForm.style.display = 'none';
-passwordResetForm.style.display = 'none';
+    // KROK 4: Pokaż komunikat o konieczności weryfikacji
+    const authContainer = document.querySelector('.auth-container');
+    authContainer.innerHTML = `
+        <h2>Rejestracja udana! ✅</h2>
+        <p style="margin-top: 16px; line-height: 1.6;">
+            Wysłaliśmy link aktywacyjny na Twój adres e-mail: <strong>${email}</strong>.
+            <br>
+            Proszę, kliknij w link, aby zweryfikować swoje konto i móc się zalogować.
+        </p>
+        <button id="back-to-login-btn" class="btn btn-primary" style="margin-top: 24px;">Wróć do logowania</button>
+    `;
+    document.getElementById('back-to-login-btn').addEventListener('click', () => window.location.reload());
 
-// Znajdź i pokaż kontener z wiadomością
-const successContainer = document.getElementById('register-success-message');
-document.getElementById('success-email-display').textContent = email;
-successContainer.style.display = 'block';
-
-// Dodaj listener do przycisku powrotu
-document.getElementById('back-to-login-btn').addEventListener('click', () => {
-    // Ukryj wiadomość i pokaż formularz logowania
-    successContainer.style.display = 'none';
-    loginForm.style.display = 'block';
-});
-    } catch (error) {
+} catch (error) { // ...
         console.error("Błąd rejestracji:", error);
         if (error.code === 'auth/email-already-in-use') {
             authErrorRegister.textContent = 'Ten adres e-mail jest już zajęty.';
@@ -6497,6 +6499,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
