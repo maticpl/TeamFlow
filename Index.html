@@ -5041,12 +5041,15 @@ passwordResetForm.addEventListener('submit', async (e) => {
     submitBtn.textContent = 'Rejestrowanie...';
 
     try {
-        // === DANE O GRUPIE DO ZAPISU ===
+        // === KROK A: STWORZENIE UŻYTKOWNIKA W AUTHENTICATION (PRZENIESIONE NA POCZĄTEK) ===
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+
+        // === DANE O GRUPIE DO ZAPISU (logika pozostaje, ale jest wykonywana przez zalogowanego usera) ===
         let groupId = null;
         let groupName = null;
         let subgroupName = null;
 
-        // 1. Sprawdzamy, czy użytkownik pracuje w zespole
         if (registerTeamToggle.checked) {
             const action = document.querySelector('input[name="group-action"]:checked').value;
             const enteredGroupName = registerGroupNameInput.value.trim();
@@ -5056,8 +5059,6 @@ passwordResetForm.addEventListener('submit', async (e) => {
             }
 
             if (action === 'create') {
-                // Tworzymy nową grupę
-                // Sprawdzamy najpierw, czy grupa o takiej nazwie już nie istnieje
                 const qCheck = query(groupsRef, where("name", "==", enteredGroupName));
                 const checkSnapshot = await getDocs(qCheck);
                 if (!checkSnapshot.empty) {
@@ -5065,9 +5066,16 @@ passwordResetForm.addEventListener('submit', async (e) => {
                 }
 
                 groupName = enteredGroupName;
-                // groupId zostanie ustawione na UID użytkownika po jego stworzeniu
+                groupId = user.uid; // ID grupy to UID jej założyciela
+                
+                // Zapisujemy nowy dokument grupy
+                await setDoc(doc(groupsRef, groupId), {
+                    name: groupName,
+                    ownerId: user.uid,
+                    subgroups: []
+                });
+
             } else { // action === 'join'
-                // Dołączamy do istniejącej grupy
                 const q = query(groupsRef, where("name", "==", enteredGroupName));
                 const querySnapshot = await getDocs(q);
 
@@ -5078,11 +5086,9 @@ passwordResetForm.addEventListener('submit', async (e) => {
                 groupId = groupDoc.id;
                 groupName = groupDoc.data().name;
 
-                // Sprawdzamy podgrupę
                 if (registerSubgroupSelect.value === '__CREATE_NEW__') {
                     subgroupName = registerNewSubgroupNameInput.value.trim();
                     if (subgroupName) {
-                        // Aktualizujemy dokument grupy o nową podgrupę
                         const groupRef = doc(groupsRef, groupId);
                         const existingSubgroups = groupDoc.data().subgroups || [];
                         if (!existingSubgroups.includes(subgroupName)) {
@@ -5095,27 +5101,12 @@ passwordResetForm.addEventListener('submit', async (e) => {
                     subgroupName = registerSubgroupSelect.value || null;
                 }
             }
-        }
-
-        // KROK A: Stworzenie użytkownika w Authentication
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-
-        // KROK B: Finalizacja danych o grupie (jeśli tworzymy nową)
-         if (registerTeamToggle.checked && !groupId) { // To znaczy, że tworzyliśmy nową grupę
-            groupId = user.uid; // ID grupy to UID jej założyciela
-            // Zapisujemy nowy dokument grupy
-            await setDoc(doc(groupsRef, groupId), {
-                name: groupName,
-                ownerId: user.uid, // <-- DODAJ TĘ LINIĘ
-                subgroups: [] // Na start pusta tablica podgrup
-            });
-        } else if (!registerTeamToggle.checked) {
+        } else {
             // Użytkownik pracuje sam - jego grupa to on sam
             groupId = user.uid;
         }
 
-        // KROK C: Zapisanie danych użytkownika w Firestore
+        // KROK B: Zapisanie danych użytkownika w Firestore
         await setDoc(doc(usersRef, user.uid), {
             uid: user.uid,
             email: user.email,
@@ -5131,18 +5122,18 @@ passwordResetForm.addEventListener('submit', async (e) => {
             }
         });
 
-        // KROK D: Stworzenie "Skrzynki zadań" (bez zmian)
+        // KROK C: Stworzenie "Skrzynki zadań"
         const inboxProject = {
             name: "Skrzynka zadań", ownerId: user.uid, members: [user.uid],
             tasks: [], isInbox: true, createdAt: Date.now()
         };
         await addDoc(projectsRef, inboxProject);
 
-        // KROK E i F: Wysłanie weryfikacji i wylogowanie (bez zmian)
+        // KROK D i E: Wysłanie weryfikacji i wylogowanie
         await sendEmailVerification(user);
         await signOut(auth);
         
-        // Pokaż komunikat o sukcesie (bez zmian)
+        // Pokaż komunikat o sukcesie
         loginForm.style.display = 'none';
         registerForm.style.display = 'none';
         document.getElementById('password-reset-form').style.display = 'none';
@@ -5167,18 +5158,24 @@ passwordResetForm.addEventListener('submit', async (e) => {
             });
         }
 
-
     } catch (error) {
         console.error("Błąd rejestracji:", error);
-        authErrorRegister.textContent = error.message.includes("auth/") 
-            ? "Wystąpił błąd systemowy. Sprawdź poprawność danych." 
-            : error.message;
+        // Specjalna obsługa, jeśli użytkownik został stworzony w Auth, ale reszta operacji się nie powiodła
+        if (auth.currentUser) {
+            // Można dodać logikę usuwania nowo stworzonego użytkownika, ale jest to skomplikowane.
+            // Prostsze jest poinformowanie go, że coś poszło nie tak.
+            authErrorRegister.textContent = "Wystąpił błąd podczas konfiguracji konta. Spróbuj ponownie.";
+            await signOut(auth); // Wyloguj na wszelki wypadek
+        } else {
+            authErrorRegister.textContent = error.message.includes("auth/email-already-in-use")
+                ? "Ten adres e-mail jest już używany."
+                : error.message;
+        }
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Zarejestruj się';
     }
 });
-
         // Dodaj listener do przycisku "Wróć do logowania" na ekranie sukcesu
         document.getElementById('back-to-login-btn').addEventListener('click', () => {
             document.getElementById('register-success-message').style.display = 'none';
@@ -6819,6 +6816,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
