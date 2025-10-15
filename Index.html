@@ -2795,7 +2795,12 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             title: document.getElementById('dashboard-details-title'),
             content: document.getElementById('dashboard-details-content'),
         };
-
+        const manageGroupModal = {
+    overlay: document.getElementById('manage-group-modal'),
+    subgroupsList: document.getElementById('subgroups-list'),
+    addSubgroupForm: document.getElementById('add-subgroup-form'),
+    newSubgroupNameInput: document.getElementById('new-subgroup-name-input')
+};
         // --- Definicje wszystkich funkcji ---
 
         function initializeCalendar() {
@@ -6289,9 +6294,9 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         // --- CZĘŚĆ 1: Logika otwierania okienek ---
 
 // Ten listener "nasłuchuje" na kliknięcie ikony zębatki w stopce.
-settingsBtn.addEventListener('click', () => {
+settingsBtn.addEventListener('click', async () => {
     const user = state.currentUser;
-    if (!user) return; // Zabezpieczenie
+    if (!user) return;
 
     // Aktualizuje nazwę użytkownika w okienku ustawień
     settingsModal.usernameDisplay.textContent = user.name || user.email;
@@ -6299,8 +6304,106 @@ settingsBtn.addEventListener('click', () => {
     // Używa uniwersalnej funkcji do wstawienia awatara (zdjęcia lub inicjałów)
     settingsModal.avatarPlaceholder.innerHTML = renderAvatarHTML(user, 'avatar-large');
     
+    // SPRAWDZANIE, CZY UŻYTKOWNIK JEST WŁAŚCICIELEM GRUPY
+    if (user.groupId) {
+        const groupRef = doc(groupsRef, user.groupId);
+        const groupSnap = await getDoc(groupRef);
+        if (groupSnap.exists() && groupSnap.data().ownerId === user.uid) {
+            openManageGroupBtn.style.display = 'block'; // Pokaż przycisk zarządzania
+        } else {
+            openManageGroupBtn.style.display = 'none'; // Ukryj przycisk
+        }
+    } else {
+        openManageGroupBtn.style.display = 'none';
+    }
+
     // Na koniec pokazuje główne okno ustawień
     openModal(settingsModal.overlay);
+});
+        // Listener do otwierania modala zarządzania grupą
+openManageGroupBtn.addEventListener('click', async () => {
+    const user = state.currentUser;
+    if (!user || !user.groupId) return;
+
+    try {
+        const groupRef = doc(groupsRef, user.groupId);
+        const groupSnap = await getDoc(groupRef);
+
+        if (groupSnap.exists()) {
+            const subgroups = groupSnap.data().subgroups || [];
+            manageGroupModal.subgroupsList.innerHTML = ''; // Wyczyść listę
+            if (subgroups.length > 0) {
+                subgroups.forEach(name => {
+                    const li = document.createElement('li');
+                    li.className = 'attachment-item'; // Używamy tej samej klasy dla spójnego wyglądu
+                    li.innerHTML = `
+                        <div class="attachment-info">${name}</div>
+                        <button class="delete-attachment-btn js-delete-subgroup" data-name="${name}" title="Usuń podgrupę">&times;</button>
+                    `;
+                    manageGroupModal.subgroupsList.appendChild(li);
+                });
+            } else {
+                manageGroupModal.subgroupsList.innerHTML = '<li>Brak zdefiniowanych podgrup.</li>';
+            }
+        }
+        
+        closeModal(settingsModal.overlay);
+        openModal(manageGroupModal.overlay);
+    } catch (error) {
+        console.error("Błąd otwierania zarządzania grupą:", error);
+        showNotification("Wystąpił błąd.", "Błąd");
+    }
+});
+
+// Listener do dodawania nowej podgrupy
+manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const newName = manageGroupModal.newSubgroupNameInput.value.trim();
+    if (!newName) return;
+
+    const user = state.currentUser;
+    const groupRef = doc(groupsRef, user.groupId);
+
+    try {
+        const groupSnap = await getDoc(groupRef);
+        if (groupSnap.exists()) {
+            const subgroups = groupSnap.data().subgroups || [];
+            if (subgroups.includes(newName)) {
+                showNotification("Podgrupa o tej nazwie już istnieje.", "Informacja");
+                return;
+            }
+            await updateDoc(groupRef, { subgroups: [...subgroups, newName] });
+            manageGroupModal.newSubgroupNameInput.value = ''; // Wyczyść pole
+            openManageGroupBtn.click(); // Odśwież widok modala
+        }
+    } catch (error) {
+        console.error("Błąd dodawania podgrupy:", error);
+    }
+});
+
+// Listener do usuwania podgrupy (delegacja zdarzeń)
+manageGroupModal.subgroupsList.addEventListener('click', async (e) => {
+    if (!e.target.classList.contains('js-delete-subgroup')) return;
+
+    const nameToDelete = e.target.dataset.name;
+    const user = state.currentUser;
+    const groupRef = doc(groupsRef, user.groupId);
+    
+    showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć podgrupę "${nameToDelete}"?`, async (confirmed) => {
+        if (confirmed) {
+            try {
+                const groupSnap = await getDoc(groupRef);
+                if (groupSnap.exists()) {
+                    const subgroups = groupSnap.data().subgroups || [];
+                    const updatedSubgroups = subgroups.filter(name => name !== nameToDelete);
+                    await updateDoc(groupRef, { subgroups: updatedSubgroups });
+                    openManageGroupBtn.click(); // Odśwież widok
+                }
+            } catch (error) {
+                console.error("Błąd usuwania podgrupy:", error);
+            }
+        }
+    }, true);
 });
 
 // Otwieranie okien podrzędnych z głównego menu ustawień
@@ -6571,11 +6674,12 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 <h3 id="settings-username-display"></h3>
             </div>
             <div class="settings-actions">
-                <button id="open-upload-photo-btn" class="btn btn-secondary">Zmień zdjęcie</button>
-                <button id="open-change-username-btn" class="btn btn-secondary">Zmień nazwę</button>
-                <button id="open-change-password-btn" class="btn btn-secondary">Zmień hasło</button>
-                <button id="open-change-group-btn" class="btn btn-secondary">Zmień dział</button>
-            </div>
+    <button id="open-upload-photo-btn" class="btn btn-secondary">Zmień zdjęcie</button>
+    <button id="open-change-username-btn" class="btn btn-secondary">Zmień nazwę</button>
+    <button id="open-change-password-btn" class="btn btn-secondary">Zmień hasło</button>
+    <button id="open-change-group-btn" class="btn btn-secondary">Zmień lub dołącz do grupy</button>
+    <button id="open-manage-group-btn" class="btn btn-primary" style="display: none;">Zarządzaj grupą</button>
+</div>
         </div>
     </div>
 </div>
@@ -6686,9 +6790,31 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </div>
 <input type="file" id="photo-upload-input" style="display: none;" accept="image/png, image/jpeg">
-
+<div class="modal-overlay" id="manage-group-modal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2>Zarządzaj grupą</h2>
+            <button type="button" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="form-modal-content">
+            <h4>Istniejące podgrupy (działy)</h4>
+            <ul id="subgroups-list" class="attachments-list" style="margin-top: 8px;">
+                </ul>
+            <form id="add-subgroup-form" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                <div class="form-group">
+                    <label for="new-subgroup-name-input">Dodaj nową podgrupę</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="new-subgroup-name-input" required placeholder="np. Finanse">
+                        <button type="submit" class="btn btn-primary">Dodaj</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 </body>
 </html>
+
 
 
 
