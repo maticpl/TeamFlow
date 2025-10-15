@@ -1762,20 +1762,35 @@
 
     <div id="auth-overlay">
         <div class="auth-container">
-            <form id="login-form" class="auth-form">
-                <h2>Zaloguj się</h2>
-                <div class="form-group">
-                    <label for="login-email">Email</label>
-                    <input type="email" id="login-email" required>
-                </div>
-                <div class="form-group">
-                    <label for="login-password">Hasło</label>
-                    <input type="password" id="login-password" required>
-                </div>
-                <button type="submit" class="btn btn-primary">Zaloguj się</button>
-                <p id="auth-error-login" class="error-message"></p>
-                <p class="auth-toggle">Nie masz konta? <a id="show-register">Zarejestruj się</a></p>
-            </form>
+           <form id="login-form" class="auth-form">
+    <h2>Zaloguj się</h2>
+    <div class="form-group">
+        <label for="login-email">Email</label>
+        <input type="email" id="login-email" required>
+    </div>
+    <div class="form-group">
+        <label for="login-password">Hasło</label>
+        <input type="password" id="login-password" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Zaloguj się</button>
+    <p id="auth-error-login" class="error-message"></p>
+    <p class="auth-toggle" style="margin-top: 12px;">
+        <a id="show-password-reset" style="font-weight: 500; cursor: pointer;">Zapomniałeś hasła?</a>
+    </p>
+    <p class="auth-toggle">Nie masz konta? <a id="show-register">Zarejestruj się</a></p>
+</form>
+
+<form id="password-reset-form" class="auth-form" style="display: none;">
+    <h2>Zresetuj hasło</h2>
+    <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">Podaj adres e-mail powiązany z Twoim kontem, a wyślemy Ci link do zresetowania hasła.</p>
+    <div class="form-group">
+        <label for="reset-email">Adres e-mail</label>
+        <input type="email" id="reset-email" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Wyślij link</button>
+    <p id="auth-message-reset" class="error-message" style="color: var(--success-primary);"></p>
+    <p class="auth-toggle">Pamiętasz hasło? <a id="show-login-from-reset">Wróć do logowania</a></p>
+</form>
 
             <form id="register-form" class="auth-form">
     <h2>Stwórz konto</h2>
@@ -2471,7 +2486,7 @@
     // ============================
     const { RRule } = rrule;
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
     import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
@@ -4804,6 +4819,49 @@ attachmentsListNewTask.addEventListener('click', (e) => {
         });
 
         // --- LISTENERY ---
+        const passwordResetForm = document.getElementById('password-reset-form');
+const showPasswordResetBtn = document.getElementById('show-password-reset');
+const showLoginFromResetBtn = document.getElementById('show-login-from-reset');
+const authMessageReset = document.getElementById('auth-message-reset');
+
+showPasswordResetBtn.addEventListener('click', () => {
+    loginForm.style.display = 'none';
+    registerForm.style.display = 'none';
+    passwordResetForm.style.display = 'block';
+});
+
+const goBackToLogin = () => {
+    passwordResetForm.style.display = 'none';
+    registerForm.style.display = 'none';
+    loginForm.style.display = 'block';
+};
+
+showLoginFromResetBtn.addEventListener('click', goBackToLogin);
+// Nadpisujemy stary listener, aby uwzględniał nowy formularz
+showLoginBtn.addEventListener('click', goBackToLogin);
+
+passwordResetForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('reset-email').value;
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+
+    authMessageReset.textContent = '';
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Wysyłanie...';
+
+    try {
+        await sendPasswordResetEmail(auth, email);
+        authMessageReset.style.color = 'var(--success-primary)';
+        authMessageReset.textContent = 'Gotowe! Sprawdź swoją skrzynkę e-mail (również folder SPAM) i postępuj zgodnie z instrukcjami.';
+    } catch (error) {
+        console.error("Błąd resetowania hasła:", error);
+        authMessageReset.style.color = 'var(--danger-primary)';
+        authMessageReset.textContent = 'Wystąpił błąd lub konto o takim adresie e-mail nie istnieje.';
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Wyślij link';
+    }
+});
         mobileThemeSwitcher.appendChild(desktopThemeSwitcher.cloneNode(true));
         showRegisterBtn.addEventListener('click', () => {
             loginForm.style.display = 'none';
@@ -4815,118 +4873,76 @@ attachmentsListNewTask.addEventListener('click', (e) => {
         });
 
         registerForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const name = document.getElementById('register-name').value.trim();
-            const email = document.getElementById('register-email').value;
-            const password = document.getElementById('register-password').value;
-            if (!name) {
-                authErrorRegister.textContent = 'Nazwa użytkownika jest wymagana.';
-                return;
+    e.preventDefault();
+    const name = document.getElementById('register-name').value.trim();
+    const email = document.getElementById('register-email').value;
+    const password = document.getElementById('register-password').value;
+    const group = document.getElementById('register-group').value;
+
+    if (!name) {
+        authErrorRegister.textContent = 'Nazwa użytkownika jest wymagana.';
+        return;
+    }
+    if (!group) {
+        authErrorRegister.textContent = 'Musisz wybrać dział.';
+        return;
+    }
+    authErrorRegister.textContent = '';
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Rejestrowanie...';
+    try {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+
+        // KROK 1: Wyślij e-mail weryfikacyjny
+        await sendEmailVerification(user);
+
+        // KROK 2: Zapisz dane użytkownika
+        await setDoc(doc(usersRef, user.uid), {
+            uid: user.uid, email: user.email, name: name, group: group,
+            avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+            favorites: [],
+            layouts: {
+                dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+                allProjects: []
             }
-            authErrorRegister.textContent = '';
-            const submitBtn = e.target.querySelector('button[type="submit"]');
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Rejestrowanie...';
-            try {
-                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                const user = userCredential.user;
+        });
 
-                const group = document.getElementById('register-group').value; // <-- DODANA LINIA
+        // KROK 3: Stwórz "Skrzynkę zadań"
+        const inboxProject = {
+            name: "Skrzynka zadań", ownerId: user.uid, members: [user.uid],
+            tasks: [], isInbox: true, createdAt: Date.now()
+        };
+        await addDoc(projectsRef, inboxProject);
 
-await setDoc(doc(usersRef, user.uid), {
-    uid: user.uid,
-    email: user.email,
-    name: name,
-    group: group, // <-- DODANA LINIA
-    avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-    favorites: [],
+        // KROK 4: Pokaż komunikat o konieczności weryfikacji
+        const authContainer = document.querySelector('.auth-container');
+        authContainer.innerHTML = `
+            <h2>Rejestracja udana! ✅</h2>
+            <p style="margin-top: 16px; line-height: 1.6;">
+                Wysłaliśmy link aktywacyjny na Twój adres e-mail: <strong>${email}</strong>.
+                <br>
+                Proszę, kliknij w link, aby zweryfikować swoje konto i móc się zalogować.
+            </p>
+            <button id="back-to-login-btn" class="btn btn-primary" style="margin-top: 24px;">Wróć do logowania</button>
+        `;
+        document.getElementById('back-to-login-btn').addEventListener('click', () => window.location.reload());
+
+    } catch (error) {
+        console.error("Błąd rejestracji:", error);
+        if (error.code === 'auth/email-already-in-use') {
+            authErrorRegister.textContent = 'Ten adres e-mail jest już zajęty.';
+        } else if (error.code === 'auth/weak-password') {
+            authErrorRegister.textContent = 'Hasło jest zbyt słabe. Użyj co najmniej 6 znaków.';
+        } else {
+            authErrorRegister.textContent = 'Wystąpił błąd podczas rejestracji.';
+        }
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Zarejestruj się';
+    }
 });
-
-                const inboxProject = {
-                    name: "Skrzynka zadań",
-                    ownerId: user.uid,
-                    members: [user.uid],
-                    tasks: [],
-                    isInbox: true,
-                    createdAt: Date.now()
-                };
-                await addDoc(projectsRef, inboxProject);
-
-            } catch (error) {
-                console.error("Błąd rejestracji:", error);
-                authErrorRegister.textContent = error.message;
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Zarejestruj się';
-            }
-        });
-        moveTaskModal.confirmBtn.addEventListener('click', async () => {
-            const {
-                taskId,
-                sourceProjectId
-            } = moveTaskModal.overlay.dataset;
-            const selectedRadio = moveTaskModal.projectList.querySelector('input[name="destination-project"]:checked');
-
-            if (!selectedRadio) {
-                showNotification("Musisz wybrać projekt docelowy.", "Błąd");
-                return;
-            }
-
-            const destinationProjectId = selectedRadio.value;
-            const sourceProject = findProject(sourceProjectId);
-            const destinationProject = findProject(destinationProjectId);
-            if (!sourceProject || !destinationProject || !taskId) {
-                showNotification("Wystąpił błąd podczas przenoszenia zadania.", "Błąd");
-                return;
-            }
-
-            const taskToMove = sourceProject.tasks.find(t => t.id === taskId);
-            if (!taskToMove) return;
-
-            const updatedSourceTasks = sourceProject.tasks.filter(t => t.id !== taskId);
-            const updatedDestinationTasks = [...(destinationProject.tasks || []), taskToMove];
-
-            const batch = writeBatch(db);
-
-            const sourceDocRef = doc(projectsRef, sourceProjectId);
-            batch.update(sourceDocRef, {
-                tasks: updatedSourceTasks
-            });
-
-            const destinationDocRef = doc(projectsRef, destinationProjectId);
-            batch.update(destinationDocRef, {
-                tasks: updatedDestinationTasks
-            });
-
-            try {
-                await batch.commit();
-                closeModal(moveTaskModal.overlay);
-                closeModal(taskModal.overlay);
-                showNotification("Zadanie zostało pomyślnie przeniesione.", "Sukces");
-            } catch (error) {
-                console.error("Błąd podczas przenoszenia zadania:", error);
-                showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
-            }
-        });
-
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('login-email').value;
-            const password = document.getElementById('login-password').value;
-            authErrorLogin.textContent = '';
-            const submitBtn = e.target.querySelector('button[type="submit"]');
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Logowanie...';
-            try {
-                await signInWithEmailAndPassword(auth, email, password);
-            } catch (error) {
-                console.error("Błąd logowania:", error);
-                authErrorLogin.textContent = "Nieprawidłowy email lub hasło.";
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Zaloguj się';
-            }
-        });
 
         logoutBtn.addEventListener('click', () => signOut(auth));
         newTaskModal.projectSelect.addEventListener('change', (e) => {
@@ -6433,6 +6449,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
