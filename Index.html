@@ -4956,62 +4956,80 @@ passwordResetForm.addEventListener('submit', async (e) => {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Rejestrowanie...';
     try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
+        // KROK 1: Utwórz użytkownika w Firebase Authentication
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
 
-    // KROK 1: Wyślij e-mail weryfikacyjny
-    await sendEmailVerification(user);
+        // KROK 2: Zapisz dane użytkownika do Firestore (przed wylogowaniem!)
+        await setDoc(doc(usersRef, user.uid), {
+            uid: user.uid, email: user.email, name: name, group: group,
+            avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+            favorites: [],
+            layouts: {
+                dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+                allProjects: []
+            }
+        });
 
-    // --- NOWA, KLUCZOWA LINIA ---
-    // Natychmiast wyloguj nowo utworzonego użytkownika.
-    await signOut(auth); 
-    // --------------------------
+        // KROK 3: Stwórz "Skrzynkę zadań" (przed wylogowaniem!)
+        const inboxProject = {
+            name: "Skrzynka zadań", ownerId: user.uid, members: [user.uid],
+            tasks: [], isInbox: true, createdAt: Date.now()
+        };
+        await addDoc(projectsRef, inboxProject);
 
-    // KROK 2: Zapisz dane użytkownika
-    await setDoc(doc(usersRef, user.uid), {
-        uid: user.uid, email: user.email, name: name, group: group,
-        avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-        favorites: [],
-        layouts: {
-            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
-            allProjects: []
+        // KROK 4: Wyślij e-mail weryfikacyjny
+        await sendEmailVerification(user);
+
+        // KROK 5: Teraz bezpiecznie wyloguj użytkownika
+        await signOut(auth);
+
+        // KROK 6: Pokaż komunikat o sukcesie weryfikacji
+        loginForm.style.display = 'none';
+        registerForm.style.display = 'none';
+        document.getElementById('password-reset-form').style.display = 'none';
+        
+        const successMessageContainer = document.getElementById('register-success-message');
+        const emailDisplay = document.getElementById('success-email-display');
+        
+        if (emailDisplay) {
+            emailDisplay.textContent = email;
         }
-    });
+        if (successMessageContainer) {
+            successMessageContainer.style.display = 'block';
+        }
+        
+        const backToLoginBtn = document.getElementById('back-to-login-btn');
+        if (backToLoginBtn) {
+            backToLoginBtn.addEventListener('click', () => {
+                if (successMessageContainer) {
+                    successMessageContainer.style.display = 'none';
+                }
+                loginForm.style.display = 'block';
+            });
+        }
 
-    // KROK 3: Stwórz "Skrzynkę zadań"
-    const inboxProject = {
-        name: "Skrzynka zadań", ownerId: user.uid, members: [user.uid],
-        tasks: [], isInbox: true, createdAt: Date.now()
-    };
-    await addDoc(projectsRef, inboxProject);
 
-    // KROK 4: Pokaż komunikat o konieczności weryfikacji
-    const authContainer = document.querySelector('.auth-container');
-    authContainer.innerHTML = `
-        <h2>Rejestracja udana! ✅</h2>
-        <p style="margin-top: 16px; line-height: 1.6;">
-            Wysłaliśmy link aktywacyjny na Twój adres e-mail: <strong>${email}</strong>.
-            <br>
-            Proszę, kliknij w link, aby zweryfikować swoje konto i móc się zalogować.
-        </p>
-        <button id="back-to-login-btn" class="btn btn-primary" style="margin-top: 24px;">Wróć do logowania</button>
-    `;
-    document.getElementById('back-to-login-btn').addEventListener('click', () => window.location.reload());
-
-} catch (error) { // ...
+    } catch (error) {
         console.error("Błąd rejestracji:", error);
         if (error.code === 'auth/email-already-in-use') {
             authErrorRegister.textContent = 'Ten adres e-mail jest już zajęty.';
         } else if (error.code === 'auth/weak-password') {
             authErrorRegister.textContent = 'Hasło jest zbyt słabe. Użyj co najmniej 6 znaków.';
         } else {
-            authErrorRegister.textContent = 'Wystąpił błąd podczas rejestracji.';
+            authErrorRegister.textContent = 'Wystąpił błąd podczas rejestracji. Sprawdź konsolę, aby uzyskać więcej informacji.';
         }
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Zarejestruj się';
     }
 });
+
+        // Dodaj listener do przycisku "Wróć do logowania" na ekranie sukcesu
+        document.getElementById('back-to-login-btn').addEventListener('click', () => {
+            document.getElementById('register-success-message').style.display = 'none';
+            loginForm.style.display = 'block';
+        });
 
         logoutBtn.addEventListener('click', () => signOut(auth));
         newTaskModal.projectSelect.addEventListener('change', (e) => {
@@ -6518,6 +6536,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
 </body>
 </html>
+
 
 
 
