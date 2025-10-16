@@ -497,8 +497,11 @@
         .task-modal-section .activity-list {
             max-height: 200px;
         }
-        .description textarea { width: 100%; min-height: 120px; padding: 8px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-primary); font-family: var(--font-family); font-size: 14px; resize: vertical; }
-        .completion-status-list { list-style: none; }
+        #tab-content-description {
+            display: flex;
+            height: 100%;
+        }
+        .description textarea { width: 100%; flex-grow: 1; padding: 8px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-primary); font-family: var(--font-family); font-size: 14px; resize: vertical; }
         .completion-status-item { display: flex; align-items: center; justify-content: space-between; padding: 8px; border-radius: var(--border-radius); transition: background-color 0.2s; }
         .completion-status-item:hover { background-color: var(--bg-tertiary); }
         .completion-status-item .user-info { display: flex; align-items: center; gap: 8px; }
@@ -6749,6 +6752,63 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             render();
         });
     });
+       // NOWY LISTENER: Otwieranie modala zmiany podgrupy
+        openChangeSubgroupBtn.addEventListener('click', async () => {
+            const user = state.currentUser;
+            // Sprawdzamy, czy użytkownik jest w grupie "wieloosobowej"
+            if (!user || !user.groupId || user.groupId === user.uid) {
+                showNotification("Ta opcja jest dostępna tylko dla członków grupy.", "Informacja");
+                return;
+            }
+
+            try {
+                const groupRef = doc(groupsRef, user.groupId);
+                const groupSnap = await getDoc(groupRef);
+
+                if (groupSnap.exists()) {
+                    const subgroups = groupSnap.data().subgroups || [];
+                    if (subgroups.length === 0) {
+                        showNotification("Twoja grupa nie ma zdefiniowanych żadnych podgrup (działów).", "Informacja");
+                        return;
+                    }
+
+                    // Wypełnij listę select i zaznacz obecny dział użytkownika
+                    changeSubgroupModal.select.innerHTML = subgroups.map(name => 
+                        `<option value="${name}" ${user.subgroupName === name ? 'selected' : ''}>${name}</option>`
+                    ).join('');
+                    
+                    closeModal(settingsModal.overlay);
+                    openModal(changeSubgroupModal.overlay);
+                }
+            } catch (error) {
+                console.error("Błąd wczytywania podgrup:", error);
+                showNotification("Wystąpił błąd podczas wczytywania działów.", "Błąd");
+            }
+        });
+
+        // NOWY LISTENER: Zapisywanie zmiany podgrupy
+        changeSubgroupModal.form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const newSubgroup = changeSubgroupModal.select.value;
+            if (!newSubgroup) {
+                showNotification("Musisz wybrać dział z listy.", "Błąd");
+                return;
+            }
+
+            try {
+                const userRef = doc(usersRef, state.currentUser.uid);
+                await updateDoc(userRef, {
+                    subgroupName: newSubgroup
+                });
+
+                closeModal(changeSubgroupModal.overlay);
+                showNotification("Dział został pomyślnie zaktualizowany.", "Sukces");
+            } catch (error) {
+                console.error("Błąd aktualizacji podgrupy:", error);
+                showNotification("Wystąpił błąd podczas zapisywania zmiany.", "Błąd");
+            }
+        });
+    });
 </script>
     <div class="modal-overlay" id="settings-modal">
     <div class="modal" style="max-width: 420px;">
@@ -6927,8 +6987,31 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         </form>
     </div>
 </div>
+    <div class="modal-overlay" id="change-subgroup-modal">
+    <div class="modal" style="max-width: 400px;">
+        <form id="change-subgroup-form">
+            <div class="modal-header">
+                <h2>Zmień podgrupę (dział)</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">Wybierz z listy nowy dział, do którego chcesz być przypisany/a.</p>
+                <div class="form-group">
+                    <label for="change-subgroup-select-list">Dostępne działy</label>
+                    <select id="change-subgroup-select-list" required>
+                        </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="submit" class="btn btn-primary">Zapisz zmianę</button>
+            </div>
+        </form>
+    </div>
+</div>
 </body>
 </html>
+
 
 
 
