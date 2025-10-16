@@ -4933,25 +4933,38 @@ attachmentsListNewTask.addEventListener('click', (e) => {
         id: doc.id,
         ...doc.data()
     }));
-                window.testNotificationsRead = async function() {
-            console.log("▶️ Uruchamiam test odczytu powiadomień...");
-            try {
-                // Używamy ścieżki zagnieżdżonej, tak jak jest w kodzie aplikacji
-                const testNotificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-                console.log("Ścieżka do kolekcji:", testNotificationsRef.path);
+                // ✅ Poprawiona funkcja testująca odczyt powiadomień
+window.testNotificationsRead = async function() {
+  try {
+    const user = auth.currentUser;
+    if (!user) {
+      console.warn("Brak zalogowanego użytkownika — zaloguj się, aby przetestować odczyt powiadomień.");
+      alert("Najpierw się zaloguj!");
+      return;
+    }
 
-                const querySnapshot = await getDocs(testNotificationsRef);
-                
-                console.log(`✅ SUKCES! Odczytano ${querySnapshot.size} dokument(ów) z kolekcji powiadomień.`);
-                querySnapshot.forEach(doc => {
-                    console.log("Dokument:", doc.id, "=>", doc.data());
-                });
+    // 🔹 Odwołanie do kolekcji powiadomień w Firestore
+    const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
 
-            } catch (error) {
-                console.error("❌ BŁĄD PODCZAS TESTU ODCZYTU:", error.code, error.message);
-                console.error("Pełny obiekt błędu:", error);
-            }
-        }
+    // 🔹 Zapytanie zgodne z regułami Firestore — tylko dokumenty przypisane do zalogowanego użytkownika
+    const q = query(notificationsRef, where("userId", "==", user.uid));
+
+    // 🔹 Pobranie i logowanie wyników
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+      console.log("Brak powiadomień dla użytkownika:", user.uid);
+      alert("Brak powiadomień do wyświetlenia.");
+    } else {
+      const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      console.log("✅ Sukces — odczytano powiadomienia:", results);
+      alert(`Odczytano ${results.length} powiadomień. Sprawdź konsolę.`);
+    }
+  } catch (error) {
+    console.error("❌ Błąd podczas testu odczytu powiadomień:", error);
+    alert(`Błąd odczytu powiadomień: ${error.message}`);
+  }
+};
         // ============================================
     // === POCZĄTEK ZMIANY ===
     // Upewnij się, że istnieje "Skrzynka zadań" DLA ZALOGOWANEGO UŻYTKOWNIKA
@@ -7323,6 +7336,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
