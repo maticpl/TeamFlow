@@ -4446,6 +4446,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             } = findTask(taskId);
             if (!task || !project) return;
 
+            // Zapisujemy starą listę przypisanych osób PRZED wprowadzeniem zmian
+            const oldAssignees = task.assignees || [];
+
             const newTitle = taskModal.titleInput.value.trim();
             if (!newTitle) {
                 showNotification("Tytuł zadania nie może być pusty.", "Błąd");
@@ -4528,6 +4531,31 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 await updateDoc(projectDocRef, {
                     tasks: tasks
                 });
+
+                // === NOWA LOGIKA - POWIADOMIENIA PRZY EDYCJI ZADANIA ===
+                const newlyAssigned = newAssignees.filter(id => !oldAssignees.includes(id));
+                if (newlyAssigned.length > 0) {
+                    const batch = writeBatch(db);
+                    const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+                    
+                    newlyAssigned.forEach(assigneeId => {
+                        if (assigneeId === state.currentUser.uid) return;
+
+                        const notification = {
+                            userId: assigneeId,
+                            type: 'task_assigned',
+                            message: `<strong>${state.currentUser.name}</strong> przypisał/a Cię do zadania "<strong>${updatedTask.title}</strong>" w projekcie <em>${project.name}</em>.`,
+                            isRead: false,
+                            timestamp: Date.now(),
+                            link: { type: 'task', projectId: project.id, taskId: updatedTask.id }
+                        };
+                        const newNotifRef = doc(notificationsRef);
+                        batch.set(newNotifRef, notification);
+                    });
+                    await batch.commit();
+                }
+                // === KONIEC NOWEJ LOGIKI ===
+
                 if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
                 showNotification("Zmiany w zadaniu zostały zapisane.", "Sukces");
                 closeModal(taskModal.overlay);
@@ -4952,6 +4980,18 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                 }));
                 render();
             }, (error) => console.error("Błąd odczytu zakończonych projektów:", error));
+
+            // === NOWY BLOK - NASŁUCHIWANIE NA POWIADOMIENIA ===
+            if (state.ui.unsubscribeNotifications) state.ui.unsubscribeNotifications();
+            const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+            const notificationsQuery = query(notificationsRef, where("userId", "==", userId));
+            state.ui.unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
+                state.notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // Sortujemy od najnowszego do najstarszego
+                state.notifications.sort((a, b) => b.timestamp - a.timestamp);
+                render(); // Przerenderuj UI, aby zaktualizować dzwonek
+            }, (error) => console.error("Błąd odczytu powiadomień:", error));
+            // === KONIEC NOWEGO BLOKU ===
         }
         loadUiState();
         initializeCalendar();
@@ -5826,6 +5866,29 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 }))
             };
             const docRef = await addDoc(projectsRef, newProject);
+
+            // === NOWA LOGIKA - POWIADOMIENIA O DODANIU DO PROJEKTU ===
+            const batch = writeBatch(db);
+            const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+            
+            selectedMembers.forEach(memberId => {
+                // Nie wysyłaj powiadomienia do samego siebie
+                if (memberId === state.currentUser.uid) return;
+
+                const notification = {
+                    userId: memberId,
+                    type: 'project_invite',
+                    message: `<strong>${state.currentUser.name}</strong> dodał/a Cię do projektu "<strong>${newName}</strong>".`,
+                    isRead: false,
+                    timestamp: Date.now(),
+                    link: { type: 'project', projectId: docRef.id } // Link do projektu
+                };
+                const newNotifRef = doc(notificationsRef);
+                batch.set(newNotifRef, notification);
+            });
+            await batch.commit();
+            // === KONIEC NOWEJ LOGIKI ===
+
             state.currentProjectId = docRef.id;
             state.ui.currentView = 'projects';
             saveUiState();
@@ -6244,6 +6307,36 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             await updateDoc(projectDocRef, {
                 tasks: updatedTasks
             });
+
+            // === NOWA LOGIKA - POWIADOMIENIA O WZMIANKACH ===
+            const mentionRegex = /@(\w+)/g;
+            const mentions = commentText.match(mentionRegex);
+            if (mentions) {
+                const mentionedUsernames = mentions.map(m => m.substring(1));
+                const usersToNotify = state.users.filter(u => mentionedUsernames.includes(u.name.toLowerCase()));
+                
+                if (usersToNotify.length > 0) {
+                    const batch = writeBatch(db);
+                    const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+                    usersToNotify.forEach(userToNotify => {
+                        // Nie wysyłaj powiadomienia do samego siebie
+                        if (userToNotify.id === state.currentUser.uid) return;
+
+                        const notification = {
+                            userId: userToNotify.id,
+                            type: 'mention',
+                            message: `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie w komentarzu w zadaniu "<strong>${task.title}</strong>".`,
+                            isRead: false,
+                            timestamp: Date.now(),
+                            link: { type: 'task', projectId: project.id, taskId: task.id }
+                        };
+                        const newNotifRef = doc(notificationsRef);
+                        batch.set(newNotifRef, notification);
+                    });
+                    await batch.commit();
+                }
+            }
+            // === KONIEC NOWEJ LOGIKI ===
 
             taskModal.newCommentText.value = '';
             openTaskModal(taskId);
@@ -7205,6 +7298,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
