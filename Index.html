@@ -4813,7 +4813,65 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                 notificationToggleBtn.title = 'Kliknij, aby włączyć powiadomienia';
             }
         }
+        async function handleFirstLoginSubgroupSelection(userId, groupId) {
+            const modal = {
+                overlay: document.getElementById('select-subgroup-modal'),
+                form: document.getElementById('select-subgroup-form'),
+                select: document.getElementById('subgroup-selection-select'),
+            };
 
+            try {
+                // Krok 1: Pobierz dane grupy, aby znaleźć dostępne podgrupy
+                const groupDoc = await getDoc(doc(groupsRef, groupId));
+                if (!groupDoc.exists()) {
+                    throw new Error("Nie znaleziono Twojej grupy. Skontaktuj się z administratorem.");
+                }
+
+                const subgroups = groupDoc.data().subgroups || [];
+                if (subgroups.length === 0) {
+                     // Jeśli grupa nie ma działów, oznaczamy, że użytkownik "wybrał" (bo nie miał z czego) i kontynuujemy.
+                    await updateDoc(doc(usersRef, userId), { hasSelectedSubgroup: true });
+                    return; // Zakończ funkcję
+                }
+
+                // Krok 2: Wypełnij listę wyboru w modalu
+                modal.select.innerHTML = '<option value="">-- Proszę wybrać --</option>';
+                subgroups.forEach(name => {
+                    modal.select.innerHTML += `<option value="${name}">${name}</option>`;
+                });
+
+                // Krok 3: Pokaż modal i poczekaj na akcję użytkownika
+                authOverlay.style.display = 'none'; // Ukryj ekran logowania
+                openModal(modal.overlay);
+
+                // Krok 4: Zwróć Promise, który rozwiąże się po wysłaniu formularza
+                return new Promise(resolve => {
+                    modal.form.addEventListener('submit', async (e) => {
+                        e.preventDefault();
+                        const selectedSubgroup = modal.select.value;
+                        if (!selectedSubgroup) {
+                            alert("Proszę wybrać dział z listy.");
+                            return;
+                        }
+
+                        // Zaktualizuj profil użytkownika w Firestore
+                        await updateDoc(doc(usersRef, userId), {
+                            subgroupName: selectedSubgroup,
+                            hasSelectedSubgroup: true
+                        });
+
+                        closeModal(modal.overlay);
+                        resolve(); // Rozwiąż Promise, aby onAuthStateChanged mógł kontynuować
+                    }, { once: true }); // 'once: true' sprawia, że listener uruchomi się tylko raz
+                });
+
+            } catch (error) {
+                console.error("Błąd podczas wyboru podgrupy:", error);
+                // W przypadku błędu, wylogowujemy użytkownika, aby mógł spróbować ponownie
+                await signOut(auth);
+                alert("Wystąpił krytyczny błąd podczas konfiguracji konta: " + error.message);
+            }
+        }
          onAuthStateChanged(auth, async (user) => {
     // Jeśli Firebase twierdzi, że użytkownik jest zalogowany...
     if (user) {
@@ -6838,6 +6896,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
