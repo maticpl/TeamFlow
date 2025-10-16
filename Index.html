@@ -6356,17 +6356,43 @@ openManageGroupBtn.addEventListener('click', async () => {
     const user = state.currentUser;
     if (!user || !user.groupId) return;
 
+    // Pobieramy referencję do nowego elementu HTML
+    const membersListEl = document.getElementById('group-members-list');
+    
     try {
         const groupRef = doc(groupsRef, user.groupId);
         const groupSnap = await getDoc(groupRef);
 
         if (groupSnap.exists()) {
-            const subgroups = groupSnap.data().subgroups || [];
-            manageGroupModal.subgroupsList.innerHTML = ''; // Wyczyść listę
+            const groupData = groupSnap.data();
+            const subgroups = groupData.subgroups || [];
+            
+            // --- NOWA LOGIKA: Wypełnianie listy członków ---
+            const groupMembers = state.users.filter(u => u.groupId === user.groupId && u.uid !== groupData.ownerId);
+            membersListEl.innerHTML = '';
+            if (groupMembers.length > 0) {
+                groupMembers.forEach(member => {
+                    const li = document.createElement('li');
+                    li.className = 'attachment-item';
+                    li.innerHTML = `
+                        <div class="attachment-info">
+                            ${renderAvatarHTML(member, 'avatar-comment')}
+                            <span>${member.name || member.email}</span>
+                        </div>
+                        <button class="delete-attachment-btn js-delete-member" data-user-id="${member.id}" title="Usuń z grupy">&times;</button>
+                    `;
+                    membersListEl.appendChild(li);
+                });
+            } else {
+                membersListEl.innerHTML = '<li>Brak innych członków w tej grupie.</li>';
+            }
+            
+            // --- Istniejąca logika dla podgrup (bez zmian) ---
+            manageGroupModal.subgroupsList.innerHTML = ''; 
             if (subgroups.length > 0) {
                 subgroups.forEach(name => {
                     const li = document.createElement('li');
-                    li.className = 'attachment-item'; // Używamy tej samej klasy dla spójnego wyglądu
+                    li.className = 'attachment-item';
                     li.innerHTML = `
                         <div class="attachment-info">${name}</div>
                         <button class="delete-attachment-btn js-delete-subgroup" data-name="${name}" title="Usuń podgrupę">&times;</button>
@@ -6413,30 +6439,61 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 });
 
 // Listener do usuwania podgrupy (delegacja zdarzeń)
-manageGroupModal.subgroupsList.addEventListener('click', async (e) => {
-    if (!e.target.classList.contains('js-delete-subgroup')) return;
-
-    const nameToDelete = e.target.dataset.name;
-    const user = state.currentUser;
-    const groupRef = doc(groupsRef, user.groupId);
-    
-    showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć podgrupę "${nameToDelete}"?`, async (confirmed) => {
-        if (confirmed) {
-            try {
-                const groupSnap = await getDoc(groupRef);
-                if (groupSnap.exists()) {
-                    const subgroups = groupSnap.data().subgroups || [];
-                    const updatedSubgroups = subgroups.filter(name => name !== nameToDelete);
-                    await updateDoc(groupRef, { subgroups: updatedSubgroups });
-                    openManageGroupBtn.click(); // Odśwież widok
+manageGroupModal.overlay.addEventListener('click', async (e) => {
+    // Obsługa usuwania podgrupy
+    if (e.target.classList.contains('js-delete-subgroup')) {
+        const nameToDelete = e.target.dataset.name;
+        const user = state.currentUser;
+        const groupRef = doc(groupsRef, user.groupId);
+        
+        showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć podgrupę "${nameToDelete}"?`, async (confirmed) => {
+            if (confirmed) {
+                try {
+                    const groupSnap = await getDoc(groupRef);
+                    if (groupSnap.exists()) {
+                        const subgroups = groupSnap.data().subgroups || [];
+                        const updatedSubgroups = subgroups.filter(name => name !== nameToDelete);
+                        await updateDoc(groupRef, { subgroups: updatedSubgroups });
+                        openManageGroupBtn.click();
+                    }
+                } catch (error) {
+                    console.error("Błąd usuwania podgrupy:", error);
                 }
-            } catch (error) {
-                console.error("Błąd usuwania podgrupy:", error);
             }
-        }
-    }, true);
-});
+        }, true);
+    }
 
+    // NOWA LOGIKA: Obsługa usuwania członka
+    if (e.target.classList.contains('js-delete-member')) {
+        const userIdToRemove = e.target.dataset.userId;
+        const userToRemove = findUser(userIdToRemove);
+        if (!userToRemove) return;
+
+        showConfirmation(
+            "Potwierdź usunięcie członka", 
+            `Czy na pewno chcesz usunąć "${userToRemove.name || userToRemove.email}" z grupy? Użytkownik straci dostęp do przyszłych projektów, ale jego konto nie zostanie usunięte.`, 
+            async (confirmed) => {
+                if (confirmed) {
+                    try {
+                        const userToRemoveRef = doc(usersRef, userIdToRemove);
+                        // Zmieniamy groupId na własne UID, czyniąc go użytkownikiem indywidualnym
+                        await updateDoc(userToRemoveRef, {
+                            groupId: userIdToRemove,
+                            groupName: null,
+                            subgroupName: null // Czyścimy też dział
+                        });
+                        showNotification("Użytkownik został usunięty z grupy.", "Sukces");
+                        openManageGroupBtn.click(); // Odśwież widok modala
+                    } catch (error) {
+                        console.error("Błąd usuwania użytkownika z grupy:", error);
+                        showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+                    }
+                }
+            }, 
+            true
+        );
+    }
+});
 // Otwieranie okien podrzędnych z głównego menu ustawień
 settingsModal.openUploadBtn.addEventListener('click', () => photoUploadInput.click());
 
@@ -6828,9 +6885,13 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             <button type="button" class="modal-close-btn">&times;</button>
         </div>
         <div class="form-modal-content">
-            <h4>Istniejące podgrupy (działy)</h4>
-            <ul id="subgroups-list" class="attachments-list" style="margin-top: 8px;">
+            <h4>Członkowie zespołu</h4>
+            <ul id="group-members-list" class="attachments-list" style="margin-top: 8px;">
                 </ul>
+
+            <h4 style="margin-top: 24px;">Istniejące podgrupy (działy)</h4>
+            <ul id="subgroups-list" class="attachments-list" style="margin-top: 8px;">
+            </ul>
             <form id="add-subgroup-form" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 16px;">
                 <div class="form-group">
                     <label for="new-subgroup-name-input">Dodaj nową podgrupę</label>
@@ -6868,6 +6929,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
