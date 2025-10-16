@@ -2989,7 +2989,7 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             projectActionsEl.style.display = 'none';
             projectProgressEl.innerHTML = '';
             sortBtn.style.display = 'none';
-            kanbanBoardEl.className = '';
+            kanbanBoardEl.className = 'my-day-view';
             kanbanBoardEl.removeAttribute('style');
 
             const myTasks = getAllMyTasks();
@@ -4816,8 +4816,8 @@ attachmentsListNewTask.addEventListener('click', (e) => {
     // Jeśli Firebase twierdzi, że użytkownik jest zalogowany...
     if (user) {
         
-        const userDocRef = doc(usersRef, user.uid);
-        const userDoc = await getDoc(userDocRef);
+        let userDocRef = doc(usersRef, user.uid);
+        let userDoc = await getDoc(userDocRef);
 
         // --- INTELIGENTNA WERYFIKACJA ---
         // Sprawdzamy, czy to jest świeżo zarejestrowany użytkownik.
@@ -4849,6 +4849,17 @@ attachmentsListNewTask.addEventListener('click', (e) => {
              return;
         }
         // --- KONIEC INTELIGENTNEJ WERYFIKACJI ---
+
+        // NOWA LOGIKA: Sprawdzanie flagi i wymuszanie wyboru podgrupy
+        if (userData && userData.hasSelectedSubgroup === false && userData.groupId && userData.groupId !== user.uid) {
+            // Użytkownik musi wybrać podgrupę, zanim zobaczy aplikację.
+            // Ta funkcja rozwiąże Promise dopiero po zapisaniu wyboru.
+            await handleFirstLoginSubgroupSelection(user.uid, userData.groupId);
+            
+            // Po dokonaniu wyboru, musimy odświeżyć dane użytkownika
+            userDoc = await getDoc(userDocRef);
+            userData = userDoc.data();
+        }
 
         // Jeśli dotarliśmy tutaj, użytkownik na 100% istnieje i ma dane. Kontynuujemy normalnie.
         state.currentUser = {
@@ -5065,7 +5076,7 @@ passwordResetForm.addEventListener('submit', async (e) => {
         // === DANE O GRUPIE DO ZAPISU (logika pozostaje, ale jest wykonywana przez zalogowanego usera) ===
         let groupId = null;
         let groupName = null;
-        let subgroupName = null;
+        // USUNIĘTO: let subgroupName = null;
 
         if (registerTeamToggle.checked) {
             const action = document.querySelector('input[name="group-action"]:checked').value;
@@ -5103,20 +5114,7 @@ passwordResetForm.addEventListener('submit', async (e) => {
                 groupId = groupDoc.id;
                 groupName = groupDoc.data().name;
 
-                if (registerSubgroupSelect.value === '__CREATE_NEW__') {
-                    subgroupName = registerNewSubgroupNameInput.value.trim();
-                    if (subgroupName) {
-                        const groupRef = doc(groupsRef, groupId);
-                        const existingSubgroups = groupDoc.data().subgroups || [];
-                        if (!existingSubgroups.includes(subgroupName)) {
-                            await updateDoc(groupRef, {
-                                subgroups: [...existingSubgroups, subgroupName]
-                            });
-                        }
-                    }
-                } else {
-                    subgroupName = registerSubgroupSelect.value || null;
-                }
+                // USUNIĘTO CAŁĄ LOGIKĘ WYBORU PODGRUPY
             }
         } else {
             // Użytkownik pracuje sam - jego grupa to on sam
@@ -5130,7 +5128,8 @@ passwordResetForm.addEventListener('submit', async (e) => {
             name: name,
             groupId: groupId,
             groupName: groupName,
-            subgroupName: subgroupName,
+            subgroupName: null, // ZAWSZE null przy rejestracji
+            hasSelectedSubgroup: false, // NOWA FLAGA
             avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
             favorites: [],
             layouts: {
@@ -6812,8 +6811,32 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         </div>
     </div>
 </div>
+    <div class="modal-overlay" id="select-subgroup-modal">
+    <div class="modal" style="max-width: 400px;">
+        <form id="select-subgroup-form">
+            <div class="modal-header">
+                <h2>Wybierz swój dział</h2>
+            </div>
+            <div class="form-modal-content">
+                <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                    Zanim zaczniesz, wybierz z listy podgrupę (dział), do której należysz w swojej organizacji.
+                </p>
+                <div class="form-group">
+                    <label for="subgroup-selection-select">Dostępne działy</label>
+                    <select id="subgroup-selection-select" required>
+                        <option value="">-- Proszę wybrać --</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="submit" class="btn btn-primary">Zapisz i kontynuuj</button>
+            </div>
+        </form>
+    </div>
+</div>
 </body>
 </html>
+
 
 
 
