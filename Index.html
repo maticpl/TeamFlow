@@ -6309,23 +6309,27 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 tasks: updatedTasks
             });
 
-            // === NOWA LOGIKA - POWIADOMIENIA O WZMIANKACH ===
+            // === NOWA LOGIKA - POWIADOMIENIA O WZMIANKACH (POPRAWIONA) ===
             const mentionRegex = /@(\w+)/g;
-            const mentions = commentText.match(mentionRegex);
-            if (mentions) {
-                const mentionedUsernames = mentions.map(m => m.substring(1));
-                const usersToNotify = state.users.filter(u => mentionedUsernames.includes(u.name.toLowerCase()));
+            let match;
+            const mentions = [];
+            while ((match = mentionRegex.exec(commentText)) !== null) {
+                mentions.push(match[1].toLowerCase());
+            }
+
+            if (mentions.length > 0) {
+                const usersToNotify = state.users.filter(u => u.name && mentions.includes(u.name.toLowerCase()));
                 
                 if (usersToNotify.length > 0) {
                     const batch = writeBatch(db);
                     const notificationsRef = collection(db, 'notifications');
+                    
                     usersToNotify.forEach(userToNotify => {
-                        // Nie wysyłaj powiadomienia do samego siebie
                         if (userToNotify.id === state.currentUser.uid) return;
 
                         const notification = {
-                            userId: userToNotify.id,
-                            creatorId: state.currentUser.uid, 
+                            userId: userToNotify.id, // ID odbiorcy
+                            creatorId: state.currentUser.uid, // ID twórcy
                             type: 'mention',
                             message: `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie w komentarzu w zadaniu "<strong>${task.title}</strong>".`,
                             isRead: false,
@@ -7300,6 +7304,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
