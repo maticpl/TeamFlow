@@ -3326,9 +3326,8 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
 }
         // NOWA FUNKCJA DO RENDEROWANIA WIDOKU WSZYSTKICH PROJEKTÓW
         function renderAllProjectsView() {
-     // Zamiast czyścić klasę, nadajemy unikalną dla tego widoku.
-     kanbanBoardEl.className = 'all-projects-view'; 
-    kanbanBoardEl.removeAttribute('style');
+            kanbanBoardEl.className = 'all-projects-view';
+            kanbanBoardEl.removeAttribute('style');
             projectNameHeaderEl.textContent = 'Wszystkie Projekty';
             mobileHeaderTitle.textContent = 'Wszystkie Projekty';
             projectMembersHeaderEl.innerHTML = '';
@@ -3340,8 +3339,9 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             const grid = kanbanBoardEl.querySelector('.all-projects-grid');
             grid.classList.toggle('layout-edit-mode', state.ui.allProjectsEditMode);
 
-            // Funkcja pomocnicza do generowania HTML pojedynczego kafelka
-            const createProjectTileHTML = (project, tileClass) => {
+            const createProjectTileHTML = (project) => {
+                const isOwner = project.ownerId === state.currentUser.uid;
+                const tileClass = isOwner ? 'owner' : 'member';
                 const isFavorite = state.currentUser.favorites.includes(project.id);
                 const owner = findUser(project.ownerId);
                 const projectTasks = (project.tasks || []);
@@ -3349,7 +3349,7 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                 const completedTasks = projectTasks.filter(t => t.status === 'done').length;
                 const progressPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
                 const membersHTML = project.members.map(memberId => findUser(memberId)).filter(Boolean).map(user => renderAvatarHTML(user)).join('');
-                
+
                 return `<div class="project-tile ${tileClass}" data-id="${project.id}">
                     <div class="project-tile-header">
                         <h3 class="js-project-title">${project.name}</h3>
@@ -3368,76 +3368,51 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                 </div>`;
             };
 
-            // NOWA, UPROSZCZONA LOGIKA KATEGORYZACJI PROJEKTÓW
-            const ownedProjects = [];
-            const memberProjects = [];
-            const otherProjects = [];
+            // KROK 1: Stwórz jedną listę wszystkich projektów do wyświetlenia
+            const displayProjects = state.projects.filter(p => !p.isInbox);
 
-            state.projects.forEach(p => {
-                if (p.isInbox) return; // Zawsze ignoruj skrzynkę zadań w tym widoku
-                
-                if (p.ownerId === state.currentUser.uid) {
-                    ownedProjects.push(p);
-                } else if (p.members.includes(state.currentUser.uid)) {
-                    memberProjects.push(p);
-                }
-            });
-            // NOWA LOGIKA SORTOWANIA: uwzględnia zapisany układ i rozdziela grupy
+            // KROK 2: Przygotuj mapę z zapisaną kolejnością
             const customOrder = state.currentUser.layouts.allProjects || [];
-            
-            // Funkcja pomocnicza do sortowania pojedynczej listy projektów
-            const sortProjectList = (projectList) => {
-                // Jeśli nie ma zapisanej kolejności, sortuj alfabetycznie i zakończ
-                if (customOrder.length === 0) {
-                    projectList.sort((a, b) => a.name.localeCompare(b.name));
-                    return;
-                }
-            
-                // Jeśli jest zapisana kolejność, sortuj bardziej zaawansowanie
-                const orderMap = new Map(customOrder.map((id, index) => [id, index]));
-                
-                projectList.sort((a, b) => {
-                    const indexA = orderMap.get(a.id);
-                    const indexB = orderMap.get(b.id);
-            
-                    // Jeśli oba projekty są w zapisanej kolejności, sortuj według niej
-                    if (indexA !== undefined && indexB !== undefined) {
-                        return indexA - indexB;
-                    }
-                    // Jeśli tylko A jest w kolejności, A idzie "wyżej"
-                    if (indexA !== undefined) {
-                        return -1;
-                    }
-                    // Jeśli tylko B jest w kolejności, B idzie "wyżej"
-                    if (indexB !== undefined) {
-                        return 1;
-                    }
-                    // Jeśli żadnego nie ma w zapisanej kolejności (są to nowe projekty),
-                    // sortuj je alfabetycznie między sobą na końcu grupy
-                    return a.name.localeCompare(b.name);
-                });
-            };
-            
-            // Sortujemy każdą grupę osobno
-            sortProjectList(ownedProjects);
-            sortProjectList(memberProjects);
-            otherProjects.sort((a, b) => a.name.localeCompare(b.name));
-            
-            // Składanie finalnego HTML w poprawnej kolejności grup
-            let finalHTML = '';
-            finalHTML += ownedProjects.map(p => createProjectTileHTML(p, 'owner')).join('');
-            finalHTML += memberProjects.map(p => createProjectTileHTML(p, 'member')).join('');
-            finalHTML += otherProjects.map(p => createProjectTileHTML(p, 'other')).join('');
-            
-            grid.innerHTML = finalHTML;
+            const orderMap = new Map(customOrder.map((id, index) => [id, index]));
 
-            // Logika do edycji układu (Sortable.js)
-            // KROK 1: Zawsze niszcz starą instancję, jeśli istnieje.
+            // KROK 3: Posortuj jedną listę według nowej, zaawansowanej logiki
+            displayProjects.sort((a, b) => {
+                const indexA = orderMap.get(a.id);
+                const indexB = orderMap.get(b.id);
+                const isAOwner = a.ownerId === state.currentUser.uid;
+                const isBOwner = b.ownerId === state.currentUser.uid;
+
+                // Case 1: Oba projekty są w zapisanym układzie -> sortuj wg niego
+                if (indexA !== undefined && indexB !== undefined) {
+                    return indexA - indexB;
+                }
+                // Case 2: Tylko A jest w układzie -> A jest pierwsze
+                if (indexA !== undefined) {
+                    return -1;
+                }
+                // Case 3: Tylko B jest w układzie -> B jest pierwsze
+                if (indexB !== undefined) {
+                    return 1;
+                }
+                // Case 4: Oba projekty są nowe (nie ma ich w układzie)
+                // -> sortuj najpierw po typie (owner > member), a potem alfabetycznie
+                if (isAOwner && !isBOwner) {
+                    return -1; // Właściciel przed członkiem
+                }
+                if (!isAOwner && isBOwner) {
+                    return 1; // Członek za właścicielem
+                }
+                return a.name.localeCompare(b.name); // Alfabetycznie w ramach tego samego typu
+            });
+
+            // KROK 4: Wygeneruj HTML na podstawie jednej, poprawnie posortowanej listy
+            grid.innerHTML = displayProjects.map(p => createProjectTileHTML(p)).join('');
+
+            // Logika Sortable.js pozostaje bez zmian
             if (sortableProjects) {
                 sortableProjects.destroy();
                 sortableProjects = null;
             }
-            // KROK 2: Jeśli jesteśmy w trybie edycji, stwórz nową instancję.
             if (state.ui.allProjectsEditMode && grid) {
                 sortableProjects = new Sortable(grid, {
                     animation: 150,
@@ -6893,6 +6868,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
