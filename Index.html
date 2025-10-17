@@ -5867,65 +5867,89 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
         newProjectModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const newName = newProjectModal.nameInput.value.trim();
-            if (!newName) return;
+            // KROK 1: Pobranie referencji do przycisku
+            const submitBtn = e.target.querySelector('button[type="submit"]');
 
-            const selectedMembers = Array.from(newProjectModal.membersContainer.querySelectorAll('.member-pill.selected'))
-                .map(pill => pill.dataset.userId);
+            // KROK 2: Dodanie bloku try...catch...finally
+            try {
+                // KROK 3: Wyłączenie przycisku i zmiana tekstu
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Tworzenie...';
 
-            if (!selectedMembers.includes(state.currentUser.uid)) {
-                selectedMembers.push(state.currentUser.uid);
-            }
-            const taskTitles = newProjectModal.tasksTextarea.value.split('\n').map(t => t.replace(/^-/, '').trim()).filter(Boolean);
-            const newProject = {
-                name: newName,
-                ownerId: state.currentUser.uid,
-                members: selectedMembers,
-                tasks: taskTitles.map((title, i) => ({
-                    id: `task${Date.now() + i}`,
-                    title,
-                    description: '',
-                    status: 'todo',
-                    createdBy: state.currentUser.uid,
-                    type: 'single',
-                    assignees: [state.currentUser.uid],
-                    completedBy: [],
-                    priority: 'medium',
-                    dueDate: null,
-                    comments: [],
-                    activityLog: [],
-                    recurrence: null
-                }))
-            };
-            const docRef = await addDoc(projectsRef, newProject);
+                const newName = newProjectModal.nameInput.value.trim();
+                // KROK 4: Poprawiona obsługa błędu walidacji
+                if (!newName) {
+                    throw new Error("Nazwa projektu nie może być pusta.");
+                }
 
-            // === NOWA LOGIKA - POWIADOMIENIA O DODANIU DO PROJEKTU ===
-            const batch = writeBatch(db);
-            const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-            
-            selectedMembers.forEach(memberId => {
-                // Nie wysyłaj powiadomienia do samego siebie
-                if (memberId === state.currentUser.uid) return;
+                const selectedMembers = Array.from(newProjectModal.membersContainer.querySelectorAll('.member-pill.selected'))
+                    .map(pill => pill.dataset.userId);
 
-                const notification = {
-                    userId: memberId,
-                    creatorId: state.currentUser.uid,
-                    type: 'project_invite',
-                    message: `<strong>${state.currentUser.name}</strong> dodał/a Cię do projektu "<strong>${newName}</strong>".`,
-                    isRead: false,
-                    timestamp: Date.now(),
-                    link: { type: 'project', projectId: docRef.id } // Link do projektu
+                if (!selectedMembers.includes(state.currentUser.uid)) {
+                    selectedMembers.push(state.currentUser.uid);
+                }
+                const taskTitles = newProjectModal.tasksTextarea.value.split('\n').map(t => t.replace(/^-/, '').trim()).filter(Boolean);
+                const newProject = {
+                    name: newName,
+                    ownerId: state.currentUser.uid,
+                    members: selectedMembers,
+                    tasks: taskTitles.map((title, i) => ({
+                        id: `task${Date.now() + i}`,
+                        title,
+                        description: '',
+                        status: 'todo',
+                        createdBy: state.currentUser.uid,
+                        type: 'single',
+                        assignees: [state.currentUser.uid],
+                        completedBy: [],
+                        priority: 'medium',
+                        dueDate: null,
+                        comments: [],
+                        activityLog: [],
+                        recurrence: null
+                    }))
                 };
-                const newNotifRef = doc(notificationsRef);
-                batch.set(newNotifRef, notification);
-            });
-            await batch.commit();
-            // === KONIEC NOWEJ LOGIKI ===
+                const docRef = await addDoc(projectsRef, newProject);
 
-            state.currentProjectId = docRef.id;
-            state.ui.currentView = 'projects';
-            saveUiState();
-            closeModal(newProjectModal.overlay);
+                // === NOWA LOGIKA - POWIADOMIENIA O DODANIU DO PROJEKTU ===
+                const batch = writeBatch(db);
+                const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+                
+                selectedMembers.forEach(memberId => {
+                    // Nie wysyłaj powiadomienia do samego siebie
+                    if (memberId === state.currentUser.uid) return;
+
+                    const notification = {
+                        userId: memberId,
+                        creatorId: state.currentUser.uid,
+                        type: 'project_invite',
+                        message: `<strong>${state.currentUser.name}</strong> dodał/a Cię do projektu "<strong>${newName}</strong>".`,
+                        isRead: false,
+                        timestamp: Date.now(),
+                        link: { type: 'project', projectId: docRef.id } // Link do projektu
+                    };
+                    const newNotifRef = doc(notificationsRef);
+                    batch.set(newNotifRef, notification);
+                });
+                await batch.commit();
+                // === KONIEC NOWEJ LOGIKI ===
+
+                state.currentProjectId = docRef.id;
+                state.ui.currentView = 'projects';
+                saveUiState();
+
+                // KROK 5: Dodanie powiadomienia o sukcesie
+                showNotification("Projekt został pomyślnie utworzony.", "Sukces");
+
+                closeModal(newProjectModal.overlay); // Zamknięcie modala po sukcesie
+
+            } catch (error) { // KROK 6: Blok catch do obsługi błędów
+                console.error("Błąd podczas tworzenia projektu:", error);
+                showNotification(error.message || "Wystąpił błąd podczas tworzenia projektu.", "Błąd");
+            } finally { // KROK 7: Blok finally do zresetowania przycisku
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Stwórz projekt';
+            }
         });
 
         editProjectBtn.addEventListener('click', () => openEditProjectModal(state.currentProjectId));
@@ -7336,6 +7360,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
