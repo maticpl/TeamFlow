@@ -6099,6 +6099,31 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             tasks: [...(project.tasks || []), newTask]
         });
 
+        // --- POCZĄTEK DODANEGO KODU POWIADOMIEŃ ---
+        if (newTask.assignees.length > 0) {
+            const batch = writeBatch(db);
+            const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+            
+            newTask.assignees.forEach(assigneeId => {
+                // Nie wysyłaj powiadomienia do samego siebie
+                if (assigneeId === state.currentUser.uid) return;
+
+                const notification = {
+                    userId: assigneeId,
+                    creatorId: state.currentUser.uid,
+                    type: 'task_assigned',
+                    message: `<strong>${state.currentUser.name}</strong> przypisał/a Cię do nowego zadania "<strong>${newTask.title}</strong>" w projekcie <em>${project.name}</em>.`,
+                    isRead: false,
+                    timestamp: Date.now(),
+                    link: { type: 'task', projectId: project.id, taskId: newTask.id }
+                };
+                const newNotifRef = doc(notificationsRef);
+                batch.set(newNotifRef, notification);
+            });
+            await batch.commit();
+        }
+        // --- KONIEC DODANEGO KODU POWIADOMIEŃ ---
+
         closeModal(newTaskModal.overlay);
 
     } catch (error) {
@@ -7360,6 +7385,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
