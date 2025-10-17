@@ -4233,124 +4233,133 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             if (!task || !project) return;
         
             const setViewMode = () => {
-                taskModal.overlay.dataset.taskId = taskId;
-                taskModal.title.textContent = task.title;
-                taskModal.title.style.display = 'block';
-                taskModal.titleInput.style.display = 'none';
-                taskModal.completed.checked = task.status === 'done';
-                const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
-                taskModal.completed.disabled = shouldBeDisabled;
-                taskModal.completed.title = shouldBeDisabled ? "Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części." : "";
-                taskModal.description.value = task.description || '';
-        
-                // --- POCZĄTEK ZMIAN W WYPEŁNIANIU DANYCH ---
-                // Usunięto bezpośrednie wypełnianie sidebara, teraz dane są w panelach
-                taskModal.priority.value = task.priority;
-                taskModal.dueDate.value = task.dueDate;
-                taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
-        
-                if (task.recurrence) {
-                    taskModal.isRecurring.checked = true;
-                    taskModal.recurrenceOptions.style.display = 'block';
-                    const type = task.recurrence.type;
-                    taskModal.recurrenceType.value = type;
-        
-                    document.getElementById('modal-task-recurrence-day-wrapper').style.display = type === 'dayOfMonth' ? 'block' : 'none';
-                    document.getElementById('modal-task-nth-day-options').style.display = type === 'nthDayOfMonth' ? 'flex' : 'none';
-        
-                    if (type === 'dayOfMonth') {
-                        taskModal.recurrenceDay.value = task.recurrence.day;
-                    } else if (type === 'nthDayOfMonth') {
-                        document.getElementById('modal-task-recurrence-nth').value = task.recurrence.nth;
-                        document.getElementById('modal-task-recurrence-weekday').value = task.recurrence.weekday;
-                    }
-                } else {
-                    taskModal.isRecurring.checked = false;
-                    taskModal.recurrenceOptions.style.display = 'none';
-                    document.getElementById('modal-task-recurrence-day-wrapper').style.display = 'none';
-                    document.getElementById('modal-task-nth-day-options').style.display = 'none';
+            // Assuming taskId and task are accessible here
+            taskModal.overlay.dataset.taskId = taskId;
+            taskModal.title.textContent = task.title;
+            taskModal.title.style.display = 'block';
+            taskModal.titleInput.style.display = 'none';
+            taskModal.completed.checked = task.status === 'done';
+            const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
+            taskModal.completed.disabled = shouldBeDisabled;
+            taskModal.completed.title = shouldBeDisabled ? "Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części." : "";
+            taskModal.description.value = task.description || '';
+
+            // --- POCZĄTEK ZMIAN W WYPEŁNIANIU DANYCH ---
+            taskModal.priority.value = task.priority;
+            taskModal.dueDate.value = task.dueDate;
+            taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
+
+            if (task.recurrence) {
+                taskModal.isRecurring.checked = true;
+                taskModal.recurrenceOptions.style.display = 'block';
+                const type = task.recurrence.type;
+                taskModal.recurrenceType.value = type;
+
+                document.getElementById('modal-task-recurrence-day-wrapper').style.display = type === 'dayOfMonth' ? 'block' : 'none';
+                document.getElementById('modal-task-nth-day-options').style.display = type === 'nthDayOfMonth' ? 'flex' : 'none';
+
+                if (type === 'dayOfMonth') {
+                    taskModal.recurrenceDay.value = task.recurrence.day;
+                } else if (type === 'nthDayOfMonth') {
+                    document.getElementById('modal-task-recurrence-nth').value = task.recurrence.nth;
+                    document.getElementById('modal-task-recurrence-weekday').value = task.recurrence.weekday;
                 }
-        
-                // ZMIANA: Blokujemy elementy wewnątrz .task-modal-tab-content
-                Array.from(taskModal.overlay.querySelectorAll('.description textarea, .task-modal-tab-content select, .task-modal-tab-content input')).forEach(el => el.disabled = true);
-                // --- KONIEC ZMIAN W WYPEŁNIANIU DANYCH ---
-        
-                taskModal.completed.disabled = false;
-                taskModal.assigneesList.innerHTML = (task.assignees || [])
-                    .map(memberId => {
-                        const user = findUser(memberId);
+            } else {
+                taskModal.isRecurring.checked = false;
+                taskModal.recurrenceOptions.style.display = 'none';
+                document.getElementById('modal-task-recurrence-day-wrapper').style.display = 'none';
+                document.getElementById('modal-task-nth-day-options').style.display = 'none';
+            }
+
+            // ZMIANA: Blokujemy elementy wewnątrz .task-modal-tab-content, WYKLUCZAJĄC input załączników
+            Array.from(taskModal.overlay.querySelectorAll(
+                 '.description textarea, .task-modal-tab-content select, .task-modal-tab-content input:not(#attachment-file-input)' // <-- ZMIENIONY SELEKTOR
+            )).forEach(el => el.disabled = true);
+            // JAWNIE upewniamy się, że przycisk dodawania załącznika jest aktywny
+            taskModal.addAttachmentBtn.disabled = false; // <-- DODANA LINIA
+            // --- KONIEC ZMIAN W WYPEŁNIANIU DANYCH ---
+
+            // Checkbox ukończenia pozostaje aktywny (ale może być zablokowany logiką shouldBeDisabled)
+            // taskModal.completed.disabled = false; // This line is effectively handled by shouldBeDisabled logic
+
+            taskModal.assigneesList.innerHTML = (task.assignees || [])
+                .map(memberId => {
+                    const user = findUser(memberId);
+                    if (!user) return '';
+                    return renderAvatarHTML(user);
+                })
+                .join('');
+            taskModal.assigneesEdit.style.display = 'none';
+            taskModal.assigneesList.style.display = 'flex';
+            taskModal.saveBtn.style.display = 'none';
+            const isCreator = !task.createdBy || (task.createdBy && task.createdBy === state.currentUser.uid);
+            taskModal.deleteBtn.style.display = isCreator ? 'block' : 'none';
+            taskModal.editBtn.style.display = isCreator ? 'block' : 'none';
+
+            if (task.type === 'multi') {
+                taskModal.completionStatusSection.style.display = 'block';
+                taskModal.completionStatusList.innerHTML = (task.assignees || [])
+                    .map(userId => {
+                        const user = findUser(userId);
                         if (!user) return '';
-                        return renderAvatarHTML(user);
-                    })
-                    .join('');
-                taskModal.assigneesEdit.style.display = 'none';
-                taskModal.assigneesList.style.display = 'flex';
-                taskModal.saveBtn.style.display = 'none';
-                const isCreator = !task.createdBy || (task.createdBy && task.createdBy === state.currentUser.uid);
-                taskModal.deleteBtn.style.display = isCreator ? 'block' : 'none';
-                taskModal.editBtn.style.display = isCreator ? 'block' : 'none';
-        
-                if (task.type === 'multi') {
-                    taskModal.completionStatusSection.style.display = 'block';
-                    taskModal.completionStatusList.innerHTML = (task.assignees || [])
-                        .map(userId => {
-                            const user = findUser(userId);
-                            if (!user) return '';
-                            const isDone = task.completedBy.includes(userId);
-                            const isCurrentUser = userId === state.currentUser.uid;
-                            const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm js-complete-my-part-btn" data-user-id="${userId}">Oznacz jako wykonane</button>` : '';
-        
-                            return `<li class="completion-status-item">
-                                        <div class="user-info">
-                                            ${renderAvatarHTML(user)}
-                                            <span>${user.name || user.email}</span>
-                                        </div>
-                                        <div class="status-indicator-wrapper">${actionButton}<span class="status-indicator ${isDone ? 'done' : 'pending'}">${isDone ? 'Gotowe' : 'Oczekuje'}</span></div>
-                                    </li>`;
-                        }).join('');
-                } else {
-                    taskModal.completionStatusSection.style.display = 'none';
-                }
-        
-                renderComments(task);
-                renderActivityLog(task);
-                renderAttachments(task);
-                openModal(taskModal.overlay);
-                 // DODANA LINIA: Inicjalizacja Tippy.js
-                tippy('#task-modal .task-modal-tab');
-        
-                // --- NOWY BLOK: Ustawienie domyślnej zakładki ---
-                const defaultTab = taskModal.overlay.querySelector('.task-modal-tab[data-tab="description"]');
-                if (defaultTab) {
-                    defaultTab.click();
-                }
-                // --- KONIEC NOWEGO BLOKU ---
-            };
-        
-            const setEditMode = () => {
-                taskModal.title.style.display = 'none';
-                taskModal.titleInput.value = task.title;
-                taskModal.titleInput.style.display = 'block';
-                // ZMIANA: Odblokowujemy elementy wewnątrz paneli
-                Array.from(taskModal.overlay.querySelectorAll('.description textarea, .task-modal-tab-content select, .task-modal-tab-content input, .task-modal-tab-content button')).forEach(el => el.disabled = false);
-                taskModal.assigneesList.style.display = 'none';
-                taskModal.assigneesEdit.style.display = 'block';
-                const membersOptions = (project.members || []).map(memberId => findUser(memberId)).filter(Boolean);
-        
-                taskModal.assigneesEdit.innerHTML = membersOptions.map(user => {
-                    const isSelected = task.assignees.includes(user.id);
-                    const initials = (user.name || user.email).substring(0, 2).toUpperCase();
-                    return `
-                        <div class="member-pill ${isSelected ? 'selected' : ''}" data-user-id="${user.id}" title="${user.name}">
-                            <div class="member-pill-avatar" style="background-color: ${user.avatarColor || '#ccc'}">${initials}</div>
-                            <span>${user.name}</span>
-                        </div>
-                    `;
-                }).join('');
-                taskModal.saveBtn.style.display = 'block';
-                taskModal.deleteBtn.style.display = 'none';
-                taskModal.editBtn.style.display = 'none';
-            };
+                        const isDone = task.completedBy.includes(userId);
+                        const isCurrentUser = userId === state.currentUser.uid;
+                        const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm js-complete-my-part-btn" data-user-id="${userId}">Oznacz jako wykonane</button>` : '';
+
+                        return `<li class="completion-status-item">
+                                    <div class="user-info">
+                                        ${renderAvatarHTML(user)}
+                                        <span>${user.name || user.email}</span>
+                                    </div>
+                                    <div class="status-indicator-wrapper">${actionButton}<span class="status-indicator ${isDone ? 'done' : 'pending'}">${isDone ? 'Gotowe' : 'Oczekuje'}</span></div>
+                                </li>`;
+                    }).join('');
+            } else {
+                taskModal.completionStatusSection.style.display = 'none';
+            }
+
+            renderComments(task);
+            renderActivityLog(task);
+            renderAttachments(task);
+            openModal(taskModal.overlay);
+            tippy('#task-modal .task-modal-tab');
+
+            // --- NOWY BLOK: Ustawienie domyślnej zakładki ---
+            const defaultTab = taskModal.overlay.querySelector('.task-modal-tab[data-tab="description"]');
+            if (defaultTab) {
+                defaultTab.click();
+            }
+            // --- KONIEC NOWEGO BLOKU ---
+        };
+
+        const setEditMode = () => {
+             // Assuming task and project are accessible in this scope
+            taskModal.title.style.display = 'none';
+            taskModal.titleInput.value = task.title;
+            taskModal.titleInput.style.display = 'block';
+            // ZMIANA: Odblokowujemy elementy wewnątrz paneli, WYKLUCZAJĄC przycisk i input załączników
+            Array.from(taskModal.overlay.querySelectorAll(
+                 '.description textarea, .task-modal-tab-content select, .task-modal-tab-content input:not(#attachment-file-input), .task-modal-tab-content button:not(#add-attachment-btn)' // <-- ZMIENIONY SELEKTOR
+            )).forEach(el => el.disabled = false);
+            taskModal.assigneesList.style.display = 'none';
+            taskModal.assigneesEdit.style.display = 'block';
+            const membersOptions = (project.members || []).map(memberId => findUser(memberId)).filter(Boolean);
+
+            taskModal.assigneesEdit.innerHTML = membersOptions.map(user => {
+                const isSelected = task.assignees.includes(user.id);
+                 // Need to render avatar properly here if not using innerHTML
+                 const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar'); // Assuming renderAvatarHTML exists
+                return `
+                    <div class="member-pill ${isSelected ? 'selected' : ''}" data-user-id="${user.id}" title="${user.name || user.email}">
+                        ${avatarHTML}
+                        <span>${user.name || user.email}</span>
+                    </div>
+                `;
+            }).join('');
+            taskModal.saveBtn.style.display = 'block';
+            taskModal.deleteBtn.style.display = 'none';
+            taskModal.editBtn.style.display = 'none';
+        };
         
             taskModal.editBtn.onclick = setEditMode;
             taskModal.moveBtn.onclick = () => {
@@ -7409,6 +7418,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
