@@ -4287,20 +4287,22 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         function parseMentions(text) {
             if (!text) return ''; // Zabezpieczenie przed pustym tekstem
             
-            // Używamy tego samego regexa, co przy wysyłaniu powiadomień
+            // Regex pasujący do "czystej" nazwy (np. MateuszCzerwinski lub wlascicieltestcom)
             const mentionRegex = /@([a-zA-Z0-9]+)/g;
             
             // Przechodzimy przez tekst i zamieniamy wszystkie dopasowania
-            return text.replace(mentionRegex, (match, userId) => {
-                const user = findUser(userId); // Szukamy użytkownika po ID
+            return text.replace(mentionRegex, (match, cleanNameValue) => {
+                // Szukamy użytkownika, porównując jego "czystą" nazwę z wartością ze wzmianki
+                const user = state.users.find(u => 
+                    (u.name || u.email).replace(/[^a-zA-Z0-9]/g, '') === cleanNameValue
+                );
                 
                 if (user) {
-                    // Jeśli znaleziono, zwracamy ładnie sformatowaną nazwę
-                    // Używamy (user.name || user.email), aby mieć pewność, że zawsze coś się wyświetli
+                    // Jeśli znaleziono, zwracamy pełną nazwę lub e-mail
                     return `<strong class="comment-mention" title="${user.name || user.email}">@${user.name || user.email}</strong>`;
                 }
                 
-                // Jeśli nie znaleziono (np. usunięty użytkownik), zwróć oryginalny tekst (np. @nieznanyID)
+                // Jeśli nie znaleziono, zwróć oryginalny tekst (np. @MateuszCzerwinski)
                 return match;
             });
         }
@@ -5008,8 +5010,8 @@ window.testNotificationsRead = async function() {
                    const tributeUsers = projectUsers.map(user => ({
                         // 'name' będzie używane do wyszukiwania (np. "Jan Kowalski")
                         name: user.name || user.email, 
-                        // 'value' to co zostanie wstawione (np. "JanKowalski")
-                        value: user.id, // <-- ZMIANA: Używamy ID użytkownika, jest unikalne i bezpieczne dla regex
+                        // 'value' to co zostanie wstawione (np. "MateuszCzerwinski" lub "wlascicieltestcom")
+                        value: (user.name || user.email).replace(/[^a-zA-Z0-9]/g, ''), // <-- NOWA ZMIANA
                         // 'avatarHTML' to niestandardowe pole dla naszego szablonu
                         avatarHTML: renderAvatarHTML(user, 'avatar-mention')
                     }));
@@ -6441,7 +6443,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 mentionedValues.forEach(value => {
                 const foundUser = state.users.find(user => 
                     user.id !== state.currentUser.uid && 
-                    user.id === value // <-- ZMIANA: Szukamy po ID, a nie po nazwie
+                    (user.name || user.email).replace(/[^a-zA-Z0-9]/g, '') === value // <-- NOWA ZMIANA
                 );
                 
                 if (foundUser) {
@@ -7516,6 +7518,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
