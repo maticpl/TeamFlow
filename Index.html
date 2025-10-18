@@ -21,7 +21,7 @@
     <script src="https://unpkg.com/tippy.js@6"></script>
 
     <link rel="stylesheet" href="https://unpkg.com/tributejs@5.1.3/dist/tribute.css" />
-    <script src="https://unpkg.com/tributejs@5.1.3/dist/tribute.min.js"></script>
+    <script src="https://unpkg.com/tributejs@5.1.3/dist/tribute.min.js">
     <style>
         /* CAŁY TWÓJ KOD CSS POZOSTAJE BEZ ZMIAN */
         @keyframes animated-gradient {
@@ -3248,7 +3248,9 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
 
         function openMoveTaskDialog(taskId, currentProjectId) {
             // Filtrujemy listę, aby pokazać tylko projekty, do których można przenieść zadanie
-            const availableProjects = state.projects.filter(p => p.id !== currentProjectId);
+            // === POPRAWKA: Dodano warunek !p.isInbox ===
+            const availableProjects = state.projects.filter(p => p.id !== currentProjectId && !p.isInbox);
+            // === KONIEC POPRAWKI ===
 
             moveTaskModal.projectList.innerHTML = ''; // Wyczyść starą listę
 
@@ -7322,6 +7324,87 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 showNotification("Wystąpił błąd podczas zapisywania zmiany.", "Błąd");
             }
         });
+       // === POCZĄTEK: NOWY LISTENER DLA PRZENOSZENIA ZADANIA ===
+        moveTaskModal.confirmBtn.addEventListener('click', async () => {
+            const taskId = moveTaskModal.overlay.dataset.taskId;
+            const sourceProjectId = moveTaskModal.overlay.dataset.sourceProjectId;
+            const selectedRadio = moveTaskModal.projectList.querySelector('input[name="destination-project"]:checked');
+
+            if (!selectedRadio) {
+                showNotification("Proszę wybrać projekt docelowy.", "Błąd");
+                return;
+            }
+            const destinationProjectId = selectedRadio.value;
+
+            if (!taskId || !sourceProjectId || !destinationProjectId) {
+                showNotification("Wystąpił błąd: Brak potrzebnych informacji do przeniesienia zadania.", "Błąd");
+                return;
+            }
+
+            // Wyłącz przycisk na czas operacji
+            moveTaskModal.confirmBtn.disabled = true;
+            moveTaskModal.confirmBtn.textContent = 'Przenoszenie...';
+
+            try {
+                // Znajdź projekt źródłowy (może być aktywny lub zakończony)
+                const sourceProjectRef = findProject(sourceProjectId)
+                    ? doc(projectsRef, sourceProjectId)
+                    : doc(completedProjectsRef, sourceProjectId);
+                const sourceProjectSnap = await getDoc(sourceProjectRef);
+
+                if (!sourceProjectSnap.exists()) {
+                    throw new Error("Nie znaleziono projektu źródłowego.");
+                }
+
+                const sourceProjectData = sourceProjectSnap.data();
+                const taskToMove = (sourceProjectData.tasks || []).find(t => t.id === taskId);
+
+                if (!taskToMove) {
+                    throw new Error("Nie znaleziono zadania do przeniesienia w projekcie źródłowym.");
+                }
+
+                // Przygotuj batch
+                const batch = writeBatch(db);
+
+                // 1. Usuń zadanie z projektu źródłowego
+                const updatedSourceTasks = (sourceProjectData.tasks || []).filter(t => t.id !== taskId);
+                batch.update(sourceProjectRef, { tasks: updatedSourceTasks });
+
+                // 2. Dodaj zadanie do projektu docelowego (zakładamy, że zawsze przenosimy do aktywnego projektu)
+                const destinationProjectRef = doc(projectsRef, destinationProjectId);
+                const destinationProjectSnap = await getDoc(destinationProjectRef); // Pobierz aktualny stan projektu docelowego
+
+                if (!destinationProjectSnap.exists()) {
+                     throw new Error("Nie znaleziono projektu docelowego.");
+                }
+                const destinationProjectData = destinationProjectSnap.data();
+                const updatedDestinationTasks = [...(destinationProjectData.tasks || []), taskToMove];
+                batch.update(destinationProjectRef, { tasks: updatedDestinationTasks });
+
+                // Wykonaj operacje
+                await batch.commit();
+
+                // Zamknij modale
+                closeModal(moveTaskModal.overlay);
+                closeModal(taskModal.overlay); // Zamknij też modal szczegółów zadania
+
+                // Poinformuj użytkownika i przełącz widok
+                showNotification("Zadanie zostało pomyślnie przeniesione.", "Sukces");
+                state.currentProjectId = destinationProjectId;
+                state.ui.currentView = 'projects';
+                saveUiState();
+                render(); // Odśwież widok
+
+            } catch (error) {
+                console.error("Błąd podczas przenoszenia zadania:", error);
+                showNotification(`Wystąpił błąd podczas przenoszenia zadania: ${error.message}`, "Błąd");
+            } finally {
+                // Włącz przycisk z powrotem
+                moveTaskModal.confirmBtn.disabled = false;
+                moveTaskModal.confirmBtn.textContent = 'Przenieś';
+            }
+        });
+        // === KONIEC: NOWY LISTENER DLA PRZENOSZENIA ZADANIA ===
     });
 </script>
     <div class="modal-overlay" id="settings-modal">
@@ -7541,6 +7624,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
