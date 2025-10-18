@@ -19,6 +19,9 @@
     
     <script src="https://unpkg.com/@popperjs/core@2"></script>
     <script src="https://unpkg.com/tippy.js@6"></script>
+
+    <link rel="stylesheet" href="https://unpkg.com/tributejs@5.1.3/dist/tribute.css" />
+    <script src="https://unpkg.com/tributejs@5.1.3/dist/tribute.min.js"></script>
     <style>
         /* CAŁY TWÓJ KOD CSS POZOSTAJE BEZ ZMIAN */
         @keyframes animated-gradient {
@@ -1811,14 +1814,47 @@
             opacity: 0.7;
             border-left-color: var(--success-primary);
         }
-        .my-day-task-item.completed .my-day-task-item-title {
-            text-decoration: line-through;
-            color: var(--text-secondary);
-        }
         .my-day-task-item.completed .task-status-pill {
             background-color: var(--success-primary);
         }
         /* === KONIEC: NOWE STYLE DLA WIDOKU "MÓJ DZIEŃ" === */
+
+        /* === POCZĄTEK: STYLE DLA MENU WZMIANEK (TRIBUTE.JS) === */
+        .tribute-container {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow-lg);
+            overflow: hidden;
+            font-family: var(--font-family);
+        }
+        .tribute-container ul {
+            list-style: none;
+            margin: 0;
+            padding: 4px 0;
+        }
+        .tribute-container li {
+            padding: 8px 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .tribute-container li.highlight,
+        .tribute-container li:hover {
+            background-color: var(--bg-tertiary);
+        }
+        .tribute-container li.highlight {
+            font-weight: 600;
+        }
+        .tribute-container .avatar-mention {
+            width: 24px;
+            height: 24px;
+            font-size: 11px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        /* === KONIEC: STYLE DLA MENU WZMIANEK (TRIBUTE.JS) === */
     </style>
 </head>
 <body>
@@ -5056,6 +5092,62 @@ window.testNotificationsRead = async function() {
         }
         loadUiState();
         initializeCalendar();
+       // === POCZĄTEK: INICJALIZACJA TRIBUTE.JS DLA WZMIANEK ===
+        try {
+            const tribute = new Tribute({
+                // Użyj triggera '@'
+                trigger: '@',
+                
+                // Pobierz listę użytkowników dynamicznie ze stanu aplikacji
+                values: function(text, cb) {
+                    const project = findProject(state.currentProjectId);
+                    if (!project) {
+                        cb([]); // Jeśli nie ma projektu, nie pokazuj nikogo
+                        return;
+                    }
+                    
+                    // Mapuj użytkowników projektu na format wymagany przez Tribute
+                    const projectUsers = project.members
+                        .map(findUser)
+                        .filter(Boolean); // Odfiltruj jeśli kogoś nie znajdzie
+                        
+                    const tributeUsers = projectUsers.map(user => ({
+                        // 'name' będzie używane do wyszukiwania (np. "Jan Kowalski")
+                        name: user.name || user.email, 
+                        // 'value' to co zostanie wstawione (np. "JanKowalski")
+                        value: (user.name || user.email).replace(/\s/g, ''),
+                        // 'avatarHTML' to niestandardowe pole dla naszego szablonu
+                        avatarHTML: renderAvatarHTML(user, 'avatar-mention')
+                    }));
+                    
+                    cb(tributeUsers);
+                },
+                
+                // Klucz, po którym Tribute ma wyszukiwać wpisywany tekst
+                lookup: 'name',
+
+                // Szablon, który definiuje wygląd każdego elementu na liście wyboru
+                itemTemplate: function(item) {
+                    return `${item.original.avatarHTML} <span>${item.original.name}</span>`;
+                },
+
+                // Co ma zostać wstawione do textarea po wyborze
+                selectTemplate: function(item) {
+                    return `@${item.original.value}`;
+                },
+
+                // Nie dodawaj spacji po wzmiance
+                noMatchTemplate: null,
+                allowSpaces: false,
+                menuItemLimit: 5,
+            });
+            
+            // Podłącz Tribute do pola tekstowego w modalu zadania
+            tribute.attach(taskModal.newCommentText);
+        } catch(e) {
+            console.error("Nie udało się zainicjować biblioteki Tribute.js dla wzmianek.", e);
+        }
+        // === KONIEC: INICJALIZACJA TRIBUTE.JS ===
 
         function updateNotificationBellUI() {
             if (!notificationToggleBtn) return;
@@ -6439,53 +6531,32 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 tasks: updatedTasks
             });
 
-            // === NOWA LOGIKA - POWIADOMIENIA O WZMIANKACH (POPRAWIONA) ===
-            const lowerCaseComment = commentText.toLowerCase();
-            const usersToNotify = [];
-
-            // Nowa, niezawodna logika wykrywania wzmianek
-            state.users.forEach(user => {
-                // Nie powiadamiaj samego siebie i użytkowników bez nazwy
-                if (user.id === state.currentUser.uid || !user.name) {
-                    return;
-                }
-
-                const mentionString = `@${user.name}`.toLowerCase();
-                let startIndex = -1;
-
-                // Szukamy wystąpień wzmianki w pętli (na wypadek wielokrotnego wystąpienia)
-                while ((startIndex = lowerCaseComment.indexOf(mentionString, startIndex + 1)) !== -1) {
-                    // Znaleźliśmy potencjalne dopasowanie.
-                    // Musimy sprawdzić, czy jest to "całe słowo".
-                    
-                    // 1. Sprawdź znak BEZPOŚREDNIO PO wzmiance
-                    const charAfterIndex = startIndex + mentionString.length;
-                    const charAfter = lowerCaseComment[charAfterIndex];
-
-                    // Jeśli po wzmiance jest litera lub cyfra (np. @Jan w słowie @Janek),
-                    // to nie jest to poprawna wzmianka i szukamy dalej.
-                    // Używamy prostego testu regex: [a-z0-9]
-                    if (charAfter && /[a-z0-9]/.test(charAfter)) {
-                        continue; // To jest część dłuższego słowa, np. @Janek pasuje do @Jan
-                    }
-
-                    // Jeśli doszliśmy tutaj, to jest to prawidłowa wzmianka
-                    // (np. "@Jan " lub "@Jan." lub "@Jan" na końcu komentarza)
-                    
-                    // Dodajemy użytkownika do listy (jeśli jeszcze go tam nie ma)
-                    // POPRAWKA: Dodano nawiasy klamrowe {} wokół bloku if
-                    if (!usersToNotify.find(u => u.id === user.id)) { 
-                        usersToNotify.push(user);
-                    } 
-                    
-                    // Znaleźliśmy dopasowanie dla tego użytkownika,
-                    // nie musimy szukać go dalej w tym komentarzu.
-                    break; 
-                }
-            });
+            // === NOWA LOGIKA POWIADOMIEŃ O WZMIANKACH (TRIBUTE.JS) ===
             
-            // Dalsza część logiki (tworzenie batcha) pozostaje bez zmian
-            // Dalsza część logiki (tworzenie batcha) pozostaje bez zmian
+            // 1. Użyj wyrażenia regularnego, aby znaleźć wszystkie wzmianki w formacie @NazwaBezSpacji
+            const mentionRegex = /@(\w+)/g;
+            const matches = commentText.match(mentionRegex); // Np. ["@JanKowalski", "@AnnaNowak"]
+            
+            const usersToNotify = [];
+            
+            if (matches) {
+                // 2. Pobierz unikalne nazwy (bez @)
+                const mentionedValues = [...new Set(matches.map(mention => mention.substring(1)))]; // Np. ["JanKowalski", "AnnaNowak"]
+                
+                // 3. Znajdź użytkowników, którzy pasują do tych nazw
+                mentionedValues.forEach(value => {
+                    const foundUser = state.users.find(user => 
+                        user.id !== state.currentUser.uid && // Nie powiadamiaj siebie
+                        (user.name || user.email).replace(/\s/g, '') === value
+                    );
+                    
+                    if (foundUser) {
+                        usersToNotify.push(foundUser);
+                    }
+                });
+            }
+
+            // 4. Logika tworzenia powiadomień (batch) pozostaje taka sama
             if (usersToNotify.length > 0) {
                 const batch = writeBatch(db);
                     const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
@@ -7470,6 +7541,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
