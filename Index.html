@@ -6437,18 +6437,52 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             });
 
             // === NOWA LOGIKA - POWIADOMIENIA O WZMIANKACH (POPRAWIONA) ===
-            const mentionRegex = /@(\w+)/g;
-            let match;
-            const mentions = [];
-            while ((match = mentionRegex.exec(commentText)) !== null) {
-                mentions.push(match[1].toLowerCase());
-            }
+            const lowerCaseComment = commentText.toLowerCase();
+            const usersToNotify = [];
 
-            if (mentions.length > 0) {
-                const usersToNotify = state.users.filter(u => u.name && mentions.includes(u.name.toLowerCase()));
-                
-                if (usersToNotify.length > 0) {
-                    const batch = writeBatch(db);
+            // Nowa, niezawodna logika wykrywania wzmianek
+            state.users.forEach(user => {
+                // Nie powiadamiaj samego siebie i użytkowników bez nazwy
+                if (user.id === state.currentUser.uid || !user.name) {
+                    return;
+                }
+
+                const mentionString = `@${user.name}`.toLowerCase();
+                let startIndex = -1;
+
+                // Szukamy wystąpień wzmianki w pętli (na wypadek wielokrotnego wystąpienia)
+                while ((startIndex = lowerCaseComment.indexOf(mentionString, startIndex + 1)) !== -1) {
+                    // Znaleźliśmy potencjalne dopasowanie.
+                    // Musimy sprawdzić, czy jest to "całe słowo".
+                    
+                    // 1. Sprawdź znak BEZPOŚREDNIO PO wzmiance
+                    const charAfterIndex = startIndex + mentionString.length;
+                    const charAfter = lowerCaseComment[charAfterIndex];
+
+                    // Jeśli po wzmiance jest litera lub cyfra (np. @Jan w słowie @Janek),
+                    // to nie jest to poprawna wzmianka i szukamy dalej.
+                    // Używamy prostego testu regex: [a-z0-9]
+                    if (charAfter && /[a-z0-9]/.test(charAfter)) {
+                        continue; // To jest część dłuższego słowa, np. @Janek pasuje do @Jan
+                    }
+
+                    // Jeśli doszliśmy tutaj, to jest to prawidłowa wzmianka
+                    // (np. "@Jan " lub "@Jan." lub "@Jan" na końcu komentarza)
+                    
+                    // Dodajemy użytkownika do listy (jeśli jeszcze go tam nie ma)
+                    if (!usersToNotify.find(u => u.id === user.id)) {
+                        usersToNotify.push(user);
+                    }
+                    
+                    // Znaleźliśmy dopasowanie dla tego użytkownika,
+                    // nie musimy szukać go dalej w tym komentarzu.
+                    break; 
+                }
+            });
+            
+            // Dalsza część logiki (tworzenie batcha) pozostaje bez zmian
+            if (usersToNotify.length > 0) {
+                const batch = writeBatch(db);
                     const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
                     
                     usersToNotify.forEach(userToNotify => {
@@ -7431,6 +7465,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 </div>
 </body>
 </html>
+
 
 
 
