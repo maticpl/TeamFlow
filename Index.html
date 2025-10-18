@@ -6775,65 +6775,78 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
 
         taskModal.overlay.addEventListener('click', async (e) => {
-            const userId = completePartBtn.dataset.userId;
-const taskId = taskModal.overlay.dataset.taskId;
-const {
-    task,
-    project
-} = findTask(taskId);
+                // --- POCZĄTEK POPRAWKI LOGICZNEJ ---
+                
+                // 1. Sprawdzamy, czy celem kliknięcia był przycisk do ukończenia części zadania
+                const completePartBtn = e.target.closest('.js-complete-my-part-btn');
+                
+                // 2. Jeśli nie kliknięto tego przycisku, przerywamy działanie tego listenera
+                if (!completePartBtn) {
+                    return; 
+                }
+                
+                // 3. Pobieramy dane z klikniętego przycisku
+                const userId = completePartBtn.dataset.userId;
+                const taskId = taskModal.overlay.dataset.taskId;
+                // --- KONIEC POPRAWKI LOGICZNEJ ---
 
-if (!task || !project || userId !== state.currentUser.uid) return;
+                const {
+                    task,
+                    project
+                } = findTask(taskId);
 
-const oldStatus = task.status;
-let updatedTask = { ...task };
+                if (!task || !project || userId !== state.currentUser.uid) return;
 
-// Oznacz główną część zadania jako wykonaną przez użytkownika
-if (!updatedTask.completedBy.includes(userId)) {
-    updatedTask.completedBy.push(userId);
-}
+                const oldStatus = task.status;
+                let updatedTask = { ...task };
 
-// === NOWA LOGIKA: Auto-kompletowanie subzadań użytkownika ===
-if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
-    updatedTask.subtasks = updatedTask.subtasks.map(s => {
-        // Sprawdź, czy użytkownik jest przypisany do subzadania i jeszcze go nie ukończył
-        if (s.assignees.includes(userId) && !s.completedBy.includes(userId)) {
-            // Dodaj go do listy ukończonych
-            const newCompletedBy = [...s.completedBy, userId];
-            // Sprawdź, czy subzadanie jest teraz w pełni ukończone przez wszystkich
-            const isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
-            return { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
-        }
-        return s; // Zwróć bez zmian, jeśli użytkownik nie jest przypisany lub już ukończył
-    });
-}
-// === KONIEC NOWEJ LOGIKI ===
+                // Oznacz główną część zadania jako wykonaną przez użytkownika
+                if (!updatedTask.completedBy.includes(userId)) {
+                    updatedTask.completedBy.push(userId);
+                }
 
-// Sprawdź, czy całe zadanie główne jest ukończone (wszyscy kliknęli)
-const isMainTaskNowCompleted = updatedTask.assignees.length > 0 && updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
+                // === NOWA LOGIKA: Auto-kompletowanie subzadań użytkownika ===
+                if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
+                    updatedTask.subtasks = updatedTask.subtasks.map(s => {
+                        // Sprawdź, czy użytkownik jest przypisany do subzadania i jeszcze go nie ukończył
+                        if (s.assignees.includes(userId) && !s.completedBy.includes(userId)) {
+                            // Dodaj go do listy ukończonych
+                            const newCompletedBy = [...s.completedBy, userId];
+                            // Sprawdź, czy subzadanie jest teraz w pełni ukończone przez wszystkich
+                            const isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
+                            return { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
+                        }
+                        return s; // Zwróć bez zmian, jeśli użytkownik nie jest przypisany lub już ukończył
+                    });
+                }
+                // === KONIEC NOWEJ LOGIKI ===
 
-if (isMainTaskNowCompleted) {
-    updatedTask.status = 'done';
-} else if (updatedTask.completedBy.length > 0) {
-    // Jeśli ktokolwiek ukończył, ale nie wszyscy, status to 'inprogress'
-    updatedTask.status = 'inprogress';
-} else {
-    // Teoretycznie niemożliwe po kliknięciu, ale dla pewności
-    updatedTask.status = 'todo';
-}
+                // Sprawdź, czy całe zadanie główne jest ukończone (wszyscy kliknęli)
+                const isMainTaskNowCompleted = updatedTask.assignees.length > 0 && updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
+
+                if (isMainTaskNowCompleted) {
+                    updatedTask.status = 'done';
+                } else if (updatedTask.completedBy.length > 0) {
+                    // Jeśli ktokolwiek ukończył, ale nie wszyscy, status to 'inprogress'
+                    updatedTask.status = 'inprogress';
+                } else {
+                    // Teoretycznie niemożliwe po kliknięciu, ale dla pewności
+                    updatedTask.status = 'todo';
+                }
 
 
-if (updatedTask.status !== oldStatus) {
-    if (updatedTask.status === 'done') showConfetti();
-    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-}
-// Zawsze dodajemy aktywność typu 'completion' przy kliknięciu tego przycisku
-updatedTask = addActivity(updatedTask, 'completion');
+                if (updatedTask.status !== oldStatus) {
+                    if (updatedTask.status === 'done') showConfetti();
+                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                }
+                // Zawsze dodajemy aktywność typu 'completion' przy kliknięciu tego przycisku
+                updatedTask = addActivity(updatedTask, 'completion');
 
-// Zapisz zmiany, przekaż 'manual' dla obsługi cykliczności
-await handleTaskCompletion(updatedTask, project, 'manual'); // DODANO 'manual'
-openTaskModal(taskId); // Odśwież modal
-            } // <-- DODAJ TEN ZAMYKAJĄCY NAWIAS KLAMROWY
-        }); // <-- DODAJ TEN ZAMYKAJĄCY NAWIAS DLA "taskModal.overlay.addEventListener"
+                // Zapisz zmiany, przekaż 'manual' dla obsługi cykliczności
+                await handleTaskCompletion(updatedTask, project, 'manual'); // DODANO 'manual'
+                openTaskModal(taskId); // Odśwież modal
+
+            }); // <-- TO JEST DODANE BRAKUJĄCE ZAMKNIĘCIE, KTÓRE NAPRAWIA BŁĄ
 
             document.querySelectorAll('.theme-switcher').forEach(switcher => {
             switcher.addEventListener('click', e => {
@@ -8255,6 +8268,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
