@@ -3935,12 +3935,15 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             const notificationId = item.dataset.id;
             const notification = state.notifications.find(n => n.id === notificationId);
-            
+
             if (notification) {
-                const notifRef = doc(collection(db, `artifacts/${appId}/public/data/notifications`), notificationId);
+                // --- POPRAWIONA ŚCIEŻKA ---
+                // Używamy POPRAWIONEJ globalnej referencji notificationsRef
+                const notifRef = doc(notificationsRef, notificationId);
                 await updateDoc(notifRef, { isRead: true });
 
-                if (notification.link) {
+                 // Reszta kodu bez zmian
+                 if (notification.link) {
                     if (notification.link.type === 'task') {
                         state.currentProjectId = notification.link.projectId;
                         state.ui.currentView = 'projects';
@@ -3956,11 +3959,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
         notificationsModal.markAllReadBtn.addEventListener('click', async () => {
             const batch = writeBatch(db);
-            const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+            // --- POPRAWIONA ŚCIEŻKA ---
+            // Usunięto lokalną definicję notificationsRef
             const unread = state.notifications.filter(n => !n.isRead);
 
             if (unread.length > 0) {
                 unread.forEach(n => {
+                    // --- POPRAWIONA ŚCIEŻKA ---
+                    // Używamy POPRAWIONEJ globalnej referencji notificationsRef
                     const docRef = doc(notificationsRef, n.id);
                     batch.update(docRef, { isRead: true });
                 });
@@ -4803,11 +4809,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const newlyAssigned = newAssignees.filter(id => !oldAssignees.includes(id));
                 if (newlyAssigned.length > 0) {
                     const batch = writeBatch(db);
-                    const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-                    
+                    // --- POPRAWIONA ŚCIEŻKA ---
+                    // const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`); // USUNIĘTE
                     newlyAssigned.forEach(assigneeId => {
-                        if (assigneeId === state.currentUser.uid) return;
-
+                        if (assigneeId === state.currentUser.uid) return; // Dodano sprawdzenie, by nie wysyłać do siebie
                         const notification = {
                             userId: assigneeId,
                             creatorId: state.currentUser.uid,
@@ -4817,6 +4822,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             timestamp: Date.now(),
                             link: { type: 'task', projectId: project.id, taskId: updatedTask.id }
                         };
+                        // --- POPRAWIONA ŚCIEŻKA ---
+                        // Używamy POPRAWIONEJ globalnej referencji notificationsRef
                         const newNotifRef = doc(notificationsRef);
                         batch.set(newNotifRef, notification);
                     });
@@ -5261,14 +5268,24 @@ attachmentsListNewTask.addEventListener('click', (e) => {
             }, (error) => console.error("Błąd odczytu zakończonych projektów:", error));
 
             // Listener dla powiadomień (bez zmian w zapytaniu)
+            // Listener dla powiadomień (bez zmian w zapytaniu)
             if (state.ui.unsubscribeNotifications) state.ui.unsubscribeNotifications();
-            const notificationCollectionPath = `artifacts/${appId}/public/data/notifications`;
-            const notificationsRef = collection(db, notificationCollectionPath);
+            // --- POPRAWIONA ŚCIEŻKA ---
+            console.log(`[DEBUG] Tworzenie listenera dla kolekcji 'notifications' i userId: ${userId}`); // Zaktualizowany log
+            // Używamy POPRAWIONEJ referencji zdefiniowanej globalnie
             const notificationsQuery = query(notificationsRef, where("userId", "==", userId), orderBy("timestamp", "desc"));
+            // --- KONIEC POPRAWKI ŚCIEŻKI ---
             state.ui.unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
-                const receivedNotifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                state.notifications = receivedNotifications;
-                render(); // Przerenderuj po aktualizacji powiadomień
+                 // Początek bloku onSnapshot (treść bez zmian)
+                 console.log(`[DEBUG] Snapshot powiadomień dla userId: ${userId}. Liczba dokumentów: ${snapshot.size}`);
+                 const receivedNotifications = snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    console.log(`[DEBUG] Otrzymano powiadomienie ID: ${doc.id}, dla: ${data.userId}`);
+                    return { id: doc.id, ...data };
+                 });
+                 state.notifications = receivedNotifications;
+                 render(); // Przerenderuj po aktualizacji powiadomień
+                 // Koniec bloku onSnapshot
             }, (error) => {
                  console.error(`[DEBUG] Błąd w onSnapshot powiadomień dla userId: ${userId}`, error);
                  console.error("Błąd odczytu powiadomień:", error);
@@ -5292,8 +5309,8 @@ attachmentsListNewTask.addEventListener('click', (e) => {
             if (state.ui.unsubscribeNotifications) state.ui.unsubscribeNotifications();
 
             // --- DODANE LINIE: Wyciągnięcie ścieżki i jej logowanie ---
-            const notificationCollectionPath = `artifacts/${appId}/public/data/notifications`;
-            console.log(`[DEBUG] Tworzenie listenera dla ścieżki: ${notificationCollectionPath} i userId: ${userId}`);
+            const notificationCollectionPath = `artifacts/${appId}/public/data/notifications`; // <<<< TĘ LINIĘ USUNIEMY
+            console.log(`[DEBUG] Tworzenie listenera dla ścieżki: ${notificationCollectionPath} i userId: ${userId}`); // <<<< TĘ LINIĘ ZMIENIMY
             // --- KONIEC DODANYCH LINII ---
 
             const notificationsRef = collection(db, notificationCollectionPath); // Użycie nowej zmiennej
@@ -6306,11 +6323,11 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
                 // === NOWA LOGIKA - POWIADOMIENIA O DODANIU DO PROJEKTU ===
                 const batch = writeBatch(db);
-                const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-                
+                // --- POPRAWIONA ŚCIEŻKA ---
+                // const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`); // USUNIĘTE
+
                 selectedMembers.forEach(memberId => {
-                    // Nie wysyłaj powiadomienia do samego siebie
-                    if (memberId === state.currentUser.uid) return;
+                    if (memberId === state.currentUser.uid) return; // Dodano sprawdzenie
 
                     const notification = {
                         userId: memberId,
@@ -6321,6 +6338,8 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                         timestamp: Date.now(),
                         link: { type: 'project', projectId: docRef.id } // Link do projektu
                     };
+                    // --- POPRAWIONA ŚCIEŻKA ---
+                    // Używamy POPRAWIONEJ globalnej referencji notificationsRef
                     const newNotifRef = doc(notificationsRef);
                     batch.set(newNotifRef, notification);
                 });
@@ -6830,38 +6849,37 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 });
             }
 
-            // 4. Logika tworzenia powiadomień (batch) pozostaje taka sama
+           // 4. Logika tworzenia powiadomień (batch) pozostaje taka sama
             if (usersToNotify.length > 0) {
                 const batch = writeBatch(db);
-                    const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+                // --- POPRAWIONA ŚCIEŻKA ---
+                // const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`); // USUNIĘTE
 
-                    usersToNotify.forEach(userToNotify => {
-                        if (userToNotify.id === state.currentUser.uid) return;
+                usersToNotify.forEach(userToNotify => {
+                    if (userToNotify.id === state.currentUser.uid) return; // Dodano sprawdzenie
 
-                        const notification = {
-                            userId: userToNotify.id, // ID odbiorcy
-                            creatorId: state.currentUser.uid, // ID twórcy
-                            type: 'mention',
-                            message: `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie w komentarzu w zadaniu "<strong>${task.title}</strong>".`,
-                            isRead: false,
-                            timestamp: Date.now(),
-                            link: { type: 'task', projectId: project.id, taskId: task.id }
-                        };
-                        const newNotifRef = doc(notificationsRef);
-                        batch.set(newNotifRef, notification);
-                    });
-                    await batch.commit();
-                } // Koniec bloku if (usersToNotify.length > 0)
-            // POPRAWKA: Usunięto zbędną klamrę zamykającą, która była tutaj.
+                    const notification = {
+                        userId: userToNotify.id, // ID odbiorcy
+                        creatorId: state.currentUser.uid, // ID twórcy
+                        type: 'mention',
+                        message: `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie w komentarzu w zadaniu "<strong>${task.title}</strong>".`,
+                        isRead: false,
+                        timestamp: Date.now(),
+                        link: { type: 'task', projectId: project.id, taskId: task.id }
+                    };
+                    // --- POPRAWIONA ŚCIEŻKA ---
+                    // Używamy POPRAWIONEJ globalnej referencji notificationsRef
+                    const newNotifRef = doc(notificationsRef);
+                    batch.set(newNotifRef, notification);
+                });
+                await batch.commit();
+            }
             // === KONIEC NOWEJ LOGIKI ===
 
             taskModal.newCommentText.value = '';
-            // Odśwież tylko listę komentarzy, zachowując aktywną zakładkę
             renderComments(updatedTask);
-            // Możemy też opcjonalnie zaktualizować log aktywności, jeśli jest widoczny
             renderActivityLog(updatedTask);
-        }); // Poprawne zamknięcie listenera addCommentBtn
-
+        });
 
         taskModal.overlay.addEventListener('click', async (e) => {
                 // --- POCZĄTEK POPRAWKI LOGICZNEJ ---
@@ -8357,6 +8375,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
