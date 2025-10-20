@@ -5040,19 +5040,40 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
          * Usuwa listę projektów użytkownika za pomocą operacji wsadowej (batch).
          * Używane, gdy zwykły użytkownik opuszcza grupę.
          */
-        async function deleteUserProjects(projectsToDelete) {
-            if (!projectsToDelete || projectsToDelete.length === 0) return;
+        async function deleteUserProjects(projectsToDeleteIds) {
+            if (!projectsToDeleteIds || projectsToDeleteIds.length === 0) {
+                console.log('[deleteUserProjects] Brak projektów do usunięcia.');
+                return;
+            }
+            
+            console.log(`[deleteUserProjects] Rozpoczynam usuwanie ${projectsToDeleteIds.length} projektów.`);
             
             const batch = writeBatch(db);
-            projectsToDelete.forEach(project => {
-                // Usuwamy tylko aktywne projekty (zakończone można zostawić lub dodać tu logikę ich usuwania)
-                const projectRef = doc(projectsRef, project.id);
-                batch.delete(projectRef);
+            
+            projectsToDeleteIds.forEach(projectId => {
+                // Sprawdzamy obie kolekcje na wszelki wypadek, choć filtr powinien łapać tylko aktywne.
+                // Bezpieczniej jest jednak usuwać po ID z obu miejsc, jeśli istnieją.
+                const activeProjectRef = doc(projectsRef, projectId);
+                const completedProjectRef = doc(completedProjectsRef, projectId);
+                
+                // Batch.delete nie rzuca błędu, jeśli dokument nie istnieje,
+                // więc możemy bezpiecznie wywołać oba.
+                batch.delete(activeProjectRef);
+                batch.delete(completedProjectRef);
+                
+                console.log(`[deleteUserProjects] Dodano do batcha usunięcie projektu: ${projectId}`);
                 // TODO: W przyszłości warto dodać usuwanie załączników z Storage dla każdego zadania w projekcie.
             });
-            await batch.commit();
+            
+            try {
+                await batch.commit();
+                console.log('[deleteUserProjects] Batch usunięty pomyślnie.');
+            } catch (error) {
+                console.error('[deleteUserProjects] Błąd podczas batch.commit():', error);
+                // Rzucamy błędem dalej, aby nadrzędna funkcja mogła go złapać
+                throw new Error("Nie udało się usunąć starych projektów. Operacja zmiany grupy przerwana.");
+            }
         }
-
         /**
          * Aktualizuje dokument użytkownika o nową grupę.
          */
@@ -6117,88 +6138,113 @@ changeGroupNameInput.addEventListener('blur', async () => {
 
 // Listener obsługujący wysłanie formularza zmiany grupy
 changeGroupModal.form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const targetGroupName = changeGroupNameInput.value.trim();
-    const newSubgroupName = changeSubgroupSelect.value || null; // Pobieramy podgrupę od razu
-    if (!targetGroupName) return;
-
-    const user = state.currentUser;
-
-    // --- KROK 1: Sprawdź, czy użytkownik jest właścicielem grupy ---
-    let isGroupOwner = false;
-    if (user.groupId) {
-        try {
-            const groupRef = doc(groupsRef, user.groupId);
-            const groupSnap = await getDoc(groupRef);
-            // Jest właścicielem, jeśli jego ID jest właścicielem ORAZ nie jest to grupa "solo" (musi mieć groupName)
-            if (groupSnap.exists() && groupSnap.data().ownerId === user.uid && user.groupName != null) {
-                isGroupOwner = true;
-            }
-        } catch (error) {
-            console.error("Błąd sprawdzania właściciela grupy:", error);
-            showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
-            return;
-        }
-    }
-
-    // --- KROK 2: Rozdziel logikę na WŁAŚCICIELA i ZWYKŁEGO UŻYTKOWNIKA ---
-
-    if (isGroupOwner) {
-        // --- LOGIKA DLA WŁAŚCICIELA (PROBLEM 2) ---
-        // Przerywamy zmianę grupy i otwieramy modal transferu własności
-        openTransferOwnershipModal(targetGroupName, newSubgroupName);
-        // Nic więcej tu nie robimy, resztę przejmie listener modala transferu
+            e.preventDefault();
+            console.log('[ZMIANA GRUPY] Rozpoczęto proces...');
+            const targetGroupName = changeGroupNameInput.value.trim();
+            const newSubgroupName = changeSubgroupSelect.value || null;
+            if (!targetGroupName) return;
         
-    } else {
-        // --- LOGIKA DLA ZWYKŁEGO UŻYTKOWNIKA (PROBLEM 1) ---
-        try {
-            // Krok 2a: Znajdź grupę docelową (tak jak w oryginale)
-            const q = query(groupsRef, where("name", "==", targetGroupName));
-            const querySnapshot = await getDocs(q);
-
-            if (querySnapshot.empty) {
-                showNotification("Grupa o podanej nazwie nie istnieje.", "Błąd");
-                return;
-            }
-
-            const groupDoc = querySnapshot.docs[0];
-            const newGroupId = groupDoc.id;
-            const newGroupName = groupDoc.data().name;
-
-            // Krok 2b: Znajdź projekty do usunięcia (NOWA LOGIKA)
-            const projectsToDelete = state.projects.filter(p => p.ownerId === user.uid && !p.isInbox);
-
-            if (projectsToDelete.length > 0) {
-                // Krok 2c: Wymagaj potwierdzenia, jeśli projekty istnieją
-                showConfirmation(
-                    "Potwierdzenie zmiany grupy",
-                    `Jesteś właścicielem ${projectsToDelete.length} projekt(ów) w tej grupie. Przejście do innej grupy spowoduje ich TRWAŁE usunięcie (wraz ze wszystkimi zadaniami). Czy na pewno chcesz kontynuować?`,
-                    async (confirmed) => {
-                        if (confirmed) {
-                            // Użytkownik potwierdził -> usuń projekty i zmień grupę
-                            await deleteUserProjects(projectsToDelete);
-                            await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
-                            
-                            closeModal(changeGroupModal.overlay);
-                            showNotification("Przynależność do grupy została zaktualizowana, a Twoje projekty usunięte.", "Sukces");
-                        }
-                        // Jeśli nie potwierdzi, modal potwierdzenia po prostu się zamyka
-                    },
-                    true // Użyj czerwonego przycisku (danger = true)
-                );
+            const user = state.currentUser;
+        
+            // --- KROK 1: Sprawdź, czy użytkownik jest właścicielem grupy ---
+            let isGroupOwner = false;
+            let currentGroupSnap = null;
+        
+            if (user.groupId) {
+                try {
+                    const groupRef = doc(groupsRef, user.groupId);
+                    currentGroupSnap = await getDoc(groupRef);
+                    
+                    // NOWY, NIEZAWODNY WARUNEK:
+                    // Użytkownik jest właścicielem grupy, jeśli:
+                    // 1. Dokument jego grupy istnieje (odróżnia od solo)
+                    // 2. ID właściciela w tym dokumencie zgadza się z jego ID
+                    if (currentGroupSnap.exists() && currentGroupSnap.data().ownerId === user.uid) {
+                        isGroupOwner = true;
+                    }
+                    console.log(`[ZMIANA GRUPY] Sprawdzenie właściciela: user.groupId=${user.groupId}, groupSnap.exists()=${currentGroupSnap.exists()}, ownerId=${currentGroupSnap.data()?.ownerId}, user.uid=${user.uid}. Wynik: isGroupOwner = ${isGroupOwner}`);
+        
+                } catch (error) {
+                    console.error("[ZMIANA GRUPY] Błąd podczas sprawdzania właściciela grupy:", error);
+                    showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+                    return;
+                }
             } else {
-                // Krok 2d: Brak projektów do usunięcia, po prostu zmień grupę
-                await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
-                closeModal(changeGroupModal.overlay);
-                showNotification("Przynależność do grupy została zaktualizowana.", "Sukces");
+                 console.log('[ZMIANA GRUPY] Użytkownik nie ma groupId. Traktowany jak solo.');
             }
-            
-        } catch (error) {
-            console.error("Błąd podczas zmiany grupy:", error);
-            showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
-        }
-    }
-});
+        
+            // --- KROK 2: Rozdziel logikę ---
+        
+            if (isGroupOwner) {
+                // --- LOGIKA DLA WŁAŚCICIELA (PROBLEM 2) ---
+                console.log('[ZMIANA GRUPY] Wykryto WŁAŚCICIELA GRUPY. Otwieram modal transferu...');
+                openTransferOwnershipModal(targetGroupName, newSubgroupName);
+                
+            } else {
+                // --- LOGIKA DLA ZWYKŁEGO UŻYTKOWNIKA lub SOLO (PROBLEM 1) ---
+                console.log('[ZMIANA GRUPY] Wykryto ZWYKŁEGO UŻYTKOWNIKA lub SOLO.');
+                try {
+                    // Krok 2a: Znajdź grupę docelową
+                    const qGroup = query(groupsRef, where("name", "==", targetGroupName));
+                    const groupSnapshot = await getDocs(qGroup);
+        
+                    if (groupSnapshot.empty) {
+                        showNotification("Grupa o podanej nazwie nie istnieje.", "Błąd");
+                        return;
+                    }
+        
+                    const groupDoc = groupSnapshot.docs[0];
+                    const newGroupId = groupDoc.id;
+                    const newGroupName = groupDoc.data().name;
+        
+                    // Krok 2b: Znajdź projekty do usunięcia (NOWA NIEZAWODNA LOGIKA)
+                    // POBIERAMY PROJEKTY BEZPOŚREDNIO Z BAZY DANYCH
+                    console.log('[ZMIANA GRUPY] Szukam projektów do usunięcia...');
+                    const qProjects = query(projectsRef, where("ownerId", "==", user.uid));
+                    const projectsSnapshot = await getDocs(qProjects);
+                    
+                    const projectsToDeleteIds = projectsSnapshot.docs
+                        .map(doc => doc.data())
+                        .filter(p => !p.isInbox) // Filtrujemy inbox
+                        .map(p => p.id || doc.id); // Pobieramy ID
+                    
+                    console.log(`[ZMIANA GRUPY] Znaleziono ${projectsToDeleteIds.length} projektów do usunięcia.`);
+        
+                    if (projectsToDeleteIds.length > 0) {
+                        // Krok 2c: Wymagaj potwierdzenia
+                        console.log('[ZMIANA GRUPY] Pokazuję potwierdzenie usunięcia...');
+                        showConfirmation(
+                            "Potwierdzenie zmiany grupy",
+                            `Jesteś właścicielem ${projectsToDeleteIds.length} projekt(ów) w tej grupie. Przejście do innej grupy spowoduje ich TRWAŁE usunięcie (wraz ze wszystkimi zadaniami). Czy na pewno chcesz kontynuować?`,
+                            async (confirmed) => {
+                                if (confirmed) {
+                                    console.log('[ZMIANA GRUPY] Użytkownik potwierdził usunięcie.');
+                                    // Użytkownik potwierdził -> usuń projekty i zmień grupę
+                                    await deleteUserProjects(projectsToDeleteIds);
+                                    await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
+                                    
+                                    closeModal(changeGroupModal.overlay);
+                                    showNotification("Przynależność do grupy została zaktualizowana, a Twoje projekty usunięte.", "Sukces");
+                                } else {
+                                    console.log('[ZMIANA GRUPY] Użytkownik anulował usuwanie.');
+                                }
+                            },
+                            true // Użyj czerwonego przycisku (danger = true)
+                        );
+                    } else {
+                        // Krok 2d: Brak projektów do usunięcia, po prostu zmień grupę
+                        console.log('[ZMIANA GRUPY] Brak projektów do usunięcia. Zmieniam grupę...');
+                        await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
+                        closeModal(changeGroupModal.overlay);
+                        showNotification("Przynależność do grupy została zaktualizowana.", "Sukces");
+                    }
+                    
+                } catch (error) {
+                    console.error("[ZMIANA GRUPY] Błąd w logice zwykłego użytkownika:", error);
+                    showNotification(error.message || "Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+                }
+            }
+        });
        // === POCZĄTEK NOWEGO LISTENERA (TRANSFER WŁASNOŚCI) ===
         transferOwnershipModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -8498,6 +8544,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
