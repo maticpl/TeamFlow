@@ -5182,92 +5182,98 @@ attachmentsListNewTask.addEventListener('click', (e) => {
 
         function setupFirestoreListeners(userId) {
             if (!userId) return;
+
+            // --- ZMIANA: Listener dla użytkowników ---
             if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
-            state.ui.unsubscribeUsers = onSnapshot(query(usersRef), (snapshot) => {
-                state.users = snapshot.docs.map(doc => ({
+            // Sprawdzamy, czy mamy groupId zalogowanego użytkownika
+            if (state.currentUser && state.currentUser.groupId) {
+                // Tworzymy zapytanie OGRANICZONE do grupy użytkownika
+                const usersQuery = query(usersRef, where("groupId", "==", state.currentUser.groupId));
+                state.ui.unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+                    state.users = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    // Pierwsze renderowanie po załadowaniu użytkowników może być potrzebne tutaj,
+                    // jeśli inne części UI zależą od pełnej listy użytkowników grupy.
+                    render();
+                }, (error) => console.error("Błąd odczytu użytkowników z grupy:", error));
+            } else {
+                 // Jeśli nie mamy groupId (np. użytkownik solo lub błąd claimu),
+                 // pobieramy tylko własny profil, co jest zawsze dozwolone.
+                 console.warn("Brak groupId dla użytkownika, pobieram tylko własny profil.");
+                 const selfUserQuery = query(usersRef, where("__name__", "==", userId)); // Zapytanie o konkretny dokument po ID
+                 state.ui.unsubscribeUsers = onSnapshot(selfUserQuery, (snapshot) => {
+                     state.users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                     // Możemy potrzebować dodatkowej logiki, jeśli aplikacja oczekuje listy > 1 użytkownika
+                     render();
+                 }, (error) => console.error("Błąd odczytu własnego profilu użytkownika:", error));
+            }
+            // --- KONIEC ZMIANY ---
+
+
+            // Listener dla projektów (bez zmian w zapytaniu)
+            if (state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
+            const projectsQuery = query(projectsRef, where("members", "array-contains", userId));
+            state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
+                state.projects = snapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data()
                 }));
-                render();
-            }, (error) => console.error("Błąd odczytu użytkowników:", error));
-            
-            if (state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
-        
-            const projectsQuery = query(projectsRef, where("members", "array-contains", userId));
-    
-            state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
-    state.projects = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-    }));
-                // ✅ Poprawiona funkcja testująca odczyt powiadomień
-window.testNotificationsRead = async function() {
-  try {
-    const user = auth.currentUser;
-    if (!user) {
-      console.warn("Brak zalogowanego użytkownika — zaloguj się, aby przetestować odczyt powiadomień.");
-      alert("Najpierw się zaloguj!");
-      return;
-    }
-
-    // 🔹 Odwołanie do kolekcji powiadomień w Firestore
-    const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-
-    // 🔹 Zapytanie zgodne z regułami Firestore — tylko dokumenty przypisane do zalogowanego użytkownika
-    const q = query(notificationsRef, where("userId", "==", user.uid));
-
-    // 🔹 Pobranie i logowanie wyników
-    const querySnapshot = await getDocs(q);
-
-    if (querySnapshot.empty) {
-      console.log("Brak powiadomień dla użytkownika:", user.uid);
-      alert("Brak powiadomień do wyświetlenia.");
-    } else {
-      const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      console.log("✅ Sukces — odczytano powiadomienia:", results);
-      alert(`Odczytano ${results.length} powiadomień. Sprawdź konsolę.`);
-    }
-  } catch (error) {
-    console.error("❌ Błąd podczas testu odczytu powiadomień:", error);
-    alert(`Błąd odczytu powiadomień: ${error.message}`);
-  }
-};
+                // Logika tworzenia inboxa i inne operacje...
                 const inboxExists = state.projects.some(p => p.isInbox === true && p.ownerId === state.currentUser.uid);
-    // === KONIEC ZMIANY ===
-    if (!inboxExists) {
-        const inboxProject = {
-            name: "Skrzynka zadań",
-            ownerId: state.currentUser.uid,
-            members: [state.currentUser.uid],
-            tasks: [],
-            isInbox: true,
-            createdAt: Date.now()
-        };
-        addDoc(projectsRef, inboxProject);
-    }
-        // ============================================
-    // === POCZĄTEK ZMIANY ===
-    
+                if (!inboxExists && state.currentUser) { // Dodano sprawdzenie state.currentUser dla pewności
+                    const inboxProject = {
+                        name: "Skrzynka zadań", ownerId: state.currentUser.uid, members: [state.currentUser.uid],
+                        tasks: [], isInbox: true, createdAt: Date.now()
+                    };
+                    // Używamy addDoc w try-catch na wypadek problemów
+                    try {
+                         addDoc(projectsRef, inboxProject);
+                    } catch(err) {
+                        console.error("Nie udało się utworzyć projektu Inbox:", err);
+                    }
+                }
+                const isProjectView = state.ui.currentView === 'projects';
+                if (isProjectView && state.currentProjectId) {
+                    const stillExists = !!state.projects.find(p => p.id === state.currentProjectId) || !!state.completedProjects.find(p => p.id === state.currentProjectId);
+                    if (!stillExists) {
+                        state.currentProjectId = state.projects.find(p => !p.isInbox)?.id || null; // Znajdź pierwszy nie-inbox
+                    }
+                }
+                loadingOverlay.style.display = 'none'; // Ukryj ładowanie po załadowaniu projektów
+                render(); // Przerenderuj po aktualizacji projektów
+            }, (error) => {
+                console.error("Błąd odczytu projektów:", error);
+                loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small><br><br><b>Ważne:</b> Upewnij się, że utworzyłeś/aś wymagany indeks w Firestore (zakładka Indexes -> Single Field).</p>`;
+                // Nie chowamy overlay w przypadku błędu
+            });
 
-    // TYLKO jeśli aktualnie jesteś w widoku projektów,
-    // pilnuj spójności currentProjectId.
-    const isProjectView = state.ui.currentView === 'projects';
-    if (isProjectView) {
-        const stillExists =
-            !!findProject(state.currentProjectId) || !!findCompletedProject(state.currentProjectId);
+            // Listener dla zakończonych projektów (bez zmian w zapytaniu)
+            if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
+            const completedQuery = query(completedProjectsRef, where("members", "array-contains", userId));
+            state.ui.unsubscribeCompleted = onSnapshot(completedQuery, (snapshot) => {
+                 state.completedProjects = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                 }));
+                 render(); // Przerenderuj po aktualizacji zakończonych projektów
+            }, (error) => console.error("Błąd odczytu zakończonych projektów:", error));
 
-        if (!stillExists) {
-            state.currentProjectId = state.projects[0]?.id || null;
-            // UWAGA: nie zmieniamy state.ui.currentView tutaj
+            // Listener dla powiadomień (bez zmian w zapytaniu)
+            if (state.ui.unsubscribeNotifications) state.ui.unsubscribeNotifications();
+            const notificationCollectionPath = `artifacts/${appId}/public/data/notifications`;
+            const notificationsRef = collection(db, notificationCollectionPath);
+            const notificationsQuery = query(notificationsRef, where("userId", "==", userId), orderBy("timestamp", "desc"));
+            state.ui.unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
+                const receivedNotifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                state.notifications = receivedNotifications;
+                render(); // Przerenderuj po aktualizacji powiadomień
+            }, (error) => {
+                 console.error(`[DEBUG] Błąd w onSnapshot powiadomień dla userId: ${userId}`, error);
+                 console.error("Błąd odczytu powiadomień:", error);
+            });
         }
-    }
-
-    loadingOverlay.style.display = 'none';
-    render();
-}, (error) => {
-    console.error("Błąd odczytu projektów:", error);
-    loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small><br><br><b>Ważne:</b> Upewnij się, że utworzyłeś/aś wymagany indeks w Firestore (zakładka Indexes -> Single Field).</p>`;
-});
             
             if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
     
@@ -8346,6 +8352,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
