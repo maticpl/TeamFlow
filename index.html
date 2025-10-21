@@ -2038,7 +2038,7 @@
                 </nav>
             </div>
             
-            <button class="new-project-btn" id="new-project-btn">+ Nowy Projekt</button>
+            <button class="new-project-btn" id="new-project-btn" disabled>+ Nowy Projekt</button>
 
 <div class="sidebar-footer">
     <p class="user-info">Zalogowano jako:<br><span id="user-email-display"></span><br><span id="user-group-display"></span></p>
@@ -2676,11 +2676,6 @@
     const appContainer = document.querySelector('.app-container');
 
     try {
-        // <<<--- POCZĄTEK DODANEGO KODU DIAGNOSTYCZNEGO ---<<<
-            console.log("--- START DEBUG: Aktualna konfiguracja Firebase przed inicjalizacją ---");
-            console.log(JSON.stringify(firebaseConfig, null, 2)); // Wyświetl zawartość obiektu
-            console.log("--- KONIEC DEBUG: Aktualna konfiguracja Firebase ---");
-            // <<<--- KONIEC DODANEGO KODU DIAGNOSTYCZNEGO ---<<<
         app = initializeApp(firebaseConfig); // Przypisujemy zainicjalizowaną aplikację
         db = getFirestore(app);
         auth = getAuth(app);
@@ -2910,6 +2905,17 @@ let state = {
             message: document.getElementById('confirmation-message'),
             confirmBtn: document.getElementById('confirmation-action-btn'),
         };
+
+        // === NOWA REFERENCJA DLA MODALA TRANSFERU WŁASNOŚCI ===
+        const transferOwnershipModal = {
+            overlay: document.getElementById('transfer-ownership-modal'),
+            form: document.getElementById('transfer-ownership-form'),
+            select: document.getElementById('new-owner-select'),
+            error: document.getElementById('transfer-ownership-error'),
+            submitBtn: document.querySelector('#transfer-ownership-form button[type="submit"]')
+        };
+        // === KONIEC NOWEJ REFERENCJI ===
+
        // === NOWE REFERENCJE DLA SUBZADAŃ (Wersja 2.1) ===
         const addSubtaskBtnMain = document.getElementById('add-subtask-btn-main');
         const subtasksListMain = document.getElementById('subtasks-list-main');
@@ -5028,6 +5034,92 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
                 delaysListEl.innerHTML = teamOverdueTasks.map(task => createTaskCardHTML(task, true)).join('');
             }
         }
+       // === POCZĄTEK NOWYCH FUNKCJI POMOCNICZYCH (ZMIANA GRUPY) ===
+
+        /**
+         * Usuwa listę projektów użytkownika za pomocą operacji wsadowej (batch).
+         * Używane, gdy zwykły użytkownik opuszcza grupę.
+         */
+        async function deleteUserProjects(projectsToDeleteIds) {
+            if (!projectsToDeleteIds || projectsToDeleteIds.length === 0) {
+                console.log('[deleteUserProjects] Brak projektów do usunięcia.');
+                return;
+            }
+            
+            console.log(`[deleteUserProjects] Rozpoczynam usuwanie ${projectsToDeleteIds.length} projektów.`);
+            
+            const batch = writeBatch(db);
+            
+            projectsToDeleteIds.forEach(projectId => {
+                // Sprawdzamy obie kolekcje na wszelki wypadek, choć filtr powinien łapać tylko aktywne.
+                // Bezpieczniej jest jednak usuwać po ID z obu miejsc, jeśli istnieją.
+                const activeProjectRef = doc(projectsRef, projectId);
+                const completedProjectRef = doc(completedProjectsRef, projectId);
+                
+                // Batch.delete nie rzuca błędu, jeśli dokument nie istnieje,
+                // więc możemy bezpiecznie wywołać oba.
+                batch.delete(activeProjectRef);
+                batch.delete(completedProjectRef);
+                
+                console.log(`[deleteUserProjects] Dodano do batcha usunięcie projektu: ${projectId}`);
+                // TODO: W przyszłości warto dodać usuwanie załączników z Storage dla każdego zadania w projekcie.
+            });
+            
+            try {
+                await batch.commit();
+                console.log('[deleteUserProjects] Batch usunięty pomyślnie.');
+            } catch (error) {
+                console.error('[deleteUserProjects] Błąd podczas batch.commit():', error);
+                // Rzucamy błędem dalej, aby nadrzędna funkcja mogła go złapać
+                throw new Error("Nie udało się usunąć starych projektów. Operacja zmiany grupy przerwana.");
+            }
+        }
+        /**
+         * Aktualizuje dokument użytkownika o nową grupę.
+         */
+        async function updateUserGroup(userId, newGroupId, newGroupName, newSubgroupName) {
+            const userDocRef = doc(usersRef, userId);
+            await updateDoc(userDocRef, {
+                groupId: newGroupId,
+                groupName: newGroupName,
+                subgroupName: newSubgroupName
+            });
+        }
+
+        /**
+         * Otwiera modal transferu własności i wypełnia go członkami grupy.
+         */
+        function openTransferOwnershipModal(targetGroupName, targetSubgroupName) {
+            const user = state.currentUser;
+            const otherGroupMembers = state.users.filter(u => u.groupId === user.groupId && u.uid !== user.uid);
+            
+            transferOwnershipModal.select.innerHTML = '<option value="">-- Wybierz członka... --</option>'; // Reset
+            transferOwnershipModal.error.textContent = '';
+
+            if (otherGroupMembers.length === 0) {
+                transferOwnershipModal.select.disabled = true;
+                transferOwnershipModal.submitBtn.disabled = true;
+                transferOwnershipModal.error.textContent = 'Nie możesz opuścić grupy, ponieważ jesteś jedynym członkiem. Usuń grupę w inny sposób lub zaproś kogoś.';
+            } else {
+                otherGroupMembers.forEach(member => {
+                    const option = document.createElement('option');
+                    option.value = member.uid;
+                    option.textContent = member.name || member.email;
+                    transferOwnershipModal.select.appendChild(option);
+                });
+                transferOwnershipModal.select.disabled = false;
+                transferOwnershipModal.submitBtn.disabled = false;
+            }
+
+            // Zapisujemy grupę docelową w atrybutach formularza, aby móc ją odczytać przy wysyłaniu
+            transferOwnershipModal.form.dataset.targetGroupName = targetGroupName;
+            transferOwnershipModal.form.dataset.targetSubgroupName = targetSubgroupName || '';
+            
+            closeModal(changeGroupModal.overlay); // Zamykamy stary modal
+            openModal(transferOwnershipModal.overlay); // Otwieramy nowy
+        }
+
+        // === KONIEC NOWYCH FUNKCJI POMOCNICZYCH ===
          function renderDashboardUpcomingTasks() {
             const upcomingListEl = document.getElementById('dashboard-upcoming-list');
             if (!upcomingListEl) return;
@@ -5170,22 +5262,7 @@ window.testNotificationsRead = async function() {
     alert(`Błąd odczytu powiadomień: ${error.message}`);
   }
 };
-                const inboxExists = state.projects.some(p => p.isInbox === true && p.ownerId === state.currentUser.uid);
-    // === KONIEC ZMIANY ===
-    if (!inboxExists) {
-        const inboxProject = {
-            name: "Skrzynka zadań",
-            ownerId: state.currentUser.uid,
-            members: [state.currentUser.uid],
-            tasks: [],
-            isInbox: true,
-            createdAt: Date.now()
-        };
-        addDoc(projectsRef, inboxProject);
-    }
-        // ============================================
-    // === POCZĄTEK ZMIANY ===
-    
+               
 
     // TYLKO jeśli aktualnie jesteś w widoku projektów,
     // pilnuj spójności currentProjectId.
@@ -5469,11 +5546,24 @@ window.testNotificationsRead = async function() {
         // --- KONIEC NOWEJ LOGIKI ---
 
         // POPRAWKA: Dodano brakujący nawias zamykający ")"
-        setupFirestoreListeners(user.uid); 
+        setupFirestoreListeners(user.uid);
         requestNotificationPermission();
         updateNotificationBellUI();
 
+        // <<<--- TUTAJ WŁĄCZ PRZYCISK ---<<<
+        const newProjectBtn = document.getElementById('new-project-btn');
+        if (newProjectBtn) {
+            newProjectBtn.disabled = false; // Włącz przycisk
+             console.log("[DEBUG] Przycisk '+ Nowy Projekt' włączony.");
+        }
+        // <<<--- KONIEC ZMIANY ---<<<
+
     } else { // Użytkownik jest wylogowany
+        // Upewnij się, że przycisk jest wyłączony po wylogowaniu
+        const newProjectBtn = document.getElementById('new-project-btn');
+         if (newProjectBtn) {
+            newProjectBtn.disabled = true;
+         }
         state.currentUser = null;
         state.notifications = []; // <-- DODANA LINIA: Wyczyść powiadomienia
         appContainer.classList.add('hidden');
@@ -6045,42 +6135,316 @@ changeGroupNameInput.addEventListener('blur', async () => {
 });
 
 // Listener obsługujący wysłanie formularza zmiany grupy
-changeGroupModal.form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const targetGroupName = changeGroupNameInput.value.trim();
-    if (!targetGroupName) return;
+if (changeGroupModal.form) {
+            console.log('[DEBUG] Formularz changeGroupModal.form ZNALEZIONY. Podpinam listener...');
+            changeGroupModal.form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                // === LOGOWANIE STARTU ===
+                console.log('[ZMIANA GRUPY] Listener formularza URUCHOMIONY.'); 
+                
+                const submitBtn = e.target.querySelector('button[type="submit"]'); // Pobieramy przycisk submit
+                submitBtn.disabled = true; // Wyłączamy przycisk od razu
+                submitBtn.textContent = 'Przetwarzanie...'; 
+    
+                const targetGroupName = changeGroupNameInput.value.trim();
+                const newSubgroupName = changeSubgroupSelect.value || null; 
+                
+                if (!targetGroupName) {
+                    console.warn('[ZMIANA GRUPY] Przerwano: Brak nazwy grupy docelowej.');
+                    showNotification("Wpisz nazwę grupy docelowej.", "Błąd");
+                    submitBtn.disabled = false; // Włączamy przycisk z powrotem
+                    submitBtn.textContent = 'Zmień grupę';
+                    return;
+                }
+            
+                const user = state.currentUser;
+                if (!user) {
+                    console.error('[ZMIANA GRUPY] Przerwano: Brak zalogowanego użytkownika (state.currentUser jest null).');
+                    showNotification("Błąd: Użytkownik nie jest zalogowany.", "Błąd");
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Zmień grupę';
+                    return;
+                }
+                console.log(`[ZMIANA GRUPY] Użytkownik: ${user.uid}, Email: ${user.email}`);
+                console.log(`[ZMIANA GRUPY] Aktualna grupa użytkownika (ze state): groupId=${user.groupId}, groupName=${user.groupName}`);
+                console.log(`[ZMIANA GRUPY] Grupa docelowa: ${targetGroupName}, Podgrupa docelowa: ${newSubgroupName || 'brak'}`);
+                
+                // --- KROK 1: Sprawdź, czy użytkownik jest właścicielem grupy ---
+                let isGroupOwner = false;
+                let currentGroupData = null; 
+            
+                // Sprawdzamy TYLKO jeśli użytkownik ma przypisane groupId i groupName (nie jest solo)
+                if (user.groupId && user.groupName && user.groupId !== user.uid) { 
+                    console.log(`[ZMIANA GRUPY] Użytkownik NALEŻY do grupy: ${user.groupName} (${user.groupId}). Sprawdzam, czy jest właścicielem...`);
+                    try {
+                        const groupRef = doc(groupsRef, user.groupId);
+                        console.log(`[ZMIANA GRUPY] Próbuję odczytać dokument grupy: ${groupRef.path}`);
+                        const currentGroupSnap = await getDoc(groupRef);
+            
+                        if (currentGroupSnap.exists()) {
+                            currentGroupData = currentGroupSnap.data();
+                            console.log(`[ZMIANA GRUPY] Dokument grupy istnieje. Dane:`, currentGroupData);
+                            if (currentGroupData.ownerId === user.uid) {
+                                isGroupOwner = true;
+                            }
+                        } else {
+                            // Ten scenariusz nie powinien wystąpić dla użytkownika z groupName, ale logujemy na wszelki wypadek
+                            console.warn(`[ZMIANA GRUPY] Niespójność danych: Użytkownik ma groupName=${user.groupName}, ale dokument grupy ${user.groupId} nie istnieje! Traktuję jak zwykłego użytkownika.`);
+                        }
+                        console.log(`[ZMIANA GRUPY] Wynik sprawdzenia właściciela: isGroupOwner = ${isGroupOwner}`);
+            
+                    } catch (error) {
+                        console.error("[ZMIANA GRUPY] Błąd podczas sprawdzania właściciela grupy:", error);
+                        showNotification("Wystąpił błąd przy weryfikacji grupy. Spróbuj ponownie.", "Błąd");
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Zmień grupę';
+                        return;
+                    }
+                } else {
+                     console.log(`[ZMIANA GRUPY] Użytkownik jest SOLO (groupId: ${user.groupId}, groupName: ${user.groupName}). Traktowany jak zwykły użytkownik.`);
+                }
+            
+                // --- KROK 2: Rozdziel logikę ---
+            
+                if (isGroupOwner) {
+                    // --- LOGIKA DLA WŁAŚCICIELA (PROBLEM 2) ---
+                    console.log('[ZMIANA GRUPY] Akcja dla WŁAŚCICIELA GRUPY. Otwieram modal transferu...');
+                    openTransferOwnershipModal(targetGroupName, newSubgroupName);
+                    // Resetujemy przycisk, bo akcja została przekierowana
+                    submitBtn.disabled = false; 
+                    submitBtn.textContent = 'Zmień grupę';
+                    
+                } else {
+                    // --- LOGIKA DLA ZWYKŁEGO UŻYTKOWNIKA lub SOLO (PROBLEM 1) ---
+                    console.log('[ZMIANA GRUPY] Akcja dla ZWYKŁEGO UŻYTKOWNIKA lub SOLO.');
+                    try {
+                        // Krok 2a: Znajdź grupę docelową
+                        console.log(`[ZMIANA GRUPY] Szukam grupy docelowej: ${targetGroupName}`);
+                        const qGroup = query(groupsRef, where("name", "==", targetGroupName));
+                        const groupSnapshot = await getDocs(qGroup);
+            
+                        if (groupSnapshot.empty) {
+                            showNotification("Grupa o podanej nazwie nie istnieje.", "Błąd");
+                            console.warn(`[ZMIANA GRUPY] Nie znaleziono grupy docelowej: ${targetGroupName}`);
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = 'Zmień grupę';
+                            return;
+                        }
+            
+                        const groupDoc = groupSnapshot.docs[0];
+                        const newGroupId = groupDoc.id;
+                        const newGroupName = groupDoc.data().name;
+                        console.log(`[ZMIANA GRUPY] Znaleziono grupę docelową: ${newGroupName} (${newGroupId})`);
+            
+                        // Krok 2b: Znajdź projekty do usunięcia (bezpośrednie zapytanie)
+                        // Krok 2b: Znajdź projekty do usunięcia (bezpośrednie zapytanie)
+                        console.log(`[ZMIANA GRUPY] Szukam projektów użytkownika ${user.uid} do usunięcia z grupy ${user.groupId}...`);
+                        // Tworzymy zapytanie - szukamy projektów, gdzie ownerId pasuje ORAZ groupId pasuje
+                        const qProjects = query(projectsRef, 
+                            where("ownerId", "==", user.uid),
+                            where("groupId", "==", user.groupId) // <-- DODAJ TĘ LINIĘ
+                        ); 
+                        let projectsSnapshot;
+                        try {
+                           projectsSnapshot = await getDocs(qProjects); // Wykonujemy zapytanie
+                           console.log(`[ZMIANA GRUPY] Zapytanie o projekty wykonane. Znaleziono dokumentów: ${projectsSnapshot.size}`);
+                        } catch (queryError) {
+                             console.error("[ZMIANA GRUPY] Błąd podczas zapytania o projekty:", queryError);
+                             // Sprawdź, czy to błąd indeksu
+                             if (queryError.code === 'failed-precondition') {
+                                 showNotification("Błąd konfiguracji bazy danych: Brak wymaganego indeksu dla pola 'ownerId' w kolekcji 'projects'. Sprawdź konsolę Firestore.", "Błąd Krytyczny");
+                             } else {
+                                 showNotification("Błąd podczas wyszukiwania projektów.", "Błąd");
+                             }
+                             submitBtn.disabled = false;
+                             submitBtn.textContent = 'Zmień grupę';
+                             return;
+                        }
 
-    try {
-        // Krok 1: Znajdź grupę docelową w bazie danych
-        const q = query(groupsRef, where("name", "==", targetGroupName));
-        const querySnapshot = await getDocs(q);
-
-        if (querySnapshot.empty) {
-            showNotification("Grupa o podanej nazwie nie istnieje.", "Błąd");
-            return;
-        }
-
-        // Krok 2: Wyciągnij potrzebne dane z znalezionej grupy
-        const groupDoc = querySnapshot.docs[0];
-        const newGroupId = groupDoc.id;
-        const newGroupName = groupDoc.data().name;
-        const newSubgroupName = changeSubgroupSelect.value || null;
-
-        // Krok 3: Zaktualizuj dokument zalogowanego użytkownika
-        const userDocRef = doc(usersRef, state.currentUser.uid);
-        await updateDoc(userDocRef, {
-            groupId: newGroupId,
-            groupName: newGroupName,
-            subgroupName: newSubgroupName
-        });
+                        // Mapujemy wyniki do tablicy ID, filtrując inbox
+                        const projectsToDeleteIds = projectsSnapshot.docs
+                            .filter(doc => !doc.data().isInbox) // Upewniamy się, że nie usuwamy inboxa
+                            .map(doc => doc.id); // Pobieramy ID
+                        
+                        console.log(`[ZMIANA GRUPY] Znaleziono ${projectsToDeleteIds.length} projektów do usunięcia (po filtracji inboxa):`, projectsToDeleteIds);
+            
+                        if (projectsToDeleteIds.length > 0) {
+                            // Krok 2c: Wymagaj potwierdzenia
+                            console.log('[ZMIANA GRUPY] Pokazuję potwierdzenie usunięcia projektów...');
+                            showConfirmation(
+                                "Potwierdzenie zmiany grupy",
+                                `Jesteś właścicielem ${projectsToDeleteIds.length} projekt(ów) w tej grupie. Przejście do innej grupy spowoduje ich TRWAŁE usunięcie (wraz ze wszystkimi zadaniami). Czy na pewno chcesz kontynuować?`,
+                                async (confirmed) => {
+                                    if (confirmed) {
+                                        console.log('[ZMIANA GRUPY] Użytkownik potwierdził usunięcie projektów.');
+                                        try {
+                                            await deleteUserProjects(projectsToDeleteIds); 
+                                            await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
+                                            
+                                            closeModal(changeGroupModal.overlay);
+                                            showNotification("Przynależność do grupy została zaktualizowana, a Twoje projekty usunięte.", "Sukces");
+                                            // Reset przycisku nie jest tu potrzebny, bo modal znika
+                                        } catch (finalizationError) {
+                                            console.error("[ZMIANA GRUPY] Błąd podczas usuwania projektów lub aktualizacji grupy po potwierdzeniu:", finalizationError);
+                                            showNotification(finalizationError.message || "Wystąpił błąd podczas finalizowania zmiany grupy.", "Błąd");
+                                            // Reset przycisku w razie błędu PO potwierdzeniu
+                                            submitBtn.disabled = false; 
+                                            submitBtn.textContent = 'Zmień grupę';
+                                        }
+                                    } else {
+                                        console.log('[ZMIANA GRUPY] Użytkownik anulował usuwanie projektów.');
+                                        // Reset przycisku, jeśli anulowano
+                                        submitBtn.disabled = false; 
+                                        submitBtn.textContent = 'Zmień grupę';
+                                    }
+                                },
+                                true // Użyj czerwonego przycisku (danger = true)
+                            );
+                        } else {
+                            // Krok 2d: Brak projektów do usunięcia, po prostu zmień grupę
+                            console.log('[ZMIANA GRUPY] Brak projektów do usunięcia. Zmieniam tylko grupę...');
+                            await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
+                            closeModal(changeGroupModal.overlay);
+                            showNotification("Przynależność do grupy została zaktualizowana.", "Sukces");
+                            // Reset przycisku nie jest tu potrzebny
+                        }
+                        
+                    } catch (error) {
+                        console.error("[ZMIANA GRUPY] Błąd w głównej logice zwykłego użytkownika:", error);
+                        showNotification(error.message || "Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+                        submitBtn.disabled = false; // Reset przycisku w razie błędu
+                        submitBtn.textContent = 'Zmień grupę';
+                    }
+                }
+            }); // Koniec listenera submit
+       // === POCZĄTEK NOWEGO LISTENERA (TRANSFER WŁASNOŚCI) - Wersja 3 ===
         
-        closeModal(changeGroupModal.overlay);
-        showNotification("Przynależność do grupy została zaktualizowana.", "Sukces");
-    } catch (error) {
-        console.error("Błąd podczas zmiany grupy:", error);
-        showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
-    }
-});
+            console.log('[DEBUG] Formularz transferOwnershipModal.form ZNALEZIONY. Podpinam listener...');
+            transferOwnershipModal.form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                console.log('[TRANSFER] Listener formularza URUCHOMIONY.');
+                
+                transferOwnershipModal.submitBtn.disabled = true; // Wyłącz przycisk od razu
+                transferOwnershipModal.submitBtn.textContent = 'Przetwarzanie...';
+                transferOwnershipModal.error.textContent = ''; // Wyczyść błędy
+    
+                const newOwnerId = transferOwnershipModal.select.value;
+                const user = state.currentUser; // Obecny właściciel (odchodzący)
+            
+                if (!newOwnerId) {
+                    transferOwnershipModal.error.textContent = 'Musisz wybrać nowego właściciela.';
+                    console.warn('[TRANSFER] Przerwano: Nie wybrano nowego właściciela.');
+                    transferOwnershipModal.submitBtn.disabled = false; // Włącz z powrotem
+                    transferOwnershipModal.submitBtn.textContent = 'Przekaż własność i opuść grupę';
+                    return;
+                }
+                console.log(`[TRANSFER] Wybrano nowego właściciela: ${newOwnerId}`);
+            
+                const targetGroupName = transferOwnershipModal.form.dataset.targetGroupName;
+                const targetSubgroupName = transferOwnershipModal.form.dataset.targetSubgroupName;
+            
+                if (!targetGroupName) {
+                    transferOwnershipModal.error.textContent = 'Błąd wewnętrzny: Nie znaleziono grupy docelowej.';
+                    console.error('[TRANSFER] Przerwano: Brak targetGroupName w dataset.');
+                    transferOwnershipModal.submitBtn.disabled = false;
+                    transferOwnershipModal.submitBtn.textContent = 'Przekaż własność i opuść grupę';
+                    return;
+                }
+                console.log(`[TRANSFER] Grupa docelowa: ${targetGroupName}, Podgrupa: ${targetSubgroupName || 'brak'}`);
+            
+                try {
+                    // --- KROK 1: Znajdź grupę docelową ---
+                    console.log(`[TRANSFER] Szukam grupy docelowej: ${targetGroupName}`);
+                    const qGroup = query(groupsRef, where("name", "==", targetGroupName));
+                    const groupSnapshot = await getDocs(qGroup);
+                    if (groupSnapshot.empty) {
+                        throw new Error("Nie można znaleźć grupy docelowej. Przerwano.");
+                    }
+                    const groupDoc = groupSnapshot.docs[0];
+                    const newGroupId = groupDoc.id;
+                    const newGroupName = groupDoc.data().name;
+                    console.log(`[TRANSFER] Znaleziono grupę docelową: ${newGroupName} (${newGroupId})`);
+                    
+                    // --- KROK 2: Przygotuj batch ---
+                    const batch = writeBatch(db);
+                    console.log('[TRANSFER] Utworzono batch.');
+            
+                    // --- KROK 3: Zaktualizuj obecną grupę ---
+                    const currentGroupRef = doc(groupsRef, user.groupId);
+                    batch.update(currentGroupRef, { ownerId: newOwnerId });
+                    console.log(`[TRANSFER] Batch: Aktualizacja grupy ${user.groupId}, nowy właściciel: ${newOwnerId}`);
+            
+                    // --- KROK 4: Znajdź projekty do przekazania ---
+                    console.log(`[TRANSFER] Szukam projektów do przekazania (właściciel: ${user.uid}) z grupy ${user.groupId}...`);
+                    const qProjects = query(projectsRef, 
+                        where("ownerId", "==", user.uid),
+                        where("groupId", "==", user.groupId) // <-- DODAJ TĘ LINIĘ
+                    );
+                    let projectsSnapshot;
+                    try {
+                        projectsSnapshot = await getDocs(qProjects);
+                        console.log(`[TRANSFER] Zapytanie o projekty wykonane. Znaleziono dokumentów: ${projectsSnapshot.size}`);
+                    } catch (queryError) {
+                        console.error("[TRANSFER] Błąd podczas zapytania o projekty:", queryError);
+                         if (queryError.code === 'failed-precondition') {
+                             showNotification("Błąd konfiguracji bazy danych: Brak wymaganego indeksu dla pola 'ownerId' w kolekcji 'projects'. Sprawdź konsolę Firestore.", "Błąd Krytyczny");
+                         } else {
+                             showNotification("Błąd podczas wyszukiwania projektów.", "Błąd");
+                         }
+                        throw queryError; // Rzuć błędem dalej, aby zatrzymać i zresetować przycisk
+                    }
+                    
+                    const projectsToTransfer = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    console.log(`[TRANSFER] Znaleziono ${projectsToTransfer.length} projektów do przekazania.`);
+            
+                    projectsToTransfer.forEach(project => {
+                        if (project.isInbox) {
+                            console.log(`[TRANSFER] Pomijam transfer projektu Inbox: ${project.id}`);
+                            return; 
+                        }
+                        
+                        const projectRef = doc(projectsRef, project.id);
+                        const members = project.members.includes(newOwnerId)
+                            ? project.members
+                            : [...project.members, newOwnerId]; 
+                        
+                        batch.update(projectRef, { 
+                            ownerId: newOwnerId,
+                            members: members 
+                        });
+                        console.log(`[TRANSFER] Batch: Aktualizacja projektu ${project.id}, nowy właściciel: ${newOwnerId}`);
+                    });
+            
+                    // --- KROK 5: Zaktualizuj profil odchodzącego właściciela ---
+                    const userDocRef = doc(usersRef, user.uid);
+                    batch.update(userDocRef, {
+                        groupId: newGroupId,
+                        groupName: newGroupName,
+                        subgroupName: targetSubgroupName
+                    });
+                    console.log(`[TRANSFER] Batch: Aktualizacja profilu użytkownika ${user.uid} na nową grupę: ${newGroupId}`);
+                    
+                    // --- KROK 6: Wykonaj batch ---
+                    console.log('[TRANSFER] Wykonuję batch.commit()...');
+                    await batch.commit(); 
+                    console.log('[TRANSFER] Batch wykonany pomyślnie!');
+            
+                    closeModal(transferOwnershipModal.overlay);
+                    showNotification("Własność grupy i projektów została przekazana. Zostałeś przeniesiony do nowej grupy.", "Sukces");
+            
+                } catch (error) {
+                    console.error("Błąd podczas transferu własności grupy:", error);
+                    transferOwnershipModal.error.textContent = `Błąd: ${error.message}`;
+                    // Reset przycisku tylko w razie błędu
+                    transferOwnershipModal.submitBtn.disabled = false;
+                    transferOwnershipModal.submitBtn.textContent = 'Przekaż własność i opuść grupę';
+                }
+            }); // Koniec listenera submit
+             console.log('[DEBUG] Listener dla transferOwnershipModal.form PODPIĘTY.');
+        } else {
+             console.error('[DEBUG] KRYTYCZNY BŁĄD: Nie znaleziono elementu transferOwnershipModal.form w DOM!');
+        }
+        // === KONIEC NOWEGO LISTENERA ===
         document.querySelectorAll('#notification-toggle-btn, #notification-toggle-btn-mobile').forEach(btn => {
             btn.addEventListener('click', requestNotificationPermission);
         });
@@ -6198,10 +6562,15 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     selectedMembers.push(state.currentUser.uid);
                 }
                 const taskTitles = newProjectModal.tasksTextarea.value.split('\n').map(t => t.replace(/^-/, '').trim()).filter(Boolean);
+                // <<<--- TUTAJ DODAŁEM LOGOWANIE ---<<<
+                console.log("[DEBUG] Tworzenie projektu - Wartość state.currentUser:", JSON.stringify(state.currentUser));
+                console.log("[DEBUG] Tworzenie projektu - Wartość state.currentUser.groupId:", state.currentUser.groupId);
+                // <<<--- KONIEC LOGOWANIA ---<<<
                 const newProject = {
                     name: newName,
                     ownerId: state.currentUser.uid,
                     members: selectedMembers,
+                    groupId: state.currentUser.groupId,
                     tasks: taskTitles.map((title, i) => ({
                         id: `task${Date.now() + i}`,
                         title,
@@ -6218,6 +6587,9 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                         recurrence: null
                     }))
                 };
+
+                // Dodajmy jeszcze jeden log tuż przed zapisem
+                console.log("[DEBUG] Tworzenie projektu - Obiekt newProject do zapisu:", JSON.stringify(newProject));
                 const docRef = await addDoc(projectsRef, newProject);
 
                 // === NOWA LOGIKA - POWIADOMIENIA O DODANIU DO PROJEKTU ===
@@ -6254,6 +6626,8 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
             } catch (error) { // KROK 6: Blok catch do obsługi błędów
                 console.error("Błąd podczas tworzenia projektu:", error);
+                // Dodajmy logowanie stanu również w przypadku błędu
+                console.error("[DEBUG] Błąd - Wartość state.currentUser w momencie błędu:", JSON.stringify(state.currentUser));
                 showNotification(error.message || "Wystąpił błąd podczas tworzenia projektu.", "Błąd");
             } finally { // KROK 7: Blok finally do zresetowania przycisku
                 submitBtn.disabled = false;
@@ -8270,9 +8644,42 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             </form>
         </div>
     </div>
+    <div class="modal-overlay" id="transfer-ownership-modal">
+        <div class="modal" style="max-width: 450px;">
+            <form id="transfer-ownership-form">
+                <div class="modal-header">
+                    <h2>Przekaż własność grupy</h2>
+                    <button type="button" class="modal-close-btn">&times;</button>
+                </div>
+                <div class="form-modal-content">
+                    <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                        Jesteś właścicielem tej grupy. Aby ją opuścić, musisz najpierw przekazać swoje obowiązki (własność grupy oraz wszystkich Twoich projektów) innemu członkowi.
+                    </p>
+                    <div class="form-group">
+                        <label for="new-owner-select">Wybierz nowego właściciela grupy</label>
+                        <select id="new-owner-select" required>
+                            <option value="">-- Wybierz członka... --</option>
+                        </select>
+                    </div>
+                    <p id="transfer-ownership-error" class="error-message"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                    <button type="submit" class="btn btn-danger">Przekaż własność i opuść grupę</button>
+                </div>
+            </form>
+        </div>
+    </div>
     </body>
 </body>
 </html>
+
+
+
+
+
+
+
 
 
 
