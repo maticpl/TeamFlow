@@ -6239,83 +6239,72 @@ if (changeGroupModal.form) {
                         // Krok 2b: Znajdź projekty do usunięcia (bezpośrednie zapytanie)
                         // Krok 2b: Znajdź projekty do usunięcia (bezpośrednie zapytanie)
                         console.log(`[ZMIANA GRUPY] Szukam projektów użytkownika ${user.uid} do usunięcia z grupy ${user.groupId}...`);
-                        // Tworzymy zapytanie - szukamy projektów, gdzie ownerId pasuje ORAZ groupId pasuje
-                        const qProjects = query(projectsRef, 
-                            where("ownerId", "==", user.uid),
-                            where("groupId", "==", user.groupId) // <-- DODAJ TĘ LINIĘ
-                        ); 
-                        let projectsSnapshot;
-                        try {
-                           projectsSnapshot = await getDocs(qProjects); // Wykonujemy zapytanie
-                           console.log(`[ZMIANA GRUPY] Zapytanie o projekty wykonane. Znaleziono dokumentów: ${projectsSnapshot.size}`);
-                        } catch (queryError) {
-                             console.error("[ZMIANA GRUPY] Błąd podczas zapytania o projekty:", queryError);
-                             // Sprawdź, czy to błąd indeksu
-                             if (queryError.code === 'failed-precondition') {
-                                 showNotification("Błąd konfiguracji bazy danych: Brak wymaganego indeksu dla pola 'ownerId' w kolekcji 'projects'. Sprawdź konsolę Firestore.", "Błąd Krytyczny");
-                             } else {
-                                 showNotification("Błąd podczas wyszukiwania projektów.", "Błąd");
-                             }
-                             submitBtn.disabled = false;
-                             submitBtn.textContent = 'Zmień grupę';
-                             return;
-                        }
+            // Tworzymy zapytanie - szukamy projektów, gdzie ownerId pasuje ORAZ groupId pasuje
+            const qProjects = query(projectsRef,
+                where("ownerId", "==", user.uid),
+                where("groupId", "==", user.groupId)
+            );
+            let projectsSnapshot;
+            // [ ... reszta kodu sprawdzania błędów zapytania ... ]
 
-                        // Mapujemy wyniki do tablicy ID, filtrując inbox
-                        const projectsToDeleteIds = projectsSnapshot.docs
-                            .filter(doc => !doc.data().isInbox) // Upewniamy się, że nie usuwamy inboxa
-                            .map(doc => doc.id); // Pobieramy ID
-                        
-                        console.log(`[ZMIANA GRUPY] Znaleziono ${projectsToDeleteIds.length} projektów do usunięcia (po filtracji inboxa):`, projectsToDeleteIds);
-            
-                        if (projectsToDeleteIds.length > 0) {
-                            // Krok 2c: Wymagaj potwierdzenia
-                            console.log('[ZMIANA GRUPY] Pokazuję potwierdzenie usunięcia projektów...');
-                            showConfirmation(
-                                "Potwierdzenie zmiany grupy",
-                                `Jesteś właścicielem ${projectsToDeleteIds.length} projekt(ów) w tej grupie. Przejście do innej grupy spowoduje ich TRWAŁE usunięcie (wraz ze wszystkimi zadaniami). Czy na pewno chcesz kontynuować?`,
-                                async (confirmed) => {
-                                    if (confirmed) {
-                                        console.log('[ZMIANA GRUPY] Użytkownik potwierdził usunięcie projektów.');
-                                        try {
-                                            await deleteUserProjects(projectsToDeleteIds); 
-                                            await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
-                                            
-                                            closeModal(changeGroupModal.overlay);
-                                            showNotification("Przynależność do grupy została zaktualizowana, a Twoje projekty usunięte.", "Sukces");
-                                            // Reset przycisku nie jest tu potrzebny, bo modal znika
-                                        } catch (finalizationError) {
-                                            console.error("[ZMIANA GRUPY] Błąd podczas usuwania projektów lub aktualizacji grupy po potwierdzeniu:", finalizationError);
-                                            showNotification(finalizationError.message || "Wystąpił błąd podczas finalizowania zmiany grupy.", "Błąd");
-                                            // Reset przycisku w razie błędu PO potwierdzeniu
-                                            submitBtn.disabled = false; 
-                                            submitBtn.textContent = 'Zmień grupę';
-                                        }
-                                    } else {
-                                        console.log('[ZMIANA GRUPY] Użytkownik anulował usuwanie projektów.');
-                                        // Reset przycisku, jeśli anulowano
-                                        submitBtn.disabled = false; 
-                                        submitBtn.textContent = 'Zmień grupę';
-                                    }
-                                },
-                                true // Użyj czerwonego przycisku (danger = true)
-                            );
+            // Mapujemy wyniki do tablicy ID, filtrując inbox
+            const projectsToDeleteIds = projectsSnapshot.docs
+                .filter(doc => !doc.data().isInbox)
+                .map(doc => doc.id);
+
+            console.log(`[ZMIANA GRUPY] Znaleziono ${projectsToDeleteIds.length} projektów do usunięcia (po filtracji inboxa):`, projectsToDeleteIds);
+
+            if (projectsToDeleteIds.length > 0) {
+                // Krok 2c: Wymagaj potwierdzenia
+                console.log('[ZMIANA GRUPY] Pokazuję potwierdzenie usunięcia projektów...');
+
+                // <<<--- POCZĄTEK ZMIANY ---<<<
+                closeModal(changeGroupModal.overlay); // Zamknij modal zmiany grupy NAJPIERW
+                // <<<--- KONIEC ZMIANY ---<<<
+
+                showConfirmation( // A dopiero POTEM pokaż potwierdzenie
+                    "Potwierdzenie zmiany grupy",
+                    `Jesteś właścicielem ${projectsToDeleteIds.length} projekt(ów) w tej grupie. Przejście do innej grupy spowoduje ich TRWAŁE usunięcie (wraz ze wszystkimi zadaniami). Czy na pewno chcesz kontynuować?`,
+                    async (confirmed) => {
+                        if (confirmed) {
+                            console.log('[ZMIANA GRUPY] Użytkownik potwierdził usunięcie projektów.');
+                            // Wyświetl overlay ładowania na czas usuwania i aktualizacji
+                            if(loadingOverlay) loadingOverlay.style.display = 'flex';
+                            try {
+                                await deleteUserProjects(projectsToDeleteIds);
+                                await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
+
+                                // closeModal(changeGroupModal.overlay); // <--- Usunięte stąd, bo zamykamy wcześniej
+                                showNotification("Przynależność do grupy została zaktualizowana, a Twoje projekty usunięte.", "Sukces");
+                            } catch (finalizationError) {
+                                console.error("[ZMIANA GRUPY] Błąd podczas usuwania projektów lub aktualizacji grupy po potwierdzeniu:", finalizationError);
+                                showNotification(finalizationError.message || "Wystąpił błąd podczas finalizowania zmiany grupy.", "Błąd");
+                            } finally {
+                                // Ukryj overlay ładowania niezależnie od wyniku
+                                if(loadingOverlay) loadingOverlay.style.display = 'none';
+                            }
                         } else {
-                            // Krok 2d: Brak projektów do usunięcia, po prostu zmień grupę
-                            console.log('[ZMIANA GRUPY] Brak projektów do usunięcia. Zmieniam tylko grupę...');
-                            await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
-                            closeModal(changeGroupModal.overlay);
-                            showNotification("Przynależność do grupy została zaktualizowana.", "Sukces");
-                            // Reset przycisku nie jest tu potrzebny
+                            console.log('[ZMIANA GRUPY] Użytkownik anulował usuwanie projektów.');
+                            // Nie trzeba resetować przycisku, bo modal był już zamknięty
                         }
-                        
-                    } catch (error) {
-                        console.error("[ZMIANA GRUPY] Błąd w głównej logice zwykłego użytkownika:", error);
-                        showNotification(error.message || "Wystąpił błąd. Spróbuj ponownie.", "Błąd");
-                        submitBtn.disabled = false; // Reset przycisku w razie błędu
-                        submitBtn.textContent = 'Zmień grupę';
-                    }
-                }
+                    },
+                    true // Użyj czerwonego przycisku (danger = true)
+                );
+            } else {
+                // Krok 2d: Brak projektów do usunięcia, po prostu zmień grupę
+                console.log('[ZMIANA GRUPY] Brak projektów do usunięcia. Zmieniam tylko grupę...');
+                await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
+                closeModal(changeGroupModal.overlay); // Zamykamy modal tutaj
+                showNotification("Przynależność do grupy została zaktualizowana.", "Sukces");
+            }
+
+        } catch (error) {
+             console.error("[ZMIANA GRUPY] Błąd w głównej logice zwykłego użytkownika:", error);
+             showNotification(error.message || "Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+             submitBtn.disabled = false; // Reset przycisku w razie błędu
+             submitBtn.textContent = 'Zmień grupę';
+        }
+    } // Koniec logiki dla zwykłego użytkownika
             }); // Koniec listenera submit
        // === POCZĄTEK NOWEGO LISTENERA (TRANSFER WŁASNOŚCI) - Wersja 3 ===
         
@@ -8673,6 +8662,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
