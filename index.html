@@ -6481,150 +6481,188 @@ if (changeGroupModal.form) {
         }
     } // Koniec logiki dla zwykłego użytkownika
             }); // Koniec listenera submit
-       // === POCZĄTEK NOWEGO LISTENERA (TRANSFER WŁASNOŚCI) - Wersja 3 ===
-        
+       // === POCZĄTEK NOWEGO LISTENERA (TRANSFER WŁASNOŚCI) - Wersja ROZBUDOWANA ===
+        if (transferOwnershipModal.form) { // <-- ZACZNIJ WKLEJANIE OD TEJ LINII
             console.log('[DEBUG] Formularz transferOwnershipModal.form ZNALEZIONY. Podpinam listener...');
             transferOwnershipModal.form.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 console.log('[TRANSFER] Listener formularza URUCHOMIONY.');
-                
-                transferOwnershipModal.submitBtn.disabled = true; // Wyłącz przycisk od razu
+
+                transferOwnershipModal.submitBtn.disabled = true;
                 transferOwnershipModal.submitBtn.textContent = 'Przetwarzanie...';
-                transferOwnershipModal.error.textContent = ''; // Wyczyść błędy
-    
-                const newOwnerId = transferOwnershipModal.select.value;
-                const user = state.currentUser; // Obecny właściciel (odchodzący)
-            
+                transferOwnershipModal.error.textContent = '';
+
+                const newOwnerId = transferOwnershipModal.select.value; // ID Właściciela B
+                const user = state.currentUser; // Właściciel A (odchodzący)
+                const oldGroupId = user.groupId; // ID starej grupy
+
+                // Walidacja wyboru nowego właściciela
                 if (!newOwnerId) {
                     transferOwnershipModal.error.textContent = 'Musisz wybrać nowego właściciela.';
                     console.warn('[TRANSFER] Przerwano: Nie wybrano nowego właściciela.');
-                    transferOwnershipModal.submitBtn.disabled = false; // Włącz z powrotem
+                    transferOwnershipModal.submitBtn.disabled = false;
                     transferOwnershipModal.submitBtn.textContent = 'Przekaż własność i opuść grupę';
                     return;
                 }
-                console.log(`[TRANSFER] Wybrano nowego właściciela: ${newOwnerId}`);
-            
+                console.log(`[TRANSFER] Wybrano nowego właściciela (B): ${newOwnerId}`);
+
+                // Pobranie danych grupy docelowej
                 const targetGroupName = transferOwnershipModal.form.dataset.targetGroupName;
                 const targetSubgroupName = transferOwnershipModal.form.dataset.targetSubgroupName;
-            
                 if (!targetGroupName) {
-                    transferOwnershipModal.error.textContent = 'Błąd wewnętrzny: Nie znaleziono grupy docelowej.';
+                     transferOwnershipModal.error.textContent = 'Błąd wewnętrzny: Nie znaleziono grupy docelowej.';
                     console.error('[TRANSFER] Przerwano: Brak targetGroupName w dataset.');
                     transferOwnershipModal.submitBtn.disabled = false;
                     transferOwnershipModal.submitBtn.textContent = 'Przekaż własność i opuść grupę';
                     return;
                 }
                 console.log(`[TRANSFER] Grupa docelowa: ${targetGroupName}, Podgrupa: ${targetSubgroupName || 'brak'}`);
-            
+
+                // Import funkcji pomocniczych Firestore
+                const { arrayRemove, arrayUnion } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+
+                // Sprawdzenie, czy jest ID starej grupy
+                if (!oldGroupId) {
+                    console.error('[TRANSFER] Błąd krytyczny: Brak ID starej grupy (oldGroupId).');
+                    transferOwnershipModal.error.textContent = 'Błąd wewnętrzny: Nie można zidentyfikować obecnej grupy.';
+                    transferOwnershipModal.submitBtn.disabled = false; transferOwnershipModal.submitBtn.textContent = 'Przekaż własność i opuść grupę';
+                    return;
+                }
+
+                if (loadingOverlay) loadingOverlay.style.display = 'flex'; // Pokaż ładowanie
+
                 try {
-                    // --- KROK 1: Znajdź grupę docelową ---
+                    // --- Krok 1: Znajdź grupę docelową ---
                     console.log(`[TRANSFER] Szukam grupy docelowej: ${targetGroupName}`);
                     const qGroup = query(groupsRef, where("name", "==", targetGroupName));
                     const groupSnapshot = await getDocs(qGroup);
-                    if (groupSnapshot.empty) {
-                        throw new Error("Nie można znaleźć grupy docelowej. Przerwano.");
-                    }
+                    if (groupSnapshot.empty) { throw new Error("Nie można znaleźć grupy docelowej."); }
                     const groupDoc = groupSnapshot.docs[0];
                     const newGroupId = groupDoc.id;
                     const newGroupName = groupDoc.data().name;
                     console.log(`[TRANSFER] Znaleziono grupę docelową: ${newGroupName} (${newGroupId})`);
-                    
-                    // --- KROK 2: Przygotuj batch ---
+
+                    // --- Krok 2: Przygotuj batch ---
                     const batch = writeBatch(db);
                     console.log('[TRANSFER] Utworzono batch.');
-            
-                    // --- KROK 3: Zaktualizuj obecną grupę ---
-                    const currentGroupRef = doc(groupsRef, user.groupId);
+
+                    // --- Krok 3: Zaktualizuj WŁAŚCICIELA starej grupy ---
+                    const currentGroupRef = doc(groupsRef, oldGroupId);
                     batch.update(currentGroupRef, { ownerId: newOwnerId });
-                    console.log(`[TRANSFER] Batch: Aktualizacja grupy ${user.groupId}, nowy właściciel: ${newOwnerId}`);
-            
-                    // --- KROK 4: Znajdź projekty do przekazania ---
-                    console.log(`[TRANSFER] Szukam projektów do przekazania (właściciel: ${user.uid}) z grupy ${user.groupId}...`);
-                    const qProjects = query(projectsRef, 
-                        where("ownerId", "==", user.uid),
-                        where("groupId", "==", user.groupId) // <-- DODAJ TĘ LINIĘ
-                    );
-                    let projectsSnapshot;
-                    try {
-                        projectsSnapshot = await getDocs(qProjects);
-                        console.log(`[TRANSFER] Zapytanie o projekty wykonane. Znaleziono dokumentów: ${projectsSnapshot.size}`);
-                    } catch (queryError) {
-                        console.error("[TRANSFER] Błąd podczas zapytania o projekty:", queryError);
-                         if (queryError.code === 'failed-precondition') {
-                             showNotification("Błąd konfiguracji bazy danych: Brak wymaganego indeksu dla pola 'ownerId' w kolekcji 'projects'. Sprawdź konsolę Firestore.", "Błąd Krytyczny");
-                         } else {
-                             showNotification("Błąd podczas wyszukiwania projektów.", "Błąd");
-                         }
-                        throw queryError; // Rzuć błędem dalej, aby zatrzymać i zresetować przycisk
-                    }
-                    
-                    const projectsToTransfer = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    console.log(`[TRANSFER] Znaleziono ${projectsToTransfer.length} projektów do przekazania.`);
-            
-                    projectsToTransfer.forEach(project => {
-                        if (project.isInbox) {
-                            console.log(`[TRANSFER] Pomijam transfer projektu Inbox: ${project.id}`);
-                            return;
+                    console.log(`[TRANSFER] Batch: Aktualizacja grupy ${oldGroupId}, nowy właściciel: ${newOwnerId}`);
+
+                    // --- Krok 4: Znajdź PROJEKTY NALEŻĄCE do Właściciela A w starej grupie ---
+                    console.log(`[TRANSFER] Szukam projektów WŁASNYCH (A) w grupie ${oldGroupId}...`);
+                    const qOwnedProjects = query(projectsRef, where("ownerId", "==", user.uid), where("groupId", "==", oldGroupId));
+                    const ownedProjectsSnapshot = await getDocs(qOwnedProjects);
+                    console.log(`[TRANSFER] Znaleziono ${ownedProjectsSnapshot.size} własnych projektów do przekazania.`);
+
+                    // --- Krok 5: Przetwórz WŁASNE projekty ---
+                    for (const projectDoc of ownedProjectsSnapshot.docs) {
+                        const projectData = projectDoc.data();
+                        const projectId = projectDoc.id;
+                        const projectRef = projectDoc.ref;
+
+                        if (projectData.isInbox) {
+                            console.log(`[TRANSFER] Pomijam przetwarzanie projektu Inbox: ${projectId}`);
+                            continue; // Nie przekazujemy Inboxa
                         }
 
-                        const projectRef = doc(projectsRef, project.id);
+                        console.log(`[TRANSFER] Przetwarzam własny projekt A: ${projectId} ('${projectData.name}')`);
 
-                        // ▼▼▼ POCZĄTEK ZMIANY ▼▼▼
+                        // 5a: Zaktualizuj zadania w tym projekcie (przepisz z A na B)
+                        const updatedTasks = (projectData.tasks || []).map(task => {
+                            // Sprawdź, czy A jest przypisany
+                            if ((task.assignees || []).includes(user.uid)) {
+                                console.log(` -> Reasignuję zadanie '${task.title}' z A na B`);
+                                // Stwórz nową listę: usuń A, dodaj B (arrayUnion dba o unikalność)
+                                const assigneesWithoutA = task.assignees.filter(id => id !== user.uid);
+                                const newAssignees = [...new Set([...assigneesWithoutA, newOwnerId])]; // Ręczne zapewnienie unikalności dla pewności
 
-                        // 1. Aktualizacja listy członków: Dodaj nowego, usuń starego właściciela
-                        let updatedMembers = project.members.includes(newOwnerId)
-                            ? [...project.members] // Skopiuj obecnych członków
-                            : [...project.members, newOwnerId]; // Dodaj nowego właściciela
-                        // Usuń odchodzącego właściciela (user.uid) z listy członków
-                        updatedMembers = updatedMembers.filter(memberId => memberId !== user.uid);
-
-                        // 2. Aktualizacja zadań: USUŃ zadania przypisane do odchodzącego właściciela
-                        const filteredTasks = (project.tasks || []).filter(task => {
-                            // Zachowaj zadanie tylko wtedy, gdy odchodzący właściciel NIE jest w jego assignees
-                            return !(task.assignees || []).includes(user.uid);
+                                // Zaktualizuj zadanie
+                                return { ...task, assignees: newAssignees, completedBy: [] }; // Reset completedBy dla bezpieczeństwa
+                            }
+                            return task; // Zwróć zadanie bez zmian, jeśli A nie był przypisany
                         });
 
-                        // 3. Dodaj obie aktualizacje do batcha
+                        // 5b: Dodaj operację update do batcha dla projektu
                         batch.update(projectRef, {
-                            ownerId: newOwnerId,
-                            members: updatedMembers,     // Zaktualizowana lista członków
-                            tasks: filteredTasks         // Przefiltrowana lista zadań (bez zadań starego właściciela)
+                            ownerId: newOwnerId,                // Nowy właściciel projektu (B)
+                            members: arrayRemove(user.uid),     // Usuń A z członków
+                            // Rozważ dodanie: members: arrayUnion(newOwnerId), // Upewnij się, że B jest członkiem
+                            tasks: updatedTasks                 // Zaktualizowana lista zadań
+                        });
+                        console.log(` -> Batch: Aktualizacja projektu ${projectId} (własność na B, usunięto A z członków, zadania A -> B)`);
+                    }
+
+                    // --- Krok 6: Znajdź projekty, gdzie A był TYLKO CZŁONKIEM w starej grupie ---
+                    console.log(`[TRANSFER] Szukam projektów, gdzie A (${user.uid}) był tylko CZŁONKIEM w grupie ${oldGroupId}...`);
+                    const qMemberProjects = query(projectsRef,
+                        where("members", "array-contains", user.uid),
+                        where("groupId", "==", oldGroupId),
+                        where("ownerId", "!=", user.uid) // Kluczowe: A NIE jest właścicielem
+                    );
+                    const memberProjectsSnapshot = await getDocs(qMemberProjects);
+                    console.log(`[TRANSFER] Znaleziono ${memberProjectsSnapshot.size} projektów, gdzie A był tylko członkiem.`);
+
+                    // --- Krok 7: Przetwórz projekty, gdzie A był tylko członkiem ---
+                    for (const projectDoc of memberProjectsSnapshot.docs) {
+                         const projectData = projectDoc.data();
+                         const projectId = projectDoc.id;
+                         const projectRef = projectDoc.ref;
+
+                         console.log(`[TRANSFER] Przetwarzam projekt członkowski A: ${projectId} ('${projectData.name}')`);
+
+                         // 7a: Zaktualizuj zadania w tym projekcie (przepisz z A na B)
+                        const updatedTasks = (projectData.tasks || []).map(task => {
+                            if ((task.assignees || []).includes(user.uid)) {
+                                console.log(` -> Reasignuję zadanie '${task.title}' z A na B (nowego właściciela grupy)`);
+                                const assigneesWithoutA = task.assignees.filter(id => id !== user.uid);
+                                const newAssignees = [...new Set([...assigneesWithoutA, newOwnerId])];
+                                return { ...task, assignees: newAssignees, completedBy: [] };
+                            }
+                            return task;
                         });
 
-                        // ▲▲▲ KONIEC ZMIANY ▲▲▲
+                         // 7b: Dodaj operację update do batcha dla projektu (tylko członkowie i zadania)
+                         batch.update(projectRef, {
+                            members: arrayRemove(user.uid), // Usuń A z członków
+                            tasks: updatedTasks             // Zaktualizowana lista zadań
+                         });
+                         console.log(` -> Batch: Aktualizacja projektu ${projectId} (usunięto A z członków, zadania A -> B)`);
+                    }
 
-                        console.log(`[TRANSFER] Batch: Aktualizacja projektu ${project.id}, nowy właściciel: ${newOwnerId}, usunięto starego właściciela z członków ORAZ USUNIĘTO jego zadania.`);
-                    });
-            
-                    // --- KROK 5: Zaktualizuj profil odchodzącego właściciela ---
+                    // --- Krok 8: Zaktualizuj profil odchodzącego właściciela (A) ---
                     const userDocRef = doc(usersRef, user.uid);
                     batch.update(userDocRef, {
                         groupId: newGroupId,
                         groupName: newGroupName,
                         subgroupName: targetSubgroupName
                     });
-                    console.log(`[TRANSFER] Batch: Aktualizacja profilu użytkownika ${user.uid} na nową grupę: ${newGroupId}`);
-                    
-                    // --- KROK 6: Wykonaj batch ---
+                    console.log(`[TRANSFER] Batch: Aktualizacja profilu użytkownika A (${user.uid}) na nową grupę: ${newGroupId}`);
+
+                    // --- Krok 9: Wykonaj batch ---
                     console.log('[TRANSFER] Wykonuję batch.commit()...');
-                    await batch.commit(); 
+                    await batch.commit();
                     console.log('[TRANSFER] Batch wykonany pomyślnie!');
-            
+
                     closeModal(transferOwnershipModal.overlay);
-                    showNotification("Własność grupy i projektów została przekazana. Zostałeś przeniesiony do nowej grupy.", "Sukces");
-            
+                    showNotification("Własność grupy i projektów została przekazana. Zostałeś usunięty ze starych projektów i przeniesiony do nowej grupy.", "Sukces"); // Zmieniony komunikat
+
                 } catch (error) {
                     console.error("Błąd podczas transferu własności grupy:", error);
                     transferOwnershipModal.error.textContent = `Błąd: ${error.message}`;
                     // Reset przycisku tylko w razie błędu
                     transferOwnershipModal.submitBtn.disabled = false;
                     transferOwnershipModal.submitBtn.textContent = 'Przekaż własność i opuść grupę';
+                } finally {
+                     if (loadingOverlay) loadingOverlay.style.display = 'none'; // Ukryj ładowanie
                 }
             }); // Koniec listenera submit
              console.log('[DEBUG] Listener dla transferOwnershipModal.form PODPIĘTY.');
         } else {
              console.error('[DEBUG] KRYTYCZNY BŁĄD: Nie znaleziono elementu transferOwnershipModal.form w DOM!');
-        }
+        } // <-- ZAKOŃCZ WKLEJANIE NA TEJ LINII
         // === KONIEC NOWEGO LISTENERA ===
         document.querySelectorAll('#notification-toggle-btn, #notification-toggle-btn-mobile').forEach(btn => {
             btn.addEventListener('click', requestNotificationPermission);
@@ -8905,6 +8943,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
