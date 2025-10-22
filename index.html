@@ -5187,6 +5187,50 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
         /**
          * Aktualizuje dokument użytkownika o nową grupę.
          */
+       /**
+         * Usuwa użytkownika z listy członków projektów w podanej grupie,
+         * w których nie jest on właścicielem.
+         * Używane podczas zmiany grupy.
+         */
+        async function removeUserFromProjectsMembership(userId, oldGroupId) {
+            // Sprawdź, czy oldGroupId istnieje i nie jest to ID samego użytkownika (przypadek solo)
+            if (!oldGroupId || oldGroupId === userId) {
+                console.log(`[removeMembership] Pomijam usuwanie członkostwa - użytkownik solo lub brak starej grupy (oldGroupId: ${oldGroupId})`);
+                return; // Nie ma czego usuwać
+            }
+
+            console.log(`[removeMembership] Szukam projektów w grupie ${oldGroupId}, gdzie ${userId} jest członkiem (ale nie właścicielem)...`);
+            // Importujemy arrayRemove bezpośrednio tutaj dla jasności
+            const { arrayRemove } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+
+            // Zapytanie: projekty w starej grupie, gdzie użytkownik jest w 'members' i NIE jest 'ownerId'
+            const q = query(projectsRef,
+                where("groupId", "==", oldGroupId),
+                where("members", "array-contains", userId),
+                where("ownerId", "!=", userId) // Ważne: nie usuwamy z projektów, których JEST właścicielem
+            );
+
+            try {
+                const projectsSnapshot = await getDocs(q);
+                console.log(`[removeMembership] Znaleziono ${projectsSnapshot.size} projektów do opuszczenia.`);
+
+                if (!projectsSnapshot.empty) {
+                    const batch = writeBatch(db);
+                    projectsSnapshot.forEach(doc => {
+                        console.log(`[removeMembership] Dodaję do batcha usunięcie ${userId} z członków projektu ${doc.id}`);
+                        // Używamy arrayRemove do atomowego usunięcia elementu z tablicy
+                        batch.update(doc.ref, { members: arrayRemove(userId) });
+                    });
+                    console.log("[removeMembership] Wykonuję batch.commit() do usunięcia członkostwa...");
+                    await batch.commit();
+                    console.log("[removeMembership] Batch usunięcia członkostwa zakończony pomyślnie.");
+                }
+            } catch (error) {
+                console.error("[removeMembership] Błąd podczas usuwania użytkownika z członkostwa w projektach:", error);
+                // Rzucamy błąd, aby proces zmiany grupy mógł zostać przerwany, jeśli to krytyczne
+                throw new Error("Nie udało się opuścić starych projektów jako członek. Operacja zmiany grupy przerwana.");
+            }
+        }
         async function updateUserGroup(userId, newGroupId, newGroupName, newSubgroupName) {
             const userDocRef = doc(usersRef, userId);
             await updateDoc(userDocRef, {
@@ -6268,6 +6312,7 @@ if (changeGroupModal.form) {
                 }
             
                 const user = state.currentUser;
+                const oldGroupId = user.groupId;
                 if (!user) {
                     console.error('[ZMIANA GRUPY] Przerwano: Brak zalogowanego użytkownika (state.currentUser jest null).');
                     showNotification("Błąd: Użytkownik nie jest zalogowany.", "Błąd");
@@ -6399,6 +6444,7 @@ if (changeGroupModal.form) {
                             // Wyświetl overlay ładowania na czas usuwania i aktualizacji
                             if(loadingOverlay) loadingOverlay.style.display = 'flex';
                             try {
+                                await removeUserFromProjectsMembership(user.uid, oldGroupId);
                                 await deleteUserProjects(projectsToDeleteIds);
                                 await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
 
@@ -6421,6 +6467,7 @@ if (changeGroupModal.form) {
             } else {
                 // Krok 2d: Brak projektów do usunięcia, po prostu zmień grupę
                 console.log('[ZMIANA GRUPY] Brak projektów do usunięcia. Zmieniam tylko grupę...');
+                await removeUserFromProjectsMembership(user.uid, oldGroupId);            
                 await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
                 closeModal(changeGroupModal.overlay); // Zamykamy modal tutaj
                 showNotification("Przynależność do grupy została zaktualizowana.", "Sukces");
@@ -8858,6 +8905,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
