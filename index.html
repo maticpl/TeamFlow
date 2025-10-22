@@ -4435,14 +4435,19 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         }
 
         async function openTaskModal(taskId) {
-            // 'task' i 'project' są zdefiniowane i dostępne dla wszystkich funkcji PONIŻEJ
+            console.log("Wywołano openTaskModal z ID:", taskId); // <-- LOG (możesz go potem usunąć)
             const {
                 task,
                 project
             } = findTask(taskId);
-            if (!task || !project) return;
+            console.log("Wynik findTask - Zadanie:", task, "Projekt:", project); // <-- LOG (możesz go potem usunąć)
+
+            if (!task || !project) {
+                 console.error("Nie znaleziono zadania lub projektu dla ID:", taskId, ". Przerywam otwieranie modala.");
+                 return;
+            }
         
-            // --- FUNKCJA DLA TRYBU WIDOKU (Zawartość bez zmian, tylko miejsce wywołania się zmieni) ---
+            // --- FUNKCJA DLA TRYBU WIDOKU (z przywróconymi brakującymi fragmentami) ---
             const setViewMode = () => {
                 taskModal.overlay.dataset.taskId = taskId;
                 taskModal.title.textContent = task.title;
@@ -4456,17 +4461,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
                 taskModal.priority.value = task.priority;
                 taskModal.dueDate.value = task.dueDate;
+                
+                // === PRZYWRÓCONE WYPEŁNIANIE STATUSU ===
                 taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
+                // ======================================
 
                 if (task.recurrence) {
                     taskModal.isRecurring.checked = true;
                     taskModal.recurrenceOptions.style.display = 'block';
                     const type = task.recurrence.type;
                     taskModal.recurrenceType.value = type;
-
                     document.getElementById('modal-task-recurrence-day-wrapper').style.display = type === 'dayOfMonth' ? 'block' : 'none';
                     document.getElementById('modal-task-nth-day-options').style.display = type === 'nthDayOfMonth' ? 'flex' : 'none';
-
                     if (type === 'dayOfMonth') {
                         taskModal.recurrenceDay.value = task.recurrence.day;
                     } else if (type === 'nthDayOfMonth') {
@@ -4480,31 +4486,33 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     document.getElementById('modal-task-nth-day-options').style.display = 'none';
                 }
 
-                // Blokuj kontrolki
                 Array.from(taskModal.overlay.querySelectorAll(
                      '.description textarea, .task-modal-tab-content select, .task-modal-tab-content input:not(#attachment-file-input)'
                 )).forEach(el => el.disabled = true);
-                taskModal.addAttachmentBtn.disabled = false; // Przycisk dodawania zawsze aktywny
+                taskModal.addAttachmentBtn.disabled = false;
 
-                taskModal.assigneesList.innerHTML = (task.assignees || []) // <--- WYPEŁNIANIE OSÓB
+                // === PRZYWRÓCONE WYPEŁNIANIE OSÓB ===
+                taskModal.assigneesList.innerHTML = (task.assignees || [])
                     .map(memberId => {
                         const user = findUser(memberId);
                         if (!user) return '';
                         return renderAvatarHTML(user);
                     })
                     .join('');
+                // ==================================
                 taskModal.assigneesEdit.style.display = 'none';
                 taskModal.assigneesList.style.display = 'flex';
 
                 taskModal.saveBtn.style.display = 'none';
-                taskModal.okBtn.style.display = 'block'; // POKAZUJEMY PRZYCISK OK (Twoja zmiana)
+                taskModal.okBtn.style.display = 'block'; // Twoja zmiana
                 const isCreator = !task.createdBy || (task.createdBy && task.createdBy === state.currentUser.uid);
                 taskModal.deleteBtn.style.display = isCreator ? 'block' : 'none';
                 taskModal.editBtn.style.display = isCreator ? 'block' : 'none';
 
+                // === PRZYWRÓCONE WYPEŁNIANIE STATUSU UKOŃCZENIA ===
                 if (task.type === 'multi') {
                     taskModal.completionStatusSection.style.display = 'block';
-                    taskModal.completionStatusList.innerHTML = (task.assignees || []) // <--- WYPEŁNIANIE STATUSU UKOŃCZENIA
+                    taskModal.completionStatusList.innerHTML = (task.assignees || [])
                         .map(userId => {
                             const user = findUser(userId);
                             if (!user) return '';
@@ -4513,22 +4521,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm js-complete-my-part-btn" data-user-id="${userId}">Oznacz jako wykonane</button>` : '';
 
                             return `<li class="completion-status-item">
-                                        <div class="user-info">
-                                            ${renderAvatarHTML(user)}
-                                            <span>${user.name || user.email}</span>
-                                        </div>
+                                        <div class="user-info"> ${renderAvatarHTML(user)} <span>${user.name || user.email}</span> </div>
                                         <div class="status-indicator-wrapper">${actionButton}<span class="status-indicator ${isDone ? 'done' : 'pending'}">${isDone ? 'Gotowe' : 'Oczekuje'}</span></div>
                                     </li>`;
                         }).join('');
                 } else {
                     taskModal.completionStatusSection.style.display = 'none';
                 }
+                // ==============================================
 
-                // Renderowanie list (nie musi być w setViewMode, ale dla spójności może zostać)
                 renderComments(task);
                 renderActivityLog(task);
                 renderAttachments(task);
                 renderSubtaskListInMainModal(task);
+                
+                openModal(taskModal.overlay); // <-- Otwarcie modala JEST tutaj
             };
 
             // --- FUNKCJA DLA TRYBU EDYCJI (Bez zmian) ---
@@ -4551,10 +4558,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
                     return `
                         <div class="member-pill ${isSelected ? 'selected' : ''}" data-user-id="${user.id}" title="${user.name || user.email}">
-                            ${avatarHTML}
-                            <span>${user.name || user.email}</span>
-                        </div>
-                    `;
+                            ${avatarHTML} <span>${user.name || user.email}</span>
+                        </div> `;
                 }).join('');
                 
                 taskModal.saveBtn.style.display = 'block';
@@ -4564,9 +4569,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             };
             
             // --- LISTENERY (Bez zmian) ---
-            taskModal.completed.onchange = async () => {
-                 const taskId = taskModal.overlay.dataset.taskId; // Pobierz taskId wewnątrz
-                 const { task: currentTask, project: currentProject } = findTask(taskId); // Pobierz aktualne task i project
+             taskModal.completed.onchange = async () => {
+                 const taskId = taskModal.overlay.dataset.taskId;
+                 const { task: currentTask, project: currentProject } = findTask(taskId); 
                  if (!currentTask || !currentProject) return;
                 
                  if (taskModal.completed.disabled) return;
@@ -4587,18 +4592,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                      updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
                      if (updatedTask.status === 'done') showConfetti();
                      await handleTaskCompletion(updatedTask, currentProject, 'manual');
-                     openTaskModal(taskId); // Odśwież modal
+                     openTaskModal(taskId); 
                  } else {
                      const projectDocRef = findProject(currentProject.id) ? doc(projectsRef, currentProject.id) : doc(completedProjectsRef, currentProject.id);
                      const tasks = currentProject.tasks.map(t => (t.id === taskId ? updatedTask : t));
                      await updateDoc(projectDocRef, { tasks: tasks });
-                     openTaskModal(taskId); // Odśwież modal
+                     openTaskModal(taskId); 
                  }
              };
 
             taskModal.editBtn.onclick = setEditMode;
             taskModal.moveBtn.onclick = () => {
-                 // Pobieramy taskId i project wewnątrz, jak w onchange
                  const taskId = taskModal.overlay.dataset.taskId;
                  const { project: currentProject } = findTask(taskId);
                  if (currentProject) {
@@ -4607,22 +4611,15 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             };
 
             // === POPRAWIONA KOLEJNOŚĆ ===
-            // 1. Wypełnij wszystkie pola danymi
-            setViewMode();
-
-            // 2. Otwórz modal (już jest w setViewMode)
-            // openModal(taskModal.overlay); // <-- To już jest w setViewMode()
-
-            // 3. Zainicjuj Tippy dla zakładek (jeśli istnieją)
-            tippy('#task-modal .task-modal-tab');
-
-            // 4. Kliknij domyślną zakładkę "Opis"
+            setViewMode(); // 1. Wypełnij pola i otwórz modal
+            tippy('#task-modal .task-modal-tab'); // 2. Zainicjuj Tippy
+            // 3. Kliknij domyślną zakładkę "Opis"
             const descriptionTab = taskModal.overlay.querySelector('.task-modal-tab[data-tab="description"]');
             if (descriptionTab) {
                 descriptionTab.click();
             }
             // === KONIEC POPRAWIONEJ KOLEJNOŚCI ===
-        }
+        } // <-- Koniec openTaskModal
         // NOWA FUNKCJA POMOCNICZA DO TŁUMACZENIA WZMIANEK
         function parseMentions(text) {
             if (!text) return ''; // Zabezpieczenie przed pustym tekstem
@@ -8818,6 +8815,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
