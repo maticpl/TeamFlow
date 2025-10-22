@@ -2765,7 +2765,7 @@
     const { RRule } = rrule;
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
     import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
@@ -5193,44 +5193,43 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
          * Używane podczas zmiany grupy.
          */
         async function removeUserFromProjectsMembership(userId, oldGroupId) {
-            // Sprawdź, czy oldGroupId istnieje i nie jest to ID samego użytkownika (przypadek solo)
-            if (!oldGroupId || oldGroupId === userId) {
-                console.log(`[removeMembership] Pomijam usuwanie członkostwa - użytkownik solo lub brak starej grupy (oldGroupId: ${oldGroupId})`);
-                return; // Nie ma czego usuwać
-            }
+    // Sprawdź, czy oldGroupId istnieje i nie jest to ID samego użytkownika (przypadek solo)
+    if (!oldGroupId || oldGroupId === userId) {
+        console.log(`[removeMembership] Pomijam usuwanie członkostwa - użytkownik solo lub brak starej grupy (oldGroupId: ${oldGroupId})`);
+        return; // Nie ma czego usuwać
+    }
 
-            console.log(`[removeMembership] Szukam projektów w grupie ${oldGroupId}, gdzie ${userId} jest członkiem (ale nie właścicielem)...`);
-            // Importujemy arrayRemove bezpośrednio tutaj dla jasności
-            const { arrayRemove } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+    console.log(`[removeMembership] Szukam projektów w grupie ${oldGroupId}, gdzie ${userId} jest członkiem (ale nie właścicielem)...`);
+    // Upewnij się, że 'arrayRemove' jest zaimportowane na górze skryptu
 
-            // Zapytanie: projekty w starej grupie, gdzie użytkownik jest w 'members' i NIE jest 'ownerId'
-            const q = query(projectsRef,
-                where("groupId", "==", oldGroupId),
-                where("members", "array-contains", userId),
-                where("ownerId", "!=", userId) // Ważne: nie usuwamy z projektów, których JEST właścicielem
-            );
+    // Zapytanie: projekty w starej grupie, gdzie użytkownik jest w 'members' i NIE jest 'ownerId'
+    const q = query(projectsRef,
+        where("groupId", "==", oldGroupId),
+        where("members", "array-contains", userId),
+        where("ownerId", "!=", userId) // Ważne: nie usuwamy z projektów, których JEST właścicielem
+    );
 
-            try {
-                const projectsSnapshot = await getDocs(q);
-                console.log(`[removeMembership] Znaleziono ${projectsSnapshot.size} projektów do opuszczenia.`);
+    try { // <--- POCZĄTEK GŁÓWNEGO TRY W TEJ FUNKCJI
+        const projectsSnapshot = await getDocs(q);
+        console.log(`[removeMembership] Znaleziono ${projectsSnapshot.size} projektów do opuszczenia.`);
 
-                if (!projectsSnapshot.empty) {
-                    const batch = writeBatch(db);
-                    projectsSnapshot.forEach(doc => {
-                        console.log(`[removeMembership] Dodaję do batcha usunięcie ${userId} z członków projektu ${doc.id}`);
-                        // Używamy arrayRemove do atomowego usunięcia elementu z tablicy
-                        batch.update(doc.ref, { members: arrayRemove(userId) });
-                    });
-                    console.log("[removeMembership] Wykonuję batch.commit() do usunięcia członkostwa...");
-                    await batch.commit();
-                    console.log("[removeMembership] Batch usunięcia członkostwa zakończony pomyślnie.");
-                }
-            } catch (error) {
-                console.error("[removeMembership] Błąd podczas usuwania użytkownika z członkostwa w projektach:", error);
-                // Rzucamy błąd, aby proces zmiany grupy mógł zostać przerwany, jeśli to krytyczne
-                throw new Error("Nie udało się opuścić starych projektów jako członek. Operacja zmiany grupy przerwana.");
-            }
+        if (!projectsSnapshot.empty) {
+            const batch = writeBatch(db);
+            projectsSnapshot.forEach(doc => {
+                console.log(`[removeMembership] Dodaję do batcha usunięcie ${userId} z członków projektu ${doc.id}`);
+                // Używamy arrayRemove do atomowego usunięcia elementu z tablicy
+                batch.update(doc.ref, { members: arrayRemove(userId) });
+            });
+            console.log("[removeMembership] Wykonuję batch.commit() do usunięcia członkostwa...");
+            await batch.commit(); // Wykonanie operacji wsadowej
+            console.log("[removeMembership] Batch usunięcia członkostwa zakończony pomyślnie.");
         }
+    } catch (error) { // <--- POPRAWNIE DODANY BLOK CATCH
+        console.error("[removeMembership] Błąd podczas usuwania użytkownika z członkostwa w projektach:", error);
+        // Rzucamy błąd, aby proces zmiany grupy (jeśli to on wywołał tę funkcję) mógł zostać przerwany
+        throw new Error("Nie udało się opuścić starych projektów jako członek. Operacja zmiany grupy przerwana.");
+    } // <--- KONIEC BLOKU CATCH
+}
         async function updateUserGroup(userId, newGroupId, newGroupName, newSubgroupName) {
             const userDocRef = doc(usersRef, userId);
             await updateDoc(userDocRef, {
@@ -8948,6 +8947,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
