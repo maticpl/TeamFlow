@@ -6245,7 +6245,23 @@ if (changeGroupModal.form) {
                 where("groupId", "==", user.groupId)
             );
             let projectsSnapshot;
-            // [ ... reszta kodu sprawdzania błędów zapytania ... ]
+            try {
+                // BRAKUJĄCA LINIA: Musimy faktycznie wykonać zapytanie i poczekać na wynik
+                projectsSnapshot = await getDocs(qProjects);
+                console.log(`[ZMIANA GRUPY] Zapytanie o projekty wykonane. Znaleziono dokumentów: ${projectsSnapshot.size}`);
+            } catch (queryError) {
+                console.error("[ZMIANA GRUPY] Błąd podczas zapytania o projekty:", queryError);
+                // BŁĄD INDEKSU: Jeśli TERAZ pojawi się błąd indeksu, pokażemy go użytkownikowi.
+                 if (queryError.code === 'failed-precondition') {
+                     showNotification("Błąd konfiguracji bazy danych: Brak wymaganego indeksu. Sprawdź konsolę (F12) po instrukcje.", "Błąd Krytyczny");
+                     // Wyrzuć link do konsoli, który jest w błędach Firebase
+                     console.error("BŁĄD INDEKSU: " + queryError.message);
+                 } else {
+                     showNotification("Błąd podczas wyszukiwania projektów.", "Błąd");
+                 }
+                throw queryError; // Przerwij dalsze wykonywanie
+            }
+            // ▲▲▲ KONIEC ZMIANY ▲▲▲
 
             // Mapujemy wyniki do tablicy ID, filtrując inbox
             const projectsToDeleteIds = projectsSnapshot.docs
@@ -8662,6 +8678,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
