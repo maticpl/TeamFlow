@@ -5356,121 +5356,113 @@ attachmentsListNewTask.addEventListener('click', (e) => {
                     id: doc.id,
                     ...doc.data()
                 }));
-                render();
+                // UWAGA: Usunięto 'render()' stąd, aby uniknąć potencjalnego podwójnego renderowania
+                //        gdyż jest ono wywoływane w listenerach projektów.
             }, (error) => console.error("Błąd odczytu użytkowników:", error));
-            
+
             if (state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
-            const currentGroupId = state.currentUser.groupId;
-            console.log(`[setupFirestoreListeners] Filtrowanie projektów dla groupId: ${currentGroupId}`); // Log do debugowania
+
+            // <<<--- USUNIĘTO DEFINICJĘ I FILTROWANIE currentGroupId Z ZAPYTANIA ---<<<
             const projectsQuery = query(projectsRef,
-                where("groupId", "==", currentGroupId), // <-- DODANA LINIA FILTRUJĄCA
+                // where("groupId", "==", currentGroupId), // <-- USUNIĘTA LINIA
                 where("members", "array-contains", userId)
             );
-    
+            console.log(`[setupFirestoreListeners] Uruchamianie listenera dla AKTYWNYCH projektów użytkownika ${userId}`);
+
             state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
-    state.projects = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-    }));
-                // ✅ Poprawiona funkcja testująca odczyt powiadomień
-window.testNotificationsRead = async function() {
-  try {
-    const user = auth.currentUser;
-    if (!user) {
-      console.warn("Brak zalogowanego użytkownika — zaloguj się, aby przetestować odczyt powiadomień.");
-      alert("Najpierw się zaloguj!");
-      return;
-    }
+                // Sprawdź czy currentUser jest zdefiniowany ZANIM go użyjesz
+                if (!state.currentUser) {
+                     console.warn("[setupFirestoreListeners/projects] currentUser jest null. Przerywam przetwarzanie snapshotu.");
+                     return;
+                }
+                const currentGroupId = state.currentUser.groupId; // Pobierz groupId aktualnego użytkownika
+                const userId = state.currentUser.uid; // Pobierz uid aktualnego użytkownika
 
-    // 🔹 Odwołanie do kolekcji powiadomień w Firestore
-    const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+                // <<<--- DODANO FILTROWANIE LOKALNE PO POBRANIU DANYCH ---<<<
+                state.projects = snapshot.docs
+                    .map(doc => ({ id: doc.id, ...doc.data() })) // Najpierw mapujemy
+                    .filter(project => // Następnie filtrujemy
+                        (project.groupId === currentGroupId) || // Zachowaj, jeśli groupId pasuje
+                        (project.isInbox === true && project.ownerId === userId) // LUB jeśli to skrzynka tego użytkownika
+                    );
+                console.log(`[setupFirestoreListeners] Przefiltrowano aktywne projekty. Liczba po filtracji: ${state.projects.length}`);
+                // <<<--- KONIEC FILTROWANIA LOKALNEGO ---<<<
 
-    // 🔹 Zapytanie zgodne z regułami Firestore — tylko dokumenty przypisane do zalogowanego użytkownika
-    const q = query(notificationsRef, where("userId", "==", user.uid));
+                // Sprawdzanie spójności currentProjectId (pozostaje bez zmian, ale wewnątrz callbacka)
+                const isProjectView = state.ui.currentView === 'projects';
+                 if (isProjectView && state.currentProjectId) { // Dodano sprawdzenie state.currentProjectId
+                     const stillExists = state.projects.some(p => p.id === state.currentProjectId) ||
+                                       state.completedProjects.some(p => p.id === state.currentProjectId);
 
-    // 🔹 Pobranie i logowanie wyników
-    const querySnapshot = await getDocs(q);
+                     if (!stillExists) {
+                         const nextProject = state.projects.find(p => !p.isInbox) || state.projects.find(p => p.isInbox);
+                         state.currentProjectId = nextProject ? nextProject.id : null;
+                         if (!state.currentProjectId) {
+                            state.ui.currentView = 'my-dashboard';
+                         }
+                         saveUiState();
+                     }
+                 }
+                 loadingOverlay.style.display = 'none';
+                 render(); // Przerenderuj po aktualizacji stanu projektów
+            }, (error) => {
+                console.error("Błąd odczytu projektów:", error);
+                loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small></p>`;
+            });
 
-    if (querySnapshot.empty) {
-      console.log("Brak powiadomień dla użytkownika:", user.uid);
-      alert("Brak powiadomień do wyświetlenia.");
-    } else {
-      const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      console.log("✅ Sukces — odczytano powiadomienia:", results);
-      alert(`Odczytano ${results.length} powiadomień. Sprawdź konsolę.`);
-    }
-  } catch (error) {
-    console.error("❌ Błąd podczas testu odczytu powiadomień:", error);
-    alert(`Błąd odczytu powiadomień: ${error.message}`);
-  }
-};
-               
 
-    // TYLKO jeśli aktualnie jesteś w widoku projektów,
-    // pilnuj spójności currentProjectId.
-    const isProjectView = state.ui.currentView === 'projects';
-    if (isProjectView) {
-        const stillExists =
-            !!findProject(state.currentProjectId) || !!findCompletedProject(state.currentProjectId);
-
-        if (!stillExists) {
-            state.currentProjectId = state.projects[0]?.id || null;
-            // UWAGA: nie zmieniamy state.ui.currentView tutaj
-        }
-    }
-
-    loadingOverlay.style.display = 'none';
-    render();
-}, (error) => {
-    console.error("Błąd odczytu projektów:", error);
-    loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small><br><br><b>Ważne:</b> Upewnij się, że utworzyłeś/aś wymagany indeks w Firestore (zakładka Indexes -> Single Field).</p>`;
-});
-            
             if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
-    
-            const completedQuery = query(completedProjectsRef,
-                where("groupId", "==", currentGroupId), // <-- DODANA LINIA FILTRUJĄCA
+
+             // <<<--- USUNIĘTO FILTROWANIE groupId Z ZAPYTANIA ---<<<
+             const completedQuery = query(completedProjectsRef,
+                // where("groupId", "==", currentGroupId), // <-- USUNIĘTA LINIA
                 where("members", "array-contains", userId)
             );
-            
+            console.log(`[setupFirestoreListeners] Uruchamianie listenera dla ZAKOŃCZONYCH projektów użytkownika ${userId}`);
+
             state.ui.unsubscribeCompleted = onSnapshot(completedQuery, (snapshot) => {
-                state.completedProjects = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-                render();
-            }, (error) => console.error("Błąd odczytu zakończonych projektów:", error));
+                 // Sprawdź czy currentUser jest zdefiniowany ZANIM go użyjesz
+                if (!state.currentUser) {
+                     console.warn("[setupFirestoreListeners/completed] currentUser jest null. Przerywam przetwarzanie snapshotu.");
+                     return;
+                }
+                const currentGroupId = state.currentUser.groupId;
+                 const userId = state.currentUser.uid;
 
-            // === NOWY BLOK - NASŁUCHIWANIE NA POWIADOMIENIA ===
-            // === NOWY BLOK - NASŁUCHIWANIE NA POWIADOMIENIA ===
-            if (state.ui.unsubscribeNotifications) state.ui.unsubscribeNotifications();
+                // <<<--- DODANO FILTROWANIE LOKALNE PO POBRANIU DANYCH ---<<<
+                state.completedProjects = snapshot.docs
+                    .map(doc => ({ id: doc.id, ...doc.data() })) // Najpierw mapujemy
+                    .filter(project => // Następnie filtrujemy
+                        (project.groupId === currentGroupId) || // Zachowaj, jeśli groupId pasuje
+                        (project.isInbox === true && project.ownerId === userId) // LUB jeśli to skrzynka tego użytkownika
+                    );
+                 console.log(`[setupFirestoreListeners] Przefiltrowano zakończone projekty. Liczba po filtracji: ${state.completedProjects.length}`);
+                // <<<--- KONIEC FILTROWANIA LOKALNEGO ---<<<
 
-            // --- DODANE LINIE: Wyciągnięcie ścieżki i jej logowanie ---
-            const notificationCollectionPath = `artifacts/${appId}/public/data/notifications`;
-            console.log(`[DEBUG] Tworzenie listenera dla ścieżki: ${notificationCollectionPath} i userId: ${userId}`);
-            // --- KONIEC DODANYCH LINII ---
-
-            const notificationsRef = collection(db, notificationCollectionPath); // Użycie nowej zmiennej
-            const notificationsQuery = query(notificationsRef, where("userId", "==", userId), orderBy("timestamp", "desc"));
-            state.ui.unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
-                // --- DODANE LOGOWANIE ---
-                console.log(`[DEBUG] Snapshot powiadomień dla userId: ${userId}. Liczba dokumentów: ${snapshot.size}`);
-                const receivedNotifications = snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    console.log(`[DEBUG] Otrzymano powiadomienie ID: ${doc.id}, dla: ${data.userId}`);
-                    return { id: doc.id, ...data };
-                });
-                // --- KONIEC LOGOWANIA ---
-
-                state.notifications = receivedNotifications;
-                render(); // Przerenderuj UI, aby zaktualizować dzwonek
+                render(); // Przerenderuj po aktualizacji stanu zakończonych projektów
             }, (error) => {
-                 // --- DODANE LOGOWANIE BŁĘDU ---
-                 console.error(`[DEBUG] Błąd w onSnapshot powiadomień dla userId: ${userId}`, error);
-                 // --- KONIEC LOGOWANIA BŁĘDU ---
-                 console.error("Błąd odczytu powiadomień:", error); // Oryginalny log błędu
+                 console.error("Błąd odczytu zakończonych projektów:", error)
             });
-            // === KONIEC NOWEGO BLOKU ===
+
+
+            // Listener dla powiadomień (pozostaje bez zmian)
+             if (state.ui.unsubscribeNotifications) state.ui.unsubscribeNotifications();
+             const notificationCollectionPath = `artifacts/${appId}/public/data/notifications`;
+             console.log(`[DEBUG] Tworzenie listenera dla ścieżki: ${notificationCollectionPath} i userId: ${userId}`);
+             const notificationsRef = collection(db, notificationCollectionPath);
+             const notificationsQuery = query(notificationsRef, where("userId", "==", userId), orderBy("timestamp", "desc"));
+             state.ui.unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
+                 console.log(`[DEBUG] Snapshot powiadomień dla userId: ${userId}. Liczba dokumentów: ${snapshot.size}`);
+                 state.notifications = snapshot.docs.map(doc => {
+                     const data = doc.data();
+                     console.log(`[DEBUG] Otrzymano powiadomienie ID: ${doc.id}, dla: ${data.userId}`);
+                     return { id: doc.id, ...data };
+                 });
+                 render(); // Przerenderuj, aby zaktualizować np. licznik powiadomień
+             }, (error) => {
+                  console.error(`[DEBUG] Błąd w onSnapshot powiadomień dla userId: ${userId}`, error);
+                  console.error("Błąd odczytu powiadomień:", error);
+             });
         }
         loadUiState();
         initializeCalendar();
@@ -6609,12 +6601,7 @@ if (changeGroupModal.form) {
                         // === KONIEC NOWEJ, POPRAWIONEJ LOGIKI ===
                         console.log(`[TRANSFER] Batch: Aktualizacja projektu ${project.id}, nowy właściciel: ${newOwnerId}, usunięto starego właściciela z członków ORAZ PRZENIESIONO jego zadania.`);
                     });
-
-                        // === KONIEC NOWEJ, POPRAWIONEJ LOGIKI ===
-
-                        console.log(`[TRANSFER] Batch: Aktualizacja projektu ${project.id}, nowy właściciel: ${newOwnerId}, usunięto starego właściciela z członków ORAZ USUNIĘTO jego zadania.`);
-                    
-            
+       
                     // --- KROK 5: Zaktualizuj profil odchodzącego właściciela ---
                     const userDocRef = doc(usersRef, user.uid);
                     batch.update(userDocRef, {
@@ -8933,6 +8920,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
