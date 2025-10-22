@@ -3838,6 +3838,7 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             } catch (error) {
                 console.error("Błąd podczas aktualizacji ulubionych:", error);
                 showNotification("Nie udało się zaktualizować ulubionych projektów.", "Błąd");
+                render(); // DODANO: Odświeżenie widoku nawet w przypadku błędu
             }
         }
         // NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU
@@ -4199,6 +4200,36 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             } else if (inboxNavItem) {
                 inboxNavItem.style.display = 'none';
             }
+            
+            // --- NOWA LOGIKA: RENDEROWANIE ULUBIONYCH PROJEKTÓW ---
+            projectsListEl.innerHTML = '';
+            const favoriteProjects = state.projects
+                .filter(p => state.currentUser.favorites.includes(p.id)) // Filtruj tylko ulubione
+                .sort((a, b) => a.name.localeCompare(b.name)); // Sortuj alfabetycznie
+
+            if (favoriteProjects.length === 0) {
+                 projectsListEl.innerHTML = '<li class="nav-item"><a href="#" style="opacity: 0.7; pointer-events: none;">Brak ulubionych</a></li>';
+            } else {
+                 favoriteProjects.forEach(project => {
+                    const li = document.createElement('li');
+                    li.className = 'nav-item';
+                    const link = document.createElement('a');
+                    link.href = '#';
+                    link.dataset.projectId = project.id;
+                    // Sprawdzanie, czy dany projekt jest aktualnie wyświetlany
+                    link.classList.toggle('active', project.id === state.currentProjectId && state.ui.currentView === 'projects');
+                    
+                    link.innerHTML = `
+                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                             <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.47.348l5.6.812a.563.563 0 01.3.96L18.6 15.759a.563.563 0 00-.166.568l1.63 5.097a.563.563 0 01-.84.627l-4.77-2.39a.563.563 0 00-.414 0l-4.77 2.39a.563.563 0 01-.84-.627l1.63-5.097a.563.563 0 00-.166-.568L3.923 10.32a.562.562 0 01.3-.96l5.6-.812a.563.563 0 00.47-.348l2.125-5.111z" />
+                         </svg>
+                         <span>${project.name}</span>
+                     `;
+                    li.appendChild(link);
+                    projectsListEl.appendChild(li);
+                 });
+            }
+            // --- KONIEC NOWEJ LOGIKI ---
         }
 
         function renderCurrentProjectView() {
@@ -7356,20 +7387,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
             // ▲▲▲ KONIEC NOWEGO WARUNKU ▲▲▲
         });
-        // === NOWY GLOBALNY LISTENER DLA SERDUSZKA W KAFLACH PROJEKTÓW ===
-    document.addEventListener('click', (e) => {
-        const favoriteBtn = e.target.closest('.favorite-btn');
-        // Upewniamy się, że jesteśmy w widoku 'all-projects' I kliknięto serduszko
-        if (favoriteBtn && state.ui.currentView === 'all-projects') {
-             e.preventDefault();
-             e.stopImmediatePropagation(); // Zatrzymuje wszelkie inne, potencjalnie konfliktowe zdarzenia
-             const projectId = favoriteBtn.dataset.projectId;
-             console.log(`[FAV] Globalny listener złapał kliknięcie serduszka dla projektu: ${projectId}`);
-             toggleFavoriteProject(projectId);
-             return;
-        }
-    });
-    // === KONIEC NOWEGO GLOBALNEGO LISTNERA ===
+        
         fabAddTask.addEventListener('click', () => openNewTaskModal({
             isFab: true,
             isSpecial: false
@@ -9472,6 +9490,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
