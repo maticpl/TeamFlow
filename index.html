@@ -5178,43 +5178,106 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
          * Używane podczas zmiany grupy.
          */
         async function removeUserFromProjectsMembership(userId, oldGroupId) {
-    // Sprawdź, czy oldGroupId istnieje i nie jest to ID samego użytkownika (przypadek solo)
-    if (!oldGroupId || oldGroupId === userId) {
-        console.log(`[removeMembership] Pomijam usuwanie członkostwa - użytkownik solo lub brak starej grupy (oldGroupId: ${oldGroupId})`);
-        return; // Nie ma czego usuwać
-    }
+            // Sprawdź, czy oldGroupId istnieje i nie jest to ID samego użytkownika (przypadek solo)
+            if (!oldGroupId || oldGroupId === userId) {
+                console.log(`[removeMembership] Pomijam usuwanie członkostwa - użytkownik solo lub brak starej grupy (oldGroupId: ${oldGroupId})`);
+                return; // Nie ma czego usuwać
+            }
 
-    console.log(`[removeMembership] Szukam projektów w grupie ${oldGroupId}, gdzie ${userId} jest członkiem (ale nie właścicielem)...`);
-    // Upewnij się, że 'arrayRemove' jest zaimportowane na górze skryptu
+            console.log(`[removeMembership] Szukam projektów w grupie ${oldGroupId}, gdzie ${userId} jest członkiem (ale nie właścicielem)...`);
 
-    // Zapytanie: projekty w starej grupie, gdzie użytkownik jest w 'members' i NIE jest 'ownerId'
-    const q = query(projectsRef,
-        where("groupId", "==", oldGroupId),
-        where("members", "array-contains", userId),
-        where("ownerId", "!=", userId) // Ważne: nie usuwamy z projektów, których JEST właścicielem
-    );
+            // Zapytanie: projekty w starej grupie, gdzie użytkownik jest w 'members' i NIE jest 'ownerId'
+            const q = query(projectsRef,
+                where("groupId", "==", oldGroupId),
+                where("members", "array-contains", userId),
+                where("ownerId", "!=", userId) // Ważne: nie usuwamy z projektów, których JEST właścicielem
+            );
 
-    try { // <--- POCZĄTEK GŁÓWNEGO TRY W TEJ FUNKCJI
-        const projectsSnapshot = await getDocs(q);
-        console.log(`[removeMembership] Znaleziono ${projectsSnapshot.size} projektów do opuszczenia.`);
+            let projectsSnapshot;
+            try {
+                projectsSnapshot = await getDocs(q);
+                console.log(`[removeMembership] Znaleziono ${projectsSnapshot.size} projektów do opuszczenia.`);
+            } catch (queryError) {
+                console.error("[removeMembership] Błąd podczas zapytania o projekty (prawdopodobnie brak indeksu):", queryError);
+                if (queryError.code === 'failed-precondition') {
+                    // Ten błąd jest krytyczny i wskazuje na brak indeksu w Firestore
+                    throw new Error("Błąd konfiguracji bazy danych (brak indeksu). Operacja przerwana.");
+                }
+                throw new Error("Nie udało się pobrać listy projektów do opuszczenia. Operacja zmiany grupy przerwana.");
+            }
 
-        if (!projectsSnapshot.empty) {
+            if (projectsSnapshot.empty) {
+                return; // Brak projektów do opuszczenia, kończymy pomyślnie.
+            }
+
+            // Mamy projekty, musimy je zaktualizować
             const batch = writeBatch(db);
+            const userIdToRemove = userId; // Dla czytelności
+
             projectsSnapshot.forEach(doc => {
-                console.log(`[removeMembership] Dodaję do batcha usunięcie ${userId} z członków projektu ${doc.id}`);
-                // Używamy arrayRemove do atomowego usunięcia elementu z tablicy
-                batch.update(doc.ref, { members: arrayRemove(userId) });
+                const project = doc.data();
+                const projectId = doc.id;
+                const newDefaultAssignee = project.ownerId; // Zadania zostaną przypisane właścicielowi projektu
+
+                console.log(`[removeMembership] Przetwarzam projekt: ${projectId}. Zadania zostaną przeniesione na ${newDefaultAssignee}`);
+
+                // 1. Aktualizacja listy członków: usuń użytkownika, dodaj właściciela (jeśli go nie ma)
+                let updatedMembers = (project.members || []).filter(memberId => memberId !== userIdToRemove);
+                if (!updatedMembers.includes(newDefaultAssignee)) {
+                    updatedMembers.push(newDefaultAssignee);
+                }
+
+                // 2. Aktualizacja zadań (Reasignacja):
+                const modifiedTasks = (project.tasks || []).map(task => {
+                    if (!(task.assignees || []).includes(userIdToRemove)) {
+                        return task; // Bez zmian, jeśli użytkownik nie był przypisany
+                    }
+                    
+                    const updatedTask = { ...task };
+                    let newAssignees = (updatedTask.assignees || []).filter(id => id !== userIdToRemove);
+                    if (!newAssignees.includes(newDefaultAssignee)) {
+                        newAssignees.push(newDefaultAssignee);
+                    }
+                    const newCompletedBy = (updatedTask.completedBy || []).filter(id => id !== userIdToRemove);
+                    const newType = newAssignees.length > 1 ? 'multi' : 'single';
+                    const newStatus = (updatedTask.status === 'done') ? 'inprogress' : updatedTask.status; // Resetuj status, jeśli było 'done'
+
+                    const modifiedSubtasks = (updatedTask.subtasks || []).map(subtask => {
+                        if (!(subtask.assignees || []).includes(userIdToRemove)) {
+                            return subtask; // Bez zmian
+                        }
+                        const updatedSubtask = { ...subtask };
+                        let newSubAssignees = (updatedSubtask.assignees || []).filter(id => id !== userIdToRemove);
+                        if (!newSubAssignees.includes(newDefaultAssignee)) {
+                            newSubAssignees.push(newDefaultAssignee);
+                        }
+                        const newSubCompletedBy = (updatedSubtask.completedBy || []).filter(id => id !== userIdToRemove);
+                        const isNowCompleted = (newSubAssignees.length > 0) && newSubAssignees.every(id => newSubCompletedBy.includes(id));
+                        return { ...updatedSubtask, assignees: newSubAssignees, completedBy: newSubCompletedBy, isCompleted: isNowCompleted };
+                    });
+
+                    return { ...updatedTask, assignees: newAssignees, completedBy: newCompletedBy, type: newType, status: newStatus, subtasks: modifiedSubtasks };
+                });
+
+                // 3. Dodaj zaktualizowane dane projektu do batcha
+                batch.update(doc.ref, {
+                    members: updatedMembers,
+                    tasks: modifiedTasks
+                });
+
+                console.log(`[removeMembership] Dodano do batcha aktualizację projektu ${projectId}.`);
             });
-            console.log("[removeMembership] Wykonuję batch.commit() do usunięcia członkostwa...");
-            await batch.commit(); // Wykonanie operacji wsadowej
-            console.log("[removeMembership] Batch usunięcia członkostwa zakończony pomyślnie.");
+
+            // 4. Wykonaj batch
+            try {
+                console.log("[removeMembership] Wykonuję batch.commit() do usunięcia członkostwa i re-asynacji zadań...");
+                await batch.commit(); // Wykonanie operacji wsadowej
+                console.log("[removeMembership] Batch zakończony pomyślnie.");
+            } catch (commitError) {
+                console.error("[removeMembership] Błąd podczas batch.commit():", commitError);
+                throw new Error("Nie udało się zaktualizować projektów podczas opuszczania grupy. Operacja przerwana.");
+            }
         }
-    } catch (error) { // <--- POPRAWNIE DODANY BLOK CATCH
-        console.error("[removeMembership] Błąd podczas usuwania użytkownika z członkostwa w projektach:", error);
-        // Rzucamy błąd, aby proces zmiany grupy (jeśli to on wywołał tę funkcję) mógł zostać przerwany
-        throw new Error("Nie udało się opuścić starych projektów jako członek. Operacja zmiany grupy przerwana.");
-    } // <--- KONIEC BLOKU CATCH
-}
         async function updateUserGroup(userId, newGroupId, newGroupName, newSubgroupName) {
             const userDocRef = doc(usersRef, userId);
             await updateDoc(userDocRef, {
@@ -6603,6 +6666,7 @@ if (changeGroupModal.form) {
                     });
        
                     // --- KROK 5: Zaktualizuj profil odchodzącego właściciela ---
+                    // --- KROK 5: Zaktualizuj profil odchodzącego właściciela ---
                     const userDocRef = doc(usersRef, user.uid);
                     batch.update(userDocRef, {
                         groupId: newGroupId,
@@ -6610,19 +6674,19 @@ if (changeGroupModal.form) {
                         subgroupName: targetSubgroupName
                     });
                     console.log(`[TRANSFER] Batch: Aktualizacja profilu użytkownika ${user.uid} na nową grupę: ${newGroupId}`);
-                    // --- KROK 5a: Usuń odchodzącego właściciela z projektów, gdzie był tylko członkiem ---
+                    
+                    // --- KROK 6: Wykonaj GŁÓWNY batch (Transfer) ---
+                    console.log('[TRANSFER] Wykonuję GŁÓWNY batch.commit() (transfer własności)...');
+                    await batch.commit(); 
+                    console.log('[TRANSFER] GŁÓWNY Batch wykonany pomyślnie!');
+
+                    // --- KROK 7: Sprzątanie (Osobna operacja) ---
+                    // Dopiero po pomyślnym transferze, usuwamy stare członkostwo.
+                    // Ta funkcja ma teraz własną logikę i własny batch.
                     console.log(`[TRANSFER] Wywołuję removeUserFromProjectsMembership dla ${user.uid} ze starej grupy ${user.groupId}...`);
-                    // Wywołujemy funkcję, która usunie 'user.uid' z tablic 'members'
-                    // projektów w 'user.groupId', gdzie 'user.uid' NIE jest właścicielem.
                     await removeUserFromProjectsMembership(user.uid, user.groupId);
                     console.log(`[TRANSFER] Zakończono removeUserFromProjectsMembership.`);
 
-                    
-                    // --- KROK 6: Wykonaj batch ---
-                    console.log('[TRANSFER] Wykonuję batch.commit()...');
-                    await batch.commit(); 
-                    console.log('[TRANSFER] Batch wykonany pomyślnie!');
-            
                     closeModal(transferOwnershipModal.overlay);
                     showNotification("Własność grupy i projektów została przekazana. Zostałeś przeniesiony do nowej grupy.", "Sukces");
             
@@ -8918,6 +8982,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
