@@ -2336,7 +2336,7 @@
 
                     <div class="task-modal-tabs-content">
                         <div id="tab-content-description" class="task-modal-tab-content">
-                            <textarea id="modal-task-description" placeholder="Dodaj opis zadania po naciśnięciu przycisku "Edytuj"."></textarea>
+                            <textarea id="modal-task-description" placeholder="Dodaj opis po naciśnięciu "Edytuj"."></textarea>
                         </div>
                         <div id="tab-content-dueDate" class="task-modal-tab-content">
                             <label for="modal-task-dueDate">Termin wykonania</label>
@@ -2435,6 +2435,7 @@
                 <button type="button" id="delete-task-btn" class="btn btn-danger" style="margin-right: auto;">Usuń zadanie</button>
                 <button type="button" id="edit-task-btn" class="btn btn-secondary" style="margin-right: auto; display: none;">Edytuj</button>
                 <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="button" id="ok-task-btn" class="btn btn-primary modal-close-btn" style="display: none;">OK</button>
                 <button type="button" id="save-task-btn" class="btn btn-primary" style="display: none;">Zapisz zmiany</button>
             </div>
         </div>
@@ -2916,6 +2917,7 @@ let state = {
             recurrenceDayWrapper: document.getElementById('modal-task-recurrence-day-wrapper'),
             moveBtn: document.getElementById('move-task-btn'),
             recurrenceDay: document.getElementById('modal-task-recurrence-day'),
+            okBtn: document.getElementById('ok-task-btn'), // ▼▼▼ DODANA LINIA ▼▼▼
         };
         const newProjectModal = {
             overlay: document.getElementById('new-project-modal'),
@@ -4440,43 +4442,93 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             if (!task || !project) return;
         
             const setViewMode = () => {
-            // Assuming taskId and task are accessible here
-            taskModal.overlay.dataset.taskId = taskId;
-            taskModal.title.textContent = task.title;
-            taskModal.title.style.display = 'block';
-            taskModal.titleInput.style.display = 'none';
-            taskModal.completed.checked = task.status === 'done';
-            const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
-            taskModal.completed.disabled = shouldBeDisabled;
-            taskModal.completed.title = shouldBeDisabled ? "Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części." : "";
-            taskModal.description.value = task.description || '';
+                // Assuming taskId and task are accessible here
+                taskModal.overlay.dataset.taskId = taskId;
+                taskModal.title.textContent = task.title;
+                taskModal.title.style.display = 'block';
+                taskModal.titleInput.style.display = 'none';
+                taskModal.completed.checked = task.status === 'done';
+                const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
+                taskModal.completed.disabled = shouldBeDisabled;
+                taskModal.completed.title = shouldBeDisabled ? "Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części." : "";
+                taskModal.description.value = task.description || '';
 
-            // --- POCZĄTEK ZMIAN W WYPEŁNIANIU DANYCH ---
-            taskModal.priority.value = task.priority;
-            taskModal.dueDate.value = task.dueDate;
-            taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
+                // --- POCZĄTEK ZMIAN W WYPEŁNIANIU DANYCH ---
+                taskModal.priority.value = task.priority;
+                taskModal.dueDate.value = task.dueDate;
+                taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
 
-            if (task.recurrence) {
-                taskModal.isRecurring.checked = true;
-                taskModal.recurrenceOptions.style.display = 'block';
-                const type = task.recurrence.type;
-                taskModal.recurrenceType.value = type;
+                if (task.recurrence) {
+                    taskModal.isRecurring.checked = true;
+                    taskModal.recurrenceOptions.style.display = 'block';
+                    const type = task.recurrence.type;
+                    taskModal.recurrenceType.value = type;
 
-                document.getElementById('modal-task-recurrence-day-wrapper').style.display = type === 'dayOfMonth' ? 'block' : 'none';
-                document.getElementById('modal-task-nth-day-options').style.display = type === 'nthDayOfMonth' ? 'flex' : 'none';
+                    document.getElementById('modal-task-recurrence-day-wrapper').style.display = type === 'dayOfMonth' ? 'block' : 'none';
+                    document.getElementById('modal-task-nth-day-options').style.display = type === 'nthDayOfMonth' ? 'flex' : 'none';
 
-                if (type === 'dayOfMonth') {
-                    taskModal.recurrenceDay.value = task.recurrence.day;
-                } else if (type === 'nthDayOfMonth') {
-                    document.getElementById('modal-task-recurrence-nth').value = task.recurrence.nth;
-                    document.getElementById('modal-task-recurrence-weekday').value = task.recurrence.weekday;
+                    if (type === 'dayOfMonth') {
+                        taskModal.recurrenceDay.value = task.recurrence.day;
+                    } else if (type === 'nthDayOfMonth') {
+                        document.getElementById('modal-task-recurrence-nth').value = task.recurrence.nth;
+                        document.getElementById('modal-task-recurrence-weekday').value = task.recurrence.weekday;
+                    }
+                } else {
+                    taskModal.isRecurring.checked = false;
+                    taskModal.recurrenceOptions.style.display = 'none';
+                    document.getElementById('modal-task-recurrence-day-wrapper').style.display = 'none';
+                    document.getElementById('modal-task-nth-day-options').style.display = 'none';
                 }
-            } else {
-                taskModal.isRecurring.checked = false;
-                taskModal.recurrenceOptions.style.display = 'none';
-                document.getElementById('modal-task-recurrence-day-wrapper').style.display = 'none';
-                document.getElementById('modal-task-nth-day-options').style.display = 'none';
-            }
+
+                // ▼▼▼ DODANY BRAKUJĄCY BLOK KODU ▼▼▼
+                Array.from(taskModal.overlay.querySelectorAll(
+                     '.description textarea, .task-modal-tab-content select, .task-modal-tab-content input:not(#attachment-file-input)' // <-- ZMIENIONY SELEKTOR
+                )).forEach(el => el.disabled = true);
+                taskModal.addAttachmentBtn.disabled = false; // <-- DODANA LINIA
+
+                taskModal.assigneesEdit.style.display = 'none';
+                taskModal.assigneesList.style.display = 'flex';
+                taskModal.saveBtn.style.display = 'none';
+                taskModal.okBtn.style.display = 'block'; // POKAZUJEMY PRZYCISK OK
+                const isCreator = !task.createdBy || (task.createdBy && task.createdBy === state.currentUser.uid);
+                taskModal.deleteBtn.style.display = isCreator ? 'block' : 'none';
+                taskModal.editBtn.style.display = isCreator ? 'block' : 'none';
+
+                if (task.type === 'multi') {
+                    taskModal.completionStatusSection.style.display = 'block';
+                    taskModal.completionStatusList.innerHTML = (task.assignees || [])
+                        .map(userId => {
+                            const user = findUser(userId);
+                            if (!user) return '';
+                            const isDone = task.completedBy.includes(userId);
+                            const isCurrentUser = userId === state.currentUser.uid;
+                            const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm js-complete-my-part-btn" data-user-id="${userId}">Oznacz jako wykonane</button>` : '';
+
+                            return `<li class="completion-status-item">
+                                        <div class="user-info">
+                                            ${renderAvatarHTML(user)}
+                                            <span>${user.name || user.email}</span>
+                                        </div>
+                                        <div class="status-indicator-wrapper">${actionButton}<span class="status-indicator ${isDone ? 'done' : 'pending'}">${isDone ? 'Gotowe' : 'Oczekuje'}</span></div>
+                                    </li>`;
+                        }).join('');
+                } else {
+                    taskModal.completionStatusSection.style.display = 'none';
+                }
+
+                renderComments(task);
+                renderActivityLog(task);
+                renderAttachments(task);
+                renderSubtaskListInMainModal(task);
+                openModal(taskModal.overlay);
+                tippy('#task-modal .task-modal-tab');
+
+                const descriptionTab = taskModal.overlay.querySelector('.task-modal-tab[data-tab="description"]');
+                if (descriptionTab) {
+                    descriptionTab.click();
+                }
+                // ▲▲▲ KONIEC DODANEGO BLOKU ▲▲▲
+            }; // Koniec funkcji setViewMode
 
             // ZMIANA: Blokujemy elementy wewnątrz .task-modal-tab-content, WYKLUCZAJĄC input załączników
             Array.from(taskModal.overlay.querySelectorAll(
@@ -4567,6 +4619,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 `;
             }).join('');
             taskModal.saveBtn.style.display = 'block';
+            taskModal.okBtn.style.display = 'none';
             taskModal.deleteBtn.style.display = 'none';
             taskModal.editBtn.style.display = 'none';
         };
@@ -8341,22 +8394,22 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
         // --- Funkcja renderująca listę subzadań w głównym modalu ---
         function renderSubtaskListInMainModal(task) {
-             // ▼▼▼ NOWA LOGIKA AKTUALIZACJI LICZNIKA I STANU AKORDEONU (Wersja 2) ▼▼▼
+             // ▼▼▼ NOWA LOGIKA AKTUALIZACJI LICZNIKA I STANU AKORDEONU (Wersja 3 - Zwinięte) ▼▼▼
              const subtaskCount = (task.subtasks || []).length;
              const subtasksToggleBtn = document.getElementById('subtasks-toggle-btn');
              const subtasksCollapsibleArea = document.getElementById('subtasks-collapsible-area');
              const subtasksCounter = document.getElementById('subtasks-counter');
-             const toggleText = subtasksToggleBtn.querySelector('.toggle-text'); // NOWA LINIA
+             const toggleText = subtasksToggleBtn.querySelector('.toggle-text');
 
              if (subtasksCounter) {
                 subtasksCounter.textContent = subtaskCount > 0 ? `(${subtaskCount})` : '(0)';
              }
              
-             // Resetuj stan akordeonu (zawsze otwarty przy odświeżaniu modala)
+             // Resetuj stan akordeonu (zawsze ZWINIĘTY przy odświeżaniu modala)
              if (subtasksToggleBtn && subtasksCollapsibleArea) {
-                subtasksToggleBtn.classList.remove('collapsed');
-                subtasksCollapsibleArea.classList.remove('collapsed');
-                if (toggleText) toggleText.textContent = 'Zwiń'; // NOWA LINIA
+                subtasksToggleBtn.classList.add('collapsed'); // ZMIANA Z .remove NA .add
+                subtasksCollapsibleArea.classList.add('collapsed'); // ZMIANA Z .remove NA .add
+                if (toggleText) toggleText.textContent = 'Rozwiń'; // ZMIANA Z 'Zwiń' NA 'Rozwiń'
              }
              // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
 
@@ -8824,6 +8877,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
