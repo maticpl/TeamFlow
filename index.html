@@ -6407,19 +6407,36 @@ if (changeGroupModal.form) {
                     projectsToTransfer.forEach(project => {
                         if (project.isInbox) {
                             console.log(`[TRANSFER] Pomijam transfer projektu Inbox: ${project.id}`);
-                            return; 
+                            return;
                         }
-                        
+
                         const projectRef = doc(projectsRef, project.id);
-                        const members = project.members.includes(newOwnerId)
-                            ? project.members
-                            : [...project.members, newOwnerId]; 
-                        
-                        batch.update(projectRef, { 
-                            ownerId: newOwnerId,
-                            members: members 
+
+                        // ▼▼▼ POCZĄTEK ZMIANY ▼▼▼
+
+                        // 1. Aktualizacja listy członków: Dodaj nowego, usuń starego właściciela
+                        let updatedMembers = project.members.includes(newOwnerId)
+                            ? [...project.members] // Skopiuj obecnych członków
+                            : [...project.members, newOwnerId]; // Dodaj nowego właściciela
+                        // Usuń odchodzącego właściciela (user.uid) z listy członków
+                        updatedMembers = updatedMembers.filter(memberId => memberId !== user.uid);
+
+                        // 2. Aktualizacja zadań: USUŃ zadania przypisane do odchodzącego właściciela
+                        const filteredTasks = (project.tasks || []).filter(task => {
+                            // Zachowaj zadanie tylko wtedy, gdy odchodzący właściciel NIE jest w jego assignees
+                            return !(task.assignees || []).includes(user.uid);
                         });
-                        console.log(`[TRANSFER] Batch: Aktualizacja projektu ${project.id}, nowy właściciel: ${newOwnerId}`);
+
+                        // 3. Dodaj obie aktualizacje do batcha
+                        batch.update(projectRef, {
+                            ownerId: newOwnerId,
+                            members: updatedMembers,     // Zaktualizowana lista członków
+                            tasks: filteredTasks         // Przefiltrowana lista zadań (bez zadań starego właściciela)
+                        });
+
+                        // ▲▲▲ KONIEC ZMIANY ▲▲▲
+
+                        console.log(`[TRANSFER] Batch: Aktualizacja projektu ${project.id}, nowy właściciel: ${newOwnerId}, usunięto starego właściciela z członków ORAZ USUNIĘTO jego zadania.`);
                     });
             
                     // --- KROK 5: Zaktualizuj profil odchodzącego właściciela ---
@@ -8680,6 +8697,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
