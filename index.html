@@ -5377,7 +5377,10 @@ attachmentsListNewTask.addEventListener('click', (e) => {
             
             if (state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
         
-            const projectsQuery = query(projectsRef, where("members", "array-contains", userId));
+            const projectsQuery = query(projectsRef,
+                where("groupId", "==", currentGroupId), // <-- DODANA LINIA FILTRUJĄCA
+                where("members", "array-contains", userId)
+            );
     
             state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
     state.projects = snapshot.docs.map(doc => ({
@@ -5440,7 +5443,10 @@ window.testNotificationsRead = async function() {
             
             if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
     
-            const completedQuery = query(completedProjectsRef, where("members", "array-contains", userId)); 
+            const completedQuery = query(completedProjectsRef,
+                where("groupId", "==", currentGroupId), // <-- DODANA LINIA FILTRUJĄCA
+                where("members", "array-contains", userId)
+            );
             
             state.ui.unsubscribeCompleted = onSnapshot(completedQuery, (snapshot) => {
                 state.completedProjects = snapshot.docs.map(doc => ({
@@ -6572,8 +6578,6 @@ if (changeGroupModal.form) {
                         // === POCZĄTEK NOWEJ, POPRAWIONEJ LOGIKI (REASIGNACJA ZADAŃ) ===
 
                         // 1. Aktualizacja listy członków:
-                        //    - Dodaj nowego właściciela (newOwnerId) do członków, jeśli go tam nie ma.
-                        //    - Usuń starego właściciela (user.uid) z członków.
                         let updatedMembers = [...(project.members || [])];
                         if (!updatedMembers.includes(newOwnerId)) {
                             updatedMembers.push(newOwnerId);
@@ -6582,73 +6586,44 @@ if (changeGroupModal.form) {
 
                         // 2. Aktualizacja zadań (Reasignacja):
                         const modifiedTasks = (project.tasks || []).map(task => {
-                            // Jeśli stary właściciel (user.uid) nie jest przypisany, zwróć zadanie bez zmian.
                             if (!(task.assignees || []).includes(user.uid)) {
-                                return task;
+                                return task; // Bez zmian, jeśli stary właściciel nie był przypisany
                             }
-
-                            // Klonuj zadanie, aby uniknąć mutacji
-                            const updatedTask = { ...task }; 
-
-                            // Zaktualizuj `assignees`: usuń starego właściciela
+                            const updatedTask = { ...task };
                             let newAssignees = (updatedTask.assignees || []).filter(id => id !== user.uid);
-                            // Dodaj nowego właściciela, jeśli go tam nie ma
                             if (!newAssignees.includes(newOwnerId)) {
                                 newAssignees.push(newOwnerId);
                             }
-
-                            // Zaktualizuj `completedBy`: usuń starego właściciela
                             const newCompletedBy = (updatedTask.completedBy || []).filter(id => id !== user.uid);
-
-                            // Zaktualizuj typ zadania
                             const newType = newAssignees.length > 1 ? 'multi' : 'single';
-                            
-                            // Zaktualizuj status:
-                            // Jeśli zadanie było 'done', musi stać się 'inprogress', bo dodaliśmy nowego (nieukończonego) assigne.
-                            // Jeśli nie było 'done', pozostaje w swoim statusie.
-                            const newStatus = (updatedTask.status === 'done') ? 'inprogress' : updatedTask.status;
+                            const newStatus = (updatedTask.status === 'done') ? 'inprogress' : updatedTask.status; // Resetuj status, jeśli było 'done'
 
-                            // Zaktualizuj subzadania wewnątrz tego zadania
                             const modifiedSubtasks = (updatedTask.subtasks || []).map(subtask => {
                                 if (!(subtask.assignees || []).includes(user.uid)) {
                                     return subtask; // Bez zmian
                                 }
-                                
                                 const updatedSubtask = { ...subtask };
-                                
                                 let newSubAssignees = (updatedSubtask.assignees || []).filter(id => id !== user.uid);
                                 if (!newSubAssignees.includes(newOwnerId)) {
                                     newSubAssignees.push(newOwnerId);
                                 }
-                                
                                 const newSubCompletedBy = (updatedSubtask.completedBy || []).filter(id => id !== user.uid);
-                                
                                 const isNowCompleted = (newSubAssignees.length > 0) && newSubAssignees.every(id => newSubCompletedBy.includes(id));
-                                
-                                return {
-                                    ...updatedSubtask,
-                                    assignees: newSubAssignees,
-                                    completedBy: newSubCompletedBy,
-                                    isCompleted: isNowCompleted
-                                };
+                                return { ...updatedSubtask, assignees: newSubAssignees, completedBy: newSubCompletedBy, isCompleted: isNowCompleted };
                             });
 
-                            return {
-                                ...updatedTask,
-                                assignees: newAssignees,
-                                completedBy: newCompletedBy,
-                                type: newType,
-                                status: newStatus,
-                                subtasks: modifiedSubtasks // Zaktualizowane subzadania
-                            };
+                            return { ...updatedTask, assignees: newAssignees, completedBy: newCompletedBy, type: newType, status: newStatus, subtasks: modifiedSubtasks };
                         });
 
                         // 3. Dodaj zaktualizowane dane do batcha
                         batch.update(projectRef, {
                             ownerId: newOwnerId,
-                            members: updatedMembers,     // Zaktualizowana lista członków
-                            tasks: modifiedTasks         // Zmodyfikowana lista zadań
+                            members: updatedMembers,
+                            tasks: modifiedTasks
                         });
+                        // === KONIEC NOWEJ, POPRAWIONEJ LOGIKI ===
+                        console.log(`[TRANSFER] Batch: Aktualizacja projektu ${project.id}, nowy właściciel: ${newOwnerId}, usunięto starego właściciela z członków ORAZ PRZENIESIONO jego zadania.`);
+                    });
 
                         // === KONIEC NOWEJ, POPRAWIONEJ LOGIKI ===
 
@@ -6663,7 +6638,16 @@ if (changeGroupModal.form) {
                         subgroupName: targetSubgroupName
                     });
                     console.log(`[TRANSFER] Batch: Aktualizacja profilu użytkownika ${user.uid} na nową grupę: ${newGroupId}`);
-                    
+                    // --- KROK 5a: Usuń odchodzącego właściciela z projektów, gdzie był tylko członkiem ---
+                    console.log(`[TRANSFER] Wywołuję removeUserFromProjectsMembership dla ${user.uid} ze starej grupy ${user.groupId}...`);
+                    // Wywołujemy funkcję, która usunie 'user.uid' z tablic 'members'
+                    // projektów w 'user.groupId', gdzie 'user.uid' NIE jest właścicielem.
+                    await removeUserFromProjectsMembership(user.uid, user.groupId);
+                    console.log(`[TRANSFER] Zakończono removeUserFromProjectsMembership.`);
+
+                    // --- KROK 6: Wykonaj batch (pozostaje bez zmian) ---
+                    console.log('[TRANSFER] Wykonuję batch.commit()...');
+                    await batch.commit();
                     // --- KROK 6: Wykonaj batch ---
                     console.log('[TRANSFER] Wykonuję batch.commit()...');
                     await batch.commit(); 
@@ -8964,6 +8948,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
