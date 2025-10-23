@@ -4924,32 +4924,35 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // ==============================================
                 // ZMIANA START: LOGIKA BUDŻETOWANIA W TASK MODAL
                 const projectHasBudget = project.budgetEnabled || false;
-                const budgetTabContent = document.getElementById('tab-content-budget');
+                const budgetTabContent = document.getElementById('tab-content-budget'); // Nadal potrzebujemy referencji, np. do sprawdzenia istnienia
                 const isOwner = project.ownerId === state.currentUser.uid;
-                
-                // 1. Warunkowe ukrycie/pokazanie zakładki
-                if (budgetTabContent) {
-                    budgetTabContent.style.display = projectHasBudget ? 'block' : 'none';
+
+                // 1. Warunkowe ukrycie/pokazanie PRZYCISKU ZAKŁADKI (jeśli potrzeba - logika ta może być gdzie indziej, ale TREŚĆ zostawiamy CSSowi)
+                // Przykład (jeśli przycisk zakładki też ma być ukrywany):
+                const budgetTabButton = taskModal.overlay.querySelector('.task-modal-tab[data-tab="budget"]');
+                if (budgetTabButton) {
+                   budgetTabButton.style.display = projectHasBudget ? 'flex' : 'none';
                 }
+                // Usunięto: Linia ustawiająca budgetTabContent.style.display
 
                 if (projectHasBudget) {
                     const currency = project.currency || 'PLN';
-                    
+
                     // Ustawienie walut
                     taskModal.currencyDisplay.textContent = currency;
                     taskModal.currencyDisplay2.textContent = currency;
-                    
+
                     // Wypełnianie pól konfiguracji kosztu
                     taskModal.hasCost.checked = task.hasCost || false;
                     taskModal.costFields.style.display = task.hasCost ? 'block' : 'none';
                     taskModal.estimatedCost.value = task.estimatedCost || '';
-                    
+
                     // Wypełnianie kategorii (na razie prosto)
                     taskModal.budgetCategory.innerHTML = `<option value="">Brak Kategorii</option>` + (project.categories || []).map(c => `<option value="${c}" ${task.budgetCategory === c ? 'selected' : ''}>${c}</option>`).join('');
-                    
+
                     // Logika RZECZYWISTEGO KOSZTU (aktualizacja/widok)
                     const actualCostField = taskModal.actualCost;
-                    
+
                     if (task.status === 'done' && isOwner) {
                         // Jeśli zadanie wykonane i jestem właścicielem - mogę edytować rzeczywisty koszt
                         actualCostField.disabled = false;
@@ -4966,18 +4969,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         actualCostField.value = '';
                         actualCostField.title = 'Koszt rzeczywisty jest wprowadzany po zakończeniu zadania.';
                     }
-                    
+
                     // Dynamiczne podsumowanie budżetu projektu
                     const reservedBudget = project.reservedBudget || 0;
                     const plannedCost = project.plannedCost || 0;
-                    
+
                     const budgetDoWydania = plannedCost - reservedBudget;
                     const budgetPoWykonaniu = budgetDoWydania - (task.estimatedCost || 0);
-                    
+
                     taskModal.budgetDoWydania.textContent = `${budgetDoWydania.toFixed(2)} ${currency}`;
                     taskModal.budgetPoWykonaniu.textContent = `${budgetPoWykonaniu.toFixed(2)} ${currency}`;
                 }
-
                 // ZMIANA KONIEC
                 renderComments(task);
                 renderActivityLog(task);
@@ -5412,39 +5414,42 @@ return;
                 populateAssigneesForProject(targetProject.id);
 }
              // ZMIANA START: DYNAMICZNE WIDOKI BUDŻETU
+            // ZMIANA START: DYNAMICZNE WIDOKI BUDŻETU
             const budgetTab = document.getElementById('new-task-modal').querySelector('.task-modal-tab[data-tab="budget"]');
-            const budgetContent = document.getElementById('tab-new-task-budget');
+            const budgetContent = document.getElementById('tab-new-task-budget'); // Nadal potrzebujemy referencji, np. do resetowania pól
 
             if (targetProject.budgetEnabled) {
                 const currency = targetProject.currency || 'PLN';
-                
-                // 1. Pokaż zakładkę (dodano warunek istnienia elementu)
+
+                // 1. Pokaż PRZYCISK zakładki (jeśli istnieje)
                 if (budgetTab) budgetTab.style.display = 'flex';
-                if (budgetContent) budgetContent.style.display = 'block'; 
-                
+                // Usunięto: Linia ustawiająca budgetContent.style.display = 'block'
+
                 // 2. Ustaw walutę i podsumowanie
                 if (newTaskModal.currencyDisplay) newTaskModal.currencyDisplay.textContent = currency;
-                
+
                 const reserved = targetProject.reservedBudget || 0;
                 const planned = targetProject.plannedCost || 0;
                 const available = planned - reserved;
 
                 if (newTaskModal.budgetDoWydania) newTaskModal.budgetDoWydania.textContent = `${available.toFixed(2)} ${currency}`;
                 if (newTaskModal.budgetPoWykonaniu) newTaskModal.budgetPoWykonaniu.textContent = `${available.toFixed(2)} ${currency}`; // Inicjalnie to samo
-                
+
                 // 3. Wypełnij kategorie
                 if (newTaskModal.budgetCategory) {
                     newTaskModal.budgetCategory.innerHTML = `<option value="">Brak Kategorii</option>` + (targetProject.categories || []).map(c => `<option value="${c}">${c}</option>`).join('');
                 }
 
             } else {
-                // 4. Ukryj zakładkę i zresetuj pola budżetu zadania
+                // 4. Ukryj PRZYCISK zakładki i zresetuj pola budżetu zadania
                 if(budgetTab) budgetTab.style.display = 'none';
-                if(budgetContent) budgetContent.style.display = 'none';
+                // Usunięto: Linia ustawiająca budgetContent.style.display = 'none'
                 if(newTaskModal.hasCost) newTaskModal.hasCost.checked = false;
                 if(newTaskModal.estimatedCost) newTaskModal.estimatedCost.value = '';
+                // Upewnijmy się, że ukrywamy pola kosztu, gdy budżet jest wyłączony
+                if(newTaskModal.costFields) newTaskModal.costFields.style.display = 'none';
             }
-            
+
             // Podpinamy listener do dynamicznego obliczania Po Wykonaniu
             if(newTaskModal.estimatedCost) {
                  newTaskModal.estimatedCost.oninput = () => {
@@ -9951,6 +9956,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
