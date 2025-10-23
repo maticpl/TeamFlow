@@ -5380,7 +5380,48 @@ return;
             if (!isSpecial) {
                 populateAssigneesForProject(targetProject.id);
 }
+             // ZMIANA START: DYNAMICZNE WIDOKI BUDŻETU
+            const budgetTab = document.getElementById('new-task-modal').querySelector('.task-modal-tab[data-tab="budget"]');
+            const budgetContent = document.getElementById('tab-new-task-budget');
+
+            if (targetProject.budgetEnabled) {
+                const currency = targetProject.currency || 'PLN';
+                // 1. Pokaż zakładkę
+                budgetTab.style.display = 'flex';
+                budgetContent.style.display = 'block'; 
+                
+                // 2. Ustaw walutę i podsumowanie
+                document.getElementById('new-task-currency-display').textContent = currency;
+                
+                const reserved = targetProject.reservedBudget || 0;
+                const planned = targetProject.plannedCost || 0;
+                const available = planned - reserved;
+
+                newTaskModal.budgetDoWydania.textContent = `${available.toFixed(2)} ${currency}`;
+                newTaskModal.budgetPoWykonaniu.textContent = `${available.toFixed(2)} ${currency}`; // Inicjalnie to samo
+                
+                // 3. Wypełnij kategorie
+                newTaskModal.budgetCategory.innerHTML = `<option value="">Brak Kategorii</option>` + (targetProject.categories || []).map(c => `<option value="${c}">${c}</option>`).join('');
+
+            } else {
+                // 4. Ukryj zakładkę i zresetuj pola budżetu zadania
+                if(budgetTab) budgetTab.style.display = 'none';
+                if(budgetContent) budgetContent.style.display = 'none';
+                if(newTaskModal.hasCost) newTaskModal.hasCost.checked = false;
+                if(newTaskModal.estimatedCost) newTaskModal.estimatedCost.value = '';
+            }
             
+            // Podpinamy listener do dynamicznego obliczania Po Wykonaniu
+            if(newTaskModal.estimatedCost) {
+                 newTaskModal.estimatedCost.oninput = () => {
+                    const estimated = parseFloat(newTaskModal.estimatedCost.value) || 0;
+                    const available = (targetProject.plannedCost || 0) - (targetProject.reservedBudget || 0);
+                    const forecast = available - estimated;
+                    const currency = targetProject.currency || 'PLN';
+                    newTaskModal.budgetPoWykonaniu.textContent = `${forecast.toFixed(2)} ${currency}`;
+                 };
+            }
+            // ZMIANA KONIEC   
             openModal(newTaskModal.overlay);
 }
 
@@ -7273,6 +7314,13 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     startDate: newProjectModal.startDateInput.value,
                     endDate: newProjectModal.endDateInput.value,
                     priority: newProjectModal.prioritySelect.value,
+                    // NOWE POLA BUDŻETU
+                    budgetEnabled: budgetEnabled,
+                    plannedCost: budgetEnabled ? parseFloat(newProjectModal.plannedCostInput.value) : 0,
+                    currency: budgetEnabled ? newProjectModal.currencySelect.value : null,
+                    categories: budgetEnabled ? newProjectModal.categoriesInput.value.split(',').map(c => c.trim()).filter(Boolean) : [],
+                    reservedBudget: 0, // Inicjalizacja
+                    actualCost: 0, // Inicjalizacja
                     // ZMIANA KONIEC
                     tasks: [] // Zaczynamy z pustą tablicą zadań
                 };
@@ -7375,14 +7423,20 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 showNotification("Planowany Koszt Całkowity jest wymagany i musi być większy od zera.", "Błąd");
                 return;
             }
-            // ZMIANA START: Dodanie nowych pól
+            // ZMIANA START: Dodanie nowych pól i budżetu
             await updateDoc(doc(projectsRef, projectId), {
                 name: newName,
                 members: selectedMembers,
                 startDate: editProjectModal.startDateInput.value,
                 endDate: editProjectModal.endDateInput.value,
                 priority: editProjectModal.prioritySelect.value,
-                description: editProjectModal.descriptionTextarea.value
+                description: editProjectModal.descriptionTextarea.value,
+                // NOWE POLA BUDŻETU
+                budgetEnabled: budgetEnabled,
+                plannedCost: budgetEnabled ? parseFloat(editProjectModal.plannedCostInput.value) : 0,
+                currency: budgetEnabled ? editProjectModal.currencySelect.value : null,
+                categories: budgetEnabled ? editProjectModal.categoriesInput.value.split(',').map(c => c.trim()).filter(Boolean) : [],
+                // reservedBudget i actualCost zostają nienaruszone, gdyż są sumowane
             });
             // ZMIANA KONIEC
             closeModal(editProjectModal.overlay);
@@ -9856,6 +9910,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
