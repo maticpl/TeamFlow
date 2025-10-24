@@ -2527,24 +2527,21 @@
                             </div>
                         </div>
                         
-                        </div> <div id="tab-content-budget" class="task-modal-tab-content">
+                        <div id="tab-content-budget" class="task-modal-tab-content">
                             <div class="form-group-checkbox">
                                 <input type="checkbox" id="task-budget-toggle">
                                 <label for="task-budget-toggle">Zadanie obciąża budżet projektu</label>
                             </div>
-
                             <div id="task-budget-allocation-details" style="display: none; margin-top: 12px; background-color: var(--bg-secondary); padding: 12px; border-radius: var(--border-radius); border: 1px solid var(--border-color);">
                                 <label style="display: block; margin-bottom: 8px; font-weight: 600;">Które pozycje budżetowe wybierasz?</label>
                                 <ul id="task-budget-items-list" style="list-style: none; padding: 0; margin-bottom: 16px; max-height: 150px; overflow-y: auto;">
                                     <li class="task-budget-item-loading" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Ładowanie pozycji budżetowych...</li>
                                 </ul>
-
                                 <div style="border-top: 1px dashed var(--border-color); padding-top: 12px; display: flex; align-items: center; gap: 10px;">
                                     <button type="button" id="task-check-budget-btn" class="btn btn-secondary">Sprawdź budżet</button>
                                     <span id="task-check-budget-status" style="font-size: 13px; font-weight: 500;"></span>
                                 </div>
                                 <p id="task-check-budget-error" class="error-message" style="margin-top: 8px;"></p>
-
                                 <div style="margin-top: 16px; border-top: 1px dashed var(--border-color); padding-top: 12px; display: flex; align-items: center; gap: 10px;">
                                     <button type="button" id="task-save-budget-btn" class="btn btn-primary" disabled>Zapisz budżet zadania</button>
                                     <span id="task-save-budget-status" style="font-size: 13px; font-weight: 500;"></span>
@@ -2562,18 +2559,15 @@
                                 <ul class="activity-list" id="activity-list"></ul>
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
-             <div class="modal-footer">
-                <button type="button" id="delete-task-btn" class="btn btn-danger" style="margin-right: auto;">Usuń zadanie</button>
-                <button type="button" id="edit-task-btn" class="btn btn-secondary" style="margin-right: auto; display: none;">Edytuj</button>
+                    </div> </div> </div> <div class="modal-footer">
+                <button type="button" id="delete-task-btn" class="btn btn-danger" style="margin-right: auto;">Usuń zadanie</button>
+                <button type="button" id="edit-task-btn" class="btn btn-secondary" style="margin-right: auto;">Edytuj</button>                 
                 <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
-                <button type="button" id="ok-task-btn" class="btn btn-primary modal-close-btn" style="display: none;">OK</button>
-                <button type="button" id="save-task-btn" class="btn btn-primary" style="display: none;">Zapisz zmiany</button>
+                <button type="button" id="ok-task-btn" class="btn btn-primary modal-close-btn">OK</button>                 
+                <button type="button" id="save-task-btn" class="btn btn-primary">Zapisz zmiany</button>            
+                    </div>
             </div>
-        </div>
-    </div>
+        </div> </div>
     
     <div class="modal-overlay" id="new-project-modal">
         <div class="modal">
@@ -2925,13 +2919,7 @@
         </div>
     </form>
 </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
-                <button type="submit" class="btn btn-primary">Zapisz zadanie</button>
-            </div>
-        </form>
-    </div>
-</div>
+            
 
     <div class="modal-overlay" id="search-modal">
         <div class="modal">
@@ -5227,8 +5215,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             } = findTask(taskId);
             if (!task || !project) return;
 
-            // Zapisujemy starą listę przypisanych osób PRZED wprowadzeniem zmian
             const oldAssignees = task.assignees || [];
+            const oldStatus = task.status;
+            const oldPriority = task.priority;
+            // Pobierz starą alokację PRZED modyfikacją obiektu task
+            const oldCostAllocation = task.costAllocation ? [...task.costAllocation] : null;
 
             const newTitle = taskModal.titleInput.value.trim();
             if (!newTitle) {
@@ -5243,25 +5234,23 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
 
             const newType = newAssignees.length > 1 ? 'multi' : 'single';
-            const oldStatus = task.status;
             const newStatus = taskModal.status.value;
-            const oldPriority = task.priority;
-            const oldCostAllocation = task.costAllocation ? [...task.costAllocation] : null; // Kopia dla bezpieczeństwa
             const newPriority = taskModal.priority.value;
 
-            if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < newAssignees.length) {
+            if (task.type === 'multi' && newStatus === 'done' && (task.completedBy || []).length < newAssignees.length) {
                 showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
-                taskModal.status.value = oldStatus;
+                taskModal.status.value = oldStatus; // Przywróć stary status w UI
                 return;
             }
-            // --- NOWA WALIDACJA BUDŻETU ZADANIA PRZED ZAPISEM ---
+
             if (taskModal.budgetToggle.checked) {
                 if (!editTaskBudgetSaveStatus) {
                     showNotification("Budżet zadania został zmodyfikowany lub nie został sprawdzony. Kliknij 'Zapisz budżet zadania' przed zapisaniem zmian w zadaniu.", "Błąd");
-                    return; // Przerwij zapis zadania
+                    return;
                 }
             }
-            // --- KONIEC WALIDACJI BUDŻETU ZADANIA ---
+
+            // Stwórz finalny obiekt zadania
             let updatedTask = {
                 ...task,
                 title: newTitle,
@@ -5270,21 +5259,20 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 description: taskModal.description.value,
                 status: newStatus,
                 priority: newPriority,
-               dueDate: taskModal.dueDate.value || null, // Upewnij się, że pusty string staje się null
-                // --- ZMIANA: Dodanie costAllocation do zadania ---
+                dueDate: taskModal.dueDate.value || null,
+                // Użyj zapisanej tymczasowej alokacji, jeśli checkbox jest zaznaczony i budżet zapisany
                 costAllocation: taskModal.budgetToggle.checked && editTaskBudgetSaveStatus ? editTaskTempBudgetAllocation : null
-                // --- KONIEC ZMIANY ---
             };
 
+            // Dodatkowa logika dla statusu 'done' z checkboxa
             if (taskModal.completed.checked && updatedTask.status !== 'done') {
                 updatedTask.status = 'done';
             }
 
+            // Logika cykliczności
             if (taskModal.isRecurring.checked) {
                 const type = taskModal.recurrenceType.value;
-                updatedTask.recurrence = {
-                    type: type
-                };
+                updatedTask.recurrence = { type: type };
                 if (type === 'dayOfMonth') {
                     updatedTask.recurrence.day = parseInt(taskModal.recurrenceDay.value) || 1;
                 } else if (type === 'nthDayOfMonth') {
@@ -5295,83 +5283,80 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 updatedTask.recurrence = null;
             }
 
-            if (oldStatus !== newStatus) {
-                updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+            // Dodaj wpisy do logu aktywności
+            if (oldStatus !== updatedTask.status) { // Użyj finalnego statusu z updatedTask
+                updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
             }
             if (oldPriority !== newPriority) {
                 updatedTask = addActivity(updatedTask, 'priority', oldPriority, newPriority);
             }
 
+            // Przygotuj nową listę zadań dla projektu
             let tasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
 
-            if (oldStatus !== 'done' && newStatus === 'done' && updatedTask.recurrence) {
+            // Logika tworzenia nowego cyklicznego zadania
+            if (oldStatus !== 'done' && updatedTask.status === 'done' && updatedTask.recurrence) {
                 const nextDueDate = calculateNextDueDate(updatedTask.dueDate, updatedTask.recurrence);
-                const nextTask = {
-                    ...updatedTask,
-                    id: `task${Date.now()}`,
-                    status: 'todo',
-                    dueDate: nextDueDate,
-                    completedBy: [],
-                    activityLog: [],
-                };
-                tasks.push(nextTask);
+                if (nextDueDate) { // Dodano sprawdzenie, czy nextDueDate nie jest null
+                    const nextTask = {
+                        ...updatedTask, // Skopiuj zaktualizowane zadanie
+                        id: `task${Date.now()}`,
+                        status: 'todo', // Resetuj status
+                        dueDate: nextDueDate,
+                        completedBy: [], // Wyczyść ukończone
+                        activityLog: [], // Wyczyść log
+                        // costAllocation: null, // Opcjonalnie: Resetuj alokację kosztów dla nowego wystąpienia
+                    };
+                     // Dodaj wpis o utworzeniu (jeśli potrzebny)
+                     // nextTask = addActivity(nextTask, 'created');
+                    tasks.push(nextTask);
+                } else {
+                     console.warn("Nie udało się obliczyć następnej daty dla zadania cyklicznego:", taskId);
+                }
             }
 
             const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+            // Pobierz finalną nową alokację z obiektu updatedTask
+            const newCostAllocation = updatedTask.costAllocation;
 
             try {
-                // --- KROK 11.1: OBLICZ RÓŻNICĘ W ALOKACJI ---
-                const newCostAllocation = updatedTask.costAllocation;
-                // Tutaj zaimplementujemy logikę obliczania różnicy i aktualizacji `spentAmount` w projekcie (następny krok)
-                console.log("Stara alokacja:", oldCostAllocation);
-                console.log("Nowa alokacja:", newCostAllocation);
-                // Wywołaj funkcję transakcyjną PRZED zapisem zadania
+                // --- POPRAWIONA KOLEJNOŚĆ ---
+                // 1. Wykonaj transakcję aktualizującą budżet projektu
                 await updateSpentAmountInProject(project.id, oldCostAllocation, newCostAllocation);
-                // --- KONIEC AKTUALIZACJI ---
 
-                // Zapisz zaktualizowaną listę zadań
+                // 2. Zapisz zaktualizowaną listę zadań w projekcie
                 await updateDoc(projectDocRef, {
-                    tasks: tasksToSave
+                    tasks: tasks // Użyj finalnej listy zadań
                 });
-                await updateDoc(projectDocRef, {
-                    tasks: tasks
-                });
+                // --- KONIEC POPRAWIONEJ KOLEJNOŚCI ---
 
-                // === NOWA LOGIKA - POWIADOMIENIA PRZY EDYCJI ZADANIA ===
+                // Logika powiadomień
                 const newlyAssigned = newAssignees.filter(id => !oldAssignees.includes(id));
                 if (newlyAssigned.length > 0) {
                     const batch = writeBatch(db);
                     const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-                    
                     newlyAssigned.forEach(assigneeId => {
                         if (assigneeId === state.currentUser.uid) return;
-
                         const notification = {
-                            userId: assigneeId,
-                            creatorId: state.currentUser.uid,
-                            type: 'task_assigned',
+                            userId: assigneeId, creatorId: state.currentUser.uid, type: 'task_assigned',
                             message: `<strong>${state.currentUser.name}</strong> przypisał/a Cię do zadania "<strong>${updatedTask.title}</strong>" w projekcie <em>${project.name}</em>.`,
-                            isRead: false,
-                            timestamp: Date.now(),
-                            link: { type: 'task', projectId: project.id, taskId: updatedTask.id }
+                            isRead: false, timestamp: Date.now(), link: { type: 'task', projectId: project.id, taskId: updatedTask.id }
                         };
                         const newNotifRef = doc(notificationsRef);
                         batch.set(newNotifRef, notification);
                     });
                     await batch.commit();
                 }
-                // === KONIEC NOWEJ LOGIKI ===
 
                 if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
                 showNotification("Zmiany w zadaniu zostały zapisane.", "Sukces");
                 closeModal(taskModal.overlay);
+
             } catch (error) {
-                console.error("Błąd zapisu zmian w zadaniu lub aktualizacji budżetu:", error); // Zaktualizowano komunikat
+                console.error("Błąd zapisu zmian w zadaniu lub aktualizacji budżetu:", error);
                 showNotification("Wystąpił błąd podczas zapisu zmian.", "Błąd");
-                } finally {
-                // --- ZMIANA: Reset stanu tymczasowego budżetu zadania ---
-                resetTaskBudgetStatus(taskModal); // Użyj funkcji pomocniczej
-                // --- KONIEC ZMIANY ---
+            } finally {
+                resetTaskBudgetStatus(taskModal); // Resetuj stan budżetu niezależnie od wyniku
             }
         }
         
@@ -8132,126 +8117,133 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         });
 
         newTaskModal.form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const submitBtn = e.target.querySelector('button[type="submit"]');
-    // Dodajmy też error message dla tego modala
-    const mainErrorP = document.getElementById('new-task-main-error'); // Dodaj to ID w HTML, jeśli jeszcze nie ma!
-    if (mainErrorP) mainErrorP.textContent = ''; // Wyczyść błędy na początku
+            e.preventDefault();
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            // Dodajemy referencję do pola na błędy (zakładamy, że dodasz je w HTML)
+            const mainErrorP = document.getElementById('new-task-main-error');
+            if (mainErrorP) mainErrorP.textContent = '';
 
-    try { // <<< --- POCZĄTEK BLOKU TRY --- <<<
-        // Wyłącz przycisk i zmień tekst od razu
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Zapisywanie...';
+            try {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Zapisywanie...';
 
-        // --- PRZENIESIONA I ZMODYFIKOWANA LOGIKA POBIERANIA DANYCH I WALIDACJI ---
-        const title = newTaskModal.title.value.trim();
-        if(!title) { throw new Error("Tytuł zadania jest wymagany."); } // Zmieniono na throw
+                const title = newTaskModal.title.value.trim();
+                if(!title) { throw new Error("Tytuł zadania jest wymagany."); }
 
-        const projectId = newTaskModal.projectSelect.value;
-        const project = findProject(projectId);
-        if(!project) { throw new Error("Nie udało się zidentyfikować projektu docelowego."); } // Zmieniono na throw
+                const projectId = newTaskModal.projectSelect.value;
+                const project = findProject(projectId);
+                if(!project) { throw new Error("Nie udało się zidentyfikować projektu docelowego."); }
 
-        const taskType = document.querySelector('input[name="task-type"]:checked').value;
-        let assignees = [];
-        if (taskType === 'single') {
-            const singleAssignee = newTaskModal.assigneeSingleSelect.value;
-            if (singleAssignee) assignees.push(singleAssignee);
-        } else {
-            assignees = Array.from(newTaskModal.assigneeMultiList.querySelectorAll('.member-pill.selected'))
-                           .map(pill => pill.dataset.userId);
-        }
-        if (assignees.length === 0) { throw new Error("Wybierz przynajmniej jedną osobę do zadania."); } // Zmieniono na throw
+                const taskType = document.querySelector('input[name="task-type"]:checked').value;
+                let assignees = [];
+                if (taskType === 'single') {
+                    const singleAssignee = newTaskModal.assigneeSingleSelect.value;
+                    if (singleAssignee) assignees.push(singleAssignee);
+                } else {
+                    assignees = Array.from(newTaskModal.assigneeMultiList.querySelectorAll('.member-pill.selected'))
+                                   .map(pill => pill.dataset.userId);
+                }
+                if (assignees.length === 0) { throw new Error("Wybierz przynajmniej jedną osobę do zadania."); }
 
-        let recurrence = null;
-        if (newTaskModal.isRecurring.checked) {
-            if (!newTaskModal.dueDate.value) { throw new Error("Zadanie cykliczne musi mieć ustawiony termin wykonania."); } // Zmieniono na throw
-            const type = newTaskModal.recurrenceType.value;
-            recurrence = { type: type };
-            if (type === 'dayOfMonth') { recurrence.day = parseInt(newTaskModal.recurrenceDay.value) || 1; }
-            else if (type === 'nthDayOfMonth') {
-                 recurrence.nth = document.getElementById('new-task-recurrence-nth').value;
-                 recurrence.weekday = document.getElementById('new-task-recurrence-weekday').value;
-             }
-        }
-        // --- KONIEC PRZENIESIONEJ LOGIKI ---
+                let recurrence = null;
+                if (newTaskModal.isRecurring.checked) {
+                    if (!newTaskModal.dueDate.value) { throw new Error("Zadanie cykliczne musi mieć ustawiony termin wykonania."); }
+                    const type = newTaskModal.recurrenceType.value;
+                    recurrence = { type: type };
+                    if (type === 'dayOfMonth') { recurrence.day = parseInt(newTaskModal.recurrenceDay.value) || 1; }
+                    else if (type === 'nthDayOfMonth') {
+                         recurrence.nth = document.getElementById('new-task-recurrence-nth').value;
+                         recurrence.weekday = document.getElementById('new-task-recurrence-weekday').value;
+                     }
+                }
 
-        // --- NOWA WALIDACJA BUDŻETU ZADANIA PRZED ZAPISEM ---
-        if (newTaskModal.budgetToggle.checked) {
-            if (!newTaskBudgetSaveStatus) {
-                // Błąd zostanie złapany przez catch
-                throw new Error("Budżet zadania został zmodyfikowany lub nie został sprawdzony. Kliknij 'Zapisz budżet zadania' przed zapisaniem zadania.");
+                if (newTaskModal.budgetToggle.checked) {
+                    if (!newTaskBudgetSaveStatus) {
+                        throw new Error("Budżet zadania został zmodyfikowany lub nie został sprawdzony. Kliknij 'Zapisz budżet zadania' przed zapisaniem zadania.");
+                    }
+                }
+
+                const newTask = {
+                    id: `task${Date.now()}`, title,
+                    createdBy: state.currentUser.uid,
+                    description: newTaskModal.description.value,
+                    status: 'todo',
+                    type: taskType,
+                    assignees: assignees,
+                    completedBy: [],
+                    priority: newTaskModal.priority.value,
+                    dueDate: newTaskModal.dueDate.value || null,
+                    comments: [],
+                    activityLog: [],
+                    recurrence: recurrence,
+                    attachments: [], // Zostanie wypełnione poniżej,
+                    // Przypisz zapisaną tymczasową alokację
+                    costAllocation: newTaskModal.budgetToggle.checked && newTaskBudgetSaveStatus ? newTaskTempBudgetAllocation : null
+                };
+
+                 // Logika wysyłania plików
+                if (stagedFiles.length > 0) {
+                    submitBtn.textContent = `Przesyłanie ${stagedFiles.length} plik(ów)...`;
+                    const attachmentPromises = stagedFiles.map(async (file) => {
+                         const storagePath = `attachments/${project.id}/${newTask.id}/${Date.now()}_${file.name}`;
+                         const storageRef = ref(storage, storagePath);
+                         const snapshot = await uploadBytes(storageRef, file);
+                         const downloadURL = await getDownloadURL(snapshot.ref);
+                         return {
+                             id: `att_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                             name: file.name, url: downloadURL, path: storagePath,
+                             uploadedBy: state.currentUser.uid, timestamp: Date.now()
+                         };
+                     });
+                    const uploadedAttachments = await Promise.all(attachmentPromises);
+                    newTask.attachments = uploadedAttachments;
+                }
+
+                 // --- POPRAWIONA KOLEJNOŚĆ ---
+                 // 1. Pobierz finalną alokację dla nowego zadania
+                const newCostAllocation = newTask.costAllocation;
+
+                 // 2. Wykonaj transakcję aktualizującą budżet projektu (oldAllocation jest null)
+                await updateSpentAmountInProject(project.id, null, newCostAllocation);
+
+                 // 3. Zapisz nowe zadanie do projektu
+                await updateDoc(doc(projectsRef, project.id), {
+                    tasks: [...(project.tasks || []), newTask] // Dodaj nowe zadanie do istniejącej tablicy
+                });
+                 // --- KONIEC POPRAWIONEJ KOLEJNOŚCI ---
+
+
+                // Logika powiadomień
+                if (newTask.assignees.length > 0) {
+                    const batch = writeBatch(db);
+                     const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+                     newTask.assignees.forEach(assigneeId => {
+                         if (assigneeId === state.currentUser.uid) return;
+                         const notification = {
+                             userId: assigneeId, creatorId: state.currentUser.uid, type: 'task_assigned',
+                             message: `<strong>${state.currentUser.name}</strong> przypisał/a Cię do nowego zadania "<strong>${newTask.title}</strong>" w projekcie <em>${project.name}</em>.`,
+                             isRead: false, timestamp: Date.now(), link: { type: 'task', projectId: project.id, taskId: newTask.id }
+                         };
+                         const newNotifRef = doc(notificationsRef);
+                         batch.set(newNotifRef, notification);
+                     });
+                     await batch.commit();
+                }
+
+                closeModal(newTaskModal.overlay); // Zamknij modal tylko po sukcesie
+
+            } catch (error) {
+                console.error("Błąd podczas tworzenia zadania lub aktualizacji budżetu:", error);
+                if (mainErrorP) mainErrorP.textContent = error.message || "Wystąpił błąd podczas zapisywania zadania.";
+                else showNotification(error.message || "Wystąpił błąd podczas zapisywania zadania.", "Błąd");
+            } finally {
+                stagedFiles = [];
+                renderStagedFiles();
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Zapisz zadanie';
+                resetTaskBudgetStatus(newTaskModal); // Resetuj stan budżetu
             }
-        }
-        // --- KONIEC WALIDACJI BUDŻETU ZADANIA ---
-
-        // --- TWORZENIE OBIEKTU newTask (Z POLEM costAllocation) ---
-        const newTask = {
-            id: `task${Date.now()}`, title,
-            createdBy: state.currentUser.uid,
-            description: newTaskModal.description.value,
-            status: 'todo',
-            type: taskType,
-            assignees: assignees,
-            completedBy: [],
-            priority: newTaskModal.priority.value,
-            dueDate: newTaskModal.dueDate.value || null,
-            comments: [],
-            activityLog: [],
-            recurrence: recurrence,
-            attachments: [], // Zostanie wypełnione poniżej
-            costAllocation: newTaskModal.budgetToggle.checked && newTaskBudgetSaveStatus ? newTaskTempBudgetAllocation : null // Dodano costAllocation
-        };
-        // --- KONIEC TWORZENIA newTask ---
-
-        // --- LOGIKA WYSYŁANIA PLIKÓW (przeniesiona do try) ---
-        if (stagedFiles.length > 0) {
-            submitBtn.textContent = `Przesyłanie ${stagedFiles.length} plik(ów)...`;
-            const attachmentPromises = stagedFiles.map(file => { /* ... logika uploadu ... */ });
-            const uploadedAttachments = await Promise.all(attachmentPromises);
-            newTask.attachments = uploadedAttachments;
-        }
-        // --- KONIEC LOGIKI PLIKÓW ---
-
-        // --- AKTUALIZACJA SPENTAMOUNT W PROJEKCIE (WYWOŁANIE FUNKCJI) ---
-        const newCostAllocation = newTask.costAllocation;
-        console.log("Nowa alokacja (nowe zadanie):", newCostAllocation);
-        // Wywołaj funkcję transakcyjną PRZED zapisem zadania
-        await updateSpentAmountInProject(project.id, null, newCostAllocation); // oldAllocation jest null
-        // --- KONIEC AKTUALIZACJI ---
-
-        // --- ZAPIS ZADANIA DO PROJEKTU (przeniesiony do try) ---
-        await updateDoc(doc(projectsRef, project.id), {
-            tasks: [...(project.tasks || []), newTask]
         });
-        // --- KONIEC ZAPISU ZADANIA ---
-
-        // --- LOGIKA POWIADOMIEŃ (przeniesiona do try) ---
-        if (newTask.assignees.length > 0) {
-            const batch = writeBatch(db);
-            // ... (kod tworzenia i wysyłania powiadomień batch.commit()) ...
-             await batch.commit(); // Upewnij się, że jest await
-        }
-        // --- KONIEC LOGIKI POWIADOMIEŃ ---
-
-        closeModal(newTaskModal.overlay); // Zamknij modal tylko po sukcesie
-
-    } catch (error) { // <<< --- POCZĄTEK BLOKU CATCH --- <<<
-        console.error("Błąd podczas tworzenia zadania lub aktualizacji budżetu:", error);
-        // Wyświetl błąd w modalu lub jako powiadomienie
-         if (mainErrorP) mainErrorP.textContent = error.message || "Wystąpił błąd podczas zapisywania zadania.";
-         else showNotification(error.message || "Wystąpił błąd podczas zapisywania zadania.", "Błąd");
-         // Nie zamykaj modala w razie błędu
-    } finally { // <<< --- POCZĄTEK BLOKU FINALLY --- <<<
-        // Czyści listę plików po zapisaniu zadania (przeniesione do finally)
-        stagedFiles = [];
-        renderStagedFiles();
-        // Zresetuj przycisk zapisu niezależnie od wyniku
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Zapisz zadanie';
-        // Zresetuj stan tymczasowy budżetu zadania
-        resetTaskBudgetStatus(newTaskModal); // Użyj funkcji pomocniczej
-    } // <<< --- KONIEC BLOKU FINALLY --- <<<
-});
 
 
         async function handleTaskCompletion(task, project, completionSource = 'manual') { // <-- NOWY ARGUMENT
@@ -10773,6 +10765,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
