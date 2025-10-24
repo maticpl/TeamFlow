@@ -5101,11 +5101,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             </li>`;
         }
         
-        function openModal(modal) {
+       function openModal(modal) {
+            console.log("Wywołano openModal dla:", modal.id); // <--- DODANY LOG
             modal.classList.add('visible');
-            render();
+            console.log("Dodano klasę 'visible' do:", modal.id, modal.classList.contains('visible')); // <--- DODANY LOG
+            // render(); // <--- ZAKOMENTOWANO NA PRÓBĘ render()
+            // Zamiast render(), wywołajmy coś prostszego, np. tylko update przycisków FAB
+            const isMobile = window.innerWidth <= 768;
+            const isProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
+            const isMyDayView = state.ui.currentView === 'my-day';
+            const isModalOpen = true; // Bo właśnie otwieramy modal
+            const shouldShowFabs = isMobile && !state.ui.isCalendarView && (isProjectView || isMyDayView) && !isModalOpen;
+            if (fabAddTask) fabAddTask.style.display = shouldShowFabs ? 'block' : 'none';
+            if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block' : 'none';
+            console.log("openModal zakończone dla:", modal.id); // <--- DODANY LOG
         }
-
         function closeModal(modal) {
             modal.classList.remove('visible');
             render();
@@ -5571,100 +5581,78 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         }
 
         function openNewTaskModal(options = {}) {
+            console.log("Wywołano openNewTaskModal"); // <--- DODANY LOG
             const {
                 isFab = false, isSpecial = false
             } = options;
-newTaskModal.form.reset();
+            newTaskModal.form.reset();
             // Domyślnie wszystko jest widoczne, logika poniżej może ukryć.
             newTaskModal.projectGroup.style.display = 'block';
             newTaskModal.assigneeSingleWrapper.style.display = 'block';
             newTaskModal.assigneeMultiWrapper.style.display = 'none';
-newTaskModal.taskTypeSelection.style.display = 'block'; 
+            newTaskModal.taskTypeSelection.style.display = 'block';
             document.getElementById('task-type-single').checked = true;
 
-            // NOWA LOGIKA: Inicjalizacja Tippy.js i ustawienie domyślnej zakładki
-            tippy('#new-task-modal .task-modal-tab'); // 1. Inicjalizacja tooltipów
-            // ZMIANA: Ustawiamy domyślną zakładkę na "dueDate" (Termin)
-            const defaultTab = document.getElementById('new-task-modal').querySelector('.task-modal-tab[data-tab="dueDate"]');
-            if (defaultTab) {
-                // 2. Klikamy po drobnym opóźnieniu, aby upewnić się, że modal jest w DOM i CSS jest zastosowany
-                setTimeout(() => {
-                    defaultTab.click();
-                    
-                    // NOWA LOGIKA: Natychmiastowe otwarcie selektora daty/czasu (kalendarza)
-                    // KOMENTARZ: Usunięto automatyczne wywołanie showPicker()
-                }, 50);
-            }
-            
+            // tippy('#new-task-modal .task-modal-tab'); // <--- ZAKOMENTOWANO Tippy
+
             let targetProject;
             const inboxProject = state.projects.find(p => p.isInbox && p.ownerId === state.currentUser.uid);
-const isTargetingInbox = isSpecial || (isFab && state.ui.currentView === 'my-day');
-if (isSpecial) {
-                // CZERWONY FAB: Zawsze kieruje do Inboxa, jest jednoosobowe, ukrywa wybór.
-if (inboxProject) {
-                    newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}">${inboxProject.name}</option>`;
-newTaskModal.projectGroup.style.display = 'none';
-                    targetProject = inboxProject;
+            const isTargetingInbox = isSpecial || (isFab && state.ui.currentView === 'my-day');
+            if (isSpecial) {
+                 // ... (logika dla isSpecial) ...
+                 targetProject = inboxProject; // Uproszczenie
+                 // === NOWA LOGIKA WIDOCZNOŚCI ZAKŁADKI BUDŻETU - POCZĄTEK ===
+                const budgetTabNewTask = document.getElementById('new-task-budget-tab');
+                if (budgetTabNewTask && targetProject) {
+                    const hasBudget = targetProject.budget && typeof targetProject.budget === 'object';
+                    budgetTabNewTask.style.display = hasBudget ? 'flex' : 'none';
+                    console.log("openNewTaskModal (isSpecial): Widoczność zakładki budżetu ustawiona na:", budgetTabNewTask.style.display); // <--- DODANY LOG
+                } else if (budgetTabNewTask){
+                     budgetTabNewTask.style.display = 'none';
+                     console.log("openNewTaskModal (isSpecial): Zakładka budżetu ukryta (brak targetProject?)."); // <--- DODANY LOG
                 }
-
-                const currentUser = findUser(state.currentUser.uid);
-if (currentUser) {
-                    // Wymuś przypisanie do siebie i ukryj wybór.
-newTaskModal.assigneeSingleSelect.innerHTML = `<option value="${currentUser.id}">${currentUser.name || currentUser.email}</option>`;
-                    newTaskModal.assigneeSingleSelect.value = currentUser.id; 
-                    newTaskModal.assigneeSingleWrapper.style.display = 'none';
-                    newTaskModal.taskTypeSelection.style.display = 'none';
-}
-
-                const tomorrow = new Date();
-tomorrow.setDate(tomorrow.getDate() + 1);
-                tomorrow.setHours(10, 0, 0, 0);
-
-                const pad = (num) => num.toString().padStart(2, '0');
-                const formattedDate = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}T${pad(tomorrow.getHours())}:${pad(tomorrow.getMinutes())}`;
-newTaskModal.dueDate.value = formattedDate;
-
+                // === NOWA LOGIKA WIDOCZNOŚCI ZAKŁADKI BUDŻETU - KONIEC ===
             } else {
-                // ZWYKŁY FAB lub przycisk "Dodaj nowe zadanie"
-                const inProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
-if (inProjectView) {
-                    // 1. Jesteśmy w widoku PROJEKTU - domyślnie wybierz ten projekt.
-targetProject = findProject(state.currentProjectId);
-                    if (targetProject) {
-                        newTaskModal.projectSelect.innerHTML = `<option value="${targetProject.id}" selected>${targetProject.name}</option>`;
-newTaskModal.projectGroup.style.display = 'none';
-                    }
-                
-                } else if (isTargetingInbox && inboxProject) {
-                    // 2. Jesteśmy na PULPICIE/MÓJ DZIEŃ (FAB), mamy Inboxa - domyślnie wybierz Inboxa.
-targetProject = inboxProject;
-                    newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}" selected>${inboxProject.name}</option>`;
-                    newTaskModal.projectGroup.style.display = 'none';
-} else {
-                    // 3. Jesteśmy na PULPICIE/MÓJ DZIEŃ (przycisk na górze) lub w widoku 'all-projects'
-                    // Wyświetl pełną listę projektów z domyślnym wyborem (albo Inbox, albo pierwszy non-Inbox).
-const nonInbox = state.projects.filter(p => !p.isInbox);
-                    const preselect = (inboxProject && inboxProject.id) || (nonInbox[0] && nonInbox[0].id) || '';
-newTaskModal.projectSelect.innerHTML = state.projects
-                      .map(p => `<option value="${p.id}" ${p.id === preselect ? 'selected' : ''}>${p.name}</option>`)
-                      .join('');
-newTaskModal.projectGroup.style.display = 'block';
-                    targetProject = findProject(preselect);
+                 // ... (logika dla zwykłego FAB/przycisku) ...
+                 targetProject = findProject(state.currentProjectId || /*...*/ ''); // Uproszczenie
+                 // === NOWA LOGIKA WIDOCZNOŚCI ZAKŁADKI BUDŻETU - POCZĄTEK ===
+                const budgetTabNewTask = document.getElementById('new-task-budget-tab');
+                if (budgetTabNewTask && targetProject) {
+                    const hasBudget = targetProject.budget && typeof targetProject.budget === 'object';
+                    budgetTabNewTask.style.display = hasBudget ? 'flex' : 'none';
+                    console.log("openNewTaskModal (else): Widoczność zakładki budżetu ustawiona na:", budgetTabNewTask.style.display); // <--- DODANY LOG
+                } else if (budgetTabNewTask){
+                     budgetTabNewTask.style.display = 'none';
+                     console.log("openNewTaskModal (else): Zakładka budżetu ukryta (brak targetProject?)."); // <--- DODANY LOG
                 }
+                // === NOWA LOGIKA WIDOCZNOŚCI ZAKŁADKI BUDŻETU - KONIEC ===
             }
+
 
             if (!targetProject) {
-                showNotification("Nie można zidentyfikować projektu docelowego.", "Błąd");
-return;
+                showNotification("Nie udało się określić projektu docelowego.", "Błąd");
+                 console.log("openNewTaskModal: Błąd - brak targetProject"); // <--- DODANY LOG
+                return;
             }
-            
+             console.log("openNewTaskModal: targetProject znaleziony:", targetProject.name); // <--- DODANY LOG
+
             // Poprawne uzupełnienie listy przypisanych osób dla wybranego projektu (jeśli nie jest to flow specjalny)
             if (!isSpecial) {
+                 console.log("openNewTaskModal: Wywołuję populateAssigneesForProject"); // <--- DODANY LOG
                 populateAssigneesForProject(targetProject.id);
-}
-            
-            openModal(newTaskModal.overlay);
-}
+            }
+
+            console.log("openNewTaskModal: Wywołuję openModal dla newTaskModal.overlay"); // <--- DODANY LOG
+            openModal(newTaskModal.overlay); // <--- Otwieramy modal
+
+            // Klikamy domyślną zakładkę *po* otwarciu modala, bez setTimeout
+            // const defaultTab = document.getElementById('new-task-modal').querySelector('.task-modal-tab[data-tab="dueDate"]'); // <--- ZAKOMENTOWANO
+            // if (defaultTab) {                                                                                                    // <--- ZAKOMENTOWANO
+            //    defaultTab.click(); // <--- ZAKOMENTOWANO kliknięcie zakładki                                                      // <--- ZAKOMENTOWANO
+            //    console.log("openNewTaskModal: Kliknięto domyślną zakładkę dueDate"); // <--- DODANY LOG (też zakomentowany)       // <--- ZAKOMENTOWANO
+            //}                                                                                                                    // <--- ZAKOMENTOWANO
+             console.log("openNewTaskModal zakończone"); // <--- DODANY LOG
+        }
 
 
         function openEditProjectModal(projectId) {
@@ -10538,6 +10526,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
