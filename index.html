@@ -2604,7 +2604,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
         <span>Termin</span>
     </button>
-    <button class="task-modal-tab" data-tab="budget" data-tippy-content="Budżet">
+    <button class="task-modal-tab" id="task-tab-budget" data-tab="budget" data-tippy-content="Budżet" style="display: none;">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.06 60.06 0 0115.79-16.15M5.25 10.5h4.5m-4.5 3.75h4.5M19.5 5.762V3M21.75 5.762H19.5m0 0a2.25 2.25 0 01-2.249 2.25L15 13.5m-3 0 1.5-7.5m-6 0L12 13.5m7.5-7.738V7.5m-3 0V7.5m-3 0h4.5m-4.5 0h4.5" /></svg>
         <span>Budżet</span>
     </button>
@@ -2952,7 +2952,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
         <span>Termin</span>
     </button>
-    <button type="button" class="task-modal-tab" data-tab="budget" data-tippy-content="Budżet">
+    <button type="button" class="task-modal-tab" id="new-task-tab-budget" data-tab="budget" data-tippy-content="Budżet" style="display: none;">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.06 60.06 0 0115.79-16.15M5.25 10.5h4.5m-4.5 3.75h4.5M19.5 5.762V3M21.75 5.762H19.5m0 0a2.25 2.25 0 01-2.249 2.25L15 13.5m-3 0 1.5-7.5m-6 0L12 13.5m7.5-7.738V7.5m-3 0V7.5m-3 0h4.5m-4.5 0h4.5" /></svg>
         <span>Budżet</span>
     </button>
@@ -3855,7 +3855,26 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
         function findCompletedProject(projectId) {
             return state.completedProjects.find(p => p.id === projectId);
         }
-
+        // <<< ZMIANA: NOWA FUNKCJA SPRAWDZAJĄCA BUDŻET PROJEKTU >>>
+        /**
+         * Sprawdza, czy bieżący aktywny projekt ma zdefiniowany budżet (budget.amount > 0).
+         * Zakłada, że stan aplikacji jest aktualny.
+         * @returns {boolean} True, jeśli projekt ma budżet > 0.
+         */
+        function checkIfSelectedProjectHasBudget() {
+            const projectId = state.currentProjectId;
+            if (!projectId) return false; 
+            
+            const project = findProject(projectId); // Szukaj tylko w aktywnych projektach
+            
+            // Sprawdzamy, czy projekt istnieje, czy ma pole 'budget', 
+            // czy to pole jest obiektem i czy ma pole 'amount' > 0.
+            return project && 
+                   project.budget && 
+                   typeof project.budget === 'object' && 
+                   (parseFloat(project.budget.amount) > 0);
+        }
+        // <<< KONIEC ZMIANY >>>
         function migrateTask(task) {
             if (!task.type) {
                 task.type = 'single';
@@ -5385,11 +5404,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     openMoveTaskDialog(taskId, currentProject.id);
                  }
             };
+            
+            // <<< ZMIANA: Sprawdzenie i warunkowe wyświetlanie zakładki Budżet >>>
+            const budgetTabButton = document.getElementById('task-tab-budget');
+            if (budgetTabButton) {
+                 // Sprawdzamy, czy projekt, do którego należy zadanie, ma budżet
+                 const { project: taskProject } = findTask(taskId);
+                 const hasBudget = taskProject && taskProject.budget && typeof taskProject.budget === 'object' && (parseFloat(taskProject.budget.amount) > 0);
+                 budgetTabButton.style.display = hasBudget ? 'flex' : 'none'; 
+            }
+            // <<< KONIEC ZMIANY >>>
 
             // === POPRAWIONA KOLEJNOŚĆ ===
             setViewMode(); // 1. Wypełnij pola i otwórz modal
             tippy('#task-modal .task-modal-tab'); // 2. Zainicjuj Tippy
-            // 3. Kliknij domyślną zakładkę "Opis"
+            // 3. Kliknij domyślną zakładkę "Opis" (lub inną, jeśli 'opis' jest domyślnie ukryty, co w tym widoku się nie zdarza)
             const descriptionTab = taskModal.overlay.querySelector('.task-modal-tab[data-tab="description"]');
             if (descriptionTab) {
                 descriptionTab.click();
@@ -5737,11 +5766,23 @@ return;
             // Poprawne uzupełnienie listy przypisanych osób dla wybranego projektu (jeśli nie jest to flow specjalny)
             if (!isSpecial) {
                 populateAssigneesForProject(targetProject.id);
-}
+            }
+            
+            // <<< ZMIANA: Warunkowe wyświetlenie zakładki Budżet w modalu nowego zadania >>>
+            const newBudgetTabButton = document.getElementById('new-task-tab-budget');
+
+            if (newBudgetTabButton) {
+                 // Sprawdzamy, czy docelowy projekt ma budżet.
+                 const projectHasBudget = targetProject.budget && 
+                                          typeof targetProject.budget === 'object' && 
+                                          (parseFloat(targetProject.budget.amount) > 0);
+                 
+                 newBudgetTabButton.style.display = projectHasBudget ? 'flex' : 'none'; 
+            }
+            // <<< KONIEC ZMIANY >>>
             
             openModal(newTaskModal.overlay);
 }
-
 
         function openEditProjectModal(projectId) {
     const project = findProject(projectId);
@@ -10634,6 +10675,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
