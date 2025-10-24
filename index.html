@@ -22,6 +22,7 @@
 
     <link rel="stylesheet" href="https://unpkg.com/tributejs@5.1.3/dist/tribute.css" />
     <script src="https://unpkg.com/tributejs@5.1.3/dist/tribute.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <style>
         /* CAŁY TWÓJ KOD CSS POZOSTAJE BEZ ZMIAN */
         @keyframes animated-gradient {
@@ -2034,6 +2035,85 @@
         }
 
         /* KONIEC NOWYCH REGUŁ NAPRAWY WIDOKU SZABLONÓW */
+        /* === POCZĄTEK: NOWE STYLE DLA MODALA SZCZEGÓŁÓW PROJEKTU === */
+        #project-details-modal .form-modal-content {
+            grid-template-columns: 1fr; /* Domyślnie jedna kolumna */
+        }
+
+        /* Układ dwukolumnowy dla większych ekranów */
+        @media (min-width: 768px) {
+            #project-details-modal .form-modal-content {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .project-details-info p {
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+         .project-details-info p strong {
+             color: var(--text-secondary);
+         }
+
+        /* Style dla wykresu budżetu (nowoczesne słupki CSS) */
+        .budget-summary-bar {
+            height: 25px;
+            background-color: var(--bg-tertiary);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+            position: relative; /* Dla etykiet wewnątrz */
+        }
+        .budget-summary-fill {
+            height: 100%;
+            border-radius: 4px 0 0 4px; /* Zaokrąglenie tylko z lewej */
+            transition: width 0.6s ease-out;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end; /* Tekst przy prawej krawędzi wypełnienia */
+            padding-right: 8px;
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden; /* Ukryj tekst, jeśli się nie mieści */
+        }
+        .budget-fill-items {
+            background: linear-gradient(90deg, var(--accent-hover), var(--accent-primary));
+        }
+        .budget-fill-over { /* Styl dla przekroczenia budżetu */
+             background: linear-gradient(90deg, var(--danger-hover), var(--danger-primary));
+        }
+        .budget-label {
+             font-size: 13px;
+             color: var(--text-secondary);
+             display: flex;
+             justify-content: space-between;
+             margin-bottom: 4px;
+        }
+        .budget-label strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        #details-budget-chart-container {
+             padding: 10px;
+             border: 1px solid var(--border-color);
+             border-radius: var(--border-radius);
+             background-color: var(--bg-primary);
+        }
+
+        /* Styl dla obszaru wykresu obciążenia */
+        #details-workload-chart-container {
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            background-color: var(--bg-primary);
+            padding: 16px;
+            display: flex; /* Wyśrodkowanie placeholdera */
+            align-items: center;
+            justify-content: center;
+        }
+        /* === KONIEC: NOWE STYLE DLA MODALA SZCZEGÓŁÓW PROJEKTU === */
     </style>
 </head>
 <body>
@@ -2270,6 +2350,7 @@
                             <h2 id="project-name-header"></h2>
                         </div>
                         <div class="project-actions" id="project-actions">
+                             <button id="project-details-btn">Szczegóły</button> {/* <-- NOWY PRZYCISK */}
                              <button id="edit-project-btn">Edytuj projekt</button>
                              <button id="complete-project-btn" class="complete-project-btn">Zakończ projekt</button>
                              <button id="delete-project-btn" class="delete-project-btn">Usuń projekt</button>
@@ -3068,6 +3149,22 @@ let state = {
     openPasswordBtn: document.getElementById('open-change-password-btn'),
     openChangeGroupBtn: document.getElementById('open-change-group-btn'), // <-- DODAJ TĘ LINIĘ
 };
+    // --- Referencje do elementów modala Szczegółów Projektu ---
+        const projectDetailsModal = {
+            overlay: document.getElementById('project-details-modal'),
+            title: document.getElementById('project-details-title'),
+            projectName: document.getElementById('details-project-name'),
+            projectOwner: document.getElementById('details-project-owner'),
+            projectMembers: document.getElementById('details-project-members'),
+            projectDescription: document.getElementById('details-project-description'),
+            projectStart: document.getElementById('details-project-start'),
+            projectEnd: document.getElementById('details-project-end'),
+            projectPriority: document.getElementById('details-project-priority'),
+            budgetChartContainer: document.getElementById('details-budget-chart-container'),
+            workloadChartContainer: document.getElementById('details-workload-chart-container'),
+            workloadChartPlaceholder: document.getElementById('workload-chart-placeholder') // Placeholder dla wykresu obciążenia
+        };
+        const projectDetailsBtn = document.getElementById('project-details-btn');
 
     const changeUsernameModal = {
         overlay: document.getElementById('change-username-modal'),
@@ -3102,6 +3199,7 @@ let state = {
         const calendarToggleBtn = document.getElementById('calendar-toggle-btn');
         const calendarViewEl = document.getElementById('calendar-view');
         let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
+        let workloadChartInstance = null;
         const sortBtn = document.getElementById('sort-btn');
         const searchInput = document.getElementById('search-input');
         const projectActionsEl = document.getElementById('project-actions');
@@ -4468,7 +4566,204 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             renderKanbanBoard(projectTasks, !isCompleted);
         }
+        // --- NOWA FUNKCJA: Renderowanie wykresu budżetu (CSS) ---
+        function renderProjectBudgetChartCSS(project, container) {
+            container.innerHTML = ''; // Wyczyść kontener
 
+            const budgetData = project.budget;
+
+            if (!budgetData || typeof budgetData !== 'object' || budgetData.amount === undefined) {
+                container.innerHTML = '<p style="color: var(--text-secondary); font-size: 14px;">Brak zdefiniowanego budżetu dla tego projektu.</p>';
+                return;
+            }
+
+            const totalBudget = parseFloat(budgetData.amount) || 0;
+            const currency = budgetData.currency || '';
+            const budgetItems = budgetData.items || [];
+            const itemsSum = budgetItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+
+            const formatCurrency = (value) => {
+                 return value.toLocaleString('pl-PL', { style: 'currency', currency: currency || 'PLN', minimumFractionDigits: 2 });
+            }
+
+            let fillPercent = 0;
+            let isOverBudget = false;
+            if (totalBudget > 0) {
+                 fillPercent = Math.min((itemsSum / totalBudget) * 100, 100); // Ogranicz do 100% dla paska
+                 if (itemsSum > totalBudget) {
+                     isOverBudget = true;
+                     // Można by pokazać przekroczenie inaczej, np. dodatkowym paskiem, ale na razie zmienimy kolor
+                 }
+            } else if (itemsSum > 0) {
+                 // Przypadek: Budżet 0, ale są wydatki (traktujemy jako 100% przekroczenie)
+                 fillPercent = 100;
+                 isOverBudget = true;
+            }
+
+
+            let chartHTML = `
+                <div class="budget-label">
+                    <span>Suma pozycji / Całkowity budżet</span>
+                    <strong>${formatCurrency(itemsSum)} / ${formatCurrency(totalBudget)}</strong>
+                </div>
+                <div class="budget-summary-bar" title="Wykorzystano ${fillPercent.toFixed(1)}% budżetu">
+                    <div class="budget-summary-fill ${isOverBudget ? 'budget-fill-over' : 'budget-fill-items'}" style="width: ${fillPercent}%;">
+                        ${fillPercent > 10 ? `${fillPercent.toFixed(0)}%` : ''} {/* Pokaż % jeśli pasek jest wystarczająco szeroki */}
+                    </div>
+                </div>
+            `;
+
+            if (isOverBudget) {
+                const overAmount = itemsSum - totalBudget;
+                chartHTML += `<p style="color: var(--danger-primary); font-size: 13px; font-weight: 600; text-align: right;">Przekroczenie o: ${formatCurrency(overAmount)}</p>`;
+            }
+
+            // Lista pozycji budżetowych
+            if (budgetItems.length > 0) {
+                 chartHTML += `<h4 style="font-size: 13px; color: var(--text-secondary); margin-top: 16px; margin-bottom: 8px;">Pozycje budżetowe:</h4>`;
+                 chartHTML += '<ul style="font-size: 13px; list-style: none; padding-left: 0; max-height: 150px; overflow-y: auto;">';
+                 budgetItems.forEach(item => {
+                      chartHTML += `<li style="display: flex; justify-content: space-between; padding: 2px 0;"><span>${item.name || '<i>Brak nazwy</i>'}</span> <strong>${formatCurrency(item.amount || 0)}</strong></li>`;
+                 });
+                 chartHTML += '</ul>';
+            }
+
+
+            container.innerHTML = chartHTML;
+        }
+
+        // --- ZMODYFIKOWANA FUNKCJA: Renderowanie wykresu obciążenia (Chart.js) ---
+        function renderProjectWorkloadChart(project, container, placeholder) {
+            placeholder.style.display = 'none'; // Ukryj placeholder
+            container.innerHTML = ''; // Wyczyść poprzednią zawartość (np. stary canvas)
+
+            const members = (project.members || [])
+                .map(findUser) // Pobierz pełne obiekty użytkowników
+                .filter(Boolean); // Odfiltruj, jeśli kogoś nie znaleziono
+
+            if (members.length === 0) {
+                placeholder.textContent = 'Brak członków w projekcie do wyświetlenia obciążenia.';
+                placeholder.style.display = 'block';
+                return;
+            }
+
+            const projectTasks = (project.tasks || []).map(migrateTask); // Pobierz zadania projektu
+
+            // Przygotuj dane dla wykresu
+            const labels = members.map(member => member.name || member.email); // Etykiety osi X (nazwy członków)
+            const todoData = members.map(member =>
+                projectTasks.filter(task => task.status === 'todo' && task.assignees.includes(member.id)).length
+            );
+            const inProgressData = members.map(member =>
+                projectTasks.filter(task => task.status === 'inprogress' && task.assignees.includes(member.id)).length
+            );
+
+            // Stwórz element canvas dla wykresu
+            const canvas = document.createElement('canvas');
+            container.appendChild(canvas);
+            const ctx = canvas.getContext('2d');
+
+            // Zniszcz poprzednią instancję wykresu, jeśli istnieje
+            if (workloadChartInstance) {
+                workloadChartInstance.destroy();
+            }
+
+            // Utwórz nową instancję wykresu Chart.js
+            workloadChartInstance = new Chart(ctx, {
+                type: 'bar', // Typ wykresu: słupkowy
+                data: {
+                    labels: labels, // Etykiety (członkowie)
+                    datasets: [{
+                        label: 'Do realizacji', // Legenda dla zadań 'todo'
+                        data: todoData,        // Dane (liczba zadań 'todo')
+                        backgroundColor: 'rgba(239, 68, 68, 0.7)', // Kolor słupków 'todo' (czerwony z przezroczystością)
+                        borderColor: 'rgba(239, 68, 68, 1)',
+                        borderWidth: 1
+                    }, {
+                        label: 'W trakcie', // Legenda dla zadań 'inprogress'
+                        data: inProgressData, // Dane (liczba zadań 'inprogress')
+                        backgroundColor: 'rgba(79, 70, 229, 0.7)', // Kolor słupków 'inprogress' (fioletowy z przezroczystością)
+                        borderColor: 'rgba(79, 70, 229, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false, // Wyłącz zachowanie proporcji, aby dopasować do kontenera
+                    responsive: true,          // Włącz responsywność
+                    plugins: {
+                        title: {
+                            display: false, // Wyłącz domyślny tytuł Chart.js
+                        },
+                        legend: {
+                            position: 'bottom', // Umieść legendę na dole
+                        },
+                        tooltip: { // Konfiguracja podpowiedzi po najechaniu
+                             callbacks: {
+                                 label: function(context) {
+                                     let label = context.dataset.label || '';
+                                     if (label) {
+                                         label += ': ';
+                                     }
+                                     if (context.parsed.y !== null) {
+                                         label += context.parsed.y;
+                                     }
+                                     return label;
+                                 }
+                             }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true, // Włącz skumulowanie słupków na osi X
+                            grid: {
+                                display: false // Ukryj siatkę pionową
+                            }
+                        },
+                        y: {
+                            stacked: true, // Włącz skumulowanie słupków na osi Y
+                            beginAtZero: true, // Zacznij oś Y od zera
+                            ticks: {
+                                stepSize: 1 // Krok osi Y co 1 (liczba zadań)
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- NOWA FUNKCJA: Otwieranie modala szczegółów ---
+        function openProjectDetailsModal() {
+            const project = findProject(state.currentProjectId);
+            if (!project) {
+                showNotification("Nie można załadować szczegółów projektu.", "Błąd");
+                return;
+            }
+
+            projectDetailsModal.title.textContent = `Szczegóły: ${project.name}`;
+            projectDetailsModal.projectName.textContent = project.name;
+
+            const owner = findUser(project.ownerId);
+            projectDetailsModal.projectOwner.textContent = owner ? (owner.name || owner.email) : 'Nieznany';
+
+            projectDetailsModal.projectMembers.innerHTML = (project.members || [])
+                .map(findUser)
+                .filter(Boolean)
+                .map(user => renderAvatarHTML(user)) // Używamy istniejącej funkcji
+                .join('') || 'Brak członków';
+
+            projectDetailsModal.projectDescription.textContent = project.description || 'Brak opisu.';
+            projectDetailsModal.projectStart.textContent = project.startDate ? new Date(project.startDate).toLocaleDateString('pl-PL') : '-';
+            projectDetailsModal.projectEnd.textContent = project.endDate ? new Date(project.endDate).toLocaleDateString('pl-PL') : '-';
+
+            const priorities = { low: 'Niski', medium: 'Średni', high: 'Wysoki' };
+            projectDetailsModal.projectPriority.textContent = priorities[project.priority] || project.priority;
+
+            // Renderowanie wykresów
+            renderProjectBudgetChartCSS(project, projectDetailsModal.budgetChartContainer);
+            renderProjectWorkloadChart(project, projectDetailsModal.workloadChartContainer, projectDetailsModal.workloadChartPlaceholder); // Przekazujemy też placeholder
+
+            openModal(projectDetailsModal.overlay);
+        }
          function renderMyDashboardView() {
             // NOWA LINIA: Resetowanie klasy kontenera do domyślnej klasy Kanban
             kanbanBoardEl.className = 'dashboard-view'; // <-- ZMIANA: Nadajemy unikalną klasę
@@ -7638,6 +7933,11 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                  // --- KONIEC RESETU ---
             }
         });
+        projectDetailsBtn.addEventListener('click', () => {
+             if (state.currentProjectId) {
+                 openProjectDetailsModal();
+             }
+        });
        
         completeProjectBtn.addEventListener('click', async () => {
             const project = findProject(state.currentProjectId);
@@ -10089,9 +10389,57 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             </form>
         </div>
     </div>
+    <div class="modal-overlay" id="project-details-modal">
+        <div class="modal" style="max-width: 950px; height: 85vh;"> {/* Większy modal */}
+            <div class="modal-header">
+                <h2 id="project-details-title">Szczegóły Projektu</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; align-content: start;">
+                {/* Kolumna 1: Podstawowe informacje */}
+                <div class="project-details-info">
+                    <h3 style="margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">Informacje Ogólne</h3>
+                    <p><strong>Nazwa:</strong> <span id="details-project-name">-</span></p>
+                    <p><strong>Właściciel:</strong> <span id="details-project-owner">-</span></p>
+                    <div style="margin-bottom: 8px;"><strong>Członkowie:</strong>
+                        <div id="details-project-members" class="project-members" style="margin-top: 4px; justify-content: flex-start;">-</div>
+                    </div>
+                    <p><strong>Opis:</strong></p>
+                    <p id="details-project-description" style="white-space: pre-wrap; background-color: var(--bg-primary); padding: 8px; border-radius: var(--border-radius); min-height: 50px;">-</p>
+                    <p style="margin-top: 8px;"><strong>Data rozpoczęcia:</strong> <span id="details-project-start">-</span></p>
+                    <p><strong>Data zakończenia:</strong> <span id="details-project-end">-</span></p>
+                    <p><strong>Priorytet:</strong> <span id="details-project-priority">-</span></p>
+                </div>
+
+                {/* Kolumna 2: Wykresy */}
+                <div class="project-details-charts">
+                    {/* Wykres Budżetu */}
+                    <div class="budget-chart-section" style="margin-bottom: 24px;">
+                        <h3 style="margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">Budżet Projektu</h3>
+                        <div id="details-budget-chart-container">
+                            <p style="color: var(--text-secondary);">Ładowanie danych budżetowych...</p>
+                        </div>
+                    </div>
+
+                    {/* Wykres Obciążenia */}
+                    <div class="workload-chart-section">
+                        <h3 style="margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">Obciążenie Zespołu</h3>
+                        <div id="details-workload-chart-container" style="position: relative; height: 300px;">
+                             {/* Canvas zostanie dodany później, jeśli zaakceptujesz Chart.js */}
+                             <p id="workload-chart-placeholder" style="color: var(--text-secondary);">Ładowanie danych o obciążeniu...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Zamknij</button>
+            </div>
+        </div>
+    </div>
     </body>
 </body>
 </html>
+
 
 
 
