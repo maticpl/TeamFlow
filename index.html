@@ -9233,24 +9233,34 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
         let tasks = project.tasks.map(t => (t.id === task.id ? task : t));
 
-        // --- POCZĄTEK ZMIANY ---
-        // Twórz cykliczne zadanie, jeśli status to 'done' i ma zdefiniowaną cykliczność (usunięto warunek completionSource)
+        // Twórz cykliczne zadanie, jeśli status to 'done' i ma zdefiniowaną cykliczność
         if (task.status === 'done' && task.recurrence) {
-        // --- KONIEC ZMIANY ---
             const nextDueDate = calculateNextDueDate(task.dueDate, task.recurrence);
+
+            // --- POCZĄTEK NOWEJ ZMIANY ---
+            // Przygotuj zresetowane podzadania
+            const resetSubtasks = (task.subtasks || []).map(subtask => ({
+                ...subtask,
+                isCompleted: false, // Resetuj status ukończenia
+                completedBy: []     // Wyczyść listę osób, które ukończyły
+            }));
+            // --- KONIEC NOWEJ ZMIANY ---
+
             const nextTask = {
                 ...task,
+                // --- POCZĄTEK NOWEJ ZMIANY ---
+                subtasks: resetSubtasks, // Użyj zresetowanych podzadań
+                // --- KONIEC NOWEJ ZMIANY ---
                 id: `task${Date.now()}`,
                 status: 'todo',
                 dueDate: nextDueDate,
                 completedBy: [],
                 activityLog: [],
-                budgetItems: task.budgetItems // <-- WAŻNA POPRAWKA: Przenieś koszty do nowego zadania cyklicznego
+                budgetItems: task.budgetItems
             };
             tasks.push(nextTask);
         }
 
-        // --- KROK 3: DODANIE PRZELICZANIA BUDŻETU ---
         // Przelicz budżet na podstawie ZAKTUALIZOWANEJ listy zadań (tasks)
         const newBudgetSummary = calculateProjectBudgetSummary(tasks);
 
@@ -9260,7 +9270,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             budgetSummary: newBudgetSummary
         });
         console.log(`[Budget v2] Zaktualizowano budgetSummary po zmianie statusu zadania ${task.id}.`);
-        // --- KONIEC KROKU 3 ---
     }
 
         async function handleTaskCheckboxClick(checkbox, event) {
@@ -9759,18 +9768,27 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 project
             } = findTask(draggedTaskId);
 
+            // Zablokuj przenoszenie w widoku zakończonych projektów
             if (state.ui.currentView === 'projects' && findCompletedProject(state.currentProjectId)) return;
 
-            // ▼▼▼ POCZĄTEK NOWEGO BLOKU WALIDACYJNEGO ▼▼▼
             // Sprawdzamy, czy ktoś próbuje przenieść do "Wykonane" zadanie JEDNOOSOBOWE, które nie jest jego.
             if (task && newStatus === 'done' && task.type === 'single' && task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
                 showNotification("Za to zadanie odpowiedzialna jest inna osoba. Nie możesz go przenieść do 'Wykonane'.", "Błąd");
                 render(); // Odświeża widok, cofając kartę na miejsce
                 return; // Przerywa operację
             }
-            // ▲▲▲ KONIEC NOWEGO BLOKU WALIDACYJNEGO ▲▲▲
+
+            // --- POCZĄTEK NOWEJ ZMIANY ---
+            // Sprawdź, czy próbujesz przenieść zadanie (dowolnego typu) do 'done', a ma ono nieukończone podzadania
+            if (task && newStatus === 'done' && task.subtasks && task.subtasks.length > 0 && task.subtasks.some(s => !s.isCompleted)) {
+                showNotification("Nie można ukończyć zadania, dopóki nie zostaną ukończone wszystkie podzadania.", "Błąd");
+                render(); // Odśwież widok, aby cofnąć kartę
+                return; // Przerwij operację drop
+            }
+            // --- KONIEC NOWEJ ZMIANY ---
 
             if (task && task.status !== newStatus) {
+                // Sprawdzenie dla zadań wieloosobowych (pozostaje bez zmian)
                 if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < task.assignees.length) {
                     showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
                     render();
@@ -9784,6 +9802,8 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
                 await handleTaskCompletion(updatedTask, project);
             }
+             // Reset draggedTaskId po zakończeniu operacji drop
+             draggedTaskId = null;
         });
 
         taskModal.deleteBtn.addEventListener('click', async () => {
@@ -10847,10 +10867,11 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         }
 
         // --- Funkcja sprawdzająca i auto-kończąca zadanie główne ---
+        // --- Funkcja sprawdzająca i auto-kończąca zadanie główne ---
         async function checkAndCompleteMainTask(mainTaskId) {
-            // Pobierz NAJŚWIEŻSZĄ wersję zadania z lokalnego stanu (który powinien być aktualny po zapisie w handleSubtaskToggle/Delete)
+            // Pobierz NAJŚWIEŻSZĄ wersję zadania z lokalnego stanu
              const { task: mainTask, project } = findTask(mainTaskId);
-             // Dodatkowe zabezpieczenie - jeśli zadanie zostało usunięte w międzyczasie
+             // Dodatkowe zabezpieczenie
              if (!mainTask || !project) {
                  console.warn(`checkAndCompleteMainTask: Nie znaleziono zadania ${mainTaskId} po operacji na subzadaniu.`);
                  return;
@@ -10861,35 +10882,37 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
              // Sprawdź, czy WSZYSTKIE subzadania są ukończone
              const allSubtasksDone = mainTask.subtasks && mainTask.subtasks.length > 0 && mainTask.subtasks.every(s => s.isCompleted);
 
-             if (allSubtasksDone) {
+             // --- POCZĄTEK ZMIANY ---
+             // Auto-ukończ zadanie główne TYLKO jeśli jest typu 'single'
+             if (allSubtasksDone && mainTask.type === 'single') {
+             // --- KONIEC ZMIANY ---
                   const oldStatus = mainTask.status;
                   let updatedTask = { ...mainTask };
 
                   // Auto-ukończ zadanie główne
                   updatedTask.status = 'done';
 
-                  // Jeśli zadanie jest wieloosobowe, wypełnij completedBy
-                  if (mainTask.type === 'multi') {
-                       updatedTask.completedBy = [...mainTask.assignees]; // Wypełnij wszystkimi przypisanymi
-                  }
+                  // W zadaniu 'single' nie musimy modyfikować completedBy
 
                   // Dodaj wpis do logu aktywności zadania głównego
                   updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES.done);
 
                   try {
                         // Zapisz zmiany w zadaniu głównym, używając handleTaskCompletion dla logiki cykliczności
-                        await handleTaskCompletion(updatedTask, project, 'subtask_auto'); // Użyj 'subtask_auto' jako źródła
+                        // Przekazujemy 'subtask_auto' jako źródło, aby poprawnie obsługiwać cykliczność
+                        await handleTaskCompletion(updatedTask, project, 'subtask_auto');
                         showConfetti();
 
-                        // Odśwież główny modal, aby pokazać nowy status i stan checkboxa
-                        // Używamy setTimeout, aby dać czas na przetworzenie zapisu w Firestore i odświeżenie listenera onSnapshot
+                        // Odśwież główny modal
                         setTimeout(() => openTaskModal(mainTaskId), 100);
 
                   } catch (error) {
-                       console.error("Błąd podczas automatycznego kończenia zadania głównego:", error);
-                       // Można dodać powiadomienie dla użytkownika
+                       console.error("Błąd podczas automatycznego kończenia zadania głównego (single):", error);
                   }
              }
+             // Jeśli zadanie jest 'multi', to ukończenie podzadań NIE wpływa na jego status 'done'.
+             // Status 'done' dla 'multi' jest ustawiany tylko przez kliknięcie przycisków
+             // "Oznacz jako wykonane" przez wszystkich przypisanych.
         }
 
         // =========================================================
@@ -11615,6 +11638,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
