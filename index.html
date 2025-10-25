@@ -9229,12 +9229,14 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         });
 
 
-        async function handleTaskCompletion(task, project, completionSource = 'manual') { // <-- NOWY ARGUMENT
+        async function handleTaskCompletion(task, project, completionSource = 'manual') {
         const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
         let tasks = project.tasks.map(t => (t.id === task.id ? task : t));
 
-        // Twórz cykliczne zadanie tylko jeśli zostało ukończone RĘCZNIE (a nie przez subzadanie)
-        if (task.status === 'done' && task.recurrence && completionSource === 'manual') {
+        // --- POCZĄTEK ZMIANY ---
+        // Twórz cykliczne zadanie, jeśli status to 'done' i ma zdefiniowaną cykliczność (usunięto warunek completionSource)
+        if (task.status === 'done' && task.recurrence) {
+        // --- KONIEC ZMIANY ---
             const nextDueDate = calculateNextDueDate(task.dueDate, task.recurrence);
             const nextTask = {
                 ...task,
@@ -9262,71 +9264,81 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
     }
 
         async function handleTaskCheckboxClick(checkbox, event) {
-  if (event) {
-    // Zatrzymaj bąbelkowanie, ale nie blokuj domyślnej zmiany stanu checkboxa
-    event.stopPropagation();
-    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
-  }
+          if (event) {
+            // Zatrzymaj bąbelkowanie, ale nie blokuj domyślnej zmiany stanu checkboxa
+            event.stopPropagation();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+          }
 
-  const taskId = checkbox.dataset.taskId;
-  const { task, project } = findTask(taskId);
-  if (!task || !project) return;
+          const taskId = checkbox.dataset.taskId;
+          const { task, project } = findTask(taskId);
+          if (!task || !project) return;
 
-  let updatedTask = { ...task };
-  const oldStatus = updatedTask.status;
+          let updatedTask = { ...task };
+          const oldStatus = updatedTask.status;
 
-  if (task.type === 'multi') {
-    const userId = state.currentUser.uid;
-    if (checkbox.checked) {
-      if (!updatedTask.completedBy.includes(userId)) updatedTask.completedBy.push(userId);
-    } else {
-      updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
-    }
-    updatedTask.status =
-      updatedTask.completedBy.length === updatedTask.assignees.length
-        ? 'done'
-        : (oldStatus === 'done' ? 'inprogress' : oldStatus);
-    if (updatedTask.status !== oldStatus) {
-      updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-    } else if (checkbox.checked && updatedTask.status !== 'done' && !updatedTask.activityLog.some(a => a.type === 'completion' && a.userId === state.currentUser.uid)) {
-      updatedTask = addActivity(updatedTask, 'completion');
-    }
- } else { // Zadanie jednoosobowe
-                    if (checkbox.checked && task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
-                        showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
-                        checkbox.checked = false;
-                        return;
-                    }
-                    updatedTask.status = checkbox.checked ? 'done' : 'todo';
+          if (task.type === 'multi') {
+            const userId = state.currentUser.uid;
+            if (checkbox.checked) {
+              if (!updatedTask.completedBy.includes(userId)) updatedTask.completedBy.push(userId);
+            } else {
+              updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
+            }
+            updatedTask.status =
+              updatedTask.completedBy.length === updatedTask.assignees.length
+                ? 'done'
+                : (oldStatus === 'done' ? 'inprogress' : oldStatus);
+            if (updatedTask.status !== oldStatus) {
+              updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+            } else if (checkbox.checked && updatedTask.status !== 'done' && !updatedTask.activityLog.some(a => a.type === 'completion' && a.userId === state.currentUser.uid)) {
+              updatedTask = addActivity(updatedTask, 'completion');
+            }
+         } else { // Zadanie jednoosobowe
+                            if (checkbox.checked && task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
+                                showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
+                                checkbox.checked = false;
+                                return;
+                            }
 
-                    // === NOWA LOGIKA: Auto-kompletowanie/reset subzadań ===
-                    if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
-                        if (updatedTask.status === 'done') {
-                            // Oznacz wszystkie subzadania jako ukończone przez wszystkich przypisanych
-                            updatedTask.subtasks = updatedTask.subtasks.map(s => ({
-                                ...s,
-                                isCompleted: true,
-                                completedBy: [...s.assignees] // Wypełnij completedBy wszystkimi przypisanymi
-                            }));
-                        } else {
-                             // Jeśli odznaczamy zadanie główne, resetujemy wszystkie subzadania
-                             updatedTask.subtasks = updatedTask.subtasks.map(s => ({
-                                ...s,
-                                isCompleted: false,
-                                completedBy: []
-                            }));
+                            // --- POCZĄTEK ZMIANY ---
+                            // Sprawdź podzadania ZANIM zmienisz status na 'done'
+                            if (checkbox.checked && updatedTask.subtasks && updatedTask.subtasks.length > 0 && updatedTask.subtasks.some(s => !s.isCompleted)) {
+                                showNotification("Nie można ukończyć zadania, dopóki nie zostaną ukończone wszystkie podzadania.", "Błąd");
+                                checkbox.checked = false; // Cofnij zaznaczenie checkboxa
+                                return; // Przerwij dalsze wykonywanie funkcji
+                            }
+                            // --- KONIEC ZMIANY ---
+
+                            updatedTask.status = checkbox.checked ? 'done' : 'todo';
+
+                            // === NOWA LOGIKA: Auto-kompletowanie/reset subzadań ===
+                            if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
+                                if (updatedTask.status === 'done') {
+                                    // Oznacz wszystkie subzadania jako ukończone przez wszystkich przypisanych
+                                    updatedTask.subtasks = updatedTask.subtasks.map(s => ({
+                                        ...s,
+                                        isCompleted: true,
+                                        completedBy: [...s.assignees] // Wypełnij completedBy wszystkimi przypisanymi
+                                    }));
+                                } else {
+                                     // Jeśli odznaczamy zadanie główne, resetujemy wszystkie subzadania
+                                     updatedTask.subtasks = updatedTask.subtasks.map(s => ({
+                                        ...s,
+                                        isCompleted: false,
+                                        completedBy: []
+                                    }));
+                                }
+                            }
+                            // === KONIEC NOWEJ LOGIKI ===
+
+                            if (updatedTask.status !== oldStatus) {
+                                updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                            }
                         }
-                    }
-                    // === KONIEC NOWEJ LOGIKI ===
 
-                    if (updatedTask.status !== oldStatus) {
-                        updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-                    }
-                }
-
-  if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
-  await handleTaskCompletion(updatedTask, project);
-}
+          if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
+          await handleTaskCompletion(updatedTask, project);
+        }
 
 
          kanbanBoardEl.addEventListener('click', (e) => {
@@ -11603,6 +11615,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
