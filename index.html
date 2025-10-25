@@ -3385,6 +3385,14 @@ let state = {
             moveBtn: document.getElementById('move-task-btn'),
             recurrenceDay: document.getElementById('modal-task-recurrence-day'),
             okBtn: document.getElementById('ok-task-btn'), // ▼▼▼ DODANA LINIA ▼▼▼
+            budgetToggle: document.getElementById('modal-task-budget-toggle'), // Checkbox włączający sekcję
+            budgetDetails: document.getElementById('modal-task-budget-details'), // Div z zawartością sekcji
+            budgetItemsList: document.getElementById('modal-task-budget-items'), // Lista <ul> na pozycje
+            addBudgetItemBtn: document.getElementById('modal-task-add-budget-item-btn'), // Przycisk "+ Dodaj pozycję"
+            budgetTotalSpan: document.getElementById('modal-task-budget-total'), // Span na sumę
+            budgetCurrencySpan: document.getElementById('modal-task-budget-currency'), // Span na walutę
+            budgetErrorP: document.getElementById('modal-task-budget-error'), // Paragraf na błędy walidacji
+            budgetTabButton: document.getElementById('task-tab-taskBudget') // Przycisk zakładki (już istniał)
         };
         const newProjectModal = {
             overlay: document.getElementById('new-project-modal'),
@@ -3459,6 +3467,14 @@ let state = {
             recurrenceType: document.getElementById('new-task-recurrence-type'),
             recurrenceDayWrapper: document.getElementById('new-task-recurrence-day-wrapper'),
             recurrenceDay: document.getElementById('new-task-recurrence-day'),
+            budgetToggle: document.getElementById('new-task-budget-toggle'), // Checkbox włączający sekcję
+    budgetDetails: document.getElementById('new-task-budget-details'), // Div z zawartością sekcji
+    budgetItemsList: document.getElementById('new-task-budget-items'), // Lista <ul> na pozycje
+    addBudgetItemBtn: document.getElementById('new-task-add-budget-item-btn'), // Przycisk "+ Dodaj pozycję"
+    budgetTotalSpan: document.getElementById('new-task-budget-total'), // Span na sumę
+    budgetCurrencySpan: document.getElementById('new-task-budget-currency'), // Span na walutę
+    budgetErrorP: document.getElementById('new-task-budget-error'), // Paragraf na błędy walidacji
+    budgetTabButton: document.getElementById('new-task-tab-taskBudget') // Przycisk zakładki (już istniał)
         };
         const searchModal = {
             overlay: document.getElementById('search-modal'),
@@ -5324,7 +5340,47 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     taskModal.completionStatusSection.style.display = 'none';
                 }
                 // ==============================================
+                // <<<===== POCZĄTEK NOWEGO KODU =====>>>
+        // --- Uzupełnienie logiki BUDŻETU ZADANIA (Etap 1 - Renderowanie) ---
+        const projectCurrency = (projectBudget && projectBudget.currency) || ''; // Pobierz walutę
+        const projectItemNames = projectHasBudgetItems ? projectBudget.items.map(item => item.name) : []; // Pobierz listę NAZW pozycji z projektu
 
+        // Resetuj stan sekcji budżetu zadania przy każdym otwarciu
+        taskModal.budgetToggle.checked = false;
+        taskModal.budgetDetails.style.display = 'none';
+        taskModal.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak pozycji kosztowych.</li>'; // Reset listy
+        taskModal.budgetErrorP.textContent = ''; // Wyczyść błędy
+
+        // Wczytaj dane, jeśli projekt ma pozycje budżetowe ORAZ zadanie ma przypisane koszty
+        if (projectHasBudgetItems && task.budgetItems && task.budgetItems.length > 0) {
+            taskModal.budgetToggle.checked = true; // Zaznacz checkbox
+            taskModal.budgetDetails.style.display = 'block'; // Pokaż sekcję
+            taskModal.budgetItemsList.innerHTML = ''; // Wyczyść listę przed dodaniem wczytanych pozycji
+
+            task.budgetItems.forEach((item, index) => {
+                // Sprawdź, czy pozycja z zadania nadal istnieje w definicji budżetu projektu
+                if (projectItemNames.includes(item.name)) {
+                    // Użyj funkcji pomocniczej do wygenerowania HTML wiersza
+                    const itemHTML = renderTaskBudgetItemHTML(item, index, projectItemNames);
+                    taskModal.budgetItemsList.insertAdjacentHTML('beforeend', itemHTML);
+                } else {
+                    // Opcjonalnie: Poinformuj o nieistniejącej pozycji lub ją pomiń
+                    console.warn(`Pozycja budżetowa "${item.name}" z zadania "${task.title}" nie istnieje już w projekcie "${project.name}". Zostanie pominięta przy edycji.`);
+                }
+            });
+             // Jeśli po filtrowaniu lista jest pusta, pokaż komunikat
+            if (taskModal.budgetItemsList.children.length === 0) {
+                taskModal.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Przypisane pozycje nie istnieją już w budżecie projektu.</li>';
+            }
+
+            // Zaktualizuj sumę na podstawie wczytanych (i istniejących) pozycji
+            updateTaskBudgetTotal(taskModal, projectCurrency);
+        } else if (projectHasBudgetItems) {
+            // Jeśli projekt ma budżet, ale zadanie nie, pokaż pustą listę i sumę 0 z poprawną walutą
+            updateTaskBudgetTotal(taskModal, projectCurrency);
+        }
+         // --- KONIEC NOWEJ LOGIKI BUDŻETU ZADANIA ---
+         // <<<===== KONIEC NOWEGO KODU =====>>>
                 renderComments(task);
                 renderActivityLog(task);
                 renderAttachments(task);
@@ -5585,7 +5641,55 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             } else {
                 updatedTask.recurrence = null;
             }
+            // <<<===== POCZĄTEK NOWEGO KODU =====>>>
+    // --- NOWA LOGIKA ZAPISU BUDŻETU ZADANIA (Etap 1 - Walidacja i Odczyt) ---
+    let taskBudgetItems = null;
+    let budgetValidationError = null;
 
+    if (taskModal.budgetToggle.checked) {
+        taskBudgetItems = [];
+        const itemsLi = taskModal.budgetItemsList.querySelectorAll('li.budget-item');
+        const addedItemNames = new Set();
+
+        itemsLi.forEach(itemLi => {
+            const nameSelect = itemLi.querySelector('.task-budget-item-name');
+            const amountInput = itemLi.querySelector('.task-budget-item-amount');
+            const name = nameSelect.value;
+            const amount = parseFloat(amountInput.value) || 0;
+
+            if (!name && amount > 0) {
+                budgetValidationError = "Każda pozycja kosztowa z kwotą musi mieć wybraną nazwę.";
+                nameSelect.focus();
+            } else if (name && amount <= 0) {
+                budgetValidationError = `Kwota dla pozycji "${name}" musi być większa od zera.`;
+                amountInput.focus();
+            } else if (name && amount > 0) {
+                if (addedItemNames.has(name)) {
+                    budgetValidationError = `Pozycja budżetowa "${name}" została dodana więcej niż raz. Usuń zduplikowane wpisy.`;
+                    nameSelect.focus();
+                } else {
+                    taskBudgetItems.push({ name, amount });
+                    addedItemNames.add(name);
+                }
+            }
+        });
+
+        if (budgetValidationError) {
+            taskModal.budgetErrorP.textContent = budgetValidationError;
+            if (!taskModal.budgetTabButton.classList.contains('active')) {
+                taskModal.budgetTabButton.click();
+            }
+            return; // Przerwij zapis
+        }
+
+        if (taskBudgetItems.length === 0) {
+            taskBudgetItems = null;
+        }
+    }
+    // Zapisz wynik (tablicę obiektów lub null) do aktualizowanego zadania
+    updatedTask.budgetItems = taskBudgetItems;
+     // --- KONIEC NOWEJ LOGIKI ZAPISU BUDŻETU ZADANIA ---
+     // <<<===== KONIEC NOWEGO KODU =====>>>
             if (oldStatus !== newStatus) {
                 updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
             }
@@ -5780,7 +5884,21 @@ return;
                  newBudgetTabButton.style.display = projectHasBudget ? 'flex' : 'none'; 
             }
             // <<< KONIEC ZMIANY >>>
-            
+            // <<<===== POCZĄTEK NOWEGO KODU =====>>>
+    // --- Uzupełnienie logiki BUDŻETU ZADANIA (Etap 1 - Inicjalizacja) dla nowego zadania ---
+    const projectCurrency = (projectBudget && projectBudget.currency) || '';
+    // Przechowamy nazwy pozycji w data atrybucie modala, aby były dostępne dla listenera przycisku "+"
+    newTaskModal.overlay.dataset.projectBudgetItems = projectHasBudgetItems ? JSON.stringify(projectBudget.items.map(item => item.name)) : '[]';
+    newTaskModal.overlay.dataset.projectCurrency = projectCurrency; // Zapisz też walutę
+
+    // Resetuj sekcję budżetu przy każdym otwieraniu
+    newTaskModal.budgetToggle.checked = false;
+    newTaskModal.budgetDetails.style.display = 'none';
+    newTaskModal.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak pozycji kosztowych.</li>';
+    newTaskModal.budgetErrorP.textContent = '';
+    updateTaskBudgetTotal(newTaskModal, projectCurrency); // Ustaw walutę i sumę 0
+    // --- KONIEC NOWEJ LOGIKI ---
+    // <<<===== KONIEC NOWEGO KODU =====>>>
             openModal(newTaskModal.overlay);
 }
 
@@ -5849,7 +5967,7 @@ return;
 
     openModal(editProjectModal.overlay);
 }
-
+            
          async function handleDeleteProject(projectId) {
             const project = findProject(projectId) || findCompletedProject(projectId);
             if (!project || project.ownerId !== state.currentUser.uid) {
@@ -6298,6 +6416,54 @@ attachmentsListNewTask.addEventListener('click', (e) => {
             modalRefs.budgetStatusSpan.textContent = ''; // Wyczyść status
             modalRefs.budgetSaveErrorP.textContent = ''; // Wyczyść ewentualne błędy zapisu budżetu
         }
+           /**
+ * Generuje HTML dla pojedynczej pozycji kosztowej zadania w modalu.
+ * @param {object} item - Obiekt pozycji ({ name, amount }) lub null/undefined dla nowej.
+ * @param {number} index - Indeks pozycji (dla unikalnych ID i data-index).
+ * @param {Array<string>} projectBudgetItemsNames - Lista nazw pozycji budżetowych projektu.
+ * @returns {string} - Wygenerowany HTML dla elementu <li>.
+ */
+function renderTaskBudgetItemHTML(item = { name: '', amount: '' }, index, projectBudgetItemsNames = []) {
+    const uniqueIdPart = index !== undefined ? index : Date.now(); // Używamy indeksu, jeśli jest dostępny
+
+    // Generowanie opcji dla selecta na podstawie nazw z projektu
+    const optionsHTML = projectBudgetItemsNames.map(itemName =>
+        // Zaznacz opcję, jeśli nazwa pasuje do item.name
+        `<option value="${itemName}" ${item.name === itemName ? 'selected' : ''}>${itemName}</option>`
+    ).join('');
+
+    return `
+        <li class="budget-item" data-index="${uniqueIdPart}" style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+            <select class="task-budget-item-name" style="flex: 3;" required>
+                <option value="">-- Wybierz pozycję --</option>
+                ${optionsHTML}
+            </select>
+            <input type="number" class="task-budget-item-amount" placeholder="Kwota" value="${item.amount || ''}" step="0.01" style="flex: 2;" required min="0.01">
+            <button type="button" class="delete-task-budget-item-btn btn btn-secondary" style="padding: 2px 6px; font-size: 14px; line-height: 1;">&times;</button>
+        </li>
+    `;
+}
+       /**
+ * Oblicza i aktualizuje sumę kosztów zadania w modalu na podstawie inputów.
+ * @param {object} modalRefs - Referencje do elementów HTML modala (taskModal lub newTaskModal).
+ * @param {string} currency - Symbol waluty projektu.
+ */
+function updateTaskBudgetTotal(modalRefs, currency = '') {
+    const itemAmountInputs = modalRefs.budgetItemsList.querySelectorAll('.task-budget-item-amount');
+    let itemsSum = 0;
+    itemAmountInputs.forEach(input => {
+        // Dodajemy tylko poprawne, dodatnie wartości
+        const value = parseFloat(input.value);
+        if (!isNaN(value) && value > 0) {
+            itemsSum += value;
+        }
+    });
+
+    modalRefs.budgetTotalSpan.textContent = itemsSum.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    modalRefs.budgetCurrencySpan.textContent = currency;
+    // Wyczyść błędy walidacji przy każdej aktualizacji sumy (bo użytkownik coś zmienia)
+    modalRefs.budgetErrorP.textContent = '';
+}
         function setupFirestoreListeners(userId) {
             if (!userId) return;
             if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
@@ -6846,7 +7012,94 @@ passwordResetForm.addEventListener('submit', async (e) => {
         submitBtn.textContent = 'Zaloguj się';
     }
 });
+        // --- NOWE LISTENERY DLA SEKCJI BUDŻETU ZADANIA (Etap 1) ---
 
+// Listener dla checkboxa w modalu EDYCJI zadania
+taskModal.budgetToggle.addEventListener('change', () => {
+    taskModal.budgetDetails.style.display = taskModal.budgetToggle.checked ? 'block' : 'none';
+    if (!taskModal.budgetToggle.checked) {
+        taskModal.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak pozycji kosztowych.</li>';
+        const projectCurrency = taskModal.budgetCurrencySpan.textContent || '';
+        updateTaskBudgetTotal(taskModal, projectCurrency);
+        taskModal.budgetErrorP.textContent = '';
+    }
+});
+
+// Listener dla checkboxa w modalu DODAWANIA zadania
+newTaskModal.budgetToggle.addEventListener('change', () => {
+    newTaskModal.budgetDetails.style.display = newTaskModal.budgetToggle.checked ? 'block' : 'none';
+    if (!newTaskModal.budgetToggle.checked) {
+        newTaskModal.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak pozycji kosztowych.</li>';
+        const projectCurrency = newTaskModal.overlay.dataset.projectCurrency || '';
+        updateTaskBudgetTotal(newTaskModal, projectCurrency);
+        newTaskModal.budgetErrorP.textContent = '';
+    }
+});
+
+// Listener dla przycisku "+ Dodaj pozycję" w modalu EDYCJI
+taskModal.addBudgetItemBtn.addEventListener('click', () => {
+    const emptyMsg = taskModal.budgetItemsList.querySelector('.budget-item-empty');
+    if (emptyMsg) emptyMsg.remove();
+    const { project } = findTask(taskModal.overlay.dataset.taskId);
+    const projectItemNames = (project?.budget?.items || []).map(item => item.name);
+    const newItemHTML = renderTaskBudgetItemHTML(undefined, undefined, projectItemNames);
+    taskModal.budgetItemsList.insertAdjacentHTML('beforeend', newItemHTML);
+});
+
+// Listener dla przycisku "+ Dodaj pozycję" w modalu DODAWANIA
+newTaskModal.addBudgetItemBtn.addEventListener('click', () => {
+    const emptyMsg = newTaskModal.budgetItemsList.querySelector('.budget-item-empty');
+    if (emptyMsg) emptyMsg.remove();
+    const projectItemNames = JSON.parse(newTaskModal.overlay.dataset.projectBudgetItems || '[]');
+    const projectCurrency = newTaskModal.overlay.dataset.projectCurrency || '';
+    const newItemHTML = renderTaskBudgetItemHTML(undefined, undefined, projectItemNames);
+    newTaskModal.budgetItemsList.insertAdjacentHTML('beforeend', newItemHTML);
+    updateTaskBudgetTotal(newTaskModal, projectCurrency);
+});
+
+// Funkcja pomocnicza do obsługi usuwania wiersza i aktualizacji
+function handleBudgetItemDelete(buttonElement, modalRefs) {
+    const listItem = buttonElement.closest('li.budget-item');
+    if (listItem) {
+        listItem.remove();
+        if (modalRefs.budgetItemsList.children.length === 0) {
+            modalRefs.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak pozycji kosztowych.</li>';
+        }
+        const currency = modalRefs.budgetCurrencySpan.textContent || (modalRefs.overlay?.dataset.projectCurrency) || '';
+        updateTaskBudgetTotal(modalRefs, currency);
+    }
+}
+
+// Listener (delegowany) dla przycisków usuwania (X) w modalu EDYCJI
+taskModal.budgetItemsList.addEventListener('click', (e) => {
+    if (e.target.classList.contains('delete-task-budget-item-btn')) {
+        handleBudgetItemDelete(e.target, taskModal);
+    }
+});
+
+// Listener (delegowany) dla przycisków usuwania (X) w modalu DODAWANIA
+newTaskModal.budgetItemsList.addEventListener('click', (e) => {
+    if (e.target.classList.contains('delete-task-budget-item-btn')) {
+        handleBudgetItemDelete(e.target, newTaskModal);
+    }
+});
+
+// Listener (delegowany) do aktualizacji sumy przy zmianie kwoty lub nazwy w modalu EDYCJI
+taskModal.budgetItemsList.addEventListener('input', (e) => {
+    if (e.target.classList.contains('task-budget-item-amount') || e.target.classList.contains('task-budget-item-name')) {
+         const currency = taskModal.budgetCurrencySpan.textContent || '';
+         updateTaskBudgetTotal(taskModal, currency);
+    }
+});
+ // Listener (delegowany) do aktualizacji sumy przy zmianie kwoty lub nazwy w modalu DODAWANIA
+newTaskModal.budgetItemsList.addEventListener('input', (e) => {
+    if (e.target.classList.contains('task-budget-item-amount') || e.target.classList.contains('task-budget-item-name')) {
+         const currency = newTaskModal.overlay.dataset.projectCurrency || '';
+         updateTaskBudgetTotal(newTaskModal, currency);
+    }
+});
+
+// --- KONIEC NOWYCH LISTENERÓW ---
         // === KONIEC BRAKUJĄCEGO FRAGMENTU DO WKLEJENIA ===
         mobileThemeSwitcher.appendChild(desktopThemeSwitcher.cloneNode(true));
         showRegisterBtn.addEventListener('click', () => {
@@ -8268,7 +8521,56 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 recurrence.weekday = document.getElementById('new-task-recurrence-weekday').value;
             }
         }
+        // <<<===== POCZĄTEK NOWEGO KODU =====>>>
+        // --- NOWA LOGIKA ZAPISU BUDŻETU NOWEGO ZADANIA (Etap 1 - Walidacja i Odczyt) ---
+        let taskBudgetItems = null;
+        let budgetValidationError = null;
 
+        if (newTaskModal.budgetToggle.checked) {
+            taskBudgetItems = [];
+            const itemsLi = newTaskModal.budgetItemsList.querySelectorAll('li.budget-item');
+            const addedItemNames = new Set();
+
+            itemsLi.forEach(itemLi => {
+                const nameSelect = itemLi.querySelector('.task-budget-item-name');
+                const amountInput = itemLi.querySelector('.task-budget-item-amount');
+                const name = nameSelect.value;
+                const amount = parseFloat(amountInput.value) || 0;
+
+                if (!name && amount > 0) {
+                    budgetValidationError = "Każda pozycja kosztowa z kwotą musi mieć wybraną nazwę.";
+                    nameSelect.focus();
+                } else if (name && amount <= 0) {
+                    budgetValidationError = `Kwota dla pozycji "${name}" musi być większa od zera.`;
+                    amountInput.focus();
+                } else if (name && amount > 0) {
+                    if (addedItemNames.has(name)) {
+                        budgetValidationError = `Pozycja budżetowa "${name}" została dodana więcej niż raz. Usuń zduplikowane wpisy.`;
+                        nameSelect.focus();
+                    } else {
+                        taskBudgetItems.push({ name, amount });
+                        addedItemNames.add(name);
+                    }
+                }
+            });
+
+            if (budgetValidationError) {
+                newTaskModal.budgetErrorP.textContent = budgetValidationError;
+                if (!newTaskModal.budgetTabButton.classList.contains('active')) {
+                    newTaskModal.budgetTabButton.click();
+                }
+                // WAŻNE: Zresetuj przycisk, bo przerywamy
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Zapisz zadanie';
+                return; // Przerwij funkcję submit
+            }
+
+            if (taskBudgetItems.length === 0) {
+                taskBudgetItems = null;
+            }
+        }
+        // --- KONIEC NOWEJ LOGIKI ZAPISU BUDŻETU ---
+        // <<<===== KONIEC NOWEGO KODU =====>>>
         const newTask = {
             id: `task${Date.now()}`, title,
             createdBy: state.currentUser.uid,
@@ -8334,20 +8636,21 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             await batch.commit();
         }
         // --- KONIEC DODANEGO KODU POWIADOMIEŃ ---
+        
+        closeModal(newTaskModal.overlay); // Zamknij modal po sukcesie
+                // ==========================================================
 
-        closeModal(newTaskModal.overlay);
-
-    } catch (error) {
-        console.error("Błąd podczas tworzenia zadania:", error);
-        showNotification("Wystąpił błąd podczas zapisywania zadania.", "Błąd");
-    } finally {
-        // Czyści listę plików po zapisaniu zadania
-        stagedFiles = [];
-        renderStagedFiles();
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Zapisz zadanie';
-    }
-});
+            } catch (error) { // Blok catch do obsługi błędów
+                 console.error("Błąd podczas tworzenia zadania:", error);
+                 showNotification("Wystąpił błąd podczas zapisywania zadania.", "Błąd");
+                 // Jeśli wystąpi błąd, modal NIE zostanie zamknięty
+            } finally { // Blok finally (wykona się zawsze)
+                 stagedFiles = [];
+                 renderStagedFiles();
+                 submitBtn.disabled = false;
+                 submitBtn.textContent = 'Zapisz zadanie';
+            }
+        });
 
 
         async function handleTaskCompletion(task, project, completionSource = 'manual') { // <-- NOWY ARGUMENT
@@ -10675,6 +10978,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
