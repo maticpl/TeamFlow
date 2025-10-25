@@ -2206,6 +2206,44 @@
             align-items: center;
             justify-content: center;
         }
+        /* === ETAP 4: NOWE STYLE DLA TABELI KOSZTÓW ZADAŃ === */
+    #details-budget-tasks-table-container table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    #details-budget-tasks-table-container th,
+    #details-budget-tasks-table-container td {
+        padding: 8px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 13px;
+        background-color: var(--bg-secondary); /* Domyślne tło dla wierszy */
+    }
+    #details-budget-tasks-table-container th {
+        background-color: var(--bg-tertiary);
+        font-weight: 600;
+        color: var(--text-secondary);
+        position: sticky; /* Przyklejony nagłówek podczas przewijania */
+        top: 0;
+        z-index: 1; /* Upewnij się, że nagłówek jest na wierzchu */
+    }
+    #details-budget-tasks-table-container tr:last-child td {
+        border-bottom: none;
+    }
+    #details-budget-tasks-table-container td:last-child {
+        text-align: right;
+        font-weight: 500;
+    }
+    #details-budget-tasks-table-container .task-cost-row:hover td {
+        background-color: var(--bg-tertiary);
+    }
+    #details-budget-tasks-table-container tfoot td {
+        background-color: var(--bg-primary);
+        font-weight: 600;
+        font-size: 14px;
+        border-top: 2px solid var(--border-color);
+    }
+    /* === KONIEC STYLI ETAPU 4 === */
         /* === KONIEC: NOWE STYLE DLA MODALA SZCZEGÓŁÓW PROJEKTU === */
     </style>
 </head>
@@ -5016,7 +5054,78 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             });
         }
+        /**
+     * ETAP 4: Renderuje tabelę zadań obciążających budżet w modalu szczegółów projektu.
+     * @param {object} project - Obiekt projektu.
+     * @param {string} containerId - ID elementu, w którym ma być renderowana tabela.
+     */
+    function renderProjectBudgetTasksTable(project, containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
 
+        const currency = project.budget?.currency || 'PLN';
+        const formatCurrency = (value) => {
+             return value.toLocaleString('pl-PL', { style: 'currency', currency: currency, minimumFractionDigits: 2 });
+        }
+
+        // Znajdź wszystkie zadania, które mają zdefiniowane koszty
+        const tasksWithCosts = (project.tasks || [])
+            .filter(task => task.budgetItems && task.budgetItems.length > 0)
+            .sort((a, b) => a.title.localeCompare(b.title)); // Sortuj alfabetycznie wg nazwy zadania
+
+        if (tasksWithCosts.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-secondary); padding: 12px; font-style: italic;">Brak zadań obciążających budżet w tym projekcie.</p>';
+            return;
+        }
+
+        let tableHTML = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>Zadanie</th>
+                        <th>Pozycja Budżetowa</th>
+                        <th>Kwota</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        let totalFromTasks = 0; // Do weryfikacji sumy
+
+        tasksWithCosts.forEach(task => {
+            task.budgetItems.forEach((item, index) => {
+                const amount = parseFloat(item.amount) || 0;
+                totalFromTasks += amount;
+
+                // W pierwszym wierszu dla danego zadania pokaż nazwę zadania, w kolejnych nie
+                const taskNameHTML = index === 0 
+                    ? `<td style="vertical-align: top;"><strong>${task.title}</strong></td>`
+                    // Dodajemy styl dla pustej komórki, aby zachować linię dolną, ale usunąć górną (jeśli wiersz jest łamany)
+                    : `<td style="border-top: 1px dashed var(--border-color);"></td>`;
+
+                tableHTML += `
+                    <tr class="task-cost-row">
+                        ${taskNameHTML}
+                        <td>${item.name}</td>
+                        <td>${formatCurrency(amount)}</td>
+                    </tr>
+                `;
+            });
+        });
+
+        tableHTML += `
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="2" style="text-align: right;">Suma (wg zadań):</td>
+                        <td>${formatCurrency(totalFromTasks)}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        `;
+
+        container.innerHTML = tableHTML;
+    }
         // --- NOWA FUNKCJA: Otwieranie modala szczegółów ---
         function openProjectDetailsModal() {
             const project = findProject(state.currentProjectId);
@@ -5047,6 +5156,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // Renderowanie wykresów
             renderProjectBudgetChartCSS(project, projectDetailsModal.budgetChartContainer);
             renderProjectWorkloadChart(project, projectDetailsModal.workloadChartContainer, projectDetailsModal.workloadChartPlaceholder); // Przekazujemy też placeholder
+
+            // ETAP 4: Renderowanie nowej tabeli
+            renderProjectBudgetTasksTable(project, 'details-budget-tasks-table-container');
 
             openModal(projectDetailsModal.overlay);
         }
@@ -11123,8 +11235,12 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                              <p id="workload-chart-placeholder" style="color: var(--text-secondary);">Ładowanie danych o obciążeniu...</p>
                         </div>
                     </div>
+                <div class="budget-tasks-table-section" style="margin-top: 24px; grid-column: 1 / -1;"> <h3 style="margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">Szczegółowe Obciążenia Budżetu</h3>
+                    <div id="details-budget-tasks-table-container" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--border-radius); background-color: var(--bg-primary);">
+                         <p style="color: var(--text-secondary); padding: 12px;">Ładowanie danych o kosztach zadań...</p>
+                    </div>
                 </div>
-            </div>
+                </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary modal-close-btn">Zamknij</button>
             </div>
@@ -11133,6 +11249,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
