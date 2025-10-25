@@ -5556,7 +5556,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // taskModal.addCommentBtn.disabled = true; // <<< USUNIĘTE
             // taskModal.newCommentText.disabled = true; // <<< USUNIĘTE
 
-            // --- BARDZIEJ PRECYZYJNA LOGIKA BLOKOWANIA BUDŻETU ---
+            // --- BARDZIEJ PRECYZYJNA LOGIKA BLOKOWANIA BUDŻETU (CZĘŚĆ 1 - Elementy statyczne) ---
             // Zablokuj główny checkbox budżetu zadania
             taskModal.budgetToggle.disabled = true;
 
@@ -5565,14 +5565,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 taskModal.addBudgetItemBtn.disabled = true;
             }
 
-            // Zablokuj WSZYSTKIE selecty i inputy typu number BEZPOŚREDNIO wewnątrz elementów li.budget-item
-            Array.from(taskModal.budgetItemsList.querySelectorAll('li.budget-item select, li.budget-item input[type="number"]')) // <<< BARDZIEJ PRECYZYJNY SELEKTOR
-                 .forEach(el => el.disabled = true);
-
-            // Ukryj przyciski usuwania (X) przy pozycjach budżetowych
-            Array.from(taskModal.budgetItemsList.querySelectorAll('.delete-task-budget-item-btn'))
-                 .forEach(btn => btn.style.display = 'none');
-            // --- KONIEC BARDZIEJ PRECYZYJNEJ LOGIKI BLOKOWANIA BUDŻETU ---
+            // Ukryj przyciski usuwania (X) przy pozycjach budżetowych - MOŻNA TO ZROBIĆ TUTAJ LUB PO RENDEROWANIU
+            // Zostawmy na razie tutaj, bo ukrywamy przez CSS, co zadziała nawet na pustej liście
+             Array.from(taskModal.budgetItemsList.querySelectorAll('.delete-task-budget-item-btn'))
+                  .forEach(btn => btn.style.display = 'none');
+            // --- KONIEC CZĘŚCI 1 ---
 
             // Upewnij się, że przycisk dodawania załącznika jest WŁĄCZONY
             taskModal.addAttachmentBtn.disabled = false;
@@ -5618,46 +5615,45 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const projectHasBudgetItems = projectBudget && projectBudget.items && projectBudget.items.length > 0;
                 // ==============================================
                 // <<<===== POCZĄTEK NOWEGO KODU =====>>>
-        // --- Uzupełnienie logiki BUDŻETU ZADANIA (Etap 1 - Renderowanie) ---
-        const projectCurrency = (projectBudget && projectBudget.currency) || ''; // Pobierz walutę
-        const projectItemNames = projectHasBudgetItems ? projectBudget.items.map(item => item.name) : []; // Pobierz listę NAZW pozycji z projektu
+            // --- Uzupełnienie logiki BUDŻETU ZADANIA (Etap 1 - Renderowanie) ---
+            const projectCurrency = (projectBudget && projectBudget.currency) || '';
+            const projectItemNames = projectHasBudgetItems ? projectBudget.items.map(item => item.name) : [];
 
-        // Resetuj stan sekcji budżetu zadania przy każdym otwarciu
-        taskModal.budgetToggle.checked = false;
-        taskModal.budgetDetails.style.display = 'none';
-        taskModal.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak pozycji kosztowych.</li>'; // Reset listy
-        taskModal.budgetErrorP.textContent = ''; // Wyczyść błędy
+            // Resetuj stan sekcji budżetu zadania przy każdym otwarciu
+            taskModal.budgetToggle.checked = false;
+            taskModal.budgetDetails.style.display = 'none';
+            taskModal.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak pozycji kosztowych.</li>';
+            taskModal.budgetErrorP.textContent = '';
 
-        // Wczytaj dane, jeśli projekt ma pozycje budżetowe ORAZ zadanie ma przypisane koszty
-        if (projectHasBudgetItems && task.budgetItems && task.budgetItems.length > 0) {
-            taskModal.budgetToggle.checked = true; // Zaznacz checkbox
-            taskModal.budgetDetails.style.display = 'block'; // Pokaż sekcję
-            taskModal.budgetItemsList.innerHTML = ''; // Wyczyść listę przed dodaniem wczytanych pozycji
+            // Wczytaj dane, jeśli projekt ma pozycje budżetowe ORAZ zadanie ma przypisane koszty
+            if (projectHasBudgetItems && task.budgetItems && task.budgetItems.length > 0) {
+                taskModal.budgetToggle.checked = true;
+                taskModal.budgetDetails.style.display = 'block';
+                taskModal.budgetItemsList.innerHTML = '';
 
-            task.budgetItems.forEach((item, index) => {
-                // Sprawdź, czy pozycja z zadania nadal istnieje w definicji budżetu projektu
-                if (projectItemNames.includes(item.name)) {
-                    // Użyj funkcji pomocniczej do wygenerowania HTML wiersza
-                    const itemHTML = renderTaskBudgetItemHTML(item, index, projectItemNames);
-                    taskModal.budgetItemsList.insertAdjacentHTML('beforeend', itemHTML);
-                } else {
-                    // Opcjonalnie: Poinformuj o nieistniejącej pozycji lub ją pomiń
-                    console.warn(`Pozycja budżetowa "${item.name}" z zadania "${task.title}" nie istnieje już w projekcie "${project.name}". Zostanie pominięta przy edycji.`);
+                task.budgetItems.forEach((item, index) => {
+                    if (projectItemNames.includes(item.name)) {
+                        const itemHTML = renderTaskBudgetItemHTML(item, index, projectItemNames);
+                        taskModal.budgetItemsList.insertAdjacentHTML('beforeend', itemHTML); // <<< LISTA JEST WYPEŁNIANA TUTAJ
+                    } else {
+                        console.warn(`Pozycja budżetowa "${item.name}" z zadania "${task.title}" nie istnieje już w projekcie "${project.name}". Zostanie pominięta przy edycji.`);
+                    }
+                });
+                if (taskModal.budgetItemsList.children.length === 0) {
+                    taskModal.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Przypisane pozycje nie istnieją już w budżecie projektu.</li>';
                 }
-            });
-             // Jeśli po filtrowaniu lista jest pusta, pokaż komunikat
-            if (taskModal.budgetItemsList.children.length === 0) {
-                taskModal.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Przypisane pozycje nie istnieją już w budżecie projektu.</li>';
+                updateTaskBudgetTotal(taskModal, projectCurrency);
+            } else if (projectHasBudgetItems) {
+                updateTaskBudgetTotal(taskModal, projectCurrency);
             }
 
-            // Zaktualizuj sumę na podstawie wczytanych (i istniejących) pozycji
-            updateTaskBudgetTotal(taskModal, projectCurrency);
-        } else if (projectHasBudgetItems) {
-            // Jeśli projekt ma budżet, ale zadanie nie, pokaż pustą listę i sumę 0 z poprawną walutą
-            updateTaskBudgetTotal(taskModal, projectCurrency);
-        }
-         // --- KONIEC NOWEJ LOGIKI BUDŻETU ZADANIA ---
-         // <<<===== KONIEC NOWEGO KODU =====>>>
+            // --- BARDZIEJ PRECYZYJNA LOGIKA BLOKOWANIA BUDŻETU (CZĘŚĆ 2 - Elementy dynamiczne) ---
+            // Zablokuj WSZYSTKIE selecty i inputy typu number WEWNĄTRZ elementów li.budget-item DOPIERO PO ICH WYRENDEROWANIU
+            Array.from(taskModal.budgetItemsList.querySelectorAll('li.budget-item select, li.budget-item input[type="number"]')) // Używamy tego samego precyzyjnego selektora
+                 .forEach(el => el.disabled = true);
+            // --- KONIEC CZĘŚCI 2 ---
+             // --- KONIEC NOWEJ LOGIKI BUDŻETU ZADANIA ---
+             // <<<===== KONIEC NOWEGO KODU =====>>>
                 renderComments(task);
                 renderActivityLog(task);
                 renderAttachments(task);
@@ -11394,6 +11390,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
