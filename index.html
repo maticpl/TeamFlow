@@ -2276,22 +2276,36 @@
             color: var(--text-primary);
             margin: 0;
         }
+
+        /* NOWY WRAPPER DLA KONTROLEK */
+        .collapsible-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-secondary);
+        }
+        .collapsible-controls .toggle-text {
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        
         .collapsible-header .chevron {
             width: 18px;
             height: 18px;
-            color: var(--text-secondary);
             transition: transform 0.3s ease;
-            transform: rotate(0deg); /* Rozwinięty (bez .collapsed) = strzałka w GÓRĘ */
+            transform: rotate(180deg); /* Rozwinięty (bez .collapsed) = strzałka w GÓRĘ */
         }
         .collapsible-header.collapsed .chevron {
-            transform: rotate(180deg); /* Zwinięty (z .collapsed) = strzałka w DÓŁ */
+            transform: rotate(0deg); /* Zwinięty (z .collapsed) = strzałka w DÓŁ (SVG to v) */
         }
         
         /* Styl dla rozwiniętej treści */
         .collapsible-content {
-            max-height: 600px; /* Domyślna maksymalna wysokość */
+            max-height: 600px; /* Maksymalna wysokość do animacji */
             overflow: hidden;
-            transition: max-height 0.3s ease-out, padding 0.3s ease-out, border-width 0s ease-out 0s;
+            transition: all 0.3s ease-out; /* Animuj wszystko */
+            
             border: 1px solid var(--border-color);
             border-radius: 0 0 var(--border-radius) var(--border-radius);
             border-top: none;
@@ -2299,44 +2313,43 @@
             background-color: var(--bg-primary);
         }
         
-        /* Styl dla zwiniętej treści */
+        /* Styl dla zwiniętej treści - NAPRAWIONY */
         .collapsible-content.collapsed {
             max-height: 0;
             padding-top: 0;
             padding-bottom: 0;
-            border-bottom-width: 0;
-            border-left-width: 0;
-            border-right-width: 0;
-            /* Ukrywamy obramowanie natychmiast, gdy wysokość jest 0 */
-            transition: max-height 0.3s ease-in, padding 0.3s ease-in, border-width 0s ease-in 0.3s;
+            border-width: 0 1px; /* Ukryj górną i dolną ramkę, ale zostaw boczne */
+            opacity: 0; /* Dodaj zanikanie */
+            transition: all 0.3s ease-in;
         }
         
         /* Specyficzne style dla kontenerów (przeniesione z inline HTML) */
         
-        /* Budżet - Wykres */
-        #details-budget-chart-container {
-             /* Domyślny padding 16px z .collapsible-content jest OK */
-        }
-
         /* Budżet - Tabela */
-        #details-budget-tasks-table-container {
-             padding: 0; /* Tabela ma własny padding, więc resetujemy go na kontenerze */
+        #details-budget-tasks-table-container.collapsible-content {
+             padding: 0; /* Tabela ma własny padding */
              max-height: 300px; /* Ustawiamy max-height dla stanu rozwiniętego */
              overflow-y: auto; /* Włączamy przewijanie dla stanu rozwiniętego */
         }
-        #details-budget-tasks-table-container.collapsed {
-             padding: 0; /* Upewnij się, że padding jest 0 także po zwinięciu */
+        #details-budget-tasks-table-container.collapsible-content.collapsed {
+             max-height: 0;
+             padding: 0;
+             border-width: 0 1px; /* Zapewnij spójne zanikanie ramki */
         }
 
          /* Obciążenie - Wykres */
-        #details-workload-chart-container {
-            height: 300px; /* Ustawiamy stałą wysokość dla stanu rozwiniętego */
+        #details-workload-chart-container.collapsible-content {
+            height: 300px; /* Stała wysokość dla stanu rozwiniętego */
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        #details-workload-chart-container.collapsed {
-            height: 0; /* Zwijamy wysokość razem z max-height */
+        #details-workload-chart-container.collapsible-content.collapsed {
+            height: 0; /* Zwijamy wysokość */
+            max-height: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            border-width: 0 1px;
         }
         /* === KONIEC NOWYCH STYLI DLA ZWIJANYCH SEKCJI === */
     </style>
@@ -8941,7 +8954,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
     projectDetailsModal.overlay.addEventListener('click', (e) => {
         const header = e.target.closest('.collapsible-header');
         if (!header) return; // Kliknięto gdzie indziej
-
+        
         const targetSelector = header.dataset.target;
         if (!targetSelector) return; // Brak data-target
 
@@ -8952,9 +8965,19 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
              return;
         }
 
+        // Znajdź tekst
+        const toggleText = header.querySelector('.toggle-text');
+
         // Przełącz klasę 'collapsed' na obu elementach
         header.classList.toggle('collapsed');
         content.classList.toggle('collapsed');
+
+        // Zaktualizuj tekst na podstawie NOWEGO stanu
+        if (header.classList.contains('collapsed')) {
+            if (toggleText) toggleText.textContent = 'Rozwiń';
+        } else {
+            if (toggleText) toggleText.textContent = 'Zwiń';
+        }
 
         // Jeśli rozwijamy sekcję wykresu obciążenia, przerysuj go
         if (targetSelector === '#details-workload-chart-container' && !content.classList.contains('collapsed')) {
@@ -11531,9 +11554,9 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                     <div class="budget-chart-section" style="margin-bottom: 16px;">
                         <div class="collapsible-header collapsed" data-target="#details-budget-chart-container">
                             <h3>Budżet Projektu</h3>
-                            <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
-                            </svg>
+                            <div class="collapsible-controls"> <span class="toggle-text">Rozwiń</span> <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /> </svg>
+                            </div>
                         </div>
                         <div id="details-budget-chart-container" class="collapsible-content collapsed">
                             <p style="color: var(--text-secondary);">Ładowanie danych budżetowych...</p>
@@ -11543,20 +11566,21 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                     <div class="budget-tasks-table-section" style="margin-top: 0; grid-column: 1 / -1; margin-bottom: 16px;">
                         <div class="collapsible-header collapsed" data-target="#details-budget-tasks-table-container">
                              <h3>Szczegółowe Obciążenia Budżetu</h3>
-                             <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
-                            </svg>
+                             <div class="collapsible-controls"> <span class="toggle-text">Rozwiń</span> <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /> </svg>
+                            </div>
                         </div>
                         <div id="details-budget-tasks-table-container" class="collapsible-content collapsed">
-                             </div>
+                             <p style="color: var(--text-secondary); padding: 12px;">Ładowanie danych o kosztach zadań...</p>
+                        </div>
                     </div>
                     
                     <div class="workload-chart-section">
-                       <div class="collapsible-header collapsed" data-target="#details-workload-chart-container">
+                        <div class="collapsible-header collapsed" data-target="#details-workload-chart-container">
                             <h3>Obciążenie Zespołu</h3>
-                             <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
-                            </svg>
+                             <div class="collapsible-controls"> <span class="toggle-text">Rozwiń</span> <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /> </svg>
+                            </div>
                         </div>
                         <div id="details-workload-chart-container" class="collapsible-content collapsed" style="position: relative;">
                              <p id="workload-chart-placeholder" style="color: var(--text-secondary);">Ładowanie danych o obciążeniu...</p>
@@ -11571,6 +11595,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
