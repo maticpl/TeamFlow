@@ -4804,71 +4804,119 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             renderKanbanBoard(projectTasks, !isCompleted);
         }
-        // --- NOWA FUNKCJA: Renderowanie wykresu budżetu (CSS) ---
-        function renderProjectBudgetChartCSS(project, container) {
-            container.innerHTML = ''; // Wyczyść kontener
+        // --- ZMODYFIKOWANA FUNKCJA (Etap 3): Renderowanie wykresu budżetu (CSS) ---
+    function renderProjectBudgetChartCSS(project, container) {
+        container.innerHTML = ''; // Wyczyść kontener
 
-            const budgetData = project.budget;
+        const budgetData = project.budget; // Dane z definicji budżetu (całość, pozycje)
+        const reservedData = project.reservedBudget; // Dane o zarezerwowanych kwotach z zadań (z Etapu 2)
 
-            if (!budgetData || typeof budgetData !== 'object' || budgetData.amount === undefined) {
-                container.innerHTML = '<p style="color: var(--text-secondary); font-size: 14px;">Brak zdefiniowanego budżetu dla tego projektu.</p>';
-                return;
-            }
-
-            const totalBudget = parseFloat(budgetData.amount) || 0;
-            const currency = budgetData.currency || '';
-            const budgetItems = budgetData.items || [];
-            const itemsSum = budgetItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-
-            const formatCurrency = (value) => {
-                 return value.toLocaleString('pl-PL', { style: 'currency', currency: currency || 'PLN', minimumFractionDigits: 2 });
-            }
-
-            let fillPercent = 0;
-            let isOverBudget = false;
-            if (totalBudget > 0) {
-                 fillPercent = Math.min((itemsSum / totalBudget) * 100, 100); // Ogranicz do 100% dla paska
-                 if (itemsSum > totalBudget) {
-                     isOverBudget = true;
-                     // Można by pokazać przekroczenie inaczej, np. dodatkowym paskiem, ale na razie zmienimy kolor
-                 }
-            } else if (itemsSum > 0) {
-                 // Przypadek: Budżet 0, ale są wydatki (traktujemy jako 100% przekroczenie)
-                 fillPercent = 100;
-                 isOverBudget = true;
-            }
-
-
-            let chartHTML = `
-                <div class="budget-label">
-                    <span>Suma pozycji / Całkowity budżet</span>
-                    <strong>${formatCurrency(itemsSum)} / ${formatCurrency(totalBudget)}</strong>
-                </div>
-                <div class="budget-summary-bar" title="Wykorzystano ${fillPercent.toFixed(1)}% budżetu">
-                    <div class="budget-summary-fill ${isOverBudget ? 'budget-fill-over' : 'budget-fill-items'}" style="width: ${fillPercent}%;">
-                        ${fillPercent > 10 ? `${fillPercent.toFixed(0)}%` : ''} 
-                    </div>
-                </div>
-            `;
-
-            if (isOverBudget) {
-                const overAmount = itemsSum - totalBudget;
-                chartHTML += `<p style="color: var(--danger-primary); font-size: 13px; font-weight: 600; text-align: right;">Przekroczenie o: ${formatCurrency(overAmount)}</p>`;
-            }
-
-            // Lista pozycji budżetowych
-            if (budgetItems.length > 0) {
-                 chartHTML += `<h4 style="font-size: 13px; color: var(--text-secondary); margin-top: 16px; margin-bottom: 8px;">Pozycje budżetowe:</h4>`;
-                 chartHTML += '<ul style="font-size: 13px; list-style: none; padding-left: 0; max-height: 150px; overflow-y: auto;">';
-                 budgetItems.forEach(item => {
-                      chartHTML += `<li style="display: flex; justify-content: space-between; padding: 2px 0;"><span>${item.name || '<i>Brak nazwy</i>'}</span> <strong>${formatCurrency(item.amount || 0)}</strong></li>`;
-                 });
-                 chartHTML += '</ul>';
-            }
-
-
-            container.innerHTML = chartHTML;
+        if (!budgetData || typeof budgetData !== 'object' || budgetData.amount === undefined) {
+            container.innerHTML = '<p style="color: var(--text-secondary); font-size: 14px;">Brak zdefiniowanego budżetu dla tego projektu.</p>';
+            return;
         }
+
+        const totalBudget = parseFloat(budgetData.amount) || 0; // Całkowity budżet projektu
+        const currency = budgetData.currency || 'PLN'; // Waluta
+        const definedItems = budgetData.items || []; // Pozycje z definicji budżetu
+
+        // Suma kwot z DEFINICJI pozycji budżetowych (może się różnić od totalBudget)
+        const definedItemsSum = definedItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+
+        // Pobierz sumę ZAREZERWOWANYCH środków (z zadań)
+        const totalReserved = reservedData?.totalReserved || 0;
+        // Oblicz dostępne środki
+        const availableAmount = totalBudget - totalReserved;
+
+        // Formatowanie waluty
+        const formatCurrency = (value) => {
+             // Użyj waluty z budżetu, fallback na PLN
+             return value.toLocaleString('pl-PL', { style: 'currency', currency: currency, minimumFractionDigits: 2 });
+        }
+
+        // Oblicz procent zarezerwowanych środków względem całkowitego budżetu
+        let reservedPercent = 0;
+        if (totalBudget > 0) {
+             reservedPercent = (totalReserved / totalBudget) * 100;
+        } else if (totalReserved > 0) {
+             reservedPercent = Infinity; // Symboliczne przekroczenie, jeśli budżet = 0, a są rezerwacje
+        }
+
+        // Sprawdź, czy całkowity zarezerwowany budżet przekracza całkowity budżet projektu
+        const isOverBudgetOverall = totalReserved > totalBudget;
+
+        // --- Generowanie HTML ---
+        let chartHTML = `
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; font-size: 13px; text-align: center;">
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase;">Całkowity Budżet</div>
+                    <strong style="font-size: 15px;">${formatCurrency(totalBudget)}</strong>
+                </div>
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase;">Zarezerwowane</div>
+                    <strong style="font-size: 15px; color: ${isOverBudgetOverall ? 'var(--danger-primary)' : 'inherit'};">${formatCurrency(totalReserved)}</strong>
+                </div>
+                <div>
+                    <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase;">Dostępne</div>
+                    <strong style="font-size: 15px; color: ${availableAmount < 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">${formatCurrency(availableAmount)}</strong>
+                </div>
+            </div>
+
+            <div class="budget-label" style="margin-top: 16px;">
+                <span>Rezerwacje / Całkowity budżet</span>
+                <span>${reservedPercent === Infinity ? '>100' : reservedPercent.toFixed(1)}%</span>
+            </div>
+            <div class="budget-summary-bar" title="Zarezerwowano ${reservedPercent === Infinity ? 'ponad 100' : reservedPercent.toFixed(1)}% budżetu">
+                <div class="budget-summary-fill ${isOverBudgetOverall ? 'budget-fill-over' : 'budget-fill-items'}" style="width: ${Math.min(reservedPercent, 100)}%;">
+                    ${reservedPercent > 10 && reservedPercent !== Infinity ? `${reservedPercent.toFixed(0)}%` : ''}
+                </div>
+            </div>
+        `;
+
+        if (isOverBudgetOverall) {
+            const overAmount = totalReserved - totalBudget;
+            chartHTML += `<p style="color: var(--danger-primary); font-size: 13px; font-weight: 600; text-align: right; margin-top: 4px;">Przekroczenie o: ${formatCurrency(overAmount)}</p>`;
+        }
+
+        // Lista pozycji budżetowych z porównaniem zarezerwowanych kwot
+        if (definedItems.length > 0) {
+             chartHTML += `<h4 style="font-size: 13px; color: var(--text-secondary); margin-top: 20px; margin-bottom: 8px;">Szczegóły pozycji budżetowych:</h4>`;
+             chartHTML += '<ul style="font-size: 13px; list-style: none; padding-left: 0; max-height: 180px; overflow-y: auto;">';
+             definedItems.forEach(item => {
+                  const definedAmount = parseFloat(item.amount) || 0;
+                  // Pobierz zarezerwowaną kwotę dla tej konkretnej pozycji (item.name) z obiektu reservedData
+                  const reservedForItem = reservedData?.items?.[item.name] || 0;
+                  const availableForItem = definedAmount - reservedForItem;
+                  const isOverBudgetItem = reservedForItem > definedAmount;
+
+                  chartHTML += `
+                      <li style="border-bottom: 1px dashed var(--border-color); padding: 6px 0; margin-bottom: 4px;">
+                          <div style="display: flex; justify-content: space-between; font-weight: 600;">
+                              <span>${item.name || '<i>Brak nazwy</i>'}</span>
+                              <span>${formatCurrency(definedAmount)}</span>
+                          </div>
+                          <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); padding-left: 10px;">
+                              <span>- Zarezerwowane:</span>
+                              <span style="color: ${isOverBudgetItem ? 'var(--danger-primary)' : 'var(--text-secondary)'};">${formatCurrency(reservedForItem)}</span>
+                          </div>
+                          <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); padding-left: 10px;">
+                              <span>= Dostępne:</span>
+                              <span style="font-weight: 500; color: ${availableForItem < 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">${formatCurrency(availableForItem)}</span>
+                          </div>
+                      </li>`;
+             });
+             chartHTML += '</ul>';
+
+             // Dodaj informację o sumie zdefiniowanych pozycji, jeśli różni się od całkowitego budżetu
+             const diffTolerance = 0.01;
+             if (Math.abs(totalBudget - definedItemsSum) > diffTolerance) {
+                chartHTML += `<p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px; text-align: right;">Suma zdefiniowanych pozycji: ${formatCurrency(definedItemsSum)}</p>`;
+             }
+        }
+
+
+        container.innerHTML = chartHTML;
+    }
 
         // --- ZMODYFIKOWANA FUNKCJA: Renderowanie wykresu obciążenia (Chart.js) ---
         function renderProjectWorkloadChart(project, container, placeholder) {
@@ -5763,10 +5811,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
 
             try {
-                await updateDoc(projectDocRef, {
-                    tasks: tasks
-                });
+                // --- ETAP 2: Obliczanie i zapis reservedBudget ---
+            // Przekaż zaktualizowaną listę zadań 'tasks' do funkcji obliczającej
+            const newReservedBudget = calculateReservedBudget(tasks);
 
+            // Zaktualizuj dokument projektu, zapisując JEDNOCZEŚNIE nową listę zadań i nowy reservedBudget
+            await updateDoc(projectDocRef, {
+                tasks: tasks,
+                reservedBudget: newReservedBudget // Zapisz obliczony obiekt (lub null)
+            });
+            console.log(`[Etap 2] Zaktualizowano reservedBudget dla projektu ${project.id} po edycji zadania ${taskId}.`);
+            // --- KONIEC ETAPU 2 ---
+                
                 // === NOWA LOGIKA - POWIADOMIENIA PRZY EDYCJI ZADANIA ===
                 const newlyAssigned = newAssignees.filter(id => !oldAssignees.includes(id));
                 if (newlyAssigned.length > 0) {
@@ -6513,6 +6569,42 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
     modalRefs.budgetCurrencySpan.textContent = currency;
     // Wyczyść błędy walidacji przy każdej aktualizacji sumy (bo użytkownik coś zmienia)
     modalRefs.budgetErrorP.textContent = '';
+}
+       /**
+ * Oblicza zagregowany budżet zarezerwowany na podstawie zadań projektu.
+ * @param {Array<object>} tasks - Lista zadań projektu.
+ * @returns {object} Obiekt reservedBudget { totalReserved: number, items: { [itemName: string]: number } } lub null, jeśli brak rezerwacji.
+ */
+function calculateReservedBudget(tasks = []) {
+    let totalReserved = 0;
+    const reservedItems = {}; // Obiekt do przechowywania sum dla poszczególnych pozycji
+
+    tasks.forEach(task => {
+        // Przetwarzaj tylko zadania, które mają zdefiniowane budgetItems
+        if (task.budgetItems && Array.isArray(task.budgetItems) && task.budgetItems.length > 0) {
+            task.budgetItems.forEach(item => {
+                const amount = parseFloat(item.amount) || 0;
+                if (amount > 0 && item.name) {
+                    // Dodaj kwotę do sumy całkowitej
+                    totalReserved += amount;
+                    // Dodaj kwotę do odpowiedniej pozycji w obiekcie reservedItems
+                    reservedItems[item.name] = (reservedItems[item.name] || 0) + amount;
+                }
+            });
+        }
+    });
+
+    // Zwróć obiekt tylko jeśli coś zostało zarezerwowane, w przeciwnym razie null
+    if (totalReserved > 0) {
+        // Zaokrąglij sumy do 2 miejsc po przecinku, aby uniknąć błędów zmiennoprzecinkowych
+        totalReserved = parseFloat(totalReserved.toFixed(2));
+        for (const itemName in reservedItems) {
+            reservedItems[itemName] = parseFloat(reservedItems[itemName].toFixed(2));
+        }
+        return { totalReserved, items: reservedItems };
+    } else {
+        return null; // Zwróć null, jeśli nic nie zarezerwowano
+    }
 }
         function setupFirestoreListeners(userId) {
             if (!userId) return;
@@ -8644,10 +8736,18 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             const uploadedAttachments = await Promise.all(attachmentPromises);
             newTask.attachments = uploadedAttachments;
         }
+        // Przygotuj listę zadań Z NOWYM zadaniem
+            const updatedTasksList = [...(project.tasks || []), newTask];
 
-        await updateDoc(doc(projectsRef, project.id), {
-            tasks: [...(project.tasks || []), newTask]
-        });
+            // --- ETAP 2: Obliczanie i zapis reservedBudget ---
+            const newReservedBudget = calculateReservedBudget(updatedTasksList);
+        // Zapisz JEDNOCZEŚNIE nową listę zadań i nowy reservedBudget
+            await updateDoc(doc(projectsRef, project.id), {
+                tasks: updatedTasksList,
+                reservedBudget: newReservedBudget // Zapisz obliczony obiekt (lub null)
+            });
+            console.log(`[Etap 2] Zaktualizowano reservedBudget dla projektu ${project.id} po dodaniu nowego zadania ${newTask.id}.`);
+            // --- KONIEC ETAPU 2 ---
 
         // --- POCZĄTEK DODANEGO KODU POWIADOMIEŃ ---
         if (newTask.assignees.length > 0) {
@@ -9239,29 +9339,47 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
 
             showConfirmation(
-                "Potwierdź usunięcie zadania",
-                `Czy na pewno chcesz trwale usunąć zadanie: "${task.title}"?`,
-                async (confirmed) => {
-                    if (confirmed) {
-                        const updatedTasks = project.tasks.filter(t => t.id !== taskId);
-                        const projectDocRef = findProject(project.id) ?
-                            doc(projectsRef, project.id) :
-                            doc(completedProjectsRef, project.id);
-                        try {
-                            await updateDoc(projectDocRef, {
-                                tasks: updatedTasks
-                            });
-                            closeModal(taskModal.overlay);
-                            showNotification("Zadanie zostało pomyślnie usunięte.", "Sukces");
-                        } catch (error) {
-                            console.error("Błąd podczas usuwania zadania:", error);
-                            showNotification("Wystąpił błąd podczas usuwania zadania.", "Błąd");
-                        }
+            "Potwierdź usunięcie zadania",
+            `Czy na pewno chcesz trwale usunąć zadanie: "${task.title}"?`,
+            async (confirmed) => {
+                if (confirmed) {
+                    // Lista zadań BEZ usuwanego zadania
+                    const updatedTasks = project.tasks.filter(t => t.id !== taskId);
+
+                    // Referencja do dokumentu projektu
+                    const projectDocRef = findProject(project.id) ?
+                        doc(projectsRef, project.id) :
+                        doc(completedProjectsRef, project.id);
+
+                    try {
+                        // --- ETAP 2: Obliczanie reservedBudget przy usuwaniu ---
+                        const newReservedBudget = calculateReservedBudget(updatedTasks);
+                        // --- KONIEC ETAPU 2 ---
+
+                        // --- Użycie writeBatch do atomowego zapisu ---
+                        const batch = writeBatch(db);
+
+                        // Aktualizacja listy zadań w batchu
+                        batch.update(projectDocRef, { tasks: updatedTasks });
+                        // Aktualizacja reservedBudget w batchu
+                        batch.update(projectDocRef, { reservedBudget: newReservedBudget });
+
+                        // Wykonanie batcha
+                        await batch.commit();
+                        console.log(`[Etap 2] Zaktualizowano reservedBudget dla projektu ${project.id} po usunięciu zadania ${taskId}.`);
+                        // --- Koniec użycia writeBatch ---
+
+                        closeModal(taskModal.overlay);
+                        showNotification("Zadanie zostało pomyślnie usunięte.", "Sukces");
+                    } catch (error) {
+                        console.error("Błąd podczas usuwania zadania lub aktualizacji reservedBudget:", error); // Zaktualizowano komunikat
+                        showNotification("Wystąpił błąd podczas usuwania zadania.", "Błąd");
                     }
-                },
-                true
-            );
-        });
+                }
+            },
+            true
+        );
+    });
 
         function setupRecurrenceUIListeners(modalElements) {
             modalElements.recurrenceNthDayOptions = document.getElementById(modalElements.isRecurring.id.replace('is-recurring', 'nth-day-options'));
@@ -11015,6 +11133,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </body>
 </body>
 </html>
+
 
 
 
