@@ -2757,62 +2757,6 @@
             display: none;
         }
         /* === KONIEC NOWEJ REGUŁY === */
-        /* === NOWE STYLE DLA PRZEŁĄCZNIKA W USTAWIENIACH === */
-        .settings-toggle {
-            display: flex;
-            align-items: center;
-            justify-content: space-between; /* Rozsuwa label i przełącznik */
-            padding: 12px 0; /* Dodaje trochę pionowego odstępu */
-            border-top: 1px solid var(--border-color); /* Linia oddzielająca */
-            margin-top: 12px; /* Odstęp od przycisków powyżej */
-        }
-        .settings-toggle-label {
-            display: flex;
-            flex-direction: column; /* Tekst główny i opis pod spodem */
-            cursor: pointer;
-            margin-bottom: 0; /* Usuwa domyślny margines label */
-            font-weight: 500; /* Lekkie pogrubienie */
-            line-height: 1.3;
-        }
-        .settings-toggle-label small {
-            font-size: 12px;
-            color: var(--text-secondary);
-            font-weight: 400; /* Normalna waga dla opisu */
-        }
-        /* Style dla samego przełącznika (checkboxa) */
-        .toggle-switch {
-            appearance: none;
-            -webkit-appearance: none;
-            position: relative;
-            width: 40px;
-            height: 22px;
-            border-radius: 11px;
-            background-color: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            cursor: pointer;
-            transition: background-color 0.2s ease-in-out;
-            flex-shrink: 0; /* Zapobiega kurczeniu się przełącznika */
-        }
-        .toggle-switch::before {
-            content: '';
-            position: absolute;
-            top: 1px;
-            left: 1px;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            background-color: var(--bg-secondary);
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            transition: transform 0.2s ease-in-out;
-        }
-        .toggle-switch:checked {
-            background-color: var(--accent-primary);
-            border-color: var(--accent-primary);
-        }
-        .toggle-switch:checked::before {
-            transform: translateX(18px);
-        }
-        /* === KONIEC NOWYCH STYLI === */
     </style>
 </head>
 <body>
@@ -3822,13 +3766,12 @@
     // ============================
     // 1. IMPORTY
     // ============================
-   const { RRule } = rrule;
+    const { RRule } = rrule;
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    // Dodano 'arrayUnion' do listy importów Firestore
-    import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy, arrayRemove, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    // DODANO deleteField
+    import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy, arrayRemove, arrayUnion, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
-    // Potwierdzono obecność importów dla Messaging
     import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
     // ============================
@@ -4519,121 +4462,99 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
         }
 
         /**
-         * Zarządza procesem włączania lub wyłączania powiadomień push FCM
-         * za pomocą API Median.co i aktualizuje Firestore.
+         * Zarządza procesem włączania lub wyłączania powiadomień OneSignal.
+         * Wymaga obiektu OneSignal wstrzykniętego przez Median.co.
          * @param {boolean} enable - True, aby włączyć powiadomienia, false, aby wyłączyć.
          */
-        async function requestNotificationPermission(enable) {
+        async function manageOneSignalPush(enable) {
             if (!state.currentUser) {
-                console.warn("Próba requestNotificationPermission bez zalogowanego użytkownika.");
-                updatePushNotificationSettingUI(); // Upewnij się, że UI jest spójne
+                updatePushNotificationSettingUI();
                 return;
             }
-            if (typeof median === 'undefined' || !median.android || !median.android.fcm) {
-                console.warn("Median.co API (android.fcm) nie jest dostępne. Nie można zarządzać powiadomieniami push.");
-                showNotification("Funkcja powiadomień push nie jest dostępna w tym środowisku.", "Błąd");
-                updatePushNotificationSettingUI(); // Ustaw UI na podstawie braku tokenów
+            // Zmieniono median.android.fcm na OneSignal (poprawne API dla Median)
+            if (typeof OneSignal === 'undefined') {
+                console.warn("OneSignal API (obiekt OneSignal) nie jest dostępny. Nie można zarządzać powiadomieniami.");
+                showNotification("Integracja OneSignal nie jest włączona w aplikacji mobilnej.", "Błąd");
+                updatePushNotificationSettingUI();
                 return;
             }
 
             const userRef = doc(usersRef, state.currentUser.uid);
+            const userId = state.currentUser.uid;
+            
+            // Funkcja pomocnicza do pobrania OneSignalUserID i zapisania go
+            const getAndSaveOneSignalId = async () => {
+                 OneSignal.showNativePrompt(); // Pokazuje natywny prompt Android/iOS
+                 // Czekamy, aż OneSignal uzyska ID urządzenia
+                 const deviceId = await new Promise((resolve) => {
+                     // Używamy getUserId z Median API
+                     OneSignal.getUserId((id) => resolve(id));
+                 });
+
+                 if (deviceId) {
+                    // Dodatkowo ustawiamy zewnętrzny ID w OneSignal (dla celów targetowania)
+                    OneSignal.setExternalUserId(userId); 
+                    
+                    // Zapisujemy OneSignal ID w Firestore
+                    await updateDoc(userRef, {
+                        oneSignalId: deviceId // Zapisujemy ID urządzenia OneSignal
+                    });
+
+                    // Zaktualizuj stan lokalny i UI
+                    state.currentUser.oneSignalId = deviceId;
+                    showNotification("Powiadomienia OneSignal zostały włączone.", "Sukces");
+                 } else {
+                     showNotification("Nie udało się uzyskać ID urządzenia. Odmowa dostępu.", "Błąd");
+                 }
+                 updatePushNotificationSettingUI();
+            };
 
             if (enable) {
-                // --- Logika WŁĄCZANIA powiadomień ---
-                console.log("Próba WŁĄCZENIA powiadomień push...");
-                try {
-                    median.android.fcm.register({
-                        callback: async function(data) {
-                            if (data && data.token) {
-                                const currentToken = data.token;
-                                console.log("Uzyskano token FCM:", currentToken);
-                                try {
-                                    await updateDoc(userRef, {
-                                        fcmTokens: arrayUnion(currentToken)
-                                    });
-                                    console.log("Token FCM zapisany w Firestore.");
-                                    showNotification("Powiadomienia push zostały włączone.", "Sukces");
-                                    // Uaktualnij stan lokalny currentUser
-                                    if (!state.currentUser.fcmTokens) state.currentUser.fcmTokens = [];
-                                    if (!state.currentUser.fcmTokens.includes(currentToken)) {
-                                        state.currentUser.fcmTokens.push(currentToken);
-                                    }
-                                } catch (updateError) {
-                                    console.error("Błąd zapisu tokena FCM w Firestore:", updateError);
-                                    showNotification("Nie udało się zapisać ustawień powiadomień.", "Błąd");
-                                } finally {
-                                    updatePushNotificationSettingUI(); // Zaktualizuj UI na podstawie stanu w Firestore
-                                }
-                            } else {
-                                console.warn("Median.co callback nie zwrócił tokena przy włączaniu.");
-                                showNotification("Nie udało się uzyskać tokena powiadomień.", "Błąd");
-                                updatePushNotificationSettingUI();
-                            }
-                        },
-                        errorCallback: function(err) {
-                            console.error("Błąd Median.co fcm.register lub odmowa zgody:", err);
-                            showNotification("Nie udało się włączyć powiadomień. Sprawdź uprawnienia aplikacji.", "Błąd");
-                            updatePushNotificationSettingUI(); // Zresetuj UI do stanu wyłączonego
-                        }
-                    });
-                } catch (error) {
-                    console.error("Błąd podczas inicjowania rejestracji FCM przez Median.co:", error);
-                    showNotification("Wystąpił błąd podczas próby włączenia powiadomień.", "Błąd");
-                    updatePushNotificationSettingUI();
-                }
+                // Logika WŁĄCZANIA
+                // Sprawdzamy, czy urządzenie ma już ID w OneSignal
+                OneSignal.isPushNotificationsEnabled(function(isEnabled) {
+                    if (isEnabled) {
+                        // Jeśli włączone, po prostu zapisujemy ID w bazie na wypadek, gdyby go brakowało
+                        getAndSaveOneSignalId();
+                    } else {
+                        // Jeśli wyłączone (np. po odmowie), prosimy ponownie o zgodę i zapisujemy ID
+                        getAndSaveOneSignalId();
+                    }
+                });
+
             } else {
-                // --- Logika WYŁĄCZANIA powiadomień ---
-                console.log("Próba WYŁĄCZENIA powiadomień push...");
-                // Spróbuj pobrać aktualny token, aby go usunąć.
-                // Używamy getToken bezpośrednio, bo Median API nie ma funkcji unregister/getToken
-                 const messaging = getMessaging(app);
-                 try {
-                     const currentToken = await getToken(messaging); // Pobierz token *bezpośrednio*
-                     if (currentToken) {
-                         console.log("Pobrano token do usunięcia:", currentToken);
-                         try {
-                             // Używamy arrayRemove do usunięcia tokena z Firestore
+                // Logika WYŁĄCZANIA: Usuwamy ID urządzenia z Firestore
+                OneSignal.getUserId(async function(currentDeviceId) {
+                    if (currentDeviceId) {
+                        try {
+                             // Usuńmy ID z Firestore, aby zatrzymać wysyłkę z Cloud Function
                              await updateDoc(userRef, {
-                                 fcmTokens: arrayRemove(currentToken)
+                                 oneSignalId: deleteField() 
                              });
-                             console.log("Token FCM usunięty z Firestore.");
-                             showNotification("Powiadomienia push zostały wyłączone dla tego urządzenia.", "Sukces");
-                             // Uaktualnij stan lokalny currentUser
-                              if (state.currentUser.fcmTokens) {
-                                 state.currentUser.fcmTokens = state.currentUser.fcmTokens.filter(t => t !== currentToken);
-                              }
-                         } catch (updateError) {
-                             console.error("Błąd usuwania tokena FCM z Firestore:", updateError);
-                             showNotification("Nie udało się zapisać ustawień powiadomień.", "Błąd");
-                         }
-                     } else {
-                         console.warn("Nie udało się pobrać tokena do usunięcia. Być może już nie istnieje?");
-                         // Mimo to, spróbujmy wyczyścić tablicę w Firestore na wszelki wypadek
-                         // (Jeśli użytkownik nigdy nie włączył, to nic się nie stanie)
-                         await updateDoc(userRef, { fcmTokens: [] });
-                         state.currentUser.fcmTokens = []; // Wyczyść też lokalnie
-                         console.log("Wyczyszczono tablicę tokenów w Firestore (na wszelki wypadek).");
-                         showNotification("Powiadomienia push wyłączone.", "Informacja");
-                     }
-                 } catch (getTokenError) {
-                     console.error("Błąd podczas pobierania tokena (getToken) przy wyłączaniu:", getTokenError);
-                     // Jeśli nie można pobrać tokena (np. brak uprawnień),
-                     // to i tak spróbujmy wyczyścić listę w bazie danych.
-                     try {
-                          await updateDoc(userRef, { fcmTokens: [] });
-                          state.currentUser.fcmTokens = [];
-                          console.log("Wyczyszczono tablicę tokenów w Firestore (po błędzie getToken).");
-                          showNotification("Wyczyszczono ustawienia powiadomień push.", "Informacja");
-                     } catch(clearError) {
-                          console.error("Nie udało się nawet wyczyścić tokenów w Firestore:", clearError);
-                          showNotification("Nie udało się wyłączyć powiadomień.", "Błąd");
-                     }
-                 } finally {
-                    updatePushNotificationSettingUI(); // Zawsze aktualizuj UI po operacji
-                 }
+                             // Cofamy zgodę w systemie OneSignal (na telefonie)
+                             OneSignal.setSubscription(false); 
+                             
+                             // Opcjonalnie: Usuwamy External User ID
+                             OneSignal.removeExternalUserId();
+
+                             state.currentUser.oneSignalId = null;
+                             showNotification("Powiadomienia OneSignal zostały wyłączone dla tego urządzenia.", "Sukces");
+                        } catch (error) {
+                             console.error("Błąd usuwania oneSignalId:", error);
+                             showNotification("Nie udało się wyłączyć powiadomień.", "Błąd");
+                        }
+                    } else {
+                        // Jeśli nie ma ID, po prostu upewnijmy się, że pole jest usunięte w bazie
+                        await updateDoc(userRef, {
+                             oneSignalId: deleteField()
+                        });
+                        state.currentUser.oneSignalId = null;
+                        showNotification("Powiadomienia OneSignal wyłączone.", "Informacja");
+                    }
+                    updatePushNotificationSettingUI(); // Aktualizujemy UI
+                });
             }
         }
-       
 
         function findUser(userId) {
             return state.users.find(u => u.id === userId);
@@ -7742,6 +7663,22 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         } catch(e) {
             console.error("Nie udało się zainicjować biblioteki Tribute.js dla wzmianek.", e);
         }
+       /**
+         * Aktualizuje stan przełącznika powiadomień push w Ustawieniach
+         * na podstawie obecności OneSignalID w danych użytkownika.
+         */
+        function updatePushNotificationSettingUI() {
+            const toggle = document.getElementById('push-notifications-toggle');
+            // Sprawdź, czy przełącznik istnieje i czy użytkownik jest załadowany
+            if (!toggle || !state.currentUser) return;
+
+            // Sprawdź, czy użytkownik ma zapisane OneSignal ID w stanie aplikacji
+            const hasOneSignalId = !!state.currentUser.oneSignalId; 
+
+            // Ustaw stan atrybutu 'checked' przełącznika
+            toggle.checked = hasOneSignalId;
+            console.log(`UI Ustawień Powiadomień Push: Stan przełącznika ustawiony na ${hasOneSignalId}`);
+        }
         // === KONIEC: INICJALIZACJA TRIBUTE.JS ===
 
         function updateNotificationBellUI() {
@@ -7753,22 +7690,6 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                 notificationToggleBtn.classList.remove('active');
                 notificationToggleBtn.title = 'Kliknij, aby włączyć powiadomienia';
             }
-        }
-       /**
-         * Aktualizuje stan przełącznika powiadomień push w Ustawieniach
-         * na podstawie obecności tokenów FCM w danych użytkownika.
-         */
-        function updatePushNotificationSettingUI() {
-            const toggle = document.getElementById('push-notifications-toggle');
-            // Sprawdź, czy przełącznik istnieje i czy użytkownik jest załadowany
-            if (!toggle || !state.currentUser) return;
-
-            // Sprawdź, czy użytkownik ma zapisane jakiekolwiek tokeny FCM w stanie aplikacji
-            const hasTokens = state.currentUser.fcmTokens && state.currentUser.fcmTokens.length > 0;
-
-            // Ustaw stan atrybutu 'checked' przełącznika
-            toggle.checked = hasTokens;
-            console.log(`UI Ustawień Powiadomień Push: Stan przełącznika ustawiony na ${hasTokens}`);
         }
         async function handleFirstLoginSubgroupSelection(userId, groupId) {
             const modal = {
@@ -7920,13 +7841,12 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         // --- KONIEC NOWEJ LOGIKI ---
 
         // POPRAWKA: Dodano brakujący nawias zamykający ")"
+        // POPRAWKA: Dodano brakujący nawias zamykający ")"
         setupFirestoreListeners(user.uid);
-        // --- ZMIENIONE WYWOŁANIA ---
-                // Usunięto: requestNotificationPermission(); // Już nie wywołujemy automatycznie
-                // Dodano wywołanie funkcji aktualizującej UI przełącznika w Ustawieniach
-                updatePushNotificationSettingUI(); // Ustawia stan przełącznika na podstawie danych użytkownika
-                // updateNotificationBellUI() zostało w requestNotificationPermission
-                // --- KONIEC ZMIENIONYCH WYWOŁAŃ ---
+        // Usunięto: requestNotificationPermission();
+        updateNotificationBellUI();
+        // Dodano wywołanie funkcji aktualizującej UI przełącznika w Ustawieniach
+        updatePushNotificationSettingUI();
 
         // <<<--- TUTAJ WŁĄCZ PRZYCISK ---<<<
         const newProjectBtn = document.getElementById('new-project-btn');
@@ -11092,20 +11012,19 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         });
        // === KONIEC: NOWY LISTENER DLA PRZENOSZENIA ZADANIA ===
         // === KONIEC: NOWY LISTENER DLA PRZENOSZENIA ZADANIA ===
-       // === NOWY LISTENER DLA PRZEŁĄCZNIKA POWIADOMIEŃ PUSH W USTAWIENIACH ===
+        // === NOWY LISTENER DLA PRZEŁĄCZNIKA POWIADOMIEŃ PUSH W USTAWIENIACH ===
         const pushNotificationsToggle = document.getElementById('push-notifications-toggle');
         if (pushNotificationsToggle) {
             pushNotificationsToggle.addEventListener('change', (e) => {
                 const enable = e.target.checked; // Sprawdź, czy checkbox jest zaznaczony (true) czy nie (false)
-                // Wywołaj zmodyfikowaną funkcję zarządzającą powiadomieniami
-                requestNotificationPermission(enable);
+                // Zmieniono wywołanie na manageOneSignalPush
+                manageOneSignalPush(enable);
             });
             console.log("Listener dla przełącznika powiadomień push podpięty."); // Log dla pewności
         } else {
             console.warn("Nie znaleziono elementu #push-notifications-toggle do podpięcia listenera.");
         }
         // === KONIEC NOWEGO LISTENERA ===
-
 
         // === POCZĄTEK: NOWY LISTENER DLA AKORDEONU SUBZADAŃ (Wersja 2) ===
         const subtasksToggleBtn = document.getElementById('subtasks-toggle-btn');
@@ -11875,24 +11794,21 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 <h3 id="settings-username-display"></h3>
             </div>
             <div class="settings-actions">
-                <button id="open-upload-photo-btn" class="btn btn-secondary">Zmień zdjęcie</button>
-                <button id="open-change-username-btn" class="btn btn-secondary">Zmień nazwę</button>
-                <button id="open-change-password-btn" class="btn btn-secondary">Zmień hasło</button>
-                <button id="open-change-subgroup-btn" class="btn btn-secondary">Zmień dział/podgrupę</button>
-                <button id="open-change-group-btn" class="btn btn-secondary">Zmień lub dołącz do grupy</button>
-                <button id="open-manage-group-btn" class="btn btn-primary" style="display: none;">Zarządzaj grupą</button>
+    <button id="open-upload-photo-btn" class="btn btn-secondary">Zmień zdjęcie</button>
+    <button id="open-change-username-btn" class="btn btn-secondary">Zmień nazwę</button>
+    <button id="open-change-password-btn" class="btn btn-secondary">Zmień hasło</button>
+    <button id="open-change-subgroup-btn" class="btn btn-secondary">Zmień dział/podgrupę</button>
+    <button id="open-change-group-btn" class="btn btn-secondary">Zmień lub dołącz do grupy</button>
+    <button id="open-manage-group-btn" class="btn btn-primary" style="display: none;">Zarządzaj grupą</button>
 
-                <div class="form-group-checkbox settings-toggle">
-                    <label for="push-notifications-toggle" class="settings-toggle-label">
-                        Powiadomienia push o zadaniach
-                        <small>Otrzymuj przypomnienia na telefonie 15 min przed terminem.</small>
-                    </label>
-                    <input type="checkbox" id="push-notifications-toggle" class="toggle-switch">
-                </div>
-                </div>
-        </div>
+    <div class="form-group-checkbox settings-toggle">
+        <label for="push-notifications-toggle" class="settings-toggle-label">
+            Powiadomienia push o zadaniach
+            <small>Otrzymuj przypomnienia na telefonie 15 min przed terminem.</small>
+        </label>
+        <input type="checkbox" id="push-notifications-toggle" class="toggle-switch">
     </div>
-</div>
+    </div>
 
 <div class="modal-overlay" id="change-username-modal">
     <div class="modal" style="max-width: 400px;">
