@@ -739,7 +739,20 @@
         .kanban-tasks { list-style: none; flex-grow: 1; overflow-y: auto; padding-right: 4px; }
         .kanban-tasks::-webkit-scrollbar { width: 6px; }
         .kanban-tasks::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 3px; }
-         .task-card { background-color: var(--bg-secondary); border-left: 4px solid transparent; border-radius: var(--border-radius); padding: 12px 12px 12px 36px; margin-bottom: 12px; box-shadow: var(--shadow-sm); cursor: pointer; transition: all 0.2s; position: relative; border-top: 4px solid transparent; }
+         .task-card {
+            background-color: var(--bg-secondary);
+            border-left: 4px solid transparent; /* Istniejąca lewa ramka - pozostaje dla statusu 'My Day' */
+            border-radius: var(--border-radius);
+            padding: 12px 12px 12px 36px;
+            margin-bottom: 12px;
+            box-shadow: var(--shadow-sm);
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            border-top: 4px solid transparent; /* Istniejąca górna ramka (dla priorytetu) - pozostaje */
+            /* === NOWA LINIA === */
+            border: 1px solid var(--accent-primary); /* Dodaje niebieską obwódkę 1px */
+         }
        .task-card.priority-high {
             border-top: 4px solid var(--priority-high-border);
             padding-top: 8px; /* Zmniejszamy górny padding, bo ramka zajmuje miejsce */
@@ -2757,6 +2770,17 @@
             display: none;
         }
         /* === KONIEC NOWEJ REGUŁY === */
+        /* === NOWE REGUŁY: Poprawa wyglądu list zadań w Dashboard Details Modal i Upcoming Tasks === */
+        #dashboard-details-content .task-card,
+        #dashboard-upcoming-list .task-card {
+            list-style: none; /* Usuwa czarne kropki */
+            margin-left: 0;   /* Usuwa ewentualne wcięcie listy */
+        }
+        #dashboard-details-content,
+        #dashboard-upcoming-list {
+             padding-left: 0; /* Usuwa ewentualne dopełnienie kontenera listy */
+        }
+        /* === KONIEC NOWYCH REGUŁ === */
     </style>
 </head>
 <body>
@@ -3836,6 +3860,7 @@
             inprogress: 'W trakcie realizacji',
             done: 'Wykonane'
         };
+       
 let state = {
             currentUser: null,
             users: [],
@@ -5137,6 +5162,66 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 projectMembersHeaderEl.style.display = isMyDayView ? 'none' : 'flex';
             }
         }
+       // === NOWY LISTENER: Obsługa kliknięć w modalu Dashboard Details ===
+        dashboardDetailsModal.content.addEventListener('click', (e) => {
+            const taskCard = e.target.closest('.task-card');
+            const checkbox = e.target.closest('.task-card-checkbox');
+
+            if (checkbox && taskCard) {
+                // Kliknięto checkbox
+                handleTaskCheckboxClick(checkbox, e); // Przekazujemy checkbox i event
+            } else if (taskCard) {
+                // Kliknięto kafelek (ale nie checkbox)
+                const taskId = taskCard.dataset.taskId;
+                if (taskId) {
+                    // Zamknij modal szczegółów dashboardu PRZED otwarciem modala zadania
+                    closeModal(dashboardDetailsModal.overlay);
+                    // Otwórz modal zadania z małym opóźnieniem dla płynności
+                    setTimeout(() => {
+                        openTaskModal(taskId);
+                    }, 150);
+                }
+            }
+        });
+        // === KONIEC NOWEGO LISTNERA ===
+
+        function renderMyDashboardView() {
+            // ... (istniejący kod renderowania widoku dashboardu) ...
+
+            // Wywołujemy funkcje wypełniające karty danymi
+            renderDashboardActivityFeed();
+            // Usunięto renderDashboardTeamDelays(); // Ta funkcja już nie istnieje
+            renderDashboardUpcomingTasks(); // Ta funkcja renderuje listę nadchodzących
+
+            // Pobieramy referencję do listy nadchodzących zadań PO jej wyrenderowaniu
+            const upcomingListEl = document.getElementById('dashboard-upcoming-list');
+
+            // === NOWY LISTENER: Obsługa kliknięć w sekcji Upcoming Tasks ===
+            // Usuwamy stary listener, jeśli istniał (na wszelki wypadek)
+            if (upcomingListEl && upcomingListEl._taskClickListener) {
+                upcomingListEl.removeEventListener('click', upcomingListEl._taskClickListener);
+            }
+            // Dodajemy nowy listener
+            if (upcomingListEl) {
+                const taskClickListener = (e) => {
+                    const taskCard = e.target.closest('.task-card');
+                    const checkbox = e.target.closest('.task-card-checkbox');
+
+                    if (checkbox && taskCard) {
+                        // Kliknięto checkbox
+                        handleTaskCheckboxClick(checkbox, e); // Przekazujemy checkbox i event
+                    } else if (taskCard) {
+                        // Kliknięto kafelek (ale nie checkbox)
+                        const taskId = taskCard.dataset.taskId;
+                        if (taskId) {
+                            openTaskModal(taskId);
+                        }
+                    }
+                };
+                upcomingListEl.addEventListener('click', taskClickListener);
+                upcomingListEl._taskClickListener = taskClickListener; // Zapisujemy referencję do listenera
+            }
+            // === KONIEC NOWEGO LISTNERA ===
         // === NOWA, KOMPLETNA LOGIKA OBSŁUGI MODALA POWIADOMIEŃ ===
 
         const notificationsModal = {
@@ -12080,6 +12165,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
