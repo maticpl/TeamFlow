@@ -3782,8 +3782,7 @@
         projectId: "__PROJECT_ID__",
         storageBucket: "__STORAGE_BUCKET__",
         messagingSenderId: "__MESSAGING_SENDER_ID__",
-        appId: "__APP_ID__",
-        vapidKey: "BGNeRxh1j7Nu7Sl4RnTWKhtzPrWTiJmycZVVkbCjlGtbIy4_NPc_xzt9xE5w_8Hgwe5k__XGOxqSyEayMkLfGuk"
+        appId: "__APP_ID__"
     };
 
     // ============================
@@ -3813,156 +3812,7 @@
         const groupsRef = collection(db, `artifacts/${appId}/public/data/groups`);
         const templatesRef = collection(db, `artifacts/${appId}/public/data/projectTemplates`);
 
-    // ==========================================
- // === NOWY KOD: Logika Powiadomień FCM ===
- // ==========================================
 
- /**
-  * Prosi użytkownika o zgodę na powiadomienia i pobiera token FCM.
-  * UWAGA: Sprawdź dokumentację Median.co - mogą mieć własną metodę uzyskiwania tokenu!
-  * Ta wersja używa standardowego Firebase JS SDK.
-  */
- async function requestPermissionAndGetToken() {
-     // Sprawdź, czy VAPID key jest obecny w konfiguracji
-     if (!firebaseConfig.vapidKey) {
-          console.warn("Brak klucza vapidKey w firebaseConfig. Może być wymagany do getToken() w środowisku web/PWA.");
-          // W kontekście Median/Cordova może nie być potrzebny, ale zostawiamy log.
-     }
-
-     try {
-         // Upewnij się, że 'app' jest poprawnie zainicjalizowaną aplikacją Firebase
-         if (typeof app === 'undefined' || !app) {
-              console.error("Firebase app nie jest zainicjalizowana. Nie można uzyskać messaging.");
-              return;
-         }
-         console.log("Inicjalizowanie Firebase Messaging...");
-         const messaging = getMessaging(app);
-
-         // Poproś o zgodę na powiadomienia (w aplikacji natywnej/Median może to działać inaczej)
-         console.log("Prośba o zgodę na powiadomienia (Notification.requestPermission)...");
-         const permission = await Notification.requestPermission();
-
-         if (permission === "granted") {
-             console.log("Zgoda na powiadomienia uzyskana.");
-             // Uzyskaj token
-             console.log("Pobieranie tokenu FCM za pomocą getToken()...");
-             const currentToken = await getToken(messaging, {
-                // Przekazujemy klucz VAPID z konfiguracji
-                vapidKey: firebaseConfig.vapidKey,
-             });
-
-             if (currentToken) {
-                 console.log('Uzyskano Token FCM:', currentToken);
-
-                 // === DODANE SPRAWDZENIE: Upewnij się, że użytkownik jest nadal zalogowany ===
-                 if (typeof state !== 'undefined' && state.currentUser && state.currentUser.uid) {
-                     // KLUCZOWE: Zapisz ten token dla zalogowanego użytkownika w Firestore
-                     console.log(`Użytkownik ${state.currentUser.uid} nadal zalogowany. Wywołuję saveTokenToFirestore...`);
-                     await saveTokenToFirestore(currentToken);
-                 } else {
-                     console.warn("Użytkownik wylogował się lub stan jest nieprawidłowy PRZED próbą zapisu tokenu. Pomijanie zapisu.");
-                 }
-                 // === KONIEC DODANEGO SPRAWDZENIA ===
-
-             } else {
-                 // To może się zdarzyć, jeśli np. Service Worker nie jest poprawnie zarejestrowany
-                 // (w kontekście Median może to być mniej istotne, ale warto logować)
-                 console.log('Nie udało się uzyskać tokenu rejestracyjnego. Sprawdź konfigurację Service Worker (jeśli dotyczy) i uprawnienia.');
-             }
-         } else {
-             console.log('Użytkownik nie wyraził zgody na powiadomienia.');
-             // Możesz tutaj dodać logikę informującą użytkownika, że bez zgody powiadomienia nie będą działać.
-         }
-     } catch (err) {
-         console.error('Wystąpił błąd podczas procesu uzyskiwania tokenu FCM: ', err);
-         // Loguj szczegóły błędu, aby łatwiej diagnozować problem
-         // Możliwe przyczyny: problem z konfiguracją Firebase, brak wsparcia w przeglądarce/webview,
-         // problem z Service Worker (jeśli dotyczy), błędy sieciowe.
-     }
- }
-
- /**
-  * Zapisuje (lub aktualizuje) token FCM w dokumencie użytkownika w Firestore.
-  * Przechowuje tokeny w tablicy 'fcmTokens'.
-  * @param {string} token - Nowy token FCM do zapisania.
-  */
- async function saveTokenToFirestore(token) {
-     // Sprawdź, czy stan aplikacji i użytkownik są poprawnie załadowani
-     if (typeof state === 'undefined' || !state.currentUser || !state.currentUser.uid) {
-         console.warn("Nie można zapisać tokenu - stan aplikacji lub użytkownik (state.currentUser) niezdefiniowany.");
-         return;
-     }
-     console.log(`Próba zapisu tokenu dla użytkownika: ${state.currentUser.uid}`);
-
-     try {
-         // Używamy referencji 'usersRef' zdefiniowanej globalnie w skrypcie
-         const userRef = doc(usersRef, state.currentUser.uid);
-         const userDoc = await getDoc(userRef);
-
-         if (userDoc.exists()) {
-             const userData = userDoc.data();
-             // Sprawdź, czy pole fcmTokens istnieje i jest tablicą, jeśli nie, utwórz je
-             const tokens = Array.isArray(userData.fcmTokens) ? userData.fcmTokens : [];
-
-             // Dodaj token tylko jeśli jeszcze go nie ma w tablicy
-             if (!tokens.includes(token)) {
-                 console.log(`Dodawanie nowego tokenu ${token.substring(0,10)}... do Firestore.`);
-                 // Użyj updateDoc do dodania tokenu do istniejącej (lub nowej) tablicy
-                 await updateDoc(userRef, {
-                     fcmTokens: [...tokens, token] // Tworzy nową tablicę ze starymi i nowym tokenem
-                 });
-                 console.log('Token FCM zapisany/zaktualizowany w Firestore.');
-             } else {
-                 console.log('Token FCM już istnieje w Firestore dla tego użytkownika.');
-             }
-         } else {
-             // Ten scenariusz nie powinien wystąpić dla zalogowanego użytkownika, ale logujemy
-             console.error(`Krytyczny błąd: Nie znaleziono dokumentu dla zalogowanego użytkownika ${state.currentUser.uid} podczas próby zapisu tokenu.`);
-         }
-     } catch (error) {
-         console.error('Błąd podczas zapisu tokenu FCM do Firestore:', error);
-         // Możesz dodać powiadomienie dla użytkownika o błędzie zapisu tokenu
-         // showNotification("Nie udało się zapisać ustawień powiadomień.", "Błąd");
-     }
- }
-
- // === Obsługa wiadomości FCM na pierwszym planie ===
- try {
-   // Upewnij się, że 'app' jest poprawnie zainicjalizowaną aplikacją Firebase
-   if (typeof app !== 'undefined' && app) {
-       console.log("Próba ustawienia listenera wiadomości FCM na pierwszym planie (onMessage)...");
-       const messagingInstance = getMessaging(app);
-       onMessage(messagingInstance, (payload) => {
-         console.log('Wiadomość FCM otrzymana na pierwszym planie: ', payload);
-
-         // Wyodrębnij tytuł i treść z ładunku powiadomienia
-         // Preferuj dane z obiektu 'notification', jeśli istnieje
-         const title = payload.notification?.title || 'Nowe powiadomienie';
-         const body = payload.notification?.body || 'Otrzymałeś nową wiadomość.'; // Domyślny tekst
-
-         // Wyświetl powiadomienie wewnątrz aplikacji używając Twojej funkcji modalnej
-         // Upewnij się, że funkcja showNotification jest dostępna w tym zakresie
-         if (typeof showNotification === 'function') {
-             showNotification(body, title);
-         } else {
-             console.warn("Funkcja showNotification nie jest dostępna do wyświetlenia wiadomości na pierwszym planie.");
-             // Możesz dodać alternatywną metodę powiadomienia, np. alert()
-             alert(`Nowe powiadomienie:\n${title}\n${body}`);
-         }
-
-         // Opcjonalnie: Możesz tutaj dodać logikę odświeżania danych w aplikacji,
-         // jeśli wysyłasz dodatkowe informacje w payload.data
-         // Np. if (payload.data && payload.data.refresh === 'tasks') { refreshTasks(); }
-       });
-       console.log("Listener wiadomości FCM na pierwszym planie (onMessage) został ustawiony pomyślnie.");
-   } else {
-       console.error("Firebase app nie jest zainicjalizowana. Nie można ustawić listenera onMessage.");
-   }
- } catch(error) {
-     console.error("Wystąpił błąd podczas ustawiania listenera onMessage dla FCM:", error);
-     // Ten błąd może wystąpić, jeśli np. przeglądarka/WebView nie wspiera w pełni Messaging SDK
- }
- // === KONIEC NOWEGO KODU: Logika Powiadomień FCM ===
     // ============================
     // 4. GŁÓWNA LOGIKA APLIKACJI (wszystko wewnątrz DOMContentLoaded)
     // ============================
@@ -7874,10 +7724,6 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             }
         };
         state.ui.dashboardLayout = state.currentUser.layouts.dashboard;
-        // === DODANE LINIE: Wywołanie logiki pobierania tokenu po zalogowaniu ===
-         console.log("Użytkownik zalogowany i stan zainicjalizowany. Wywołuję requestPermissionAndGetToken()...");
-         requestPermissionAndGetToken();
-         // === KONIEC DODANYCH LINII ===
     
         if (window.innerWidth <= 768) {
             state.ui.currentView = 'my-day';
@@ -12234,9 +12080,6 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
-
-
-
 
 
 
