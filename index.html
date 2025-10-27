@@ -4493,19 +4493,20 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                 updatePushNotificationSettingUI();
                 return;
             }
-            // Zmieniono median.android.fcm na OneSignal (poprawne API dla Median)
-            if (typeof OneSignal === 'undefined') {
-                console.warn("OneSignal API (obiekt OneSignal) nie jest dostępny. Nie można zarządzać powiadomieniami.");
-                showNotification("Integracja OneSignal nie jest włączona w aplikacji mobilnej.", "Błąd");
-                updatePushNotificationSettingUI();
-                return;
-            }
+            // USUNIĘTO BŁĘDNĄ KONTROLĘ: Zakładamy, że OneSignal jest gotowy dzięki onMedianReady.
 
             const userRef = doc(usersRef, state.currentUser.uid);
             const userId = state.currentUser.uid;
             
             // Funkcja pomocnicza do pobrania OneSignalUserID i zapisania go
             const getAndSaveOneSignalId = async () => {
+                 // Sprawdzamy dostępność obiektu OneSignal, zanim go użyjemy
+                 if (typeof OneSignal === 'undefined') {
+                     showNotification("Błąd: Obiekt OneSignal jest niedostępny. Przebuduj aplikację w Median.co.", "Błąd");
+                     updatePushNotificationSettingUI();
+                     return;
+                 }
+                 
                  OneSignal.showNativePrompt(); // Pokazuje natywny prompt Android/iOS
                  // Czekamy, aż OneSignal uzyska ID urządzenia
                  const deviceId = await new Promise((resolve) => {
@@ -4533,13 +4534,10 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
 
             if (enable) {
                 // Logika WŁĄCZANIA
-                // Sprawdzamy, czy urządzenie ma już ID w OneSignal
                 OneSignal.isPushNotificationsEnabled(function(isEnabled) {
                     if (isEnabled) {
-                        // Jeśli włączone, po prostu zapisujemy ID w bazie na wypadek, gdyby go brakowało
                         getAndSaveOneSignalId();
                     } else {
-                        // Jeśli wyłączone (np. po odmowie), prosimy ponownie o zgodę i zapisujemy ID
                         getAndSaveOneSignalId();
                     }
                 });
@@ -4547,6 +4545,7 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             } else {
                 // Logika WYŁĄCZANIA: Usuwamy ID urządzenia z Firestore
                 OneSignal.getUserId(async function(currentDeviceId) {
+                    // ... (reszta logiki wyłączania pozostaje bez zmian) ...
                     if (currentDeviceId) {
                         try {
                              // Usuńmy ID z Firestore, aby zatrzymać wysyłkę z Cloud Function
@@ -12211,6 +12210,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
