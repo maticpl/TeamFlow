@@ -23,7 +23,6 @@
     <link rel="stylesheet" href="https://unpkg.com/tributejs@5.1.3/dist/tribute.css" />
     <script src="https://unpkg.com/tributejs@5.1.3/dist/tribute.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
     <style>
         /* CAŁY TWÓJ KOD CSS POZOSTAJE BEZ ZMIAN */
         @keyframes animated-gradient {
@@ -3770,8 +3769,7 @@
     const { RRule } = rrule;
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    // DODANO deleteField
-    import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy, arrayRemove, arrayUnion, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
     import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
@@ -3877,28 +3875,7 @@ let state = {
             const day = String(date.getDate()).padStart(2, '0');
             return `${year}-${month}-${day}`;
         }
-        // === DODANA FUNKCJA INICJALIZUJĄCA MEDIAN.CO ===
-        window.onMedianReady = function() {
-            // Ta funkcja jest wywoływana przez Median.co, gdy wszystkie wtyczki są gotowe.
-            console.log("Median.co Native Bridge jest teraz gotowy.");
-
-            // Ręczna Inicjalizacja OneSignal SDK, jeśli nie została wykonana wcześniej.
-            if (typeof OneSignal !== 'undefined') {
-                OneSignal.init({
-                    appId: "50c4b56e-e44e-4d53-ac7e-751450c5a469", // TWOJE ONE SIGNAL APP ID
-                    autoResubscribe: true, 
-                });
-                console.log("OneSignal SDK zainicjalizowany przez skrypt.");
-            } else {
-                 console.error("KRYTYCZNY BŁĄD: Obiekt OneSignal nadal jest niedostępny po wstrzyknięciu natywnego bridge.");
-            }
-            
-            // Opcjonalne sprawdzenie: Jeśli currentUser jest już załadowany, odśwież UI przełącznika.
-            if (state.currentUser) {
-                updatePushNotificationSettingUI();
-            }
-        };
-// === KONIEC DODANEJ FUNKCJI INICJALIZUJĄCEJ MEDIAN.CO ===
+    
         
         // --- Pobieranie referencji do elementów HTML ---
         const editDashboardLayoutBtn = document.getElementById('edit-dashboard-layout-btn'); // <-- DODANA LINIA
@@ -4483,97 +4460,27 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             openModal(confirmationModal.overlay);
         }
 
-        /**
-         * Zarządza procesem włączania lub wyłączania powiadomień OneSignal.
-         * Wymaga obiektu OneSignal wstrzykniętego przez Median.co.
-         * @param {boolean} enable - True, aby włączyć powiadomienia, false, aby wyłączyć.
-         */
-        async function manageOneSignalPush(enable) {
-            if (!state.currentUser) {
-                updatePushNotificationSettingUI();
-                return;
-            }
-            // USUNIĘTO BŁĘDNĄ KONTROLĘ: Zakładamy, że OneSignal jest gotowy dzięki onMedianReady.
-
-            const userRef = doc(usersRef, state.currentUser.uid);
-            const userId = state.currentUser.uid;
-            
-            // Funkcja pomocnicza do pobrania OneSignalUserID i zapisania go
-            const getAndSaveOneSignalId = async () => {
-                 // Sprawdzamy dostępność obiektu OneSignal, zanim go użyjemy
-                 if (typeof OneSignal === 'undefined') {
-                     showNotification("Błąd: Obiekt OneSignal jest niedostępny. Przebuduj aplikację w Median.co.", "Błąd");
-                     updatePushNotificationSettingUI();
-                     return;
-                 }
-                 
-                 OneSignal.showNativePrompt(); // Pokazuje natywny prompt Android/iOS
-                 // Czekamy, aż OneSignal uzyska ID urządzenia
-                 const deviceId = await new Promise((resolve) => {
-                     // Używamy getUserId z Median API
-                     OneSignal.getUserId((id) => resolve(id));
-                 });
-
-                 if (deviceId) {
-                    // Dodatkowo ustawiamy zewnętrzny ID w OneSignal (dla celów targetowania)
-                    OneSignal.setExternalUserId(userId); 
-                    
-                    // Zapisujemy OneSignal ID w Firestore
-                    await updateDoc(userRef, {
-                        oneSignalId: deviceId // Zapisujemy ID urządzenia OneSignal
-                    });
-
-                    // Zaktualizuj stan lokalny i UI
-                    state.currentUser.oneSignalId = deviceId;
-                    showNotification("Powiadomienia OneSignal zostały włączone.", "Sukces");
-                 } else {
-                     showNotification("Nie udało się uzyskać ID urządzenia. Odmowa dostępu.", "Błąd");
-                 }
-                 updatePushNotificationSettingUI();
-            };
-
-            if (enable) {
-                // Logika WŁĄCZANIA
-                OneSignal.isPushNotificationsEnabled(function(isEnabled) {
-                    if (isEnabled) {
-                        getAndSaveOneSignalId();
-                    } else {
-                        getAndSaveOneSignalId();
-                    }
-                });
-
-            } else {
-                // Logika WYŁĄCZANIA: Usuwamy ID urządzenia z Firestore
-                OneSignal.getUserId(async function(currentDeviceId) {
-                    // ... (reszta logiki wyłączania pozostaje bez zmian) ...
-                    if (currentDeviceId) {
-                        try {
-                             // Usuńmy ID z Firestore, aby zatrzymać wysyłkę z Cloud Function
-                             await updateDoc(userRef, {
-                                 oneSignalId: deleteField() 
-                             });
-                             // Cofamy zgodę w systemie OneSignal (na telefonie)
-                             OneSignal.setSubscription(false); 
-                             
-                             // Opcjonalnie: Usuwamy External User ID
-                             OneSignal.removeExternalUserId();
-
-                             state.currentUser.oneSignalId = null;
-                             showNotification("Powiadomienia OneSignal zostały wyłączone dla tego urządzenia.", "Sukces");
-                        } catch (error) {
-                             console.error("Błąd usuwania oneSignalId:", error);
-                             showNotification("Nie udało się wyłączyć powiadomień.", "Błąd");
+        async function requestNotificationPermission() {
+            try {
+                const messaging = getMessaging(app);
+                const permission = await Notification.requestPermission();
+                if (permission === "granted") {
+                    const currentToken = await getToken(messaging);
+                    if (currentToken && state.currentUser) {
+                        const userRef = doc(usersRef, state.currentUser.uid);
+                        const userDoc = await getDoc(userRef);
+                        if (userDoc.exists()) {
+                            const tokens = userDoc.data().fcmTokens || [];
+                            if (!tokens.includes(currentToken)) {
+                                await updateDoc(userRef, {
+                                    fcmTokens: [...tokens, currentToken]
+                                });
+                            }
                         }
-                    } else {
-                        // Jeśli nie ma ID, po prostu upewnijmy się, że pole jest usunięte w bazie
-                        await updateDoc(userRef, {
-                             oneSignalId: deleteField()
-                        });
-                        state.currentUser.oneSignalId = null;
-                        showNotification("Powiadomienia OneSignal wyłączone.", "Informacja");
                     }
-                    updatePushNotificationSettingUI(); // Aktualizujemy UI
-                });
+                }
+            } catch (error) {
+                console.error("Błąd podczas prośby o zgodę na powiadomienia:", error);
             }
         }
 
@@ -7684,22 +7591,6 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         } catch(e) {
             console.error("Nie udało się zainicjować biblioteki Tribute.js dla wzmianek.", e);
         }
-       /**
-         * Aktualizuje stan przełącznika powiadomień push w Ustawieniach
-         * na podstawie obecności OneSignalID w danych użytkownika.
-         */
-        function updatePushNotificationSettingUI() {
-            const toggle = document.getElementById('push-notifications-toggle');
-            // Sprawdź, czy przełącznik istnieje i czy użytkownik jest załadowany
-            if (!toggle || !state.currentUser) return;
-
-            // Sprawdź, czy użytkownik ma zapisane OneSignal ID w stanie aplikacji
-            const hasOneSignalId = !!state.currentUser.oneSignalId; 
-
-            // Ustaw stan atrybutu 'checked' przełącznika
-            toggle.checked = hasOneSignalId;
-            console.log(`UI Ustawień Powiadomień Push: Stan przełącznika ustawiony na ${hasOneSignalId}`);
-        }
         // === KONIEC: INICJALIZACJA TRIBUTE.JS ===
 
         function updateNotificationBellUI() {
@@ -7862,12 +7753,9 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         // --- KONIEC NOWEJ LOGIKI ---
 
         // POPRAWKA: Dodano brakujący nawias zamykający ")"
-        // POPRAWKA: Dodano brakujący nawias zamykający ")"
         setupFirestoreListeners(user.uid);
-        // Usunięto: requestNotificationPermission();
+        requestNotificationPermission();
         updateNotificationBellUI();
-        // Dodano wywołanie funkcji aktualizującej UI przełącznika w Ustawieniach
-        updatePushNotificationSettingUI();
 
         // <<<--- TUTAJ WŁĄCZ PRZYCISK ---<<<
         const newProjectBtn = document.getElementById('new-project-btn');
@@ -9172,8 +9060,7 @@ if (changeGroupModal.form) {
         }
         // === KONIEC NOWEGO LISTENERA ===
         document.querySelectorAll('#notification-toggle-btn, #notification-toggle-btn-mobile').forEach(btn => {
-            // Zmieniono wywołanie na funkcję otwierającą modal z listą powiadomień
-            btn.addEventListener('click', openNotificationsModal);
+            btn.addEventListener('click', requestNotificationPermission);
         });
 
          const handleProjectLinkClick = (e) => {
@@ -11034,19 +10921,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         });
        // === KONIEC: NOWY LISTENER DLA PRZENOSZENIA ZADANIA ===
         // === KONIEC: NOWY LISTENER DLA PRZENOSZENIA ZADANIA ===
-        // === NOWY LISTENER DLA PRZEŁĄCZNIKA POWIADOMIEŃ PUSH W USTAWIENIACH ===
-        const pushNotificationsToggle = document.getElementById('push-notifications-toggle');
-        if (pushNotificationsToggle) {
-            pushNotificationsToggle.addEventListener('change', (e) => {
-                const enable = e.target.checked; // Sprawdź, czy checkbox jest zaznaczony (true) czy nie (false)
-                // Zmieniono wywołanie na manageOneSignalPush
-                manageOneSignalPush(enable);
-            });
-            console.log("Listener dla przełącznika powiadomień push podpięty."); // Log dla pewności
-        } else {
-            console.warn("Nie znaleziono elementu #push-notifications-toggle do podpięcia listenera.");
-        }
-        // === KONIEC NOWEGO LISTENERA ===
+
 
         // === POCZĄTEK: NOWY LISTENER DLA AKORDEONU SUBZADAŃ (Wersja 2) ===
         const subtasksToggleBtn = document.getElementById('subtasks-toggle-btn');
@@ -11822,15 +11697,10 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     <button id="open-change-subgroup-btn" class="btn btn-secondary">Zmień dział/podgrupę</button>
     <button id="open-change-group-btn" class="btn btn-secondary">Zmień lub dołącz do grupy</button>
     <button id="open-manage-group-btn" class="btn btn-primary" style="display: none;">Zarządzaj grupą</button>
-
-    <div class="form-group-checkbox settings-toggle">
-        <label for="push-notifications-toggle" class="settings-toggle-label">
-            Powiadomienia push o zadaniach
-            <small>Otrzymuj przypomnienia na telefonie 15 min przed terminem.</small>
-        </label>
-        <input type="checkbox" id="push-notifications-toggle" class="toggle-switch">
+</div>
+        </div>
     </div>
-    </div>
+</div>
 
 <div class="modal-overlay" id="change-username-modal">
     <div class="modal" style="max-width: 400px;">
@@ -12210,9 +12080,6 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
-
-
-
 
 
 
