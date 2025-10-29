@@ -5942,9 +5942,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             kanbanBoardEl.innerHTML = `
                 <div class="dashboard-container">
                     <div class="dashboard-grid" id="dashboard-grid-main">
-                        <div class="kpi-column" id="kpi-column-sortable">
-                             </div>
-                    </div>
+                        </div>
                     
                     <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; margin-top: 24px;">Wszystkie Moje Zadania</h2>
                     <section id="my-tasks-kanban" class="kanban-board-mini"></section>
@@ -5952,14 +5950,13 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             `;
             
             // Pobieramy referencję do kontenera KPI
-            const kpiColumnEl = document.getElementById('kpi-column-sortable');
             const dashboardGrid = document.getElementById('dashboard-grid-main');
             
             // 3. Sortujemy i wstawiamy 5 kafelków do kontenera KPI
             const allKpis = ['my-overdue', 'team-delays', 'workload', 'upcoming', 'activity'];
             const order = state.currentUser.layouts.dashboard || allKpis;
             
-            // Ustawiamy dashboard grid na 3 kolumny
+            // Ustawiamy dashboard grid na 3 kolumny (jest to już w CSS, ale dla pewności zostawiamy)
             dashboardGrid.style.gridTemplateColumns = '1fr 1fr 1fr';
 
             order.forEach(id => {
@@ -5969,6 +5966,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             });
 
+            // NAPRAWA DZIURY: Dodaj pusty kafelek na koniec, aby wypełnić siatkę 3x2 i usunąć niechciany gap
+            if (dashboardGrid.children.length === 5) {
+                 const emptyTile = document.createElement('div');
+                 emptyTile.className = 'dashboard-card kpi-mini-card';
+                 emptyTile.style.visibility = 'hidden'; // Ukryj, ale zachowaj zajmowane miejsce
+                 emptyTile.style.border = 'none';
+                 emptyTile.style.boxShadow = 'none';
+                 emptyTile.style.cursor = 'default';
+                 emptyTile.innerHTML = '&nbsp;'; // Upewnij się, że ma jakąś zawartość dla wysokości
+                 dashboardGrid.appendChild(emptyTile);
+            }
+
             // 4. Zmieniamy klasę kontenera w zależności od trybu edycji
             dashboardGrid.classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
             
@@ -5977,13 +5986,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 sortableDashboard.destroy();
                 sortableDashboard = null;
             }
+            
+            // NAPRAWA BŁĘDU ZAPISU: Filtrowanie SortableJS, aby objęło tylko 5 kafelków KPI.
+            // Sortable.js musi działać na kontenerze, który zawiera TYLKO sortowalne elementy.
             if (state.ui.dashboardEditMode && dashboardGrid) {
-                 // Używamy głównego kontenera dashboardGrid do sortowania wszystkich 5 kafelków
+                 // Używamy dashboardGrid, ale musimy ograniczyć tylko do 5 elementów KPI
                 sortableDashboard = new Sortable(dashboardGrid, {
                     animation: 150,
                     ghostClass: 'sortable-ghost',
                     group: 'dashboard-kpi', 
-                    filter: '.kanban-board-mini', // Nie sortuj sekcji "Wszystkie Moje Zadania"
+                    // Nowa kluczowa opcja: ignoruj wszystkie elementy poza kafelkami KPI i ukrytym kafelkiem
+                    filter: ':not(.dashboard-card)',
                     multiDrag: true, 
                     selectedClass: 'selected' 
                 });
@@ -12251,6 +12264,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
