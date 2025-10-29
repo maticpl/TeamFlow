@@ -10116,23 +10116,17 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                         // Ustaw listener dla przełącznika zakresu
                         const toggleElement = document.getElementById('workload-scope-toggle');
                         if (toggleElement) {
-                            // Usuwamy ewentualny stary listener przed dodaniem nowego
-                            // Aby uniknąć wielokrotnego wywołania
-                            const oldListener = dashboardDetailsModal.scopeChangeListener; 
-                            if (oldListener) {
-                                toggleElement.removeEventListener('change', oldListener);
-                            }
-
-                            const newListener = (e) => {
+                            // WAŻNA POPRAWKA: Zapewniamy, że checkbox odzwierciedla zakres przekazany DO modala
+                            // To kluczowe, bo przy rekurencyjnym wywołaniu to się resetowało
+                            toggleElement.checked = scope === 'global'; 
+                            
+                            // Dodajemy listener (nie trzeba go usuwać, bo jest w elemencie DOM tworzonym za każdym razem)
+                            toggleElement.addEventListener('change', (e) => {
                                 const newScope = e.target.checked ? 'global' : 'local';
-                                // Poprawne rekurencyjne wywołanie, aby przerysować modal z nowymi danymi
-                                // Przekazujemy ten sam typ, ale zmieniony scope
+                                // Rekurencyjne wywołanie z nowym, poprawnym zakresem
+                                // Aby upewnić się, że zakres jest przekazany, robimy to natychmiast
                                 renderDashboardDetailsModal('show-team-workload-details', newScope); 
-                            };
-
-                            toggleElement.addEventListener('change', newListener);
-                            // Zapisujemy referencję do listenera, aby móc go usunąć przy następnym wywołaniu
-                            dashboardDetailsModal.scopeChangeListener = newListener; 
+                            });
                         }
                     }
                 }, 50);
@@ -10140,16 +10134,15 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return chartHTML;
             }; // Koniec renderWorkloadChart
             
-            // Pobieramy aktualny zakres (lub domyślnie 'local'). To argument jest KLUCZOWY.
-            // Sprawdzamy, czy w state nie został zapisany ostatni użyty zakres.
-            const currentScope = arguments[1] || dashboardDetailsModal.currentWorkloadScope || 'local'; 
-            dashboardDetailsModal.currentWorkloadScope = currentScope; // Zapisujemy aktualny zakres
+            // Pobieramy aktualny zakres (lub domyślnie 'local'). 
+            // Ponieważ jest to rekurencyjne wywołanie, używamy tylko argumentu [1].
+            const currentScope = arguments[1] || 'local'; 
             
             switch (type) {
                 case 'show-team-workload-details': // NOWY KAFLOWY WIDOK
                     title = 'Obciążenie Zespołu (Aktywne Zadania)';
-                    // Używamy funkcji getTeamWorkload z dynamicznym zakresem
-                    const workloadData = getTeamWorkload(currentScope);
+                    // Używamy funkcji getTeamWorkload Z POPRAWNYM, AKTUALNYM zakresem
+                    const workloadData = getTeamWorkload(currentScope); 
                     
                     if (workloadData.length === 0) {
                         contentHTML = '<p class="no-tasks-message">Brak członków zespołu lub brak zadań do wyświetlenia.</p>';
@@ -12549,6 +12542,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
