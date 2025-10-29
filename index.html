@@ -4720,58 +4720,6 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                 t.dueDate && new Date(t.dueDate).getTime() < now && t.status !== 'done'
             ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
         }
-       /**
-         * Zwraca obciążenie zespołu na podstawie zdefiniowanego zakresu projektów.
-         * @param {string} scope - 'local' (wspólne projekty) lub 'global' (wszystkie projekty w grupie).
-         * @returns {Array<Object>} Lista obiektów obciążenia dla każdego członka zespołu.
-         */
-        function getTeamWorkload(scope = 'local') {
-            const allUsers = state.users.filter(u => u.id !== state.currentUser.uid && u.groupId === state.currentUser.groupId);
-            let sourceProjects;
-            
-            // Definicja zbioru projektów do uwzględnienia w LICZNIKACH WYKRESU:
-            if (scope === 'local') {
-                // Lokalnie: Tylko projekty, w których zalogowany użytkownik (A) jest członkiem.
-                sourceProjects = [...state.projects, ...(state.completedProjects || [])].filter(p => p.members.includes(state.currentUser.uid));
-            } else { // scope === 'global'
-                // Globalnie: WSZYSTKIE projekty w grupie, aby uzyskać pełne liczniki (w tym zadania prywatne B i C).
-                // POPRAWKA: Upewniamy się, że nie uwzględniamy projektów prywatnych (isInbox)
-                sourceProjects = [...state.projects, ...(state.completedProjects || [])].filter(p => p.groupId === state.currentUser.groupId && !p.isInbox);
-            }
-
-            const workloadMap = {};
-
-            sourceProjects.forEach(project => {
-                (project.tasks || []).map(migrateTask).forEach(task => {
-                    task.assignees.forEach(assigneeId => {
-                        // Inicjalizujemy mapę dla każdego członka zespołu
-                        if (!workloadMap[assigneeId]) {
-                            const user = findUser(assigneeId);
-                            if (user) {
-                                workloadMap[assigneeId] = { id: assigneeId, name: user.name || user.email, todo: 0, inprogress: 0, done: 0 };
-                            }
-                        }
-                        
-                        if (workloadMap[assigneeId]) {
-                            // KLUCZOWA ZMIANA: Zliczamy zadania niezależnie od zakresu
-                            if (task.status === 'todo') workloadMap[assigneeId].todo++;
-                            else if (task.status === 'inprogress') workloadMap[assigneeId].inprogress++;
-                            else if (task.status === 'done') workloadMap[assigneeId].done++;
-                            // Dodajemy informację o projekcie do zadań w trybie globalnym dla potrzeb wyświetlania
-                            if (scope === 'global') {
-                                workloadMap[assigneeId].tasks = workloadMap[assigneeId].tasks || [];
-                                workloadMap[assigneeId].tasks.push({ taskId: task.id, status: task.status, projectName: project.name, ...task });
-                            }
-                        }
-                    });
-                });
-            });
-
-            // Zwracamy dane tylko dla pozostałych członków zespołu (z wyłączeniem siebie)
-           return allUsers
-                .map(user => workloadMap[user.id] || { id: user.id, name: user.name || user.email, todo: 0, inprogress: 0, done: 0 })
-                .sort((a, b) => b.todo + b.inprogress - (a.todo + a.inprogress)); // Sortuj po aktywnym obciążeniu
-        }
 
         function getTeamOverdueCount() {
              const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
@@ -5975,22 +5923,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const otherUsersActivities = getAllActivitiesFromMyProjects().filter(activity => activity.userId !== state.currentUser.uid);
             otherUsersActivities.sort((a, b) => b.timestamp - a.timestamp);
             const recentActivityCount = otherUsersActivities.slice(0, 15).length; // Liczba aktywności do pokazania
-             // NOWA LOGIKA: Obciążenie Zespołu
-            const localWorkloadData = getTeamWorkload('local');
-            const totalTeamActiveTasks = localWorkloadData.reduce((sum, user) => sum + user.todo + user.inprogress, 0);
 
             // 1. Definiujemy HTML dla każdej karty w obiekcie
             const cardHTMLs = {
-                // NOWY KAFLOWY WIDOK: Obciążenie Zespołu
-                'team-workload': `
-                    <div class="dashboard-card kpi-mini-card" data-id="team-workload" data-action="show-team-workload-details">
-                        <h3>Obciążenie Zespołu</h3>
-                        <div style="font-size: 36px; font-weight: 700; color: ${totalTeamActiveTasks > 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">${totalTeamActiveTasks}</div>
-                        <p style="font-size: 14px; color: var(--text-secondary);">Aktywne zadania w Twoich projektach (bez Twoich).</p>
-                        <div id="team-workload-chart" style="height: 30px; margin-top: 10px; background-color: var(--bg-tertiary); border-radius: 4px; overflow: hidden;">
-                            <div style="height: 100%; width: ${Math.min(totalTeamActiveTasks * 2, 100)}%; background-color: var(--danger-primary); transition: width 0.5s;"></div>
-                        </div>
-                    </div>`,
                 // Nowa karta KPI - Moje Opóźnione Zadania (Symulacja wykresu)
                 'my-overdue': `
                     <div class="dashboard-card kpi-mini-card" data-id="my-overdue" data-action="show-my-overdue-details">
@@ -6065,19 +6000,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const dashboardGrid = document.getElementById('dashboard-grid-main');
             
             // 3. Sortujemy i wstawiamy 5 kafelków do kontenera KPI
-            const defaultAllKpis = ['team-workload', 'my-overdue', 'team-delays', 'workload', 'upcoming', 'activity']; 
+            const allKpis = ['my-overdue', 'team-delays', 'workload', 'upcoming', 'activity'];
+            const order = state.currentUser.layouts.dashboard || allKpis;
             
-            // Definiujemy 'order' raz, używając 'let' lub 'const'
-            let order = state.currentUser.layouts.dashboard && state.currentUser.layouts.dashboard.length > 0 
-                ? state.currentUser.layouts.dashboard.filter(id => defaultAllKpis.includes(id)) 
-                : defaultAllKpis; // Używamy pełnej listy, jeśli układ nie jest zapisany
-
-            // KLUCZOWA NAPRAWA: ZAWSZE dodajemy nową kartę na początek, jeśli brakuje jej w zapisanym układzie użytkownika.
-            if (!order.includes('team-workload')) {
-                 order = ['team-workload', ...order];
-            }
-            
-            // Ustawiamy dashboard grid na 3 kolumny
+            // Ustawiamy dashboard grid na 3 kolumny (jest to już w CSS, ale dla pewności zostawiamy)
             dashboardGrid.style.gridTemplateColumns = '1fr 1fr 1fr';
 
             order.forEach(id => {
@@ -6087,8 +6013,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             });
 
-            // USUNIĘTO NAPRAWĘ DZIURY: Ponieważ mamy teraz 6 elementów, siatka 3x2 jest pełna.
-            /*
+            // NAPRAWA DZIURY: Dodaj pusty kafelek na koniec, aby wypełnić siatkę 3x2 i usunąć niechciany gap
             if (dashboardGrid.children.length === 5) {
                  const emptyTile = document.createElement('div');
                  emptyTile.className = 'dashboard-card kpi-mini-card';
@@ -6099,15 +6024,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                  emptyTile.innerHTML = '&nbsp;'; // Upewnij się, że ma jakąś zawartość dla wysokości
                  dashboardGrid.appendChild(emptyTile);
             }
-            */
 
+            // 4. Zmieniamy klasę kontenera w zależności od trybu edycji
+            dashboardGrid.classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
+            
             // 5. Destrukcja i ponowna inicjalizacja SortableJS
             if (sortableDashboard) {
                 sortableDashboard.destroy();
                 sortableDashboard = null;
             }
             if (state.ui.dashboardEditMode && dashboardGrid) {
-                 // Używamy głównego kontenera dashboardGrid do sortowania wszystkich 6 kafelków
+                 // Używamy głównego kontenera dashboardGrid do sortowania wszystkich 5 kafelków
                 sortableDashboard = new Sortable(dashboardGrid, {
                     animation: 150,
                     ghostClass: 'sortable-ghost',
@@ -7684,7 +7611,30 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                     );
                 console.log(`[setupFirestoreListeners] Przefiltrowano aktywne projekty. Liczba po filtracji: ${state.projects.length}`);
                 // <<<--- KONIEC FILTROWANIA LOKALNEGO ---<<<
-// ... (Linia 5500)
+
+                // Sprawdzanie spójności currentProjectId (pozostaje bez zmian, ale wewnątrz callbacka)
+                const isProjectView = state.ui.currentView === 'projects';
+                 if (isProjectView && state.currentProjectId) { // Dodano sprawdzenie state.currentProjectId
+                     const stillExists = state.projects.some(p => p.id === state.currentProjectId) ||
+                                       state.completedProjects.some(p => p.id === state.currentProjectId);
+
+                     if (!stillExists) {
+                         const nextProject = state.projects.find(p => !p.isInbox) || state.projects.find(p => p.isInbox);
+                         state.currentProjectId = nextProject ? nextProject.id : null;
+                         if (!state.currentProjectId) {
+                            state.ui.currentView = 'my-dashboard';
+                         }
+                         saveUiState();
+                     }
+                 }
+                 loadingOverlay.style.display = 'none';
+                 render(); // Przerenderuj po aktualizacji stanu projektów
+            }, (error) => {
+                console.error("Błąd odczytu projektów:", error);
+                loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small></p>`;
+            });
+
+
             if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
 
              // <<<--- USUNIĘTO FILTROWANIE groupId Z ZAPYTANIA ---<<<
@@ -7737,7 +7687,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                   console.error(`[DEBUG] Błąd w onSnapshot powiadomień dla userId: ${userId}`, error);
                   console.error("Błąd odczytu powiadomień:", error);
              });
-        
+        }
         loadUiState();
         initializeCalendar();
        // === POCZĄTEK: INICJALIZACJA TRIBUTE.JS DLA WZMIANEK ===
@@ -10031,114 +9981,13 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             let title = '';
             let contentHTML = '';
             
-            // Funkcja pomocnicza do generowania wykresu obciążenia
-            const renderWorkloadChart = (data, scope) => {
-                // KLUCZOWA POPRAWKA: Pobieramy dane DYNAMICZNIE, aby reagować na przełącznik scope
-                const currentWorkloadData = getTeamWorkload(scope); 
-                
-                const labels = currentWorkloadData.map(u => u.name);
-                const todoData = currentWorkloadData.map(u => u.todo);
-                const inprogressData = currentWorkloadData.map(u => u.inprogress);
-                
-                // Generuj strukturę HTML dla wykresu i przełącznika
-                const chartWrapperId = `workload-chart-${scope}`;
-                let chartHTML = `
-                    <div style="margin-bottom: 16px;">
-                        <label>
-                            <input type="checkbox" id="workload-scope-toggle" ${scope === 'global' ? 'checked' : ''}> 
-                            Sprawdź obciążenie pracownika wraz z jego zadaniami (Globalnie)
-                        </label>
-                    </div>
-                    <div style="height: 300px; width: 100%;">
-                        <canvas id="${chartWrapperId}"></canvas>
-                    </div>
-                    <div id="workload-user-details"></div>
-                `;
-
-                // Renderuj wykres po otwarciu modala (wymaga instancji Chart.js)
-                setTimeout(() => {
-                    const ctx = document.getElementById(chartWrapperId)?.getContext('2d');
-                    if (ctx) {
-                        if (dashboardDetailsModal.chartInstance) {
-                            dashboardDetailsModal.chartInstance.destroy();
-                        }
-                        dashboardDetailsModal.chartInstance = new Chart(ctx, {
-                            type: 'bar',
-                            data: {
-                                labels: labels,
-                                datasets: [{
-                                    label: 'Do realizacji',
-                                    data: todoData,
-                                    backgroundColor: 'rgba(239, 68, 68, 0.7)' 
-                                }, {
-                                    label: 'W trakcie',
-                                    data: inprogressData,
-                                    backgroundColor: 'rgba(79, 70, 229, 0.7)' 
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } } },
-                                onClick: (e, elements) => {
-                                    if (elements.length > 0) {
-                                        const index = elements[0].index;
-                                        const userId = currentWorkloadData[index].id;
-                                        // ZMIANA: Wywołujemy funkcję renderWorkloadUserDetails BEZ przekazywania scope.
-                                        // Logika wewnątrz tej funkcji zawsze użyje właściwego, ograniczonego zakresu danych.
-                                        renderWorkloadUserDetails(userId); 
-                                    }
-                                }
-                            }
-                        });
-                        // Ustaw listener dla przełącznika zakresu
-                        const toggleElement = document.getElementById('workload-scope-toggle');
-                        if (toggleElement) {
-                            // WAŻNA POPRAWKA: Zapewniamy, że checkbox odzwierciedla zakres przekazany DO modala
-                            // To kluczowe, bo przy rekurencyjnym wywołaniu to się resetowało
-                            toggleElement.checked = scope === 'global'; 
-                            
-                            // Dodajemy listener (nie trzeba go usuwać, bo jest w elemencie DOM tworzonym za każdym razem)
-                            toggleElement.addEventListener('change', (e) => {
-                                const newScope = e.target.checked ? 'global' : 'local';
-                                // Rekurencyjne wywołanie z nowym, poprawnym zakresem
-                                // Aby upewnić się, że zakres jest przekazany, robimy to natychmiast
-                                renderDashboardDetailsModal('show-team-workload-details', newScope); 
-                            });
-                        }
-                    }
-                }, 50);
-
-                return chartHTML;
-            }; // Koniec renderWorkloadChart
-            
-            // Pobieramy aktualny zakres (lub domyślnie 'local'). 
-            // Ponieważ jest to rekurencyjne wywołanie, używamy tylko argumentu [1].
-            const currentScope = arguments[1] || 'local'; 
-            
             switch (type) {
-                case 'show-team-workload-details': // NOWY KAFLOWY WIDOK
-                    title = 'Obciążenie Zespołu (Aktywne Zadania)';
-                    // Używamy funkcji getTeamWorkload Z POPRAWNYM, AKTUALNYM zakresem
-                    const workloadData = getTeamWorkload(currentScope); 
-                    
-                    if (workloadData.length === 0) {
-                        contentHTML = '<p class="no-tasks-message">Brak członków zespołu lub brak zadań do wyświetlenia.</p>';
-                        dashboardDetailsModal.content.classList.remove('dashboard-detail-list'); // Upewnij się, że nie ma siatki
-                    } else {
-                        // RENDERUJEMY WYKRES
-                        contentHTML = renderWorkloadChart(workloadData, currentScope);
-                        dashboardDetailsModal.content.classList.remove('dashboard-detail-list'); // Upewnij się, że nie ma siatki
-                    }
-                    break;
-                    
                 case 'show-my-overdue-details':
                     title = 'Moje Opóźnione Zadania';
                     const overdueTasks = getOverdueTasks(allMyTasks);
                     contentHTML = overdueTasks.length === 0 
                         ? '<p class="no-tasks-message">Brak opóźnionych zadań. Dobra robota!</p>' 
                         : overdueTasks.map(task => createTaskCardHTML(task, true)).join('');
-                    dashboardDetailsModal.content.classList.add('dashboard-detail-list');
                     break;
                     
                 case 'show-team-delays-details':
@@ -10154,7 +10003,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     contentHTML = teamOverdueTasks.length === 0 
                         ? '<p class="no-tasks-message">Brak opóźnień w projektach, których jesteś właścicielem.</p>' 
                         : teamOverdueTasks.map(task => createTaskCardHTML(task, true)).join('');
-                    dashboardDetailsModal.content.classList.add('dashboard-detail-list');
                     break;
                     
                 case 'show-workload-details':
@@ -10164,7 +10012,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     contentHTML = activeTasks.length === 0 
                         ? '<p class="no-tasks-message">Brak aktywnych zadań.</p>' 
                         : activeTasks.map(task => createTaskCardHTML(task, true)).join('');
-                    dashboardDetailsModal.content.classList.add('dashboard-detail-list');
                     break;
                     
                 case 'show-upcoming-details':
@@ -10181,7 +10028,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     contentHTML = upcomingTasks.length === 0 
                         ? '<p class="no-tasks-message">Brak zadań z terminem na dziś lub jutro.</p>' 
                         : upcomingTasks.map(task => createTaskCardHTML(task, true)).join('');
-                    dashboardDetailsModal.content.classList.add('dashboard-detail-list');
                     break;
                     
                 case 'show-activity-details':
@@ -10230,60 +10076,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             dashboardDetailsModal.title.textContent = title;
             dashboardDetailsModal.content.innerHTML = contentHTML;
             openModal(dashboardDetailsModal.overlay);
-        }
-
-        /**
-         * Renderuje szczegółową listę zadań dla danego użytkownika (po kliknięciu na słupek wykresu).
-         * @param {string} userId - ID użytkownika.
-         * @param {string} scope - Zakres danych ('local' lub 'global').
-         */
-            
-            // Definicja zbioru projektów do uwzględnienia
-            function renderWorkloadUserDetails(userId, scope) {
-            const user = findUser(userId);
-            if (!user) return;
-            
-            // W TYM MIEJSCU ZAWSZE Bierzemy tylko projekty, w których zalogowany użytkownik jest członkiem.
-            // Zapewnia to, że lista szczegółów zadań nigdy nie zawiera prywatnych zadań B i C,
-            // niezależnie od tego, czy wykres jest w trybie 'local' czy 'global'.
-            const sourceProjects = state.projects.filter(p => p.members.includes(state.currentUser.uid) || p.ownerId === state.currentUser.uid); 
-            
-            // 1. Filtrujemy wszystkie zadania w tych projektach, przypisane do danego pracownika
-            const userTasks = sourceProjects.flatMap(p => 
-                (p.tasks || []).map(migrateTask)
-                .filter(t => t.assignees.includes(userId))
-                .map(t => ({ ...t, projectName: p.name, projectId: p.id }))
-            );
-            
-            const tasksByStatus = {
-                todo: userTasks.filter(t => t.status === 'todo').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()),
-                inprogress: userTasks.filter(t => t.status === 'inprogress').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()),
-                done: userTasks.filter(t => t.status === 'done').sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime()), // Zakończone od najnowszego
-            };
-
-            const taskHtml = Object.keys(tasksByStatus).map(statusKey => {
-                const tasks = tasksByStatus[statusKey];
-                if (tasks.length === 0) return '';
-                
-                return `
-                    <div style="margin-top: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
-                        <h4 style="font-size: 14px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">
-                            ${tasks.length}x ${STATUSES[statusKey]}
-                        </h4>
-                        <div class="dashboard-detail-list">
-                            ${tasks.map(t => createTaskCardHTML(t, true)).join('')}
-                        </div>
-                    </div>
-                `;
-            }).join('');
-            
-            const container = document.getElementById('workload-user-details');
-            if (container) {
-                container.innerHTML = `
-                    <h3 style="margin-top: 30px; font-size: 18px;">Szczegóły zadań: ${user.name || user.email}</h3>
-                    ${taskHtml.length > 0 ? taskHtml : `<p class="no-tasks-message">Brak zadań w wybranym zakresie dla ${user.name}.</p>`}
-                `;
-            }
         }
 
         document.addEventListener('click', (e) => {
@@ -12520,21 +12312,6 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
