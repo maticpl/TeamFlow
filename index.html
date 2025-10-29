@@ -4721,25 +4721,20 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
         }
        /**
-         * Oblicza obciążenie aktywnymi zadaniami (todo, inprogress) dla wszystkich użytkowników w grupie.
-         *
-         * @param {string} scope - 'local' (projekty, w których jest użytkownik) lub 'global' (wszystkie projekty).
-         * @returns {Array<{id: string, name: string, todo: number, inprogress: number, done: number}>}
+         * Zwraca obciążenie zespołu na podstawie zdefiniowanego zakresu projektów.
+         * @param {string} scope - 'local' (wspólne projekty) lub 'global' (wszystkie projekty w grupie).
+         * @returns {Array<Object>} Lista obiektów obciążenia dla każdego członka zespołu.
          */
         function getTeamWorkload(scope = 'local') {
-            const allUsers = state.users.filter(u => u.groupId === state.currentUser.groupId && u.id !== state.currentUser.uid);
-            
-            // Definicja zbioru projektów do uwzględnienia
+            const allUsers = state.users.filter(u => u.id !== state.currentUser.uid && u.groupId === state.currentUser.groupId);
             let sourceProjects;
+            
+            // Definicja zbioru projektów do uwzględnienia w LICZNIKACH WYKRESU:
             if (scope === 'local') {
-                // Projekty, w których zalogowany użytkownik jest członkiem (lub właścicielem)
+                // Lokalnie: Tylko projekty, w których zalogowany użytkownik (A) jest członkiem.
                 sourceProjects = [...state.projects, ...state.completedProjects].filter(p => p.members.includes(state.currentUser.uid));
             } else { // scope === 'global'
-                // Wszystkie projekty w grupie (jest to skomplikowane, więc dla uproszczenia
-                // użyjemy wszystkich projektów dostępnych w stanie, aby uniknąć drogich zapytań Firestore).
-                // Faktyczna implementacja globalnego zakresu jest złożona (wymagałaby pobrania 
-                // wszystkich zadań wszystkich użytkowników), dlatego na razie:
-                // Global = wszystkie projekty w grupie, dla których mamy dane w stanie.
+                // Globalnie: WSZYSTKIE projekty w grupie, aby uzyskać pełne liczniki (w tym zadania prywatne B i C).
                 sourceProjects = [...state.projects, ...state.completedProjects].filter(p => p.groupId === state.currentUser.groupId);
             }
 
@@ -10060,9 +10055,12 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             
             // Funkcja pomocnicza do generowania wykresu obciążenia
             const renderWorkloadChart = (data, scope) => {
-                const labels = data.map(u => u.name);
-                const todoData = data.map(u => u.todo);
-                const inprogressData = data.map(u => u.inprogress);
+                // KLUCZOWA POPRAWKA: Pobieramy dane DYNAMICZNIE, aby reagować na przełącznik scope
+                const currentWorkloadData = getTeamWorkload(scope); 
+                
+                const labels = currentWorkloadData.map(u => u.name);
+                const todoData = currentWorkloadData.map(u => u.todo);
+                const inprogressData = currentWorkloadData.map(u => u.inprogress);
                 
                 // Generuj strukturę HTML dla wykresu i przełącznika
                 const chartWrapperId = `workload-chart-${scope}`;
@@ -10256,19 +10254,14 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             let sourceProjects;
             
             // Definicja zbioru projektów do uwzględnienia
-            if (scope === 'local') {
-                 // Projekty, w których zalogowany użytkownik jest członkiem/właścicielem
-                 sourceProjects = state.projects.filter(p => p.members.includes(state.currentUser.uid));
-            } else { 
-                 // Wszystkie projekty w grupie (pobieramy wszystkie z bieżącego stanu)
-                 // KLUCZOWA ZMIANA: Aby uniknąć wyświetlania zadań z PRYWATNYCH projektów,
-                 // zawsze ograniczamy się do projektów, w których zalogowany użytkownik jest członkiem.
-                 // To oznacza, że checkbox ma wpływ tylko na DANE na WYKRESIE.
-                 // UWAGA: Ta funkcja jest wywoływana tylko po kliknięciu na słupek wykresu.
-                 // Wykres w zakresie 'global' pokazuje pełne obciążenie, ale lista musi być ograniczona.
-                 sourceProjects = state.projects.filter(p => p.members.includes(state.currentUser.uid)); 
-            }
+            function renderWorkloadUserDetails(userId, scope) {
+            const user = findUser(userId);
+            if (!user) return;
             
+            // W TYM MIEJSCU ZAWSZE Bierzemy tylko projekty, w których zalogowany użytkownik jest członkiem.
+            // Zapewnia to, że lista szczegółów zadań nigdy nie zawiera prywatnych zadań B i C,
+            // niezależnie od tego, czy wykres jest w trybie 'local' czy 'global'.
+            const sourceProjects = state.projects.filter(p => p.members.includes(state.currentUser.uid) || p.ownerId === state.currentUser.uid); 
             
             // 1. Filtrujemy wszystkie zadania w tych projektach, przypisane do danego pracownika
             const userTasks = sourceProjects.flatMap(p => 
@@ -12542,6 +12535,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
