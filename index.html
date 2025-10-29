@@ -7657,37 +7657,44 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                 //        gdyż jest ono wywoływane w listenerach projektów.
             }, (error) => console.error("Błąd odczytu użytkowników:", error));
 
+            const currentGroupId = state.currentUser.groupId;
+            const userId = state.currentUser.uid;
+
+            // 1. ANULUJ STARY LISTENER
             if (state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
 
-            // <<<--- USUNIĘTO DEFINICJĘ I FILTROWANIE currentGroupId Z ZAPYTANIA ---<<<
+            // 2. NOWE ZAPYTANIE: Pobierz WSZYSTKIE aktywne projekty dla TWOJEJ GRUPY (w tym te, których nie jesteś członkiem)
+            // Używamy filtra tylko po groupId, aby pobrać wszystkie projekty dla trybu Globalnego
             const projectsQuery = query(projectsRef,
-                // where("groupId", "==", currentGroupId), // <-- USUNIĘTA LINIA
-                where("members", "array-contains", userId)
+                where("groupId", "==", currentGroupId)
             );
-            console.log(`[setupFirestoreListeners] Uruchamianie listenera dla AKTYWNYCH projektów użytkownika ${userId}`);
+            console.log(`[setupFirestoreListeners] Uruchamianie listenera dla WSZYSTKICH AKTYWNYCH projektów w grupie ${currentGroupId}`);
 
             state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
-                // Sprawdź czy currentUser jest zdefiniowany ZANIM go użyjesz
                 if (!state.currentUser) {
                      console.warn("[setupFirestoreListeners/projects] currentUser jest null. Przerywam przetwarzanie snapshotu.");
                      return;
                 }
-                const currentGroupId = state.currentUser.groupId; // Pobierz groupId aktualnego użytkownika
-                const userId = state.currentUser.uid; // Pobierz uid aktualnego użytkownika
+                const currentGroupId = state.currentUser.groupId;
+                const userId = state.currentUser.uid;
 
-                // <<<--- DODANO FILTROWANIE LOKALNE PO POBRANIU DANYCH ---<<<
+                // Ładujemy WSZYSTKIE projekty grupy do stanu. Filtr lokalny (na isInbox) będzie w getTeamWorkload.
                 state.projects = snapshot.docs
-                    .map(doc => ({ id: doc.id, ...doc.data() })) // Najpierw mapujemy
-                    .filter(project => // Następnie filtrujemy
-                        (project.groupId === currentGroupId) || // Zachowaj, jeśli groupId pasuje
-                        (project.isInbox === true && project.ownerId === userId) // LUB jeśli to skrzynka tego użytkownika
-                    );
-                console.log(`[setupFirestoreListeners] Przefiltrowano aktywne projekty. Liczba po filtracji: ${state.projects.length}`);
-                // <<<--- KONIEC FILTROWANIA LOKALNEGO ---<<<
+                    .map(doc => ({ id: doc.id, ...doc.data() }))
+                    .filter(project => (project.groupId === currentGroupId)); // Zapewnij spójność
 
-                // Sprawdzanie spójności currentProjectId (pozostaje bez zmian, ale wewnątrz callbacka)
-                const isProjectView = state.ui.currentView === 'projects';
-                 if (isProjectView && state.currentProjectId) { // Dodano sprawdzenie state.currentProjectId
+                // Dodaj specjalny projekt Inbox (który nie ma groupId == uid, jeśli uzytkownik jest solo, ale jest prywatny)
+                // W Twoim kodzie było: (project.isInbox === true && project.ownerId === userId)
+                // Usunęliśmy to, ponieważ query projectsQuery już obejmuje wszystkie projekty grupy. 
+                // Inbox jest teraz po prostu kolejnym projektem w grupie (gdzie groupId = uid).
+
+                // Jeśli użytkownik jest solo, jego projekty są brane pod uwagę, ponieważ groupId == uid, a projekty są tam, gdzie groupId = uid.
+
+                console.log(`[setupFirestoreListeners] Wczytano aktywne projekty grupy. Liczba: ${state.projects.length}`);
+                 
+                // Sprawdzanie spójności currentProjectId (pozostaje bez zmian)
+                 const isProjectView = state.ui.currentView === 'projects';
+                 if (isProjectView && state.currentProjectId) { 
                      const stillExists = state.projects.some(p => p.id === state.currentProjectId) ||
                                        state.completedProjects.some(p => p.id === state.currentProjectId);
 
@@ -7701,42 +7708,37 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                      }
                  }
                  loadingOverlay.style.display = 'none';
-                 render(); // Przerenderuj po aktualizacji stanu projektów
+                 render(); 
             }, (error) => {
                 console.error("Błąd odczytu projektów:", error);
                 loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small></p>`;
             });
 
 
+            // 3. ANULUJ STARY LISTENER
             if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
 
-             // <<<--- USUNIĘTO FILTROWANIE groupId Z ZAPYTANIA ---<<<
+             // 4. NOWE ZAPYTANIE: Pobierz WSZYSTKIE zakończone projekty dla TWOJEJ GRUPY
              const completedQuery = query(completedProjectsRef,
-                // where("groupId", "==", currentGroupId), // <-- USUNIĘTA LINIA
-                where("members", "array-contains", userId)
+                where("groupId", "==", currentGroupId)
             );
-            console.log(`[setupFirestoreListeners] Uruchamianie listenera dla ZAKOŃCZONYCH projektów użytkownika ${userId}`);
+            console.log(`[setupFirestoreListeners] Uruchamianie listenera dla WSZYSTKICH ZAKOŃCZONYCH projektów w grupie ${currentGroupId}`);
 
             state.ui.unsubscribeCompleted = onSnapshot(completedQuery, (snapshot) => {
-                 // Sprawdź czy currentUser jest zdefiniowany ZANIM go użyjesz
                 if (!state.currentUser) {
                      console.warn("[setupFirestoreListeners/completed] currentUser jest null. Przerywam przetwarzanie snapshotu.");
                      return;
                 }
                 const currentGroupId = state.currentUser.groupId;
-                 const userId = state.currentUser.uid;
 
-                // <<<--- DODANO FILTROWANIE LOKALNE PO POBRANIU DANYCH ---<<<
+                // Ładujemy WSZYSTKIE zakończone projekty grupy do stanu.
                 state.completedProjects = snapshot.docs
-                    .map(doc => ({ id: doc.id, ...doc.data() })) // Najpierw mapujemy
-                    .filter(project => // Następnie filtrujemy
-                        (project.groupId === currentGroupId) || // Zachowaj, jeśli groupId pasuje
-                        (project.isInbox === true && project.ownerId === userId) // LUB jeśli to skrzynka tego użytkownika
-                    );
-                 console.log(`[setupFirestoreListeners] Przefiltrowano zakończone projekty. Liczba po filtracji: ${state.completedProjects.length}`);
-                // <<<--- KONIEC FILTROWANIA LOKALNEGO ---<<<
+                    .map(doc => ({ id: doc.id, ...doc.data() })) 
+                    .filter(project => (project.groupId === currentGroupId));
 
-                render(); // Przerenderuj po aktualizacji stanu zakończonych projektów
+                 console.log(`[setupFirestoreListeners] Wczytano zakończone projekty grupy. Liczba: ${state.completedProjects.length}`);
+
+                render(); 
             }, (error) => {
                  console.error("Błąd odczytu zakończonych projektów:", error)
             });
@@ -12543,6 +12545,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
