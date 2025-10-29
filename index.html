@@ -10114,19 +10114,36 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                             }
                         });
                         // Ustaw listener dla przełącznika zakresu
-                        document.getElementById('workload-scope-toggle').addEventListener('change', (e) => {
-                            const newScope = e.target.checked ? 'global' : 'local';
-                            // UWAGA: Wywołanie rekurencyjne, aby przerysować modal z nowymi danymi
-                            renderDashboardDetailsModal('show-team-workload-details', newScope); 
-                        });
+                        const toggleElement = document.getElementById('workload-scope-toggle');
+                        if (toggleElement) {
+                            // Usuwamy ewentualny stary listener przed dodaniem nowego
+                            // Aby uniknąć wielokrotnego wywołania
+                            const oldListener = dashboardDetailsModal.scopeChangeListener; 
+                            if (oldListener) {
+                                toggleElement.removeEventListener('change', oldListener);
+                            }
+
+                            const newListener = (e) => {
+                                const newScope = e.target.checked ? 'global' : 'local';
+                                // Poprawne rekurencyjne wywołanie, aby przerysować modal z nowymi danymi
+                                // Przekazujemy ten sam typ, ale zmieniony scope
+                                renderDashboardDetailsModal('show-team-workload-details', newScope); 
+                            };
+
+                            toggleElement.addEventListener('change', newListener);
+                            // Zapisujemy referencję do listenera, aby móc go usunąć przy następnym wywołaniu
+                            dashboardDetailsModal.scopeChangeListener = newListener; 
+                        }
                     }
                 }, 50);
 
                 return chartHTML;
             }; // Koniec renderWorkloadChart
             
-            // Pobieramy aktualny zakres (lub domyślnie 'local')
-            const currentScope = arguments[1] || 'local'; 
+            // Pobieramy aktualny zakres (lub domyślnie 'local'). To argument jest KLUCZOWY.
+            // Sprawdzamy, czy w state nie został zapisany ostatni użyty zakres.
+            const currentScope = arguments[1] || dashboardDetailsModal.currentWorkloadScope || 'local'; 
+            dashboardDetailsModal.currentWorkloadScope = currentScope; // Zapisujemy aktualny zakres
             
             switch (type) {
                 case 'show-team-workload-details': // NOWY KAFLOWY WIDOK
@@ -12532,6 +12549,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
