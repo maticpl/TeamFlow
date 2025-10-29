@@ -1139,24 +1139,41 @@
         }
         /* === KONIEC: NOWE STYLE DLA KAFELKÓW NA DASHBOARDZIE === */
         /* Style dla Pulpitu/Dashboard */
+         /* Style dla Pulpitu/Dashboard */
          .dashboard-grid {
-            display: flex; /* ZMIANA Z GRID NA FLEX */
+            display: grid; /* ZMIANA Z FLEX NA GRID */
+            grid-template-columns: repeat(3, 1fr); /* Wprowadzamy 3 równe kolumny */
             align-items: stretch;
             gap: 24px;
             margin-bottom: 24px;
         }
          
         .kpi-column {
-            flex: 1 0 0; /* Ustawienie proporcji dla lewej kolumny */
+            /* USUNIĘTO: Już niepotrzebne, przechodzimy na nowy układ grid */
+            /* flex: 1 0 0; 
             display: flex;
             flex-direction: column;
-            gap: 24px;
+            gap: 24px; */
+             /* Zastąpienie: Wprowadzamy Grid, aby kafelki wewnątrz się równały */
+             display: grid;
+             grid-template-columns: 1fr;
+             gap: 24px;
+             /* Dodajemy nową klasę do małych kafelków KPI, 
+             aby wymusić taką samą wysokość dla każdego rzędu. */
+             /* Te style będą teraz w .dashboard-card */
         }
         .kpi-column .dashboard-card {
-            flex: 1; /* <-- KLUCZOWA ZMIANA */
-            cursor: pointer; /* Wykresy są klikalne */
+            /* USUNIĘTO: flex: 1; */
+            /* Zostawiamy min-height jako zabezpieczenie */
+            cursor: pointer; 
             transition: transform 0.2s, box-shadow 0.2s;
             min-height: 180px;
+        }
+        /* --- NOWE STYLE DLA UJEDNOLICENIA KAFELKÓW KPI --- */
+        /* Użyjemy nowej klasy `kpi-mini-card` dla wszystkich małych kafelków */
+        .kpi-mini-card {
+            /* Wymusza ten sam rozmiar dla wszystkich 5 kafelków KPI */
+             min-height: 180px; /* Utrzymana wysokość z poprzedniego .dashboard-card */
         }
         .dashboard-card:hover {
             transform: translateY(-2px); /* <-- ZMIANA: Usunięcie border-color */
@@ -1443,9 +1460,12 @@
             }
 
             /* ▼▼▼ POCZĄTEK SCALONYCH I POPRAWIONYCH STYLÓW ▼▼▼ */
+            .dashboard-grid {
+                 grid-template-columns: 1fr; /* ZMIANA: Wymuś 1 kolumnę na mobilnych */
+            }
             .kpi-column,
             .dashboard-grid > .dashboard-card {
-                flex: auto;  /* Resetuje 'flex-grow' i 'flex-basis' z desktopu */
+                /* flex: auto; */  /* Resetuje 'flex-grow' i 'flex-basis' z desktopu */
                 width: 100%; /* Wymusza pełną szerokość */
             }
 
@@ -5825,26 +5845,38 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 if (dateA === Infinity && dateB === Infinity) return 0;
                 if (dateA === Infinity) return 1;
                 if (dateB === Infinity) return -1;
-                return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
+                return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - a.dueDate;
             });
 
             const overdueTasks = getOverdueTasks(myTasks);
+            const todayPlusTomorrow = myTasks.filter(t => {
+                if (!t.dueDate || t.status === 'done') return false;
+                const dueDate = new Date(t.dueDate);
+                const now = new Date();
+                const endOfTomorrow = new Date();
+                endOfTomorrow.setDate(endOfTomorrow.getDate() + 2);
+                endOfTomorrow.setHours(0, 0, 0, 0);
+                return dueDate >= now && dueDate < endOfTomorrow;
+            });
+            const teamOverdueCount = getTeamOverdueCount();
+            
+            // Obliczenia do KPI "Moje Obciążenie"
             const todoCount = myTasks.filter(t => t.status === 'todo').length;
             const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
             const totalActiveTasks = todoCount + inProgressCount;
             const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
             const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
-            
-            // WYZNACZENIE OPÓŹNIEŃ ZESPOŁU
-            const teamOverdueCount = getTeamOverdueCount();
 
-            // ▼▼▼ NOWA LOGIKA RENDEROWANIA KART ▼▼▼
+            // Obliczenia do KPI "Ostatnia Aktywność"
+            const otherUsersActivities = getAllActivitiesFromMyProjects().filter(activity => activity.userId !== state.currentUser.uid);
+            otherUsersActivities.sort((a, b) => b.timestamp - a.timestamp);
+            const recentActivityCount = otherUsersActivities.slice(0, 15).length; // Liczba aktywności do pokazania
 
             // 1. Definiujemy HTML dla każdej karty w obiekcie
             const cardHTMLs = {
                 // Nowa karta KPI - Moje Opóźnione Zadania (Symulacja wykresu)
                 'my-overdue': `
-                    <div class="dashboard-card kpi-card" data-id="my-overdue" data-action="show-my-overdue-details">
+                    <div class="dashboard-card kpi-mini-card" data-id="my-overdue" data-action="show-my-overdue-details">
                         <div class="dashboard-card-handle">⠿</div>
                         <h3>Moje Opóźnione Zadania</h3>
                         <div style="font-size: 36px; font-weight: 700; color: var(--danger-primary);">${overdueTasks.length}</div>
@@ -5855,7 +5887,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     </div>`,
                 // Nowa karta KPI - Opóźnienia w Moich Projektach (Symulacja wykresu)
                 'team-delays': `
-                    <div class="dashboard-card kpi-card" data-id="team-delays" data-action="show-team-delays-details">
+                    <div class="dashboard-card kpi-mini-card" data-id="team-delays" data-action="show-team-delays-details">
                         <div class="dashboard-card-handle">⠿</div>
                         <h3 style="color: ${teamOverdueCount > 0 ? 'var(--danger-primary)' : 'var(--accent-primary)'};">Opóźnienia w Zespole</h3>
                         <div style="font-size: 36px; font-weight: 700; color: ${teamOverdueCount > 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">${teamOverdueCount}</div>
@@ -5866,7 +5898,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     </div>`,
                 // Nowa karta KPI - Moje Obciążenie (Symulacja wykresu)
                 'workload': `
-                    <div class="dashboard-card kpi-card" data-id="workload" data-action="show-workload-details">
+                    <div class="dashboard-card kpi-mini-card" data-id="workload" data-action="show-workload-details">
                         <div class="dashboard-card-handle">⠿</div>
                         <h3>Moje Obciążenie</h3>
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -5876,40 +5908,42 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         <div id="workload-chart-container" style="height: 16px; width: 100%; background-color: var(--bg-tertiary); border-radius: 8px; overflow: hidden;">
                             <div style="display: flex; height: 100%;">
                                 <div title="Do realizacji: ${todoCount}" style="width: ${todoPercent}%; background-color: var(--danger-primary);"></div>
-                                <div title="W trakcie: ${inProgressCount}" style="width: ${inProgressPercent}%; background-color: var(--accent-primary);"></div>
+                                <div title="W trakcie: ${inProgressCount}%;" style="width: ${inProgressCount}%; background-color: var(--accent-primary);"></div>
                             </div>
                         </div>
                         <p style="font-size: 14px; color: var(--text-secondary); margin-top: 16px;">Kliknij, aby zobaczyć szczegóły</p>
                     </div>`,
-                // Ulepszona karta Akcji - Nadchodzące Terminy (Lista Timeline)
+                // NOWY KAFLOWY WIDOK: Nadchodzące Terminy (Zmieniona rola - teraz KPI)
                 'upcoming': `
-                    <div class="dashboard-card" data-id="upcoming">
+                    <div class="dashboard-card kpi-mini-card" data-id="upcoming" data-action="show-upcoming-details">
                         <div class="dashboard-card-handle">⠿</div>
-                        <h3>Nadchodzące Terminy (dziś i jutro)</h3>
-                        <div class="overdue-list-container" id="dashboard-upcoming-list" style="padding-bottom: 0;">
-                            <p class="no-tasks-message">Ładowanie...</p>
+                        <h3>Nadchodzące Terminy</h3>
+                        <div style="font-size: 36px; font-weight: 700; color: ${todayPlusTomorrow.length > 0 ? 'var(--accent-primary)' : 'var(--success-primary)'};">${todayPlusTomorrow.length}</div>
+                        <p style="font-size: 14px; color: var(--text-secondary);">Zadania na dziś i jutro.</p>
+                        <div id="upcoming-tasks-chart" style="height: 30px; margin-top: 10px; background-color: var(--bg-tertiary); border-radius: 4px; overflow: hidden;">
+                            <div style="height: 100%; width: ${Math.min(todayPlusTomorrow.length * 5, 100)}%; background-color: var(--accent-primary); transition: width 0.5s;"></div>
                         </div>
                     </div>`,
-                // Ulepszona karta Akcji - Ostatnia Aktywność (Lista z Ikonami)
+                // NOWY KAFLOWY WIDOK: Ostatnia Aktywność (Zmieniona rola - teraz KPI)
                 'activity': `
-                    <div class="dashboard-card" data-id="activity">
+                    <div class="dashboard-card kpi-mini-card" data-id="activity" data-action="show-activity-details">
                         <div class="dashboard-card-handle">⠿</div>
-                        <h3>Ostatnia Aktywność</h3>
-                        <ul class="activity-list" id="dashboard-activity-list" style="overflow-y: auto; padding-right: 8px; border: none; padding-top: 0;"></ul>
+                        <h3>Ostatnia Aktywność Zespołu</h3>
+                        <div style="font-size: 36px; font-weight: 700; color: var(--success-primary);">${recentActivityCount}</div>
+                        <p style="font-size: 14px; color: var(--text-secondary);">Akcje innych członków w Twoich projektach (max 15).</p>
+                        <div id="recent-activity-chart" style="height: 30px; margin-top: 10px; background-color: var(--bg-tertiary); border-radius: 4px; overflow: hidden;">
+                            <div style="height: 100%; width: ${Math.min(recentActivityCount / 15 * 100, 100)}%; background-color: var(--success-primary); transition: width 0.5s;"></div>
+                        </div>
                     </div>`
             };
             
-            // 2. Składamy HTML w nowej strukturze kolumnowej
+            // 2. Składamy HTML w nowej strukturze grid. 
+            // Wszystkie 5 kafelków KPI będą w jednym sortowalnym kontenerze.
             kanbanBoardEl.innerHTML = `
                 <div class="dashboard-container">
                     <div class="dashboard-grid" id="dashboard-grid-main">
-                         <div class="kpi-column" id="kpi-column-sortable">
-                             ${cardHTMLs['my-overdue']}
-                             ${cardHTMLs['team-delays']}
-                             ${cardHTMLs['workload']}
-                         </div>
-                         ${cardHTMLs['upcoming']}
-                         ${cardHTMLs['activity']}
+                        <div class="kpi-column" id="kpi-column-sortable">
+                             </div>
                     </div>
                     
                     <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; margin-top: 24px;">Wszystkie Moje Zadania</h2>
@@ -5917,88 +5951,46 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </div>
             `;
             
-            // Zmieniamy klasę kontenera w zależności od trybu edycji
-            document.getElementById('dashboard-grid-main').classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
-
-            // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
-
-            // Wywołujemy funkcje wypełniające karty danymi
-            renderDashboardActivityFeed();
-            // renderDashboardTeamDelays(); // Upewnij się, że ta linia jest usunięta lub zakomentowana, jeśli funkcja nie istnieje
-            renderDashboardUpcomingTasks(); // Ta funkcja renderuje listę nadchodzących
-
-            // === MODYFIKACJA: Dodanie Listenera dla sekcji Upcoming Tasks ===
-            // Pobieramy referencję do listy nadchodzących zadań PO jej wyrenderowaniu
-            const upcomingListEl = document.getElementById('dashboard-upcoming-list');
-
-            // Usuwamy stary listener, jeśli istniał (na wszelki wypadek, zapobiega duplikatom)
-            if (upcomingListEl && upcomingListEl._taskClickListener) {
-                upcomingListEl.removeEventListener('click', upcomingListEl._taskClickListener);
-                console.log("[Upcoming Tasks] Usunięto stary listener."); // Log
-            }
-
-            // Dodajemy nowy listener tylko jeśli element istnieje
-            if (upcomingListEl) {
-                // Definiujemy funkcję obsługującą kliknięcia wewnątrz tego listenera
-                const taskClickListener = (e) => {
-                    const taskCard = e.target.closest('.task-card');
-                    const checkbox = e.target.closest('.task-card-checkbox');
-
-                    if (checkbox && taskCard) {
-                        // Kliknięto checkbox
-                        console.log(`[Upcoming Tasks] Kliknięto checkbox dla zadania: ${taskCard.dataset.taskId}`); // Log
-                        handleTaskCheckboxClick(checkbox, e); // Wywołaj obsługę checkboxa
-                    } else if (taskCard) {
-                        // Kliknięto kafelek (ale nie checkbox)
-                        const taskId = taskCard.dataset.taskId;
-                        console.log(`[Upcoming Tasks] Kliknięto kafelek zadania: ${taskId}`); // Log
-                        if (taskId) {
-                            openTaskModal(taskId); // Otwórz modal zadania
-                        }
-                    }
-                };
-                // Podpinamy nową funkcję jako listener
-                upcomingListEl.addEventListener('click', taskClickListener);
-                // Zapisujemy referencję do funkcji w niestandardowej właściwości elementu,
-                // aby móc ją później usunąć
-                upcomingListEl._taskClickListener = taskClickListener;
-                console.log("[Upcoming Tasks] Dodano nowy listener."); // Log
-            } else {
-                console.warn("[Upcoming Tasks] Nie znaleziono elementu #dashboard-upcoming-list do podpięcia listenera."); // Log ostrzegawczy
-            }
-            // === KONIEC MODYFIKACJI === 
-            
-            // Logika SortableJS dla KPI
+            // Pobieramy referencję do kontenera KPI
             const kpiColumnEl = document.getElementById('kpi-column-sortable');
+            const dashboardGrid = document.getElementById('dashboard-grid-main');
+            
+            // 3. Sortujemy i wstawiamy 5 kafelków do kontenera KPI
+            const allKpis = ['my-overdue', 'team-delays', 'workload', 'upcoming', 'activity'];
+            const order = state.currentUser.layouts.dashboard || allKpis;
+            
+            // Ustawiamy dashboard grid na 3 kolumny
+            dashboardGrid.style.gridTemplateColumns = '1fr 1fr 1fr';
 
-            // KROK 1: Zawsze niszcz starą instancję, jeśli istnieje.
+            order.forEach(id => {
+                if (cardHTMLs[id]) {
+                    // Dodajemy każdy kafelek bezpośrednio do głównej siatki
+                    dashboardGrid.insertAdjacentHTML('beforeend', cardHTMLs[id]);
+                }
+            });
+
+            // 4. Zmieniamy klasę kontenera w zależności od trybu edycji
+            dashboardGrid.classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
+            
+            // 5. Destrukcja i ponowna inicjalizacja SortableJS
             if (sortableDashboard) {
                 sortableDashboard.destroy();
                 sortableDashboard = null;
             }
-            // KROK 2: Jeśli jesteśmy w trybie edycji, stwórz nową instancję.
-            if (state.ui.dashboardEditMode && kpiColumnEl) {
-                sortableDashboard = new Sortable(kpiColumnEl, {
+            if (state.ui.dashboardEditMode && dashboardGrid) {
+                 // Używamy głównego kontenera dashboardGrid do sortowania wszystkich 5 kafelków
+                sortableDashboard = new Sortable(dashboardGrid, {
                     animation: 150,
                     ghostClass: 'sortable-ghost',
-                    group: 'dashboard-kpi'
+                    group: 'dashboard-kpi', 
+                    filter: '.kanban-board-mini', // Nie sortuj sekcji "Wszystkie Moje Zadania"
+                    multiDrag: true, 
+                    selectedClass: 'selected' 
                 });
             }
-            
-            // NAPRAWA: Zapewnienie poprawnej kolejności wyświetlania po renderowaniu.
-            // Działa, gdy nie jesteśmy w trybie edycji, wymusza kolejność z layoutu.
-            if (kpiColumnEl) {
-                 const order = state.currentUser.layouts.dashboard || ['my-overdue', 'team-delays', 'workload'];
-                 const children = Array.from(kpiColumnEl.children);
-                 order.forEach(id => {
-                     const element = children.find(c => c.dataset.id === id);
-                     if (element) kpiColumnEl.appendChild(element); // Przepinamy elementy w kolejności
-                 });
-            }
 
-
-            // ... (reszta funkcji renderMyDashboardView, czyli renderMyTasksKanban i listener, pozostaje bez zmian) ...
-             const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
+            // 6. Kontynuacja logiki renderowania My Tasks Kanban (bez zmian)
+            const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
 
             const renderMyTasksKanban = (tasks, targetElement) => {
                 targetElement.innerHTML = '';
@@ -6020,13 +6012,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             };
 
             renderMyTasksKanban(myTasks, myTasksKanbanEl);
-
-            document.querySelectorAll('.overdue-item').forEach(item => {
-                item.addEventListener('click', (e) => {
-                    const taskId = e.currentTarget.dataset.taskId;
-                    openTaskModal(taskId);
-                });
-            });
         }
         function renderKanbanBoard(tasks, isInteractive) {
             kanbanBoardEl.innerHTML = '';
@@ -6536,6 +6521,29 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 li.innerHTML = `[${dateStr}] <strong>${userName}</strong> ${message}`;
                 taskModal.activityList.appendChild(li);
             });
+        }
+        
+        /**
+         * Zwraca listę WSZYSTKICH aktywności dla WSZYSTKICH zadań w projektach,
+         * w których zalogowany użytkownik jest członkiem.
+         * Używane do agregowania danych na Dashboardzie.
+         */
+        function getAllActivitiesFromMyProjects() {
+            // 1. Zbierz wszystkie projekty, w których bierze udział zalogowany użytkownik.
+            const userProjects = [...state.projects, ...state.completedProjects].filter(p => p.members.includes(state.currentUser.uid));
+        
+            // 2. Zbierz wszystkie aktywności ze wszystkich zadań w tych projektach.
+            return userProjects.flatMap(project =>
+                (project.tasks || []).flatMap(task =>
+                    (task.activityLog || []).map(log => ({
+                        ...log,
+                        taskId: task.id,
+                        taskTitle: task.title,
+                        projectId: project.id,
+                        projectName: project.name
+                    }))
+                )
+            );
         }
 
 
@@ -9915,63 +9923,136 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         function renderDashboardDetailsModal(type) {
             const allMyTasks = getAllMyTasks();
             let title = '';
-            let tasksToRender = [];
+            let contentHTML = '';
             
             switch (type) {
                 case 'show-my-overdue-details':
                     title = 'Moje Opóźnione Zadania';
-                    tasksToRender = getOverdueTasks(allMyTasks);
+                    const overdueTasks = getOverdueTasks(allMyTasks);
+                    contentHTML = overdueTasks.length === 0 
+                        ? '<p class="no-tasks-message">Brak opóźnionych zadań. Dobra robota!</p>' 
+                        : overdueTasks.map(task => createTaskCardHTML(task, true)).join('');
                     break;
+                    
                 case 'show-team-delays-details':
-                    title = 'Opóźnienia w Moich Projektach';
+                    title = 'Opóźnienia w Zespole';
                     const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
                     // Zadania opóźnione w MOICH projektach, ale przypisane do INNYCH
-                    tasksToRender = myOwnedProjects.flatMap(project =>
+                    const teamOverdueTasks = myOwnedProjects.flatMap(project =>
                         (project.tasks || [])
                             .filter(t => t.status !== 'done' && t.dueDate && new Date(t.dueDate).getTime() < Date.now() && !t.assignees.includes(state.currentUser.uid))
                             .map(t => ({ ...t, projectName: project.name }))
-                    );
+                    ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()); // Sortuj od najstarszego
+                    
+                    contentHTML = teamOverdueTasks.length === 0 
+                        ? '<p class="no-tasks-message">Brak opóźnień w projektach, których jesteś właścicielem.</p>' 
+                        : teamOverdueTasks.map(task => createTaskCardHTML(task, true)).join('');
                     break;
+                    
                 case 'show-workload-details':
                     title = 'Aktywne Zadania (Do zrobienia i W trakcie)';
-                    tasksToRender = allMyTasks.filter(t => t.status === 'todo' || t.status === 'inprogress');
+                    const activeTasks = allMyTasks.filter(t => t.status === 'todo' || t.status === 'inprogress');
+                    
+                    contentHTML = activeTasks.length === 0 
+                        ? '<p class="no-tasks-message">Brak aktywnych zadań.</p>' 
+                        : activeTasks.map(task => createTaskCardHTML(task, true)).join('');
                     break;
+                    
+                case 'show-upcoming-details':
+                    title = 'Nadchodzące Terminy (Dziś i Jutro)';
+                    const now = new Date();
+                    const endOfTomorrow = new Date();
+                    endOfTomorrow.setDate(endOfTomorrow.getDate() + 2);
+                    endOfTomorrow.setHours(0, 0, 0, 0); 
+
+                    const upcomingTasks = allMyTasks
+                        .filter(task => task.dueDate && task.status !== 'done' && new Date(task.dueDate) >= now && new Date(task.dueDate) < endOfTomorrow)
+                        .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+                    
+                    contentHTML = upcomingTasks.length === 0 
+                        ? '<p class="no-tasks-message">Brak zadań z terminem na dziś lub jutro.</p>' 
+                        : upcomingTasks.map(task => createTaskCardHTML(task, true)).join('');
+                    break;
+                    
+                case 'show-activity-details':
+                    title = 'Ostatnia Aktywność Zespołu';
+                    const allActivities = getAllActivitiesFromMyProjects();
+                    const recentActivities = allActivities
+                        .filter(activity => activity.userId !== state.currentUser.uid)
+                        .sort((a, b) => b.timestamp - a.timestamp)
+                        .slice(0, 15);
+                    
+                    contentHTML = recentActivities.length === 0 
+                        ? '<p class="no-tasks-message">Brak aktywności ze strony innych członków zespołu.</p>'
+                        : `<ul class="activity-list" id="dashboard-details-activity-list" style="padding-left: 0; border: none; padding-top: 0;">` +
+                          recentActivities.map(activity => {
+                              const user = findUser(activity.userId);
+                              const userName = user ? user.name : 'Ktoś';
+                              const dateStr = new Date(activity.timestamp).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+                              let message = '';
+                              switch (activity.type) {
+                                  case 'status':
+                                      message = `zmienił status zadania "<strong>${activity.taskTitle}</strong>" na ${activity.newValue}.`;
+                                      break;
+                                  case 'comment':
+                                      message = `dodał komentarz w zadaniu "<strong>${activity.taskTitle}</strong>".`;
+                                      break;
+                                  case 'completion':
+                                      message = `ukończył swoją część zadania "<strong>${activity.taskTitle}</strong>".`;
+                                      break;
+                                  default:
+                                      message = `wykonał akcję w zadaniu "<strong>${activity.taskTitle}</strong>" w projekcie <em>${activity.projectName}</em>.`;
+                              }
+                               return `<li class="activity-item" data-task-id="${activity.taskId}" style="cursor: pointer;" title="Kliknij, aby zobaczyć zadanie">
+                                         [${dateStr}] <strong>${userName}</strong> ${message}
+                                     </li>`;
+                          }).join('') + `</ul>`;
+                    
+                    // Używamy dashboard-detail-list tylko dla kafelków zadań, w przypadku aktywności renderujemy bezpośrednio listę ul
+                    dashboardDetailsModal.content.classList.toggle('dashboard-detail-list', recentActivities.length === 0 || type !== 'show-activity-details');
+                    break;
+                    
                 default:
                     return;
             }
             
             dashboardDetailsModal.title.textContent = title;
-            if (tasksToRender.length === 0) {
-                 dashboardDetailsModal.content.innerHTML = '<p class="no-tasks-message">Brak zadań w tej kategorii. Gratulacje!</p>';
-            } else {
-                 // Używamy funkcji createTaskCardHTML, aby uzyskać nowoczesny kafelkowy wygląd
-                 dashboardDetailsModal.content.innerHTML = tasksToRender.map(task => createTaskCardHTML(task, true)).join('');
-            }
+            dashboardDetailsModal.content.innerHTML = contentHTML;
             openModal(dashboardDetailsModal.overlay);
         }
 
         document.addEventListener('click', (e) => {
-             const kpiCard = e.target.closest('.dashboard-card.kpi-card');
+             const kpiCard = e.target.closest('.dashboard-card.kpi-mini-card'); // ZMIANA KLASY DLA OBSŁUGI WSZYSTKICH 5 KPI
              if (kpiCard && kpiCard.dataset.action) {
                  renderDashboardDetailsModal(kpiCard.dataset.action);
                  return;
              }
             
+            // USUNIĘTO: Przestarzała obsługa kliknięcia '.overdue-item-title'
+            /*
             if (e.target.closest('.overdue-item-title')) {
                 const item = e.target.closest('.overdue-item');
                 if (item && item.dataset.taskId) {
                     openTaskModal(item.dataset.taskId);
                 }
             } 
+            */
             // ▼▼▼ DODANY NOWY WARUNEK ▼▼▼
-            else if (e.target.closest('#dashboard-activity-list .activity-item')) {
+            // ZMODYFIKOWANA OBSŁUGA KLIKNIĘĆ W LISTĘ AKTYWNOŚCI W MODALU
+            if (e.target.closest('#dashboard-details-activity-list .activity-item')) {
                 const item = e.target.closest('.activity-item');
                 if (item && item.dataset.taskId) {
-                    openTaskModal(item.dataset.taskId);
+                     // Zamykamy modal i otwieramy zadanie
+                     closeModal(dashboardDetailsModal.overlay);
+                     setTimeout(() => {
+                         openTaskModal(item.dataset.taskId);
+                     }, 150);
                 }
             }
             // ▲▲▲ KONIEC NOWEGO WARUNKU ▲▲▲
         });
+
         
         fabAddTask.addEventListener('click', () => openNewTaskModal({
             isFab: true,
@@ -12170,6 +12251,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
