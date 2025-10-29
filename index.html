@@ -4748,6 +4748,7 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             sourceProjects.forEach(project => {
                 (project.tasks || []).map(migrateTask).forEach(task => {
                     task.assignees.forEach(assigneeId => {
+                        // Inicjalizujemy mapę dla każdego członka zespołu
                         if (!workloadMap[assigneeId]) {
                             const user = findUser(assigneeId);
                             if (user) {
@@ -4756,9 +4757,15 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                         }
                         
                         if (workloadMap[assigneeId]) {
+                            // KLUCZOWA ZMIANA: Zliczamy zadania niezależnie od zakresu
                             if (task.status === 'todo') workloadMap[assigneeId].todo++;
                             else if (task.status === 'inprogress') workloadMap[assigneeId].inprogress++;
                             else if (task.status === 'done') workloadMap[assigneeId].done++;
+                            // Dodajemy informację o projekcie do zadań w trybie globalnym dla potrzeb wyświetlania
+                            if (scope === 'global') {
+                                workloadMap[assigneeId].tasks = workloadMap[assigneeId].tasks || [];
+                                workloadMap[assigneeId].tasks.push({ taskId: task.id, status: task.status, projectName: project.name, ...task });
+                            }
                         }
                     });
                 });
@@ -10254,8 +10261,14 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                  sourceProjects = state.projects.filter(p => p.members.includes(state.currentUser.uid));
             } else { 
                  // Wszystkie projekty w grupie (pobieramy wszystkie z bieżącego stanu)
-                 sourceProjects = state.projects.filter(p => p.groupId === state.currentUser.groupId);
+                 // KLUCZOWA ZMIANA: Aby uniknąć wyświetlania zadań z PRYWATNYCH projektów,
+                 // zawsze ograniczamy się do projektów, w których zalogowany użytkownik jest członkiem.
+                 // To oznacza, że checkbox ma wpływ tylko na DANE na WYKRESIE.
+                 // UWAGA: Ta funkcja jest wywoływana tylko po kliknięciu na słupek wykresu.
+                 // Wykres w zakresie 'global' pokazuje pełne obciążenie, ale lista musi być ograniczona.
+                 sourceProjects = state.projects.filter(p => p.members.includes(state.currentUser.uid)); 
             }
+            
             
             // 1. Filtrujemy wszystkie zadania w tych projektach, przypisane do danego pracownika
             const userTasks = sourceProjects.flatMap(p => 
@@ -12529,6 +12542,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
