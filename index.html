@@ -1141,41 +1141,50 @@
         /* === KONIEC: NOWE STYLE DLA KAFELKÓW NA DASHBOARDZIE === */
         /* Style dla Pulpitu/Dashboard */
          .dashboard-grid {
-            /* ZMIANA: Wymuszamy 3 kolumny dla większych ekranów */
-            display: grid;
-            grid-template-columns: repeat(3, minmax(280px, 1fr)); /* ZMIENIONO: Układ 3 kolumn min 280px */
-            align-items: stretch; 
+            display: flex; /* ZMIANA: Powrót do układu FLEX (kolumnowego) */
+            align-items: stretch;
             gap: 24px;
             margin-bottom: 24px;
         }
          
-        /* ZMIANA: Nowa reguła dla list wewnątrz kafelków */
-        .dashboard-card .overdue-list-container,
-        .dashboard-card .activity-list {
-            flex-grow: 1;
-            min-height: 0; 
-            overflow-y: auto;
-            max-height: none; 
-            height: 100%; /* ZMIENIONO: Używamy height: 100% z flex-grow: 1, aby wymusić zajęcie miejsca */
-            padding-right: 8px; 
-            margin-top: 10px; 
-            border-top: 1px solid var(--border-color); 
-            padding-top: 10px; 
-        }
-        /* ZMIANA: Dostosowanie do pustego stanu */
-        .dashboard-card .overdue-list-container.is-empty,
-        .dashboard-card .activity-list.is-empty { /* DODANO: activity-list do selektora */
-            flex-grow: 0;
-            min-height: 50px; 
-            overflow-y: hidden;
-            border-top: none; 
-            padding-top: 0;
+        .kpi-column {
+            flex: 1 0 0; /* Ustawienie proporcji dla lewej kolumny */
             display: flex;
-            align-items: center;
-            justify-content: center;
+            flex-direction: column;
+            gap: 24px;
         }
+        .kpi-column .dashboard-card {
+            flex: 1; /* <-- KLUCZOWA ZMIANA */
+            /* ZMIANA: Usuwam cursor pointer, bo tylko te kafelki KPI będą otwierane */
+            transition: transform 0.2s, box-shadow 0.2s;
+            min-height: 180px;
+            cursor: pointer; /* POZOSTAWIAM cursor: pointer, bo wszystkie KPI otwierają modal szczegółów */
+        }
+        /* Nowa reguła dla kart akcji, które są teraz dziećmi .dashboard-grid */
+        /* ZMIANA: Zwiększam elastyczność sekcji akcji */
+        .dashboard-grid > .dashboard-card {
+            flex: 1 0 0; /* ZMIENIONO: Proporcja 1:1, by zajmowały mniej miejsca niż wcześniej */
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden; 
+        }
+
+        /* AKTUALIZACJA: Wygaszam listy wewnątrz kafelków akcji */
+        .dashboard-grid > .dashboard-card .overdue-list-container,
+        .dashboard-grid > .dashboard-card .activity-list {
+            flex-grow: 0; /* ZMIENIONO: Nie rośnie, ma stałą małą wysokość */
+            min-height: 0;
+            overflow: hidden;
+            max-height: 0; /* ZMIENIONO: Kluczowa zmiana, by zniknąć */
+            height: 0; /* ZMIENIONO: Wymuszenie zerowej wysokości */
+            padding: 0; /* ZMIENIONO: Usunięcie paddingu */
+            margin: 0; /* ZMIENIONO: Usunięcie marginesu */
+            border: none; /* ZMIENIONO: Usunięcie linii oddzielającej */
+        }
+        /* ZMIANA: Usuwam regułę .is-empty, bo lista i tak jest ukryta */
         
-        /* DODANO: Układ mobilny - wracamy do jednej kolumny */
+        /* USUNIĘTO: Układ mobilny dla dashboard-grid - jest już w sekcji poniżej */
         @media (max-width: 768px) {
              .dashboard-grid {
                 grid-template-columns: 1fr; /* Wymuszamy 1 kolumnę */
@@ -5889,39 +5898,27 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         </div>
                         <p style="font-size: 14px; color: var(--text-secondary); margin-top: 16px;">Kliknij, aby zobaczyć szczegóły</p>
                     </div>`,
-                // ZMIANA: Ulepszona karta Akcji - Nadchodzące Terminy (teraz KPI)
+                // ZMIANA: Ulepszona karta Akcji - Nadchodzące Terminy (teraz czysty KPI)
                 'upcoming': `
                     <div class="dashboard-card kpi-card" data-id="upcoming" data-action="show-upcoming-details">
                         <div class="dashboard-card-handle">⠿</div>
                         <h3>Nadchodzące Terminy</h3>
                         <div id="dashboard-upcoming-summary" style="font-size: 36px; font-weight: 700; color: var(--accent-primary);">0</div>
                         <p style="font-size: 14px; color: var(--text-secondary);">Liczba zadań na dziś i jutro.</p>
-                        <div class="overdue-list-container is-empty" id="dashboard-upcoming-list">
+                        <div class="overdue-list-container" id="dashboard-upcoming-list">
                             <p class="no-tasks-message">Ładowanie...</p>
                         </div>
                     </div>`,
-                // ZMIANA: Ulepszona karta Akcji - Ostatnia Aktywność (teraz KPI)
+                // ZMIANA: Ulepszona karta Akcji - Ostatnia Aktywność (teraz czysty KPI)
                 'activity': `
                     <div class="dashboard-card kpi-card" data-id="activity" data-action="show-activity-details">
                         <div class="dashboard-card-handle">⠿</div>
                         <h3>Ostatnia Aktywność</h3>
                         <div id="dashboard-activity-summary" style="font-size: 36px; font-weight: 700; color: var(--success-primary);">0</div>
                         <p style="font-size: 14px; color: var(--text-secondary);">Aktywność zespołu w Twoich projektach.</p>
-                        <ul class="activity-list is-empty" id="dashboard-activity-list"></ul>
+                        <ul class="activity-list" id="dashboard-activity-list"></ul>
                     </div>`
             };
-            
-            // 2. Składamy HTML w nowej strukturze kafelkowej
-            kanbanBoardEl.innerHTML = `
-                <div class="dashboard-container">
-                    <div class="dashboard-grid" id="dashboard-grid-main">
-                        ${state.ui.dashboardLayout.map(id => cardHTMLs[id]).filter(Boolean).join('')}
-                    </div>
-                    
-                    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; margin-top: 24px;">Wszystkie Moje Zadania</h2>
-                    <section id="my-tasks-kanban" class="kanban-board-mini"></section>
-                </div>
-            `;
             
             // Zmieniamy klasę kontenera w zależności od trybu edycji
             document.getElementById('dashboard-grid-main').classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
@@ -5974,6 +5971,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
             // Logika SortableJS dla wszystkich 5 kafelków (KPI + Akcje)
             const dashboardGridEl = document.getElementById('dashboard-grid-main');
+            const kpiColumnEl = document.getElementById('kpi-column-sortable'); // Przywracamy referencję do kolumny KPI
 
             // KROK 1: Zawsze niszcz starą instancję, jeśli istnieje.
             if (sortableDashboard) {
@@ -5981,24 +5979,25 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 sortableDashboard = null;
             }
             
-            // KROK 2: Jeśli jesteśmy w trybie edycji, stwórz nową instancję DLA CAŁEJ SIATKI.
-            if (state.ui.dashboardEditMode && dashboardGridEl) {
-                sortableDashboard = new Sortable(dashboardGridEl, {
+            // KROK 2: Jeśli jesteśmy w trybie edycji, stwórz nową instancję DLA KPI COLUMN.
+            if (state.ui.dashboardEditMode && kpiColumnEl) { // Zmieniono na kpiColumnEl
+                sortableDashboard = new Sortable(kpiColumnEl, { // Zmieniono na kpiColumnEl
                     animation: 150,
                     ghostClass: 'sortable-ghost',
-                    group: 'dashboard-all', // Używamy ogólnej grupy
-                    handle: '.dashboard-card-handle' // Dodano uchwyt do przeciągania
+                    group: 'dashboard-kpi', 
+                    handle: '.dashboard-card-handle'
                 });
             }
-             // DODANO: Zapewnienie, że kolejność jest zawsze zgodna z layoutem, 
-            // gdy nie jesteśmy w trybie edycji (Sortable.js nie działa).
-            if (!state.ui.dashboardEditMode && dashboardGridEl) {
-                const order = state.currentUser.layouts.dashboard || ['my-overdue', 'team-delays', 'workload', 'upcoming', 'activity'];
-                const children = Array.from(dashboardGridEl.children);
-                order.forEach(id => {
-                    const element = children.find(c => c.dataset.id === id);
-                    if (element) dashboardGridEl.appendChild(element); 
-                });
+            
+            // ZMIANA: Usuwam logikę przestawiania całego dashboardGridEl (która była błędna)
+            // Zostawiam tylko logikę dla kpiColumnEl (która była pierwotnie w kodzie)
+            if (kpiColumnEl) {
+                 const order = state.currentUser.layouts.dashboard || ['my-overdue', 'team-delays', 'workload'];
+                 const children = Array.from(kpiColumnEl.children);
+                 order.forEach(id => {
+                     const element = children.find(c => c.dataset.id === id);
+                     if (element) kpiColumnEl.appendChild(element); // Przepinamy elementy w kolejności
+                 });
             }
 
             // KROK 3: Zapewnienie poprawnej kolejności wyświetlania po renderowaniu.
@@ -7034,42 +7033,12 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
             const recentActivities = otherUsersActivities.slice(0, 15);
         
             // 5. Aktualizuj licznik KPI
-            summaryEl.textContent = recentActivities.length; // ZMIANA: Liczba elementów w podglądzie to teraz KPI
+            summaryEl.textContent = recentActivities.length; 
             
-            if (recentActivities.length === 0) {
-                activityListEl.innerHTML = '<li class="activity-item" style="font-style: italic;">Brak aktywności.</li>';
-                activityListEl.classList.add('is-empty'); // DODANO: Ustawienie klasy pustego stanu
-                return;
-            }
-        
-            // 6. Wygeneruj HTML i wstaw do listy (tylko 5 najnowszych dla podglądu)
-            activityListEl.innerHTML = recentActivities.slice(0, 5).map(activity => {
-                const user = findUser(activity.userId);
-                const userName = user ? user.name : 'Ktoś';
-                const dateStr = new Date(activity.timestamp).toLocaleString('pl-PL', { day: 'numeric', month: 'short' }); // ZMIANA: Skrócona data
-
-                let message = '';
-                switch (activity.type) {
-                    case 'status':
-                        message = `zmienił status zadania "<strong>${activity.taskTitle}</strong>" na ${activity.newValue}.`;
-                        break;
-                    case 'comment':
-                        message = `dodał komentarz w zadaniu "<strong>${activity.taskTitle}</strong>".`;
-                        break;
-                    case 'completion':
-                         message = `ukończył swoją część zadania "<strong>${activity.taskTitle}</strong>".`;
-                        break;
-                    default:
-                        message = `wykonał akcję w zadaniu "<strong>${activity.taskTitle}</strong>" w projekcie <em>${activity.projectName}</em>.`;
-                }
-                // ZMIANA: Usunięto styl inline z li - jest w CSS .activity-item
-                return `<li class="activity-item" data-task-id="${activity.taskId}" style="cursor: pointer;" title="Kliknij, aby zobaczyć zadanie">
-                            [${dateStr}] <strong>${userName}</strong> ${message}
-                        </li>`;
-            }).join('');
-            activityListEl.classList.remove('is-empty'); // DODANO: Usunięcie klasy pustego stanu
+            // 6. Wyczyść kontener listy (jest ukryty przez CSS, ale musi być pusty w DOM)
+            activityListEl.innerHTML = '';
+            // USUNIĘTO: Logikę wyświetlania skróconych list.
         }
-
         function renderDashboardTeamDelays() {
             const delaysListEl = document.getElementById('dashboard-team-delays-list');
             if (!delaysListEl) return;
@@ -7315,15 +7284,9 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
             // 4. Aktualizuj licznik KPI
             summaryEl.textContent = upcomingTasks.length;
             
-            // 5. Wyczyść kontener listy (bo szczegóły są w modalu)
-            if (upcomingTasks.length === 0) {
-                upcomingListEl.innerHTML = '<p class="no-tasks-message">Brak zadań.</p>';
-                upcomingListEl.classList.add('is-empty');
-            } else {
-                // ZMIANA: Wyświetl tylko 3 najważniejsze zadania w skróconym widoku
-                upcomingListEl.innerHTML = upcomingTasks.slice(0, 3).map(task => createTaskCardHTML(task, false)).join('');
-                upcomingListEl.classList.remove('is-empty');
-            }
+            // 5. Wyczyść kontener listy (jest ukryty przez CSS, ale musi być pusty w DOM)
+            upcomingListEl.innerHTML = '';
+            // USUNIĘTO: Logikę wyświetlania skróconych list.
         }
 // Funkcja do renderowania listy plików oczekujących na wysłanie
 function renderStagedFiles() {
@@ -12272,6 +12235,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
