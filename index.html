@@ -1141,46 +1141,45 @@
         /* === KONIEC: NOWE STYLE DLA KAFELKÓW NA DASHBOARDZIE === */
         /* Style dla Pulpitu/Dashboard */
          .dashboard-grid {
-            /* ZMIANA: Używamy GRID dla układu 3x3 lub elastycznego kafelkowania */
+            /* ZMIANA: Wymuszamy 3 kolumny dla większych ekranów */
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); /* ZMIENIONO: Układ elastyczny kafelkowy */
-            align-items: stretch; /* ZMIENIONO: Powrót do align-items: stretch */
+            grid-template-columns: repeat(3, minmax(280px, 1fr)); /* ZMIENIONO: Układ 3 kolumn min 280px */
+            align-items: stretch; 
             gap: 24px;
             margin-bottom: 24px;
         }
          
-        /* USUNIĘTO: .kpi-column */
-        /* USUNIĘTO: .kpi-column .dashboard-card */
-        
-        .dashboard-card:hover {
-            transform: translateY(-2px); /* <-- ZMIANA: Usunięcie border-color */
-        }
-        
-        /* USUNIĘTO: Reguła dla .dashboard-grid > .dashboard-card (była dla kolumn akcji) */
-
         /* ZMIANA: Nowa reguła dla list wewnątrz kafelków */
         .dashboard-card .overdue-list-container,
         .dashboard-card .activity-list {
             flex-grow: 1;
-            min-height: 0; /* Ważna poprawka dla poprawnego działania flexbox */
+            min-height: 0; 
             overflow-y: auto;
-            max-height: none; /* <-- KLUCZOWA ZMIANA */
-            height: 0; /* <-- DODANA LINIA */
-            padding-right: 8px; /* DODANO: Padding dla scrollbara */
-            margin-top: 10px; /* DODANO: Mały margines od nagłówka */
-            border-top: 1px solid var(--border-color); /* DODANO: Linia oddzielająca nagłówek od listy */
-            padding-top: 10px; /* DODANO: Padding po linii oddzielającej */
+            max-height: none; 
+            height: 100%; /* ZMIENIONO: Używamy height: 100% z flex-grow: 1, aby wymusić zajęcie miejsca */
+            padding-right: 8px; 
+            margin-top: 10px; 
+            border-top: 1px solid var(--border-color); 
+            padding-top: 10px; 
         }
         /* ZMIANA: Dostosowanie do pustego stanu */
-        .dashboard-card .overdue-list-container.is-empty {
+        .dashboard-card .overdue-list-container.is-empty,
+        .dashboard-card .activity-list.is-empty { /* DODANO: activity-list do selektora */
             flex-grow: 0;
-            min-height: 50px; /* Minimalna wysokość dla komunikatu */
+            min-height: 50px; 
             overflow-y: hidden;
-            border-top: none; /* Bez linii, jeśli pusto */
+            border-top: none; 
             padding-top: 0;
             display: flex;
             align-items: center;
             justify-content: center;
+        }
+        
+        /* DODANO: Układ mobilny - wracamy do jednej kolumny */
+        @media (max-width: 768px) {
+             .dashboard-grid {
+                grid-template-columns: 1fr; /* Wymuszamy 1 kolumnę */
+            }
         }
         
         /* Ulepszenie wyglądu kart w Dashboardzie */
@@ -5175,11 +5174,19 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             } else if (taskCard) {
                 // Przypadek 2: Kliknięto kafelek (ale nie checkbox)
                 const taskId = taskCard.dataset.taskId;
+                const { task } = findTask(taskId); // DODANO: Znalezienie projektu zadania
                 console.log(`[Dashboard Details Modal] Kliknięto kafelek zadania: ${taskId}`); // Log
-                if (taskId) {
-                    // Zamknij obecny modal (szczegółów pulpitu)
+                if (taskId && task) {
+                    // KROK A: Ustaw widok projektu
+                    state.currentProjectId = task.projectId; 
+                    state.ui.currentView = 'projects';
+                    saveUiState();
+                    render();
+                    
+                    // KROK B: Zamknij obecny modal (szczegółów pulpitu)
                     closeModal(dashboardDetailsModal.overlay);
-                    // Otwórz modal zadania z opóźnieniem dla płynności przejścia
+                    
+                    // KROK C: Otwórz modal zadania z opóźnieniem dla płynności przejścia
                     setTimeout(() => {
                         openTaskModal(taskId);
                     }, 150); // Małe opóźnienie
@@ -5918,9 +5925,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
             // Zmieniamy klasę kontenera w zależności od trybu edycji
             document.getElementById('dashboard-grid-main').classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
-
             // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
-
             // Wywołujemy funkcje wypełniające karty danymi
             renderDashboardActivityFeed();
             // renderDashboardTeamDelays(); // Upewnij się, że ta linia jest usunięta lub zakomentowana, jeśli funkcja nie istnieje
@@ -5983,6 +5988,16 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     ghostClass: 'sortable-ghost',
                     group: 'dashboard-all', // Używamy ogólnej grupy
                     handle: '.dashboard-card-handle' // Dodano uchwyt do przeciągania
+                });
+            }
+             // DODANO: Zapewnienie, że kolejność jest zawsze zgodna z layoutem, 
+            // gdy nie jesteśmy w trybie edycji (Sortable.js nie działa).
+            if (!state.ui.dashboardEditMode && dashboardGridEl) {
+                const order = state.currentUser.layouts.dashboard || ['my-overdue', 'team-delays', 'workload', 'upcoming', 'activity'];
+                const children = Array.from(dashboardGridEl.children);
+                order.forEach(id => {
+                    const element = children.find(c => c.dataset.id === id);
+                    if (element) dashboardGridEl.appendChild(element); 
                 });
             }
 
@@ -12257,6 +12272,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
