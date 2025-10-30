@@ -7771,21 +7771,24 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             try {
                 // Krok 1: Pobierz dane grupy, aby znaleźć dostępne podgrupy
                 const groupDoc = await getDoc(doc(groupsRef, groupId));
-                if (!groupDoc.exists()) {
-                    throw new Error("Nie znaleziono Twojej grupy. Skontaktuj się z administratorem.");
+                
+                // === NOWA, POPRAWIONA LOGIKA SPRAWDZAJĄCA ===
+                // Sprawdzamy, czy użytkownik jest solo LUB czy dokument grupy nie istnieje LUB czy grupa nie ma podgrup.
+                // Wszystkie te przypadki oznaczają, że użytkownik nie musi niczego wybierać.
+                
+                // Domyślna wartość subgroups. Jeśli groupDoc nie istnieje, data() rzuciłoby błąd.
+                let subgroups = []; 
+                if (groupDoc.exists()) {
+                    subgroups = groupDoc.data().subgroups || [];
                 }
 
-                const subgroups = groupDoc.data().subgroups || [];
-                
-                // === DODANA LOGIKA NAPRAWY ===
-                // Warunek 1: Użytkownik jest solo (groupId == userId)
-                // Warunek 2: Grupa istnieje, ale nie ma podgrup
-                if (groupId === userId || subgroups.length === 0) {
-                     // Jeśli użytkownik jest SOLO lub grupa nie ma działów, automatycznie ustawiamy flagę.
+                if (groupId === userId || !groupDoc.exists() || subgroups.length === 0) {
+                     // Jeśli użytkownik jest SOLO, grupa nie istnieje lub grupa nie ma działów, 
+                     // automatycznie ustawiamy flagę i kontynuujemy.
                     await updateDoc(doc(usersRef, userId), { hasSelectedSubgroup: true });
                     return; // Zakończ funkcję, by onAuthStateChanged mogło kontynuować
                 }
-                // === KONIEC DODANEJ LOGIKI NAPRAWY ===
+                // === KONIEC NOWEJ LOGIKI POPRAWKI ===
 
                 // Krok 2: Wypełnij listę wyboru w modalu
                 modal.select.innerHTML = '<option value="">-- Proszę wybrać --</option>';
@@ -12345,6 +12348,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
