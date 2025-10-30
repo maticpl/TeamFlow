@@ -7772,11 +7772,16 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                 }
 
                 const subgroups = groupDoc.data().subgroups || [];
-                if (subgroups.length === 0) {
-                     // Jeśli grupa nie ma działów, oznaczamy, że użytkownik "wybrał" (bo nie miał z czego) i kontynuujemy.
+                
+                // === DODANA LOGIKA NAPRAWY ===
+                // Warunek 1: Użytkownik jest solo (groupId == userId)
+                // Warunek 2: Grupa istnieje, ale nie ma podgrup
+                if (groupId === userId || subgroups.length === 0) {
+                     // Jeśli użytkownik jest SOLO lub grupa nie ma działów, automatycznie ustawiamy flagę.
                     await updateDoc(doc(usersRef, userId), { hasSelectedSubgroup: true });
-                    return; // Zakończ funkcję
+                    return; // Zakończ funkcję, by onAuthStateChanged mogło kontynuować
                 }
+                // === KONIEC DODANEJ LOGIKI NAPRAWY ===
 
                 // Krok 2: Wypełnij listę wyboru w modalu
                 modal.select.innerHTML = '<option value="">-- Proszę wybrać --</option>';
@@ -7854,8 +7859,16 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         }
         // --- KONIEC INTELIGENTNEJ WERYFIKACJI ---
 
+        // Jeśli po tym czasie nadal nie ma danych, coś poszło bardzo nie tak.
+        if (!userData) {
+             console.error("Krytyczny błąd: Nie udało się wczytać danych profilu po rejestracji.");
+             await signOut(auth);
+             return;
+        }
+        // --- KONIEC INTELIGENTNEJ WERYFIKACJI ---
+
         // NOWA LOGIKA: Sprawdzanie flagi i wymuszanie wyboru podgrupy
-        if (userData && !userData.hasSelectedSubgroup && userData.groupId && userData.groupId !== user.uid) {
+        if (userData && !userData.hasSelectedSubgroup && userData.groupId) { // ZMIANA: Usunięto warunek `userData.groupId !== user.uid`
             // Użytkownik musi wybrać podgrupę, zanim zobaczy aplikację.
             // Ta funkcja rozwiąże Promise dopiero po zapisaniu wyboru.
             await handleFirstLoginSubgroupSelection(user.uid, userData.groupId);
@@ -7863,6 +7876,13 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             // Po dokonaniu wyboru, musimy odświeżyć dane użytkownika
             userDoc = await getDoc(userDocRef);
             userData = userDoc.data();
+            
+            // ZMIANA: Dodano zabezpieczenie, jeśli userDoc.data() zwróci undefined
+            if (!userData) {
+                 console.error("Krytyczny błąd: Dane użytkownika zniknęły po wyborze podgrupy.");
+                 await signOut(auth);
+                 return;
+            }
         }
 
         // Jeśli dotarliśmy tutaj, użytkownik na 100% istnieje i ma dane. Kontynuujemy normalnie.
@@ -12312,6 +12332,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
