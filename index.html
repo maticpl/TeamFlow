@@ -780,10 +780,6 @@
         #notification-modal { /* NOWA REGUŁA DLA POWIADOMIEŃ */
              z-index: 1015; /* Powiadomienia są na wierzchu modali 1010 */
         }
-        /* === NOWA REGUŁA: Podniesienie modala wyboru podgrupy === */
-        #select-subgroup-modal {
-            z-index: 10002 !important; /* Wyżej niż auth-overlay (10001) */
-        }
         /* KONIEC NOWYCH REGUŁ */
         .modal-overlay.visible { opacity: 1; visibility: visible; }
           .modal { background-color: var(--bg-secondary); border-radius: var(--border-radius); box-shadow: var(--shadow-lg); width: 90%; max-width: 800px; display: flex; flex-direction: column; transform: scale(0.95); transition: transform 0.3s; height: 80vh; max-height: 90vh; }
@@ -7771,24 +7767,16 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             try {
                 // Krok 1: Pobierz dane grupy, aby znaleźć dostępne podgrupy
                 const groupDoc = await getDoc(doc(groupsRef, groupId));
-                
-                // === NOWA, POPRAWIONA LOGIKA SPRAWDZAJĄCA ===
-                // Sprawdzamy, czy użytkownik jest solo LUB czy dokument grupy nie istnieje LUB czy grupa nie ma podgrup.
-                // Wszystkie te przypadki oznaczają, że użytkownik nie musi niczego wybierać.
-                
-                // Domyślna wartość subgroups. Jeśli groupDoc nie istnieje, data() rzuciłoby błąd.
-                let subgroups = []; 
-                if (groupDoc.exists()) {
-                    subgroups = groupDoc.data().subgroups || [];
+                if (!groupDoc.exists()) {
+                    throw new Error("Nie znaleziono Twojej grupy. Skontaktuj się z administratorem.");
                 }
 
-                if (groupId === userId || !groupDoc.exists() || subgroups.length === 0) {
-                     // Jeśli użytkownik jest SOLO, grupa nie istnieje lub grupa nie ma działów, 
-                     // automatycznie ustawiamy flagę i kontynuujemy.
+                const subgroups = groupDoc.data().subgroups || [];
+                if (subgroups.length === 0) {
+                     // Jeśli grupa nie ma działów, oznaczamy, że użytkownik "wybrał" (bo nie miał z czego) i kontynuujemy.
                     await updateDoc(doc(usersRef, userId), { hasSelectedSubgroup: true });
-                    return; // Zakończ funkcję, by onAuthStateChanged mogło kontynuować
+                    return; // Zakończ funkcję
                 }
-                // === KONIEC NOWEJ LOGIKI POPRAWKI ===
 
                 // Krok 2: Wypełnij listę wyboru w modalu
                 modal.select.innerHTML = '<option value="">-- Proszę wybrać --</option>';
@@ -7797,7 +7785,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                 });
 
                 // Krok 3: Pokaż modal i poczekaj na akcję użytkownika
-                // authOverlay.style.display = 'none'; // Ukryj ekran logowania
+                authOverlay.style.display = 'none'; // Ukryj ekran logowania
                 openModal(modal.overlay);
 
                 // Krok 4: Zwróć Promise, który rozwiąże się po wysłaniu formularza
@@ -7866,16 +7854,8 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         }
         // --- KONIEC INTELIGENTNEJ WERYFIKACJI ---
 
-        // Jeśli po tym czasie nadal nie ma danych, coś poszło bardzo nie tak.
-        if (!userData) {
-             console.error("Krytyczny błąd: Nie udało się wczytać danych profilu po rejestracji.");
-             await signOut(auth);
-             return;
-        }
-        // --- KONIEC INTELIGENTNEJ WERYFIKACJI ---
-
         // NOWA LOGIKA: Sprawdzanie flagi i wymuszanie wyboru podgrupy
-        if (userData && !userData.hasSelectedSubgroup && userData.groupId) { // ZMIANA: Usunięto warunek `userData.groupId !== user.uid`
+        if (userData && !userData.hasSelectedSubgroup && userData.groupId && userData.groupId !== user.uid) {
             // Użytkownik musi wybrać podgrupę, zanim zobaczy aplikację.
             // Ta funkcja rozwiąże Promise dopiero po zapisaniu wyboru.
             await handleFirstLoginSubgroupSelection(user.uid, userData.groupId);
@@ -7883,13 +7863,6 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             // Po dokonaniu wyboru, musimy odświeżyć dane użytkownika
             userDoc = await getDoc(userDocRef);
             userData = userDoc.data();
-            
-            // ZMIANA: Dodano zabezpieczenie, jeśli userDoc.data() zwróci undefined
-            if (!userData) {
-                 console.error("Krytyczny błąd: Dane użytkownika zniknęły po wyborze podgrupy.");
-                 await signOut(auth);
-                 return;
-            }
         }
 
         // Jeśli dotarliśmy tutaj, użytkownik na 100% istnieje i ma dane. Kontynuujemy normalnie.
@@ -8130,14 +8103,10 @@ passwordResetForm.addEventListener('submit', async (e) => {
         if (!userCredential.user.emailVerified) {
             authErrorLogin.textContent = 'Twoje konto nie zostało jeszcze zweryfikowane. Sprawdź e-mail.';
             await signOut(auth); // Wyloguj użytkownika, aby nie pozostał w stanie "pół-zalogowania"
-            // --- DODANA LOGIKA RESETU PRZYCISKU ---
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Zaloguj się';
-            // --- KONIEC DODANEJ LOGIKI ---
+            // Zakończ działanie funkcji, nie pozwalając na przejście dalej
             return; 
         }
         // Jeśli weryfikacja jest OK, listener onAuthStateChanged zajmie się resztą.
-        // Przycisk POZOSTAJE zablokowany - to jest poprawne.
 
     } catch (error) {
         console.error("Błąd logowania:", error);
@@ -8146,14 +8115,9 @@ passwordResetForm.addEventListener('submit', async (e) => {
         } else {
             authErrorLogin.textContent = "Wystąpił nieoczekiwany błąd logowania.";
         }
-        // --- DODANA LOGIKA RESETU PRZYCISKU ---
+    } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Zaloguj się';
-        // --- KONIEC DODANEJ LOGIKI ---
-    } finally {
-        // BLOK FINALLY JEST TERAZ PUSTY
-        // submitBtn.disabled = false; // USUNIĘTE
-        // submitBtn.textContent = 'Zaloguj się'; // USUNIĘTE
     }
 });
         // --- NOWE LISTENERY DLA SEKCJI BUDŻETU ZADANIA (Etap 1) ---
@@ -12348,11 +12312,6 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
-
-
-
-
-
 
 
 
