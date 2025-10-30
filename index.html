@@ -8221,145 +8221,200 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
         });
 
         registerForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = document.getElementById('register-name').value.trim();
-    const email = document.getElementById('register-email').value;
-    const password = document.getElementById('register-password').value;
-    authErrorRegister.textContent = '';
-    const submitBtn = e.target.querySelector('button[type="submit"]');
+            e.preventDefault();
+            const name = document.getElementById('register-name').value.trim();
+            const email = document.getElementById('register-email').value;
+            const password = document.getElementById('register-password').value;
+            authErrorRegister.textContent = '';
+            const submitBtn = e.target.querySelector('button[type="submit"]');
 
-    if (!name) {
-        authErrorRegister.textContent = 'Nazwa użytkownika jest wymagana.';
-        return;
-    }
-
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Rejestrowanie...';
-
-    try {
-        // === KROK A: STWORZENIE UŻYTKOWNIKA W AUTHENTICATION (PRZENIESIONE NA POCZĄTEK) ===
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-
-        // === DANE O GRUPIE DO ZAPISU (logika pozostaje, ale jest wykonywana przez zalogowanego usera) ===
-        let groupId = null;
-        let groupName = null;
-        // USUNIĘTO: let subgroupName = null;
-
-        if (registerTeamToggle.checked) {
-            const action = document.querySelector('input[name="group-action"]:checked').value;
-            const enteredGroupName = registerGroupNameInput.value.trim();
-
-            if (!enteredGroupName) {
-                throw new Error("Nazwa grupy jest wymagana, gdy pracujesz w zespole.");
+            if (!name) {
+                authErrorRegister.textContent = 'Nazwa użytkownika jest wymagana.';
+                return;
             }
 
-            if (action === 'create') {
-                const qCheck = query(groupsRef, where("name", "==", enteredGroupName));
-                const checkSnapshot = await getDocs(qCheck);
-                if (!checkSnapshot.empty) {
-                    throw new Error("Grupa o tej nazwie już istnieje. Wybierz inną nazwę lub dołącz do istniejącej.");
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Rejestrowanie...';
+
+            // Zmienne do przechowywania wyników walidacji
+            let groupId = null;
+            let groupName = null;
+            let action = null;
+
+            try {
+                // ==================================================
+                // === KROK 1: WALIDACJA GRUPY (PRZED UTWORZENIEM UŻYTKOWNIKA) ===
+                // ==================================================
+                if (registerTeamToggle.checked) {
+                    action = document.querySelector('input[name="group-action"]:checked').value;
+                    const enteredGroupName = registerGroupNameInput.value.trim();
+
+                    if (!enteredGroupName) {
+                        // Błąd lokalny #1
+                        throw new Error("Nazwa grupy jest wymagana, gdy pracujesz w zespole.");
+                    }
+
+                    if (action === 'create') {
+                        // Sprawdzamy, czy grupa o tej nazwie już istnieje
+                        const qCheck = query(groupsRef, where("name", "==", enteredGroupName));
+                        const checkSnapshot = await getDocs(qCheck);
+                        if (!checkSnapshot.empty) {
+                            // Błąd lokalny #2 (Spersonalizowany)
+                            throw new Error("Grupa o tej nazwie już istnieje. Wybierz inną nazwę lub dołącz do istniejącej.");
+                        }
+                        // Walidacja pomyślna, zapisujemy nazwę do późniejszego użycia
+                        groupName = enteredGroupName;
+                        // groupId zostanie ustawione na user.uid po utworzeniu użytkownika
+
+                    } else { // action === 'join'
+                        // Sprawdzamy, czy grupa, do której chcemy dołączyć, istnieje
+                        const q = query(groupsRef, where("name", "==", enteredGroupName));
+                        const querySnapshot = await getDocs(q);
+
+                        if (querySnapshot.empty) {
+                            // Błąd lokalny #3 (Spersonalizowany)
+                            throw new Error("Grupa o podanej nazwie nie istnieje lub wpisałeś błędną nazwę grupy.");
+                        }
+                        // Walidacja pomyślna, zapisujemy dane znalezionej grupy
+                        const groupDoc = querySnapshot.docs[0];
+                        groupId = groupDoc.id;
+                        groupName = groupDoc.data().name;
+                    }
+                }
+                // Jeśli registerTeamToggle nie jest zaznaczone, użytkownik jest solo.
+                // groupId zostanie ustawione na user.uid, a groupName pozostanie null.
+
+                // ==================================================
+                // === KROK 2: TWORZENIE UŻYTKOWNIKA I DOKUMENTÓW ===
+                // (Ten blok wykona się tylko jeśli KROK 1 nie zwrócił błędu)
+                // ==================================================
+                try {
+                    // === KROK 2A: TWORZENIE UŻYTKOWNIKA W AUTH ===
+                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                    const user = userCredential.user;
+
+                    // === KROK 2B: FINALIZOWANIE DANYCH GRUPY ===
+                    if (registerTeamToggle.checked) {
+                        if (action === 'create') {
+                            // Teraz, gdy mamy user.uid, ustawiamy je jako ID grupy
+                            groupId = user.uid;
+                            
+                            // Zapisujemy nowy dokument grupy
+                            await setDoc(doc(groupsRef, groupId), {
+                                name: groupName, // Nazwa sprawdzona w kroku 1
+                                ownerId: user.uid,
+                                subgroups: []
+                            });
+                        }
+                        // Jeśli action === 'join', groupId i groupName są już ustawione z kroku 1.
+                    } else {
+                        // Użytkownik pracuje sam - jego grupa to on sam
+                        groupId = user.uid;
+                    }
+
+                    // === KROK 2C: ZAPIS DOKUMENTU UŻYTKOWNIKA ===
+                    await setDoc(doc(usersRef, user.uid), {
+                        uid: user.uid,
+                        email: user.email,
+                        name: name,
+                        groupId: groupId,       // Używamy groupId ustalonego wcześniej
+                        groupName: groupName,   // Używamy groupName ustalonego wcześniej
+                        subgroupName: null, 
+                        hasSelectedSubgroup: false, 
+                        avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+                        favorites: [],
+                        layouts: {
+                            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+                            allProjects: []
+                        }
+                    });
+
+                    // === KROK 2D: TWORZENIE SKRZYNKI ===
+                    const inboxProject = {
+                        name: "Skrzynka zadań",
+                        ownerId: user.uid,
+                        members: [user.uid],
+                        tasks: [],
+                        isInbox: true,
+                        createdAt: Date.now(),
+                        groupId: groupId // Dodajemy groupId również do skrzynki
+                    };
+                    await addDoc(projectsRef, inboxProject);
+
+                    // === KROK 2E/2F: WERYFIKACJA I Wylogowanie ===
+                    await sendEmailVerification(user);
+                    await signOut(auth);
+                    
+                    // === KROK 2G: SUKCES (pokazanie wiadomości) ===
+                    loginForm.style.display = 'none';
+                    registerForm.style.display = 'none';
+                    document.getElementById('password-reset-form').style.display = 'none';
+                    
+                    const successMessageContainer = document.getElementById('register-success-message');
+                    const emailDisplay = document.getElementById('success-email-display');
+                    
+                    if (emailDisplay) {
+                        emailDisplay.textContent = email;
+                    }
+                    if (successMessageContainer) {
+                        successMessageContainer.style.display = 'block';
+                    }
+                    
+                    const backToLoginBtn = document.getElementById('back-to-login-btn');
+                    if (backToLoginBtn) {
+                        backToLoginBtn.addEventListener('click', () => {
+                            if (successMessageContainer) {
+                                successMessageContainer.style.display = 'none';
+                            }
+                            loginForm.style.display = 'block';
+                        });
+                    }
+
+                } catch (authOrFirestoreError) {
+                    // Ten catch łapie błędy z createUserWithEmailAndPassword LUB zapisu do Firestore
+                    console.error("Błąd rejestracji (Auth lub Firestore):", authOrFirestoreError);
+                    
+                    // Jeśli użytkownik został utworzony w Auth, ale reszta się nie powiodła
+                    if (auth.currentUser) {
+                        await signOut(auth); // Wyloguj go
+                    }
+                    // Przekaż błąd dalej, aby złapał go zewnętrzny catch
+                    throw authOrFirestoreError; 
                 }
 
-                groupName = enteredGroupName;
-                groupId = user.uid; // ID grupy to UID jej założyciela
+            } catch (validationOrAuthError) {
+                // ==================================================
+                // === KROK 3: GŁÓWNY CATCH (łapie błędy walidacji LUB błędy z KROKU 2) ===
+                // ==================================================
+                console.error("Błąd podczas procesu rejestracji:", validationOrAuthError);
+
+                // Sprawdzamy nasze spersonalizowane błędy walidacji
+                const errorMsg = validationOrAuthError.message;
+                if (errorMsg === "Grupa o tej nazwie już istnieje. Wybierz inną nazwę lub dołącz do istniejącej." ||
+                    errorMsg === "Grupa o podanej nazwie nie istnieje lub wpisałeś błędną nazwę grupy." ||
+                    errorMsg === "Nazwa grupy jest wymagana, gdy pracujesz w zespole.") {
+                    
+                    authErrorRegister.textContent = errorMsg; // Wyświetlamy spersonalizowaną wiadomość
                 
-                // Zapisujemy nowy dokument grupy
-                await setDoc(doc(groupsRef, groupId), {
-                    name: groupName,
-                    ownerId: user.uid,
-                    subgroups: []
-                });
+                } else if (errorMsg.includes("auth/email-already-in-use")) {
+                    authErrorRegister.textContent = "Ten adres e-mail jest już używany.";
+                
+                } else if (errorMsg.includes("auth/weak-password")) {
+                    authErrorRegister.textContent = "Hasło jest zbyt słabe (min. 6 znaków).";
 
-            } else { // action === 'join'
-                const q = query(groupsRef, where("name", "==", enteredGroupName));
-                const querySnapshot = await getDocs(q);
-
-                if (querySnapshot.empty) {
-                    throw new Error("Grupa o podanej nazwie nie istnieje.");
+                } else {
+                    // Inne nieoczekiwane błędy
+                    authErrorRegister.textContent = "Wystąpił nieoczekiwany błąd: " + errorMsg;
                 }
-                const groupDoc = querySnapshot.docs[0];
-                groupId = groupDoc.id;
-                groupName = groupDoc.data().name;
-
-                // USUNIĘTO CAŁĄ LOGIKĘ WYBORU PODGRUPY
-            }
-        } else {
-            // Użytkownik pracuje sam - jego grupa to on sam
-            groupId = user.uid;
-        }
-
-        // KROK B: Zapisanie danych użytkownika w Firestore
-        await setDoc(doc(usersRef, user.uid), {
-            uid: user.uid,
-            email: user.email,
-            name: name,
-            groupId: groupId,
-            groupName: groupName,
-            subgroupName: null, // ZAWSZE null przy rejestracji
-            hasSelectedSubgroup: false, // NOWA FLAGA
-            avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-            favorites: [],
-            layouts: {
-                dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
-                allProjects: []
+            
+            } finally {
+                // ==================================================
+                // === KROK 4: ZAWSZE RESETUJ PRZYCISK ===
+                // ==================================================
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Zarejestruj się';
             }
         });
-
-        // KROK C: Stworzenie "Skrzynki zadań"
-        const inboxProject = {
-            name: "Skrzynka zadań", ownerId: user.uid, members: [user.uid],
-            tasks: [], isInbox: true, createdAt: Date.now()
-        };
-        await addDoc(projectsRef, inboxProject);
-
-        // KROK D i E: Wysłanie weryfikacji i wylogowanie
-        await sendEmailVerification(user);
-        await signOut(auth);
-        
-        // Pokaż komunikat o sukcesie - PRZENIESIONE NA SAM KONIEC BLOKU 'try'
-        loginForm.style.display = 'none';
-        registerForm.style.display = 'none';
-        document.getElementById('password-reset-form').style.display = 'none';
-        
-        const successMessageContainer = document.getElementById('register-success-message');
-        const emailDisplay = document.getElementById('success-email-display');
-        
-        if (emailDisplay) {
-            emailDisplay.textContent = email;
-        }
-        if (successMessageContainer) {
-            successMessageContainer.style.display = 'block';
-        }
-        
-        const backToLoginBtn = document.getElementById('back-to-login-btn');
-        if (backToLoginBtn) {
-            backToLoginBtn.addEventListener('click', () => {
-                if (successMessageContainer) {
-                    successMessageContainer.style.display = 'none';
-                }
-                loginForm.style.display = 'block';
-            });
-        }
-
-    } catch (error) {
-        console.error("Błąd rejestracji:", error);
-        // Specjalna obsługa, jeśli użytkownik został stworzony w Auth, ale reszta operacji się nie powiodła
-        if (auth.currentUser) {
-            // Można dodać logikę usuwania nowo stworzonego użytkownika, ale jest to skomplikowane.
-            // Prostsze jest poinformowanie go, że coś poszło nie tak.
-            authErrorRegister.textContent = "Wystąpił błąd podczas konfiguracji konta. Spróbuj ponownie.";
-            await signOut(auth); // Wyloguj na wszelki wypadek
-        } else {
-            authErrorRegister.textContent = error.message.includes("auth/email-already-in-use")
-                ? "Ten adres e-mail jest już używany."
-                : error.message;
-        }
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Zarejestruj się';
-    }
-});
         // Dodaj listener do przycisku "Wróć do logowania" na ekranie sukcesu
         document.getElementById('back-to-login-btn').addEventListener('click', () => {
             document.getElementById('register-success-message').style.display = 'none';
@@ -12313,6 +12368,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
