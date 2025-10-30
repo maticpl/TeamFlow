@@ -7574,8 +7574,26 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
     }
         function setupFirestoreListeners(userId) {
             if (!userId) return;
-            if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
-            state.ui.unsubscribeUsers = onSnapshot(query(usersRef), (snapshot) => {
+            // <<<--- POCZĄTEK POPRAWKI ---<<<
+
+    // 1. Pobieramy groupId z BIEŻĄCEGO STANU (state.currentUser)
+    //    (jest on już ustawiony przez onAuthStateChanged, zanim ta funkcja jest wywołana)
+    const currentGroupId = state.currentUser ? state.currentUser.groupId : null;
+    
+    // 2. Zabezpieczenie: Jeśli z jakiegoś powodu nie ma groupId, nie wykonuj zapytania
+    if (!currentGroupId) {
+        console.error("Nie można uruchomić listenera użytkowników: brak currentGroupId w stanie.");
+        return; 
+    }
+
+    if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
+
+    // 3. Tworzymy zapytanie, które pobierze TYLKO użytkowników z naszej grupy.
+    const usersQuery = query(usersRef, where("groupId", "==", currentGroupId));
+
+    // 4. Nasłuchujemy na WYNIK TEGO KONKRETNEGO ZAPYTANIA
+    state.ui.unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+        // <<<--- KONIEC POPRAWKI ---<<<
                 state.users = snapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data()
@@ -12368,6 +12386,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
