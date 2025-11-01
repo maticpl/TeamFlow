@@ -7157,8 +7157,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // <<< KONIEC ZMIANY >>>
 
             // === POPRAWIONA KOLEJNOŚĆ ===
+            // === POPRAWIONA KOLEJNOŚĆ ===
             setViewMode(); // 1. Wypełnij pola i otwórz modal
-            tippy('#task-modal .task-modal-tab'); // 2. Zainicjuj Tippy
+            tippy('#task-modal .task-modal-tab', { offset: [0, 15] }); // 2. Zainicjuj Tippy (Z DODANYM OFFSETEM)
             // 3. Kliknij domyślną zakładkę "Opis" (lub inną, jeśli 'opis' jest domyślnie ukryty, co w tym widoku się nie zdarza)
             const descriptionTab = taskModal.overlay.querySelector('.task-modal-tab[data-tab="description"]');
             if (descriptionTab) {
@@ -7508,7 +7509,7 @@ newTaskModal.taskTypeSelection.style.display = 'block';
             document.getElementById('task-type-single').checked = true;
 
             // NOWA LOGIKA: Inicjalizacja Tippy.js i ustawienie domyślnej zakładki
-            tippy('#new-task-modal .task-modal-tab'); // 1. Inicjalizacja tooltipów
+            tippy('#new-task-modal .task-modal-tab', { offset: [0, 15] }); // 1. Inicjalizacja tooltipów (Z DODANYM OFFSETEM)
             // ZMIANA: Ustawiamy domyślną zakładkę na "dueDate" (Termin)
             const defaultTab = document.getElementById('new-task-modal').querySelector('.task-modal-tab[data-tab="dueDate"]');
             if (defaultTab) {
@@ -7627,10 +7628,25 @@ newTaskModal.projectGroup.style.display = 'block';
          * @returns {string} HTML (element <li>)
          */
         function renderPollOptionHTML(value = '') {
+            // Generujemy unikalne ID dla inputa pliku, aby label działał poprawnie
+            const fileInputId = `poll-file-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            
             return `
-                <li class="poll-option-item" style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
-                    <input type="text" class="new-poll-option-input" placeholder="Wpisz opcję..." value="${value}" style="flex: 1;">
-                    <button type="button" class="delete-poll-option-btn btn btn-secondary" style="padding: 2px 6px; font-size: 14px; line-height: 1;">&times;</button>
+                <li class="poll-option-item" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; padding: 10px; background-color: var(--bg-primary); border-radius: var(--border-radius);">
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="text" class="new-poll-option-input" placeholder="Wpisz opcję..." value="${value}" style="flex: 1;">
+                        <button type="button" class="delete-poll-option-btn btn btn-secondary" style="padding: 2px 6px; font-size: 14px; line-height: 1;">&times;</button>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="file" class="new-poll-option-file" id="${fileInputId}" accept="image/png, image/jpeg" style="display: none;">
+                        <label for="${fileInputId}" class="btn btn-secondary" style="font-size: 12px; padding: 2px 8px; margin: 0; cursor: pointer;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: text-bottom;">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.94l-7.693 7.693a2.25 2.25 0 003.182 3.182l7.693-7.693a.75.75 0 011.06 1.06l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32" />
+                            </svg>
+                            Dodaj .png/.jpg
+                        </label>
+                        <span class="poll-option-file-name" style="font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Brak pliku</span>
+                    </div>
                 </li>
             `;
         }
@@ -7732,29 +7748,44 @@ newTaskModal.projectGroup.style.display = 'block';
                 // --- Widok WYNIKÓW (użytkownik już zagłosował LUB nie może głosować) ---
                 contentHTML += (poll.options || []).map(opt => {
                     const voteCount = (opt.votes || []).length;
-                    const percentage = totalVotes > 0 ? (voteCount / totalVotes) * 100 : 0;
-                    const isVotedClass = opt.id === currentUserVoteOptionId ? 'voted' : '';
+...
+                    // === NOWA LOGIKA OBRAZKA ===
+                    let imageHTML = '';
+                    const attachment = opt.attachment;
+                    if (attachment && attachment.url && (attachment.url.toLowerCase().includes('.png') || attachment.url.toLowerCase().includes('.jpg') || attachment.url.toLowerCase().includes('.jpeg'))) {
+                         // Dodajemy obrazek, jeśli to PNG lub JPG
+                         imageHTML = `<img src="${attachment.url}" alt="Załącznik do opcji" style="width: 100%; max-height: 250px; object-fit: contain; border-radius: var(--border-radius); margin-top: 8px; border: 1px solid var(--border-color);">`;
+                    }
+                    // === KONIEC NOWEJ LOGIKI ===
 
                     return `
-                        <div class="poll-option-result ${isVotedClass}">
+                        <div class="poll-option-result ${isVotedClass}" style="padding: 10px; background-color: var(--bg-primary); border-radius: var(--border-radius);">
                             <div class="poll-result-text">
-                                <span>${opt.text} ${isVotedClass ? '✓' : ''}</span>
-                                <span class="poll-vote-count">${voteCount} ${voteCount === 1 ? 'głos' : (voteCount > 1 && voteCount < 5 ? 'głosy' : 'głosów')}</span>
-                            </div>
+...
                             <div class="poll-result-bar-container">
                                 <div class="poll-result-bar-fill" style="width: ${percentage.toFixed(1)}%;"></div>
                             </div>
-                        </div>
+                            ${imageHTML} </div>
                     `;
                 }).join('');
             } else {
                 // --- Widok GŁOSOWANIA (przyciski) ---
                 contentHTML += (poll.options || []).map(opt => {
+                    
+                    // === NOWA LOGIKA OBRAZKA (SKOPIOWANA) ===
+                    let imageHTML = '';
+                    const attachment = opt.attachment;
+                    if (attachment && attachment.url && (attachment.url.toLowerCase().includes('.png') || attachment.url.toLowerCase().includes('.jpg') || attachment.url.toLowerCase().includes('.jpeg'))) {
+                         // Dodajemy obrazek, jeśli to PNG lub JPG
+                         imageHTML = `<img src="${attachment.url}" alt="Załącznik do opcji" style="width: 100%; max-height: 250px; object-fit: contain; border-radius: var(--border-radius); margin-top: 8px; border: 1px solid var(--border-color); pointer-events: none;">`;
+                    }
+                    // === KONIEC NOWEJ LOGIKI ===
+                    
                     return `
                         <div class="poll-option-item">
-                            <button class="poll-vote-btn" data-poll-id="${poll.id}" data-option-id="${opt.id}">
-                                ${opt.text}
-                            </button>
+                            <button class="poll-vote-btn" data-poll-id="${poll.id}" data-option-id="${opt.id}" style="flex-direction: column; height: auto; padding: 12px;">
+                                <span style="font-weight: 600;">${opt.text}</span>
+                                ${imageHTML} </button>
                         </div>
                     `;
                 }).join('');
@@ -11382,6 +11413,26 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
         });
         // === KONIEC NOWYCH LISTENERÓW ===
+       // NOWY LISTENER (CHANGE): Obsługa wyboru pliku dla opcji sondażu
+        newPollModal.optionsList.addEventListener('change', (e) => {
+            const fileInput = e.target.closest('.new-poll-option-file');
+            if (!fileInput) return; // Zdarzenie 'change' pochodziło skądinąd
+
+            const optionItem = fileInput.closest('li.poll-option-item');
+            if (!optionItem) return;
+
+            const fileNameSpan = optionItem.querySelector('.poll-option-file-name');
+            if (fileInput.files && fileInput.files.length > 0) {
+                // Wybrano plik
+                fileNameSpan.textContent = fileInput.files[0].name;
+                fileNameSpan.style.color = 'var(--accent-primary)';
+            } else {
+                // Anulowano wybór pliku
+                fileNameSpan.textContent = 'Brak pliku';
+                fileNameSpan.style.color = 'var(--text-secondary)';
+            }
+        });
+        // === KONIEC NOWYCH LISTENERÓW ===
        // === NOWY LISTENER: ZAPIS SONDARŻU DO FIRESTORE ===
         newPollModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -11403,14 +11454,56 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     throw new Error("Nie można znaleźć projektu. Odśwież stronę.");
                 }
 
-                // 2. Zbieranie opcji (z unikalnymi ID)
-                const options = Array.from(newPollModal.optionsList.querySelectorAll('.new-poll-option-input'))
-                    .map((input, index) => ({
-                        id: `opt_${Date.now()}_${index}`, // Unikalne ID dla każdej opcji
-                        text: input.value.trim(),
-                        votes: [] // Pusta tablica na głosy
-                    }))
-                    .filter(opt => opt.text.length > 0); // Filtruj puste opcje
+                // 2. Zbieranie opcji (NOWA LOGIKA z uploadem plików)
+                
+                // Krok 2a: Zbierz wszystkie elementy <li> opcji
+                const optionItems = Array.from(newPollModal.optionsList.querySelectorAll('li.poll-option-item'));
+                
+                // Krok 2b: Przygotuj tablicę obietnic (Promises) do uploadu
+                const uploadPromises = optionItems.map(async (item, index) => {
+                    const textInput = item.querySelector('.new-poll-option-input');
+                    const fileInput = item.querySelector('.new-poll-option-file');
+                    
+                    const text = textInput ? textInput.value.trim() : '';
+                    const file = fileInput && fileInput.files.length > 0 ? fileInput.files[0] : null;
+
+                    // Jeśli nie ma ani tekstu, ani pliku, zwróć null
+                    if (!text && !file) return null; 
+
+                    let attachmentData = null;
+
+                    // Krok 2c: Jeśli jest plik, prześlij go
+                    if (file) {
+                        const storagePath = `poll_attachments/${projectId}/${Date.now()}_${file.name}`;
+                        const storageRef = ref(storage, storagePath);
+                        
+                        // Przesyłanie
+                        console.log(`Przesyłanie pliku dla opcji ${index}: ${file.name}`);
+                        const snapshot = await uploadBytes(storageRef, file);
+                        // Pobieranie URL
+                        const downloadURL = await getDownloadURL(snapshot.ref);
+                        
+                        attachmentData = {
+                            url: downloadURL,
+                            path: storagePath
+                        };
+                    }
+                    
+                    // Zwróć gotowy obiekt opcji
+                    return {
+                        id: `opt_${Date.now()}_${index}`,
+                        text: text || file.name, // Użyj nazwy pliku jako tekstu, jeśli tekst jest pusty
+                        attachment: attachmentData,
+                        votes: []
+                    };
+                });
+
+                // Krok 2d: Poczekaj, aż wszystkie pliki się prześlą
+                submitBtn.textContent = 'Przetwarzanie plików...';
+                const uploadedOptions = await Promise.all(uploadPromises);
+
+                // Krok 2e: Odfiltruj puste opcje (te, które zwróciły null)
+                const options = uploadedOptions.filter(Boolean); // 'Boolean' usunie wszystkie wartości null/undefined
 
                 if (options.length < 2) {
                      throw new Error("Sondaż musi mieć przynajmniej dwie niepuste opcje.");
@@ -13897,6 +13990,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
