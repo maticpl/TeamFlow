@@ -6789,6 +6789,55 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 return match;
             });
         }
+       // --- NOWA FUNKCJA PRZETWARZAJĄCA WYWOŁANIA GRUPOWE (@Wszyscy z projektu, @Wszyscy z zadania) ---
+        /**
+         * Przetwarza treść komentarza w poszukiwaniu aliasów grupowych i zwraca unikalną listę UID użytkowników do powiadomienia.
+         * @param {string} commentText - Treść komentarza.
+         * @param {Object} activeProject - Obiekt aktywnego projektu (zawiera ownerId i members).
+         * @param {Object} activeTask - Obiekt aktywnego zadania (zawiera assignees i completedBy).
+         * @returns {Array<string>} Unikalna lista userId do powiadomienia.
+         */
+        function getUsersToNotifyFromMentions(commentText, activeProject, activeTask) {
+            const userIds = new Set();
+            // Zmodyfikowany regex do parsowania wywołań (umożliwia użycie spacji)
+            const mentions = commentText.match(/@([\wąćęłńóśźż\s-]+)/g) || [];
+            
+            mentions.forEach(mention => {
+                const alias = mention.trim().toLowerCase();
+                
+                // 1. Wywołanie @Wszyscy z projektu
+                if (alias === '@wszyscy z projektu') {
+                    if (activeProject) {
+                        // Dodanie Właściciela (ownerId)
+                        if (activeProject.ownerId) {
+                            userIds.add(activeProject.ownerId);
+                        }
+                        // Dodanie Członków (members)
+                        if (activeProject.members && Array.isArray(activeProject.members)) {
+                            activeProject.members.forEach(uid => userIds.add(uid));
+                        }
+                    } else {
+                        console.warn("Próba wywołania '@Wszyscy z projektu', ale activeProject nie jest zdefiniowany.");
+                    }
+                }
+                
+                // 2. Wywołanie @Wszyscy z zadania
+                // WAŻNA POPRAWKA: W Twoim kodzie zadania mają pole `assignees` (tablica UID), a nie `assignedUserId`!
+                if (alias === '@wszyscy z zadania') {
+                    if (activeTask) {
+                        // Dodanie osób przypisanych (assignees)
+                        if (activeTask.assignees && Array.isArray(activeTask.assignees)) {
+                            activeTask.assignees.forEach(uid => userIds.add(uid));
+                        }
+                    } else {
+                        console.warn("Próba wywołania '@Wszyscy z zadania', ale activeTask nie jest zdefiniowany.");
+                    }
+                }
+            });
+
+            return Array.from(userIds);
+        }
+        // --- KONIEC NOWEJ FUNKCJI PRZETWARZAJĄCEJ WYWOŁANIA GRUPOWE ---
         function renderComments(task) {
     taskModal.commentsList.innerHTML = '';
     const comments = task.comments || [];
@@ -10769,29 +10818,74 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 });
             }
 
-            // 4. Logika tworzenia powiadomień (batch) pozostaje taka sama
-            if (usersToNotify.length > 0) {
+            // === NOWA LOGIKA - POWIADOMIENIA O WZMIANKACH (TRIBUTE.JS + GRUPOWE) ===
+            
+            // 1. Indywidualne wywołania (z Tribute.js)
+            // Użyj wyrażenia regularnego, aby znaleźć wszystkie wzmianki w formacie @NazwaBezSpacji
+            const mentionRegex = /@([a-zA-Z0-9]+)/g;
+            const matches = commentText.match(mentionRegex); 
+            
+            const usersFromIndividualMentions = new Set();
+            
+            if (matches) {
+                const mentionedValues = [...new Set(matches.map(mention => mention.substring(1)))];
+                
+                mentionedValues.forEach(value => {
+                const foundUser = state.users.find(user => 
+                    user.id !== state.currentUser.uid && 
+                    (user.name || user.email).replace(/[^a-zA-Z0-9]/g, '') === value 
+                );
+                
+                if (foundUser) {
+                        usersFromIndividualMentions.add(foundUser.id); // DODANO: Dodajemy UID do Set
+                    }
+                });
+            }
+
+            // 2. Wywołania grupowe
+            // Wywołujemy nową funkcję, aby uzyskać UID z aliasów grupowych
+            const usersFromGroupMentions = getUsersToNotifyFromMentions(commentText, project, task);
+
+            // 3. Agregacja i filtracja końcowa
+            const allUsersToNotify = new Set([...usersFromIndividualMentions, ...usersFromGroupMentions]);
+            const finalUidsToNotify = Array.from(allUsersToNotify).filter(uid => uid !== state.currentUser.uid); // Wyklucz autora
+
+            // 4. Logika tworzenia powiadomień (batch)
+            if (finalUidsToNotify.length > 0) { // Zmieniono usersToNotify.length > 0 na finalUidsToNotify.length > 0
                 const batch = writeBatch(db);
-                    const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+                const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
 
-                    usersToNotify.forEach(userToNotify => {
-                        if (userToNotify.id === state.currentUser.uid) return;
+                finalUidsToNotify.forEach(userIdToNotify => { // Iterujemy po UID
+                    // Nie musimy sprawdzać if (userIdToNotify === state.currentUser.uid) return; - to już zrobione w filtrze
+                    
+                    // Określenie typu wzmianki dla lepszego opisu w powiadomieniu
+                    let mentionType = 'indywidualnie';
+                    if (usersFromGroupMentions.includes(userIdToNotify)) {
+                         // Najpierw sprawdzamy, czy UID był w grupie, aby dać priorytet temu powiadomieniu
+                         if (commentText.toLowerCase().includes('@wszyscy z projektu')) {
+                            mentionType = 'grupowo w projekcie';
+                         } else if (commentText.toLowerCase().includes('@wszyscy z zadania')) {
+                            mentionType = 'grupowo w zadaniu';
+                         }
+                    } else if (usersFromIndividualMentions.has(userIdToNotify)) {
+                        mentionType = 'indywidualnie';
+                    }
 
-                        const notification = {
-                            userId: userToNotify.id, // ID odbiorcy
-                            creatorId: state.currentUser.uid, // ID twórcy
-                            type: 'mention',
-                            message: `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie w komentarzu w zadaniu "<strong>${task.title}</strong>".`,
-                            isRead: false,
-                            timestamp: Date.now(),
-                            link: { type: 'task', projectId: project.id, taskId: task.id }
-                        };
-                        const newNotifRef = doc(notificationsRef);
-                        batch.set(newNotifRef, notification);
-                    });
-                    await batch.commit();
-                } // Koniec bloku if (usersToNotify.length > 0)
-            // POPRAWKA: Usunięto zbędną klamrę zamykającą, która była tutaj.
+                    const notification = {
+                        userId: userIdToNotify, // ID odbiorcy (UID)
+                        creatorId: state.currentUser.uid,
+                        type: 'mention',
+                        // Zmieniono treść na bardziej ogólną i dynamiczną
+                        message: `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie ${mentionType} w komentarzu w zadaniu "<strong>${task.title}</strong>".`,
+                        isRead: false,
+                        timestamp: Date.now(),
+                        link: { type: 'task', projectId: project.id, taskId: task.id }
+                    };
+                    const newNotifRef = doc(notificationsRef);
+                    batch.set(newNotifRef, notification);
+                });
+                await batch.commit();
+            }
             // === KONIEC NOWEJ LOGIKI ===
 
             taskModal.newCommentText.value = '';
@@ -12904,6 +12998,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
