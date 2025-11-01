@@ -10818,17 +10818,19 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 });
             }
 
-            // === NOWA LOGIKA - POWIADOMIENIA O WZMIANKACH (TRIBUTE.JS + GRUPOWE) ===
+            // === NOWA ZJEDNOCZONA LOGIKA POWIADOMIEŃ O WZMIANKACH (INDYWIDUALNE + GRUPOWE) ===
             
-            // 1. Indywidualne wywołania (z Tribute.js)
-            // Użyj wyrażenia regularnego, aby znaleźć wszystkie wzmianki w formacie @NazwaBezSpacji
-            const mentionRegex = /@([a-zA-Z0-9]+)/g;
-            const matches = commentText.match(mentionRegex); 
-            
-            const usersFromIndividualMentions = new Set();
+            // 1. Inicjalizacja stałych i zbiorów na UID
+            const INDIVIDUAL_MENTION_REGEX = /@([a-zA-Z0-9]+)/g; // Stała dla wywołań indywidualnych
+            const usersFromAllMentions = new Set(); // Zbiór, który będzie agregował wszystkie UID
+            const commentLowercase = commentText.toLowerCase();
+
+            // 2. Parsowanie indywidualnych wywołań (z Tribute.js)
+            const matches = commentText.match(INDIVIDUAL_MENTION_REGEX);
             
             if (matches) {
-                const mentionedValues = [...new Set(matches.map(mention => mention.substring(1)))];
+                // Pobierz unikalne nazwy (bez @)
+                const mentionedValues = new Set(matches.map(mention => mention.substring(1))); 
                 
                 mentionedValues.forEach(value => {
                 const foundUser = state.users.find(user => 
@@ -10837,45 +10839,51 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 );
                 
                 if (foundUser) {
-                        usersFromIndividualMentions.add(foundUser.id); // DODANO: Dodajemy UID do Set
+                        usersFromAllMentions.add(foundUser.id); // Dodawanie do zbioru
                     }
                 });
             }
 
-            // 2. Wywołania grupowe
-            // Wywołujemy nową funkcję, aby uzyskać UID z aliasów grupowych
+            // 3. Parsowanie wywołań grupowych
+            // Pobieramy UID z aliasów grupowych
             const usersFromGroupMentions = getUsersToNotifyFromMentions(commentText, project, task);
+            
+            // Agregacja UID grupowych do głównego zbioru
+            usersFromGroupMentions.forEach(uid => {
+                 usersFromAllMentions.add(uid);
+            });
 
-            // 3. Agregacja i filtracja końcowa
-            const allUsersToNotify = new Set([...usersFromIndividualMentions, ...usersFromGroupMentions]);
-            const finalUidsToNotify = Array.from(allUsersToNotify).filter(uid => uid !== state.currentUser.uid); // Wyklucz autora
+            // 4. Finalna lista unikalnych UID do powiadomienia
+            // Filtracja: Konwersja zbioru na tablicę i wykluczenie autora komentarza
+            const finalUidsToNotify = Array.from(usersFromAllMentions).filter(uid => uid !== state.currentUser.uid); 
 
-            // 4. Logika tworzenia powiadomień (batch)
-            if (finalUidsToNotify.length > 0) { // Zmieniono usersToNotify.length > 0 na finalUidsToNotify.length > 0
+            // 5. Logika tworzenia powiadomień (batch)
+            if (finalUidsToNotify.length > 0) { 
                 const batch = writeBatch(db);
                 const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
 
-                finalUidsToNotify.forEach(userIdToNotify => { // Iterujemy po UID
-                    // Nie musimy sprawdzać if (userIdToNotify === state.currentUser.uid) return; - to już zrobione w filtrze
+                finalUidsToNotify.forEach(userIdToNotify => { 
                     
                     // Określenie typu wzmianki dla lepszego opisu w powiadomieniu
                     let mentionType = 'indywidualnie';
+                    
+                    const isProjectMention = commentLowercase.includes('@wszyscy z projektu');
+                    const isTaskMention = commentLowercase.includes('@wszyscy z zadania');
+
+                    // Jeśli użytkownik był na liście UID z grup, używamy kontekstu grupowego
                     if (usersFromGroupMentions.includes(userIdToNotify)) {
-                         // Najpierw sprawdzamy, czy UID był w grupie, aby dać priorytet temu powiadomieniu
-                         if (commentText.toLowerCase().includes('@wszyscy z projektu')) {
+                         if (isProjectMention) {
                             mentionType = 'grupowo w projekcie';
-                         } else if (commentText.toLowerCase().includes('@wszyscy z zadania')) {
+                         } else if (isTaskMention) {
                             mentionType = 'grupowo w zadaniu';
                          }
-                    } else if (usersFromIndividualMentions.has(userIdToNotify)) {
-                        mentionType = 'indywidualnie';
-                    }
+                    } 
+                    // Jeśli nie był w grupie, domyślnie pozostaje 'indywidualnie'
 
                     const notification = {
                         userId: userIdToNotify, // ID odbiorcy (UID)
                         creatorId: state.currentUser.uid,
                         type: 'mention',
-                        // Zmieniono treść na bardziej ogólną i dynamiczną
                         message: `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie ${mentionType} w komentarzu w zadaniu "<strong>${task.title}</strong>".`,
                         isRead: false,
                         timestamp: Date.now(),
@@ -12998,6 +13006,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
