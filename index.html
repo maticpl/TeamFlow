@@ -4399,6 +4399,17 @@ let state = {
             message: document.getElementById('confirmation-message'),
             confirmBtn: document.getElementById('confirmation-action-btn'),
         };
+       // === NOWE REFERENCJE DLA MODALA SONDARŻU ===
+        const newPollModal = {
+            overlay: document.getElementById('new-poll-modal'),
+            form: document.getElementById('new-poll-form'),
+            titleInput: document.getElementById('new-poll-title'),
+            optionsList: document.getElementById('new-poll-options-list'),
+            addOptionBtn: document.getElementById('add-poll-option-btn'),
+            deadlineInput: document.getElementById('new-poll-deadline'),
+            assigneesContainer: document.getElementById('new-poll-assignees')
+        };
+        // === KONIEC NOWYCH REFERENCJI ===
 
         // === NOWA REFERENCJA DLA MODALA TRANSFERU WŁASNOŚCI ===
         const transferOwnershipModal = {
@@ -7323,6 +7334,57 @@ newTaskModal.projectGroup.style.display = 'block';
     // <<<===== KONIEC NOWEGO KODU =====>>>
             openModal(newTaskModal.overlay);
 }
+       // === NOWE FUNKCJE DLA MODALA SONDARŻU ===
+
+        /**
+         * Renderuje HTML dla pojedynczej, edytowalnej opcji sondażu.
+         * @param {string} [value=''] - Wartość do wstawienia w pole input.
+         * @returns {string} HTML (element <li>)
+         */
+        function renderPollOptionHTML(value = '') {
+            return `
+                <li class="poll-option-item" style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                    <input type="text" class="new-poll-option-input" placeholder="Wpisz opcję..." value="${value}" style="flex: 1;">
+                    <button type="button" class="delete-poll-option-btn btn btn-secondary" style="padding: 2px 6px; font-size: 14px; line-height: 1;">&times;</button>
+                </li>
+            `;
+        }
+
+        /**
+         * Otwiera i inicjalizuje modal tworzenia nowego sondażu.
+         */
+        function openNewPollModal() {
+            // Sondaże są zawsze powiązane z projektem.
+            const projectId = state.currentProjectId;
+            // Sprawdzamy, czy jesteśmy w widoku projektu (a nie np. Mój Dzień)
+            const project = findProject(projectId);
+
+            if (!project || state.ui.currentView !== 'projects') {
+                showNotification("Sondaże można tworzyć tylko z poziomu aktywnego projektu.", "Błąd");
+                return;
+            }
+
+            // Resetowanie formularza
+            newPollModal.form.reset();
+            
+            // Czyszczenie listy opcji i dodawanie dwóch domyślnych, pustych pól
+            // (Usuwamy prototypy z HTML)
+            newPollModal.optionsList.innerHTML = '';
+            newPollModal.optionsList.insertAdjacentHTML('beforeend', renderPollOptionHTML());
+            newPollModal.optionsList.insertAdjacentHTML('beforeend', renderPollOptionHTML());
+
+            // Wypełnianie listy uczestników
+            // Używamy tej samej funkcji co przy tworzeniu projektu.
+            // Domyślnie zaznaczamy wszystkich członków projektu.
+            const allMemberIds = project.members || [];
+            buildTeamMembersAccordion(newPollModal.assigneesContainer, allMemberIds, project.ownerId);
+
+            // Zapisujemy ID projektu w modalu do późniejszego wykorzystania
+            newPollModal.overlay.dataset.projectId = projectId;
+
+            openModal(newPollModal.overlay);
+        }
+        // === KONIEC NOWYCH FUNKCJI ===
 
         function openEditProjectModal(projectId) {
     const project = findProject(projectId);
@@ -10759,16 +10821,45 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             fabMenu.classList.add('hidden');
         });
 
-        // NOWY LISTENER (PLACEHOLDER): Przycisk "Nowy sondaż" (zielony) wewnątrz menu
+        // ZMODYFIKOWANY LISTENER: Przycisk "Nowy sondaż" (zielony) wewnątrz menu
         fabActionNewPoll.addEventListener('click', () => {
-            // TODO: Otwórz modal tworzenia nowego sondażu
-            console.log("Otwieram modal Sondażu (jeszcze nie zaimplementowane)");
-            showNotification("Funkcja 'Sondaż' jest w trakcie implementacji.", "Informacja");
+            // Wywołuje nową funkcję otwierającą modal sondażu
+            openNewPollModal();
 
             // Zamyka menu po wybraniu akcji
             fabMenuToggle.classList.remove('active');
             fabMenu.classList.add('hidden');
         });
+       // === NOWE LISTENERY DLA OPCJI SONDARŻU ===
+        
+        // Listener dla przycisku "+ Dodaj opcję"
+        newPollModal.addOptionBtn.addEventListener('click', () => {
+            // Po prostu dodaje nowy, pusty wiersz opcji na koniec listy
+            newPollModal.optionsList.insertAdjacentHTML('beforeend', renderPollOptionHTML());
+            // Ustawia fokus na nowo dodanym polu tekstowym
+            const newInputs = newPollModal.optionsList.querySelectorAll('.new-poll-option-input');
+            if (newInputs.length > 0) {
+                newInputs[newInputs.length - 1].focus();
+            }
+        });
+
+        // Delegowany listener dla usuwania opcji (przycisk "x")
+        newPollModal.optionsList.addEventListener('click', (e) => {
+            const deleteBtn = e.target.closest('.delete-poll-option-btn');
+            if (!deleteBtn) return; // Kliknięto gdzie indziej
+
+            const itemToRemove = deleteBtn.closest('li.poll-option-item');
+            
+            // Zabezpieczenie: Nie pozwól usunąć wszystkich opcji. Zawsze zostaw przynajmniej jedną.
+            if (newPollModal.optionsList.querySelectorAll('li.poll-option-item').length > 1) {
+                if (itemToRemove) {
+                    itemToRemove.remove();
+                }
+            } else {
+                showNotification("Sondaż musi mieć przynajmniej jedną opcję.", "Błąd");
+            }
+        });
+        // === KONIEC NOWYCH LISTENERÓW ===
         document.querySelectorAll('.modal-overlay').forEach(overlay => {
             overlay.addEventListener('click', e => {
                 if (e.target === overlay || e.target.closest('.modal-close-btn')) {
@@ -13059,6 +13150,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
