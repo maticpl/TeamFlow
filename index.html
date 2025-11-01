@@ -4559,7 +4559,8 @@ let state = {
             overlay: document.getElementById('poll-details-modal'),
             title: document.getElementById('poll-details-title'),
             content: document.getElementById('poll-details-content'),
-            footer: document.getElementById('poll-details-footer')
+            footer: document.getElementById('poll-details-footer'),
+            closePollBtn: document.getElementById('poll-details-close-btn') // <-- NOWA LINIA
         };
         // === KONIEC NOWYCH REFERENCJI ===
 
@@ -7706,9 +7707,13 @@ newTaskModal.projectGroup.style.display = 'block';
             }
 
             // --- Renderowanie sekcji głosowania / wyników ---
+            const headerText = (hasVoted || !canVote) 
+                ? 'Wyniki głosowania' 
+                : 'Wybierz jedną z opcji poniżej klikając na nią';
+
             contentHTML += `<div class="task-modal-section">
-                                <h4>Opcje</h4>
-                                <div class="poll-options">`; // Używamy tej samej klasy co na kafelku
+                                <h4 style="color: var(--text-secondary); font-weight: 500;">${headerText}</h4>
+                                <div class="poll-options" style="margin-top: 8px;">`; // Dodano mały margines
 
             if (hasVoted || !canVote) {
                 // --- Widok WYNIKÓW (użytkownik już zagłosował LUB nie może głosować) ---
@@ -7746,6 +7751,16 @@ newTaskModal.projectGroup.style.display = 'block';
 
             // Wstrzyknij gotowy HTML do modala
             pollDetailsModal.content.innerHTML = contentHTML;
+            // --- NOWA LOGIKA: Pokaż/Ukryj przycisk zarządzania ---
+            if (poll.createdBy === state.currentUser.uid && poll.status === 'open') {
+                pollDetailsModal.closePollBtn.style.display = 'block';
+                pollDetailsModal.closePollBtn.dataset.pollId = pollId; // Zapisz ID do użycia w listenerze
+                pollDetailsModal.closePollBtn.disabled = false;
+                pollDetailsModal.closePollBtn.textContent = 'Zakończ sondaż';
+            } else {
+                pollDetailsModal.closePollBtn.style.display = 'none';
+            }
+            // --- KONIEC NOWEJ LOGIKI ---
 
             // Otwórz modal
             openModal(pollDetailsModal.overlay);
@@ -11475,6 +11490,48 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         });
         // === KONIEC NOWEGO LISTENERA ===
         // === KONIEC LISTENERA SONDARŻU ===
+       // === NOWY LISTENER: Obsługa przycisku "Zakończ sondaż" w modalu ===
+        pollDetailsModal.closePollBtn.addEventListener('click', (e) => {
+            const pollId = e.target.dataset.pollId;
+            if (!pollId) return;
+
+            const poll = state.polls.find(p => p.id === pollId);
+            if (!poll) return;
+
+            showConfirmation(
+                "Zakończyć sondaż?",
+                `Czy na pewno chcesz zamknąć sondaż "${poll.title}"? Po tej akcji nikt już nie będzie mógł oddać głosu.`,
+                async (confirmed) => {
+                    if (confirmed) {
+                        e.target.disabled = true;
+                        e.target.textContent = 'Zamykanie...';
+                        
+                        try {
+                            const pollRef = doc(pollsRef, pollId);
+                            // Zmieniamy status sondażu na "closed"
+                            await updateDoc(pollRef, {
+                                status: 'closed'
+                            });
+                            
+                            showNotification("Sondaż został zamknięty.", "Sukces");
+                            closeModal(pollDetailsModal.overlay);
+                            // Nie musimy wywoływać render(), 
+                            // onSnapshot (z Kroku 13) wykryje zmianę i automatycznie usunie kafelek z tablicy.
+                            
+                        } catch (error) {
+                            console.error("Błąd podczas zamykania sondażu:", error);
+                            showNotification("Wystąpił błąd.", "Błąd");
+                        } finally {
+                            // Reset przycisku (choć modal jest zamykany, dobra praktyka)
+                            e.target.disabled = false;
+                            e.target.textContent = 'Zakończ sondaż';
+                        }
+                    }
+                },
+                true // Użyj czerwonego przycisku
+            );
+        });
+        // === KONIEC NOWEGO LISTENERA ===
         document.querySelectorAll('.modal-overlay').forEach(overlay => {
             overlay.addEventListener('click', e => {
                 if (e.target === overlay || e.target.closest('.modal-close-btn')) {
@@ -13773,12 +13830,14 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 <p style="color: var(--text-secondary);">Ładowanie danych sondażu...</p>
             </div>
             <div class="modal-footer" id="poll-details-footer">
+                <button type="button" id="poll-details-close-btn" class="btn btn-danger" style="display: none; margin-right: auto;">Zakończ sondaż</button>
                 <button type="button" class="btn btn-secondary modal-close-btn">Zamknij</button>
-                </div>
+            </div>
         </div>
     </div>
 </body>
 </html>
+
 
 
 
