@@ -3206,6 +3206,12 @@
                             </svg>
                             <span>Edytuj układ</span>
                         </button>
+                         <button class="sort-btn" id="filter-btn" style="display: none;" title="Filtrowanie zadań">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M12 3c2.757 0 5.257.653 7.425 1.763A1.125 1.125 0 0121 6.5v11c0 .621-.358 1.18-.916 1.454a10.99 10.99 0 01-8.084 0c-.558-.274-.916-.833-.916-1.454v-11c0-.621.358-1.18.916-1.454z" />
+                            </svg>
+                            <span>Filtr</span>
+                        </button>
                         <button class="sort-btn" id="sort-btn" style="display: none;" title="Sortowanie wg daty">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
@@ -4016,6 +4022,12 @@ let state = {
                 isCalendarView: false,
                 sortMyTasksByDate: 'asc',
                 projectSortOrders: {},
+                currentProjectFilters: { // <-- NOWY OBIEKT FILTRÓW
+                    assigneeId: '',
+                    priority: '',
+                    dueDate: '',
+                    budgetStatus: ''
+                },
                 unsubscribeProjects: null,
                 unsubscribeCompleted: null,
                 unsubscribeUsers: null,
@@ -4214,6 +4226,19 @@ let state = {
             title: document.getElementById('notification-title'),
             message: document.getElementById('notification-message'),
         };
+       // --- NOWY MODAL FILTROWANIA ---
+        const projectFilterModal = {
+            overlay: document.getElementById('project-filter-modal'),
+            assigneeSelect: document.getElementById('filter-assignee'),
+            prioritySelect: document.getElementById('filter-priority'),
+            dueDateSelect: document.getElementById('filter-dueDate'),
+            budgetStatusSelect: document.getElementById('filter-budgetStatus'),
+            applyBtn: document.getElementById('filter-apply-btn'),
+            clearBtn: document.getElementById('filter-clear-btn'),
+            statusMessage: document.getElementById('filter-status-message'),
+        };
+        const filterBtn = document.getElementById('filter-btn');
+        // --- KONIEC NOWEGO MODALA ---
        const confirmationModal = {
             overlay: document.getElementById('confirmation-modal'),
             title: document.getElementById('confirmation-title'),
@@ -5256,7 +5281,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const isDashboardView = state.ui.currentView === 'my-dashboard';
                 const isAllProjectsView = state.ui.currentView === 'all-projects';
 
-                if (editDashboardLayoutBtn) {
+                // NOWA LOGIKA: Zarządzanie widocznością przycisków Sort i Filter
+            const shouldShowSortAndFilter = isProjectView || isDashboardView;
+            
+            if (sortBtn) {
+                sortBtn.style.display = shouldShowSortAndFilter ? 'flex' : 'none';
+            }
+            // --- WIDOCZNOŚĆ PRZYCISKU FILTRA ---
+            if (filterBtn) {
+                filterBtn.style.display = isProjectView ? 'flex' : 'none'; // Tylko w widoku projektu
+            }
+            
+            if (editDashboardLayoutBtn) {
                     editDashboardLayoutBtn.style.display = isDashboardView ? 'flex' : 'none';
                 }
                 if (editProjectsLayoutBtn) {
@@ -5595,6 +5631,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     <div class="progress-text">${completedTasks} z ${totalTasks} zadań ukończonych (${progressPercent}%)</div>
                 `;
             projectProgressEl.style.display = totalTasks > 0 ? 'block' : 'none';
+            // --- KROK 1: Zastosuj filtry ---
+            let filteredTasks = applyProjectFilters(projectTasks);
 
             const sortOrder = state.ui.projectSortOrders[project.id] || 'asc';
             projectTasks.sort((a, b) => {
@@ -5606,7 +5644,79 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
             });
 
-            renderKanbanBoard(projectTasks, !isCompleted);
+            // --- KROK 3: Wyrenderuj przefiltrowane zadania ---
+            renderKanbanBoard(filteredTasks, !isCompleted);
+            
+            // Upewnij się, że wiadomość o statusie filtra jest aktualna (dla wizualnego feedbacku na przycisku)
+            updateFilterStatusMessage();
+        }
+        
+        /**
+         * NOWA FUNKCJA: Filtruje zadania na podstawie bieżącego stanu filtrów.
+         * @param {Array<object>} tasks Lista zadań projektu.
+         * @returns {Array<object>} Przefiltrowana lista zadań.
+         */
+        function applyProjectFilters(tasks) {
+            const filters = state.ui.currentProjectFilters;
+            if (!filters.assigneeId && !filters.priority && !filters.dueDate && !filters.budgetStatus) {
+                return tasks; // Brak aktywnych filtrów
+            }
+
+            const now = new Date();
+            const nowTime = now.getTime();
+            
+            // Obliczamy koniec nadchodzącego terminu (7 dni od teraz)
+            const upcomingThreshold = new Date();
+            upcomingThreshold.setDate(upcomingThreshold.getDate() + 7);
+            const upcomingTime = upcomingThreshold.getTime();
+
+
+            return tasks.filter(task => {
+                // 1. Filtr Osoba Przypisana
+                if (filters.assigneeId && !task.assignees.includes(filters.assigneeId)) {
+                    return false;
+                }
+
+                // 2. Filtr Priorytet
+                if (filters.priority && task.priority !== filters.priority) {
+                    return false;
+                }
+
+                // 3. Filtr Termin Wykonania
+                if (filters.dueDate) {
+                    const taskDueDate = task.dueDate ? new Date(task.dueDate).getTime() : null;
+                    const isCompleted = task.status === 'done';
+
+                    if (filters.dueDate === 'overdue') {
+                        // Opóźnione: Ma termin, nieukończone I termin minął
+                        if (!taskDueDate || isCompleted || taskDueDate > nowTime) {
+                            return false;
+                        }
+                    } else if (filters.dueDate === 'upcoming') {
+                         // Nadchodzące: Ma termin, nieukończone, nieopóźnione I jest w ciągu 7 dni
+                        if (!taskDueDate || isCompleted || taskDueDate < nowTime || taskDueDate > upcomingTime) {
+                            return false;
+                        }
+                    } else if (filters.dueDate === 'no-date') {
+                        // Bez terminu: Nie ma terminu
+                        if (taskDueDate) {
+                            return false;
+                        }
+                    }
+                }
+                
+                // 4. Filtr Status Budżetowy
+                if (filters.budgetStatus) {
+                    const hasBudget = task.budgetItems && task.budgetItems.length > 0;
+                    if (filters.budgetStatus === 'has-budget' && !hasBudget) {
+                        return false;
+                    } else if (filters.budgetStatus === 'no-budget' && hasBudget) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
         }
         // --- ZMODYFIKOWANA FUNKCJA (Wersja 2): Renderowanie wykresu budżetu (CSS) ---
     function renderProjectBudgetChartCSS(project, container) {
@@ -9702,6 +9812,107 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                  openProjectDetailsModal();
              }
         });
+       // --- NOWY LISTENER DLA PRZYCISKU FILTRA ---
+        filterBtn.addEventListener('click', () => {
+            if (state.currentProjectId) {
+                 openProjectFilterModal(state.currentProjectId);
+            }
+        });
+
+        /**
+         * Otwiera modal filtrowania i wypełnia pola aktualnymi danymi projektu oraz filtrami.
+         * @param {string} projectId ID bieżącego projektu.
+         */
+        function openProjectFilterModal(projectId) {
+            const project = findProject(projectId) || findCompletedProject(projectId);
+            if (!project) return;
+            
+            // 1. Wyczyść stare opcje i dodaj domyślną
+            projectFilterModal.assigneeSelect.innerHTML = '<option value="">Wszyscy członkowie</option>';
+
+            // 2. Wypełnij listę członków
+            (project.members || []).map(findUser).filter(Boolean).forEach(member => {
+                 projectFilterModal.assigneeSelect.innerHTML += 
+                     `<option value="${member.id}">${member.name || member.email}</option>`;
+            });
+
+            // 3. Ustaw aktualne wartości filtrów ze stanu aplikacji
+            const filters = state.ui.currentProjectFilters;
+            projectFilterModal.assigneeSelect.value = filters.assigneeId || '';
+            projectFilterModal.prioritySelect.value = filters.priority || '';
+            projectFilterModal.dueDateSelect.value = filters.dueDate || '';
+            projectFilterModal.budgetStatusSelect.value = filters.budgetStatus || '';
+
+            // 4. Zaktualizuj komunikat o statusie
+            updateFilterStatusMessage();
+            
+            // 5. Otwórz modal
+            openModal(projectFilterModal.overlay);
+        }
+        
+        /**
+         * Aktualizuje komunikat statusu w modalu filtrowania i w nagłówku.
+         */
+        function updateFilterStatusMessage() {
+            const filters = state.ui.currentProjectFilters;
+            const activeFilters = [];
+
+            if (filters.assigneeId) {
+                const user = findUser(filters.assigneeId);
+                if (user) activeFilters.push(`Przypisany do: ${user.name || user.email}`);
+            }
+            if (filters.priority) {
+                activeFilters.push(`Priorytet: ${filters.priority}`);
+            }
+            if (filters.dueDate) {
+                activeFilters.push(`Termin: ${filters.dueDate}`);
+            }
+            if (filters.budgetStatus) {
+                activeFilters.push(`Budżet: ${filters.budgetStatus === 'has-budget' ? 'Ma koszty' : 'Brak kosztów'}`);
+            }
+            
+            const message = activeFilters.length > 0 
+                ? `Filtrowanie aktywne: ${activeFilters.join(', ')}`
+                : 'Filtrowanie aktywne: Brak';
+            
+            projectFilterModal.statusMessage.textContent = message;
+            
+            // Dodatkowe oznaczenie wizualne dla przycisku filtra w nagłówku
+            filterBtn.classList.toggle('active', activeFilters.length > 0);
+        }
+        
+        // --- LISTENER DLA PRZYCISKÓW FILTRA ---
+        projectFilterModal.applyBtn.addEventListener('click', () => {
+            // Zapisz nowe filtry do stanu
+            state.ui.currentProjectFilters = {
+                assigneeId: projectFilterModal.assigneeSelect.value,
+                priority: projectFilterModal.prioritySelect.value,
+                dueDate: projectFilterModal.dueDateSelect.value,
+                budgetStatus: projectFilterModal.budgetStatusSelect.value,
+            };
+            saveUiState();
+            closeModal(projectFilterModal.overlay);
+            render(); // Wymuś pełne ponowne renderowanie, aby zastosować filtry
+        });
+        
+        projectFilterModal.clearBtn.addEventListener('click', () => {
+            // Zresetuj stan filtrów
+            state.ui.currentProjectFilters = {
+                assigneeId: '',
+                priority: '',
+                dueDate: '',
+                budgetStatus: ''
+            };
+            // Wyczyść pola w modalu
+            projectFilterModal.assigneeSelect.value = '';
+            projectFilterModal.prioritySelect.value = '';
+            projectFilterModal.dueDateSelect.value = '';
+            projectFilterModal.budgetStatusSelect.value = '';
+            
+            saveUiState();
+            closeModal(projectFilterModal.overlay);
+            render(); // Wymuś pełne ponowne renderowanie
+        });
        // NOWY LISTENER: Obsługa kliknięć w tabeli kosztów w modalu szczegółów projektu
     projectDetailsModal.overlay.addEventListener('click', (e) => {
         const clickableTask = e.target.closest('.clickable-task-name');
@@ -12422,7 +12633,60 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             </form>
         </div>
     </div>
-   <div class="modal-overlay" id="project-details-modal">
+   <div class="modal-overlay" id="project-filter-modal">
+    <div class="modal" style="max-width: 500px; max-height: 90vh; height: auto;">
+        <div class="modal-header">
+            <h2>Filtrowanie zadań</h2>
+            <button type="button" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="form-modal-content" style="padding-bottom: 8px;">
+
+            <div class="form-group" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                <label for="filter-assignee">Osoba Przypisana</label>
+                <select id="filter-assignee">
+                    <option value="">Wszyscy członkowie</option>
+                    </select>
+            </div>
+
+            <div class="form-group" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                <label for="filter-priority">Priorytet</label>
+                <select id="filter-priority">
+                    <option value="">Wszystkie priorytety</option>
+                    <option value="high">Wysoki</option>
+                    <option value="medium">Średni</option>
+                    <option value="low">Niski</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                <label for="filter-dueDate">Termin Wykonania</label>
+                <select id="filter-dueDate">
+                    <option value="">Wszystkie terminy</option>
+                    <option value="overdue">Opóźnione</option>
+                    <option value="upcoming">Nadchodzące (do 7 dni)</option>
+                    <option value="no-date">Bez terminu</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="filter-budgetStatus">Status Budżetowy</label>
+                <select id="filter-budgetStatus">
+                    <option value="">Wszystkie statusy</option>
+                    <option value="has-budget">Mają przypisane koszty</option>
+                    <option value="no-budget">Nie mają przypisanych kosztów</option>
+                </select>
+            </div>
+
+            <p id="filter-status-message" class="error-message" style="color: var(--text-secondary); min-height: 20px; font-size: 13px; margin-bottom: 0;">Filtrowanie aktywne: Brak</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" id="filter-apply-btn" class="btn btn-primary">Zastosuj filtry</button>
+            <button type="button" id="filter-clear-btn" class="btn btn-secondary">Wyczyść filtry</button>
+        </div>
+    </div>
+</div>
+
+    <div class="modal-overlay" id="project-details-modal">
         <div class="modal" style="max-width: 950px; height: 85vh;"> 
             <div class="modal-header">
                 <h2 id="project-details-title">Szczegóły Projektu</h2>
@@ -12488,6 +12752,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
