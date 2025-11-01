@@ -2966,8 +2966,6 @@
 
                 <form id="register-form" class="auth-form">
                     <h2>Stwórz konto</h2>
-                    <input type="hidden" id="register-invite-id">
-
                     <div class="form-group">
                         <label for="register-name">Nazwa użytkownika</label>
                         <input type="text" id="register-name" required>
@@ -3931,8 +3929,9 @@
     // ============================
     const { RRule } = rrule;
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail, isSignInWithEmailLink, signInWithEmailLink } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
     import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
     // ============================
@@ -4037,85 +4036,7 @@ let state = {
             const day = String(date.getDate()).padStart(2, '0');
             return `${year}-${month}-${day}`;
         }
-        // --- index.html (Moduł script, sekcja stałych i funkcji pomocniczych) ---
-// ... (kod funkcji getLocalDateString) ...
-        function getLocalDateString() {
-            const date = new Date();
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0'); // Miesiące są 0-indeksowane
-            const day = String(date.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        }
     
-        /**
-         * Wysyła zaproszenie do dołączenia do GRUPY na podany adres e-mail.
-         * @param {string} email - Adres e-mail zapraszanego użytkownika.
-         * @param {string} groupId - ID GRUPY, do której jest zapraszany.
-         */
-        async function sendGroupInviteEmail(email, groupId) {
-            if (!email || !groupId) {
-                inviteGroupModal.errorP.textContent = "Błąd: Wymagany adres e-mail i ID grupy.";
-                return;
-            }
-
-            try {
-                const actionCodeSettings = {
-                    // Przekazujemy ID GRUPY w parametrze 'inviteId'
-                    url: `${window.location.origin}/index.html?inviteId=${groupId}`,
-                    handleCodeInApp: false, // Otwarcie w przeglądarce
-                };
-
-                await auth.sendSignInLinkToEmail(email, actionCodeSettings);
-
-                inviteGroupModal.errorP.style.color = 'var(--success-primary)';
-                inviteGroupModal.errorP.textContent = `Zaproszenie zostało wysłane na adres ${email}.`;
-                console.log(`Wysłano zaproszenie dla GRUPY ${groupId} na adres ${email}.`);
-
-            } catch (error) {
-                console.error("Błąd podczas wysyłania zaproszenia:", error);
-                inviteGroupModal.errorP.style.color = 'var(--danger-primary)';
-                inviteGroupModal.errorP.textContent = `Nie udało się wysłać zaproszenia. Błąd: ${error.message}`;
-                throw error; // Propagujemy błąd do listenera, aby zresetować przycisk
-            }
-        }
-
-        /**
-         * Finalizuje proces dołączania do grupy dla NOWO zarejestrowanego użytkownika.
-         * Tworzy dokument użytkownika z poprawnym groupId i tworzy Inbox w tej grupie.
-         * @param {string} userId - ID nowo utworzonego użytkownika.
-         * @param {string} groupId - ID grupy docelowej.
-         * @param {string} name - Nazwa użytkownika.
-         * @param {string} email - Adres e-mail.
-         */
-        async function joinGroupViaInvite(userId, groupId, name, email) {
-            const groupRef = doc(groupsRef, groupId);
-            const groupSnap = await getDoc(groupRef);
-
-            if (!groupSnap.exists()) {
-                  throw new Error("Grupa docelowa zaproszenia nie istnieje.");
-            }
-
-            const groupData = groupSnap.data();
-
-            // 1. Zapis dokumentu użytkownika (używany jest setDoc w formularzu rejestracji)
-            // Zatem ta funkcja zajmie się tylko utworzeniem Inboxa i aktualizacją danych
-            
-            // 2. Tworzenie Skrzynki Odbiorczej (Inbox) w ramach nowej grupy
-            const inboxProject = {
-                 name: "Skrzynka zadań",
-                 ownerId: userId,
-                 members: [userId],
-                 tasks: [],
-                 isInbox: true,
-                 createdAt: Date.now(),
-                 groupId: groupId 
-            };
-            await addDoc(projectsRef, inboxProject);
-             
-            // 3. Wracamy z zaktualizowanymi danymi profilu (dla onAuthStateChanged)
-            const userDoc = await getDoc(doc(usersRef, userId));
-            return userDoc.data();
-        }
         
         // --- Pobieranie referencji do elementów HTML ---
         const editDashboardLayoutBtn = document.getElementById('edit-dashboard-layout-btn'); // <-- DODANA LINIA
@@ -4353,18 +4274,6 @@ let state = {
         const registerTeamToggle = document.getElementById('register-team-toggle');
         const registerTeamOptions = document.getElementById('register-team-options');
         const registerGroupNameInput = document.getElementById('register-group-name');
-// NOWE REFERENCJE DLA ZAPROSZEŃ (DO GRUPY)
-        const registerInviteId = document.getElementById('register-invite-id'); // <-- Z REFERENCJI Z POPRZEDNIEGO KROKU
-        const inviteGroupModal = { // <-- NOWY OBIEKT MODALA
-            overlay: document.getElementById('invite-group-modal'),
-            form: document.getElementById('invite-group-form'),
-            emailInput: document.getElementById('invite-group-email-input'),
-            errorP: document.getElementById('invite-group-error'),
-            groupNameDisplay: document.getElementById('invite-group-name-display'),
-            submitBtn: document.getElementById('send-group-invite-btn'),
-        };
-        const inviteGroupMemberBtn = document.getElementById('invite-group-member-btn'); // <-- NOWY PRZYCISK
-        
         const registerSubgroupSection = document.getElementById('register-subgroup-section');
         const registerSubgroupSelect = document.getElementById('register-subgroup-select');
         const registerNewSubgroupSection = document.getElementById('register-new-subgroup-section');
@@ -8025,102 +7934,6 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         let userDocRef = doc(usersRef, user.uid);
         let userDoc = await getDoc(userDocRef);
 
-        // ==========================================================
-        // === NOWA LOGIKA OBSŁUGI ZAPROSZENIA/LOGOWANIA PRZEZ LINK ===
-        // ==========================================================
-        let inviteGroupId = null; // Zmienna do przechowywania ID GRUPY
-
-        // 1. Sprawdź, czy logowanie nastąpiło przez link e-mail.
-        if (isSignInWithEmailLink(window.location.href)) { // <--- ZMIANA: Usunięto argument 'auth'
-             console.log("[AUTH] Logowanie przez link wykryte.");
-
-            // 2. Jeśli zalogowanie się przez link, pobierz e-mail z localStorage.
-            let email = window.localStorage.getItem('emailForSignIn');
-
-            if (!email) {
-                // To jest krytyczne, jeśli e-mail nie jest w localStorage. Musimy poprosić o niego.
-                 console.warn("[AUTH] Brak e-maila w localStorage. Użytkownik zostanie przekierowany do strony logowania.");
-                 // Jeśli nie ma maila, przekierowujemy na stronę główną, aby użytkownik mógł ponowić próbę.
-                 window.location.href = window.location.origin; 
-                 return;
-            }
-
-            // 3. Zaloguj użytkownika przy użyciu linku i e-maila.
-            console.log(`[AUTH] Próba zalogowania dla: ${email}`);
-            try { // <--- DODANY BLOK TRY/CATCH DLA PRZEJRZYSTOŚCI
-                const result = await signInWithEmailLink(auth, email, window.location.href);
-
-                // Czysty localStorage po pomyślnym zalogowaniu
-                window.localStorage.removeItem('emailForSignIn');
-                console.log("[AUTH] Pomyślnie zalogowano użytkownika za pomocą linku.");
-                
-                // Opcjonalnie: Usuń link z paska adresu po zalogowaniu, aby strona się odświeżyła do czystego stanu.
-                if (history.replaceState) {
-                   const cleanUrl = window.location.href.split('?')[0];
-                   history.replaceState(null, '', cleanUrl);
-                }
-            } catch (error) { // <--- NOWY BLOK CATCH
-                console.error("[AUTH] Błąd logowania linkiem:", error);
-                // Pokaż błąd użytkownikowi i usuń e-mail z localStorage.
-                window.localStorage.removeItem('emailForSignIn');
-                // Przekierowanie do głównej strony, aby nie utknął
-                window.location.href = window.location.origin; 
-            }
-                
-            // Zablokuj dalsze przetwarzanie, aby uniknąć ponownego wywołania logiki i pozwolić na dokończenie Promise.
-            return;
-
-        } // <--- DODANY ZAMYKAJĄCY NAWIAS KLAMROWY
-        
-        // ==========================================================
-        // === LOGIKA POZA BLOKIEM IF ===
-        // ==========================================================
-             const url = window.location.href;
-             const urlParams = new URLSearchParams(url.substring(url.indexOf('?')));
-             inviteGroupId = urlParams.get('inviteId'); // Pobieramy ID GRUPY z parametru
-
-             if (!userDoc.exists()) {
-                 // Sytuacja: Nowy użytkownik rejestruje się przez link (dokument nie istnieje).
-                  const email = window.localStorage.getItem('emailForSignIn'); 
-                  if (!email || !inviteGroupId) { // Dodajemy walidację na inviteGroupId
-                       window.history.replaceState({}, document.title, window.location.pathname);
-                       console.error("[AUTH] Brak e-maila lub ID zaproszenia, anuluję logowanie linkiem.");
-                       await signOut(auth); 
-                       return;
-                  }
-                 
-                 // WYMUSZ POKAZANIE FORMULARZA REJESTRACJI
-                 authOverlay.style.display = 'flex';
-                 appContainer.classList.add('hidden');
-                 document.getElementById('login-form').style.display = 'none';
-                 document.getElementById('register-form').style.display = 'block';
-                 
-                 // Uzupełnij pola formularza i ustaw ukryte pole inviteId
-                 document.getElementById('register-email').value = email;
-                 document.getElementById('register-email').disabled = true;
-                 registerInviteId.value = inviteGroupId; // Zapisz ID GRUPY
-                 
-                 // Ukryj standardową sekcję wyboru grupy/dołączania i wymuś "Dołącz do grupy"
-                 // Wymuszenie wyboru "Dołącz" i zablokowanie pola nazwy grupy
-                 document.getElementById('register-team-toggle').checked = true;
-                 document.getElementById('register-team-options').style.display = 'block';
-                 document.querySelector('input[name="group-action"][value="join"]').checked = true;
-                 document.getElementById('register-group-name').disabled = true;
-
-                 // Usuń link uwierzytelniający z URL i e-mail z pamięci lokalnej
-                 window.history.replaceState({}, document.title, window.location.pathname);
-                 window.localStorage.removeItem('emailForSignIn');
-                 return;
-             }
-             // Sytuacja: Istniejący użytkownik loguje się przez link. Dalsza logika jest taka sama, jak w normalnym logowaniu.
-             window.history.replaceState({}, document.title, window.location.pathname);
-        }
-        
-        // ==========================================================
-        // === KONIEC LOGIKI OBSŁUGI ZAPROSZENIA/LOGOWANIA PRZEZ LINK ===
-        // ==========================================================
-
-
         // --- INTELIGENTNA WERYFIKACJA ---
         // Sprawdzamy, czy to jest świeżo zarejestrowany użytkownik.
         const creationTime = new Date(user.metadata.creationTime).getTime();
@@ -8129,8 +7942,6 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         const isNewUser = (lastSignInTime - creationTime) < 5000;
 
         // Wyrzuć użytkownika TYLKO jeśli jego dokument nie istnieje ORAZ NIE jest to nowa rejestracja.
-        // Jeśli użytkownik rejestruje się przez link (logika powyżej), userDoc może jeszcze nie istnieć,
-        // ale został obsłużony w sekcji 'isSignInWithEmailLink', więc kontynuujemy, jeśli nie znaleziono dokumentu.
         if (!userDoc.exists() && !isNewUser) {
             console.error("Weryfikacja nieudana: Użytkownik nie istnieje w bazie danych. Wymuszanie wylogowania.");
             await signOut(auth);
@@ -8224,8 +8035,8 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         // Upewnij się, że przycisk jest wyłączony po wylogowaniu
         const newProjectBtn = document.getElementById('new-project-btn');
          if (newProjectBtn) {
-             newProjectBtn.disabled = true;
-           }
+            newProjectBtn.disabled = true;
+         }
         state.currentUser = null;
         state.notifications = []; // <-- DODANA LINIA: Wyczyść powiadomienia
         appContainer.classList.add('hidden');
@@ -8521,8 +8332,6 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             loginForm.style.display = 'block';
         });
 
-        // --- index.html (Moduł script, sekcja registerForm.addEventListener('submit')) ---
-
         registerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('register-name').value.trim();
@@ -8530,20 +8339,19 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             const password = document.getElementById('register-password').value;
             // [NOWA LINIA] Pobranie wartości z pola "Potwierdź hasło"
             const confirmPassword = document.getElementById('register-password-confirm').value;
-            const inviteIdFromForm = registerInviteId.value.trim();
             authErrorRegister.textContent = '';
             const submitBtn = e.target.querySelector('button[type="submit"]');
 
-            // --- WALIDACJE WSTĘPNE ---
+            // [NOWA WALIDACJA] Sprawdzenie, czy hasła są identyczne
             if (password !== confirmPassword) {
                 authErrorRegister.textContent = 'Hasła nie są takie same.';
-                return;
+                return; // Przerwij wysyłanie
             }
+
             if (!name) {
                 authErrorRegister.textContent = 'Nazwa użytkownika jest wymagana.';
                 return;
             }
-            // -------------------------
 
             submitBtn.disabled = true;
             submitBtn.textContent = 'Rejestrowanie...';
@@ -8555,144 +8363,174 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
 
             try {
                 // ==================================================
-                // === KROK 1: WALIDACJA I USTALENIE DANYCH GRUPY ===
+                // === KROK 1: WALIDACJA GRUPY (PRZED UTWORZENIEM UŻYTKOWNIKA) ===
                 // ==================================================
-                if (inviteIdFromForm) {
-                    // --- LOGIKA ZAPROSZENIA (GRUPY) ---
-                    const invitedGroupSnap = await getDoc(doc(groupsRef, inviteIdFromForm));
-                    if (!invitedGroupSnap.exists()) {
-                         throw new Error("Grupa, do której zostałeś zaproszony, nie istnieje.");
-                    }
-                    const invitedGroupData = invitedGroupSnap.data();
-                    groupId = inviteIdFromForm;
-                    groupName = invitedGroupData.name;
-                    document.getElementById('register-group-name').value = groupName; 
-
-                } else if (registerTeamToggle.checked) {
-                    // --- STANDARDOWA REJESTRACJA GRUPOWA ---
+                if (registerTeamToggle.checked) {
                     action = document.querySelector('input[name="group-action"]:checked').value;
                     const enteredGroupName = registerGroupNameInput.value.trim();
 
                     if (!enteredGroupName) {
+                        // Błąd lokalny #1
                         throw new Error("Nazwa grupy jest wymagana, gdy pracujesz w zespole.");
                     }
-                    
+
                     if (action === 'create') {
+                        // Sprawdzamy, czy grupa o tej nazwie już istnieje
                         const qCheck = query(groupsRef, where("name", "==", enteredGroupName));
                         const checkSnapshot = await getDocs(qCheck);
                         if (!checkSnapshot.empty) {
+                            // Błąd lokalny #2 (Spersonalizowany)
                             throw new Error("Grupa o tej nazwie już istnieje. Wybierz inną nazwę lub dołącz do istniejącej.");
                         }
+                        // Walidacja pomyślna, zapisujemy nazwę do późniejszego użycia
                         groupName = enteredGroupName;
+                        // groupId zostanie ustawione na user.uid po utworzeniu użytkownika
+
                     } else { // action === 'join'
+                        // Sprawdzamy, czy grupa, do której chcemy dołączyć, istnieje
                         const q = query(groupsRef, where("name", "==", enteredGroupName));
                         const querySnapshot = await getDocs(q);
+
                         if (querySnapshot.empty) {
+                            // Błąd lokalny #3 (Spersonalizowany)
                             throw new Error("Grupa o podanej nazwie nie istnieje lub wpisałeś błędną nazwę grupy.");
                         }
+                        // Walidacja pomyślna, zapisujemy dane znalezionej grupy
                         const groupDoc = querySnapshot.docs[0];
                         groupId = groupDoc.id;
                         groupName = groupDoc.data().name;
                     }
                 }
-                
+                // Jeśli registerTeamToggle nie jest zaznaczone, użytkownik jest solo.
+                // groupId zostanie ustawione na user.uid, a groupName pozostanie null.
+
                 // ==================================================
                 // === KROK 2: TWORZENIE UŻYTKOWNIKA I DOKUMENTÓW ===
+                // (Ten blok wykona się tylko jeśli KROK 1 nie zwrócił błędu)
                 // ==================================================
-                
-                // === KROK 2A: TWORZENIE UŻYTKOWNIKA W AUTH ===
-                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                const user = userCredential.user;
+                try {
+                    // === KROK 2A: TWORZENIE UŻYTKOWNIKA W AUTH ===
+                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                    const user = userCredential.user;
 
-                // === KROK 2B: FINALIZOWANIE DANYCH GRUPY I TWORZENIE DOKUMENTU GRUPY (TYLKO DLA TWÓRCY) ===
-                if (inviteIdFromForm) {
-                    groupId = inviteIdFromForm;
-                } else if (registerTeamToggle.checked && action === 'create') {
-                    groupId = user.uid;
-                    await setDoc(doc(groupsRef, groupId), {
-                        name: groupName,
-                        ownerId: user.uid,
-                        subgroups: []
-                    });
-                } else if (!registerTeamToggle.checked) {
-                     groupId = user.uid;
-                }
-                
-                // === KROK 2C: ZAPIS DOKUMENTU UŻYTKOWNIKA (DLA WSZYSTKICH SCENARIUSZY) ===
-                await setDoc(doc(usersRef, user.uid), {
-                    uid: user.uid,
-                    email: user.email,
-                    name: name,
-                    groupId: groupId || user.uid,       
-                    groupName: groupName,   
-                    subgroupName: null, 
-                    hasSelectedSubgroup: false, 
-                    avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-                    favorites: [],
-                    layouts: {
-                        dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
-                        allProjects: []
+                    // === KROK 2B: FINALIZOWANIE DANYCH GRUPY ===
+                    if (registerTeamToggle.checked) {
+                        if (action === 'create') {
+                            // Teraz, gdy mamy user.uid, ustawiamy je jako ID grupy
+                            groupId = user.uid;
+                            
+                            // Zapisujemy nowy dokument grupy
+                            await setDoc(doc(groupsRef, groupId), {
+                                name: groupName, // Nazwa sprawdzona w kroku 1
+                                ownerId: user.uid,
+                                subgroups: []
+                            });
+                        }
+                        // Jeśli action === 'join', groupId i groupName są już ustawione z kroku 1.
+                    } else {
+                        // Użytkownik pracuje sam - jego grupa to on sam
+                        groupId = user.uid;
                     }
-                });
 
-                // === KROK 2D: TWORZENIE SKRZYNKI (DLA WSZYSTKICH SCENARIUSZY) ===
-                const inboxProject = {
-                    name: "Skrzynka zadań",
-                    ownerId: user.uid,
-                    members: [user.uid],
-                    tasks: [],
-                    isInbox: true,
-                    createdAt: Date.now(),
-                    groupId: groupId || user.uid
-                };
-                await addDoc(projectsRef, inboxProject);
+                    // === KROK 2C: ZAPIS DOKUMENTU UŻYTKOWNIKA ===
+                    await setDoc(doc(usersRef, user.uid), {
+                        uid: user.uid,
+                        email: user.email,
+                        name: name,
+                        groupId: groupId,       // Używamy groupId ustalonego wcześniej
+                        groupName: groupName,   // Używamy groupName ustalonego wcześniej
+                        subgroupName: null, 
+                        hasSelectedSubgroup: false, 
+                        avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+                        favorites: [],
+                        layouts: {
+                            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+                            allProjects: []
+                        }
+                    });
+
+                    // === KROK 2D: TWORZENIE SKRZYNKI ===
+                    const inboxProject = {
+                        name: "Skrzynka zadań",
+                        ownerId: user.uid,
+                        members: [user.uid],
+                        tasks: [],
+                        isInbox: true,
+                        createdAt: Date.now(),
+                        groupId: groupId // Dodajemy groupId również do skrzynki
+                    };
+                    await addDoc(projectsRef, inboxProject);
+
+                    // === KROK 2E/2F: WERYFIKACJA I Wylogowanie ===
+                    await sendEmailVerification(user);
+                    await signOut(auth);
                     
-                console.log(`[REJ. FINAL] Użytkownik ${user.uid} dołączył do grupy ${groupId} i utworzył swój Inbox.`);
-
-
-                // === KROK 2E/2F: WERYFIKACJA I Wylogowanie ===
-                await sendEmailVerification(user);
-                await signOut(auth);
-                
-                // === KROK 2G: SUKCES (pokazanie wiadomości) ===
-                const successMessageContainer = document.getElementById('register-success-message');
-                const emailDisplay = document.getElementById('success-email-display');
-                
-                if (emailDisplay) {
-                    emailDisplay.textContent = email;
-                }
-                if (successMessageContainer) {
-                    document.getElementById('login-form').style.display = 'none';
-                    document.getElementById('register-form').style.display = 'none';
+                    // === KROK 2G: SUKCES (pokazanie wiadomości) ===
+                    loginForm.style.display = 'none';
+                    registerForm.style.display = 'none';
                     document.getElementById('password-reset-form').style.display = 'none';
-                    successMessageContainer.style.display = 'block';
+                    
+                    const successMessageContainer = document.getElementById('register-success-message');
+                    const emailDisplay = document.getElementById('success-email-display');
+                    
+                    if (emailDisplay) {
+                        emailDisplay.textContent = email;
+                    }
+                    if (successMessageContainer) {
+                        successMessageContainer.style.display = 'block';
+                    }
+                    
+                    const backToLoginBtn = document.getElementById('back-to-login-btn');
+                    if (backToLoginBtn) {
+                        backToLoginBtn.addEventListener('click', () => {
+                            if (successMessageContainer) {
+                                successMessageContainer.style.display = 'none';
+                            }
+                            loginForm.style.display = 'block';
+                        });
+                    }
+
+                } catch (authOrFirestoreError) {
+                    // Ten catch łapie błędy z createUserWithEmailAndPassword LUB zapisu do Firestore
+                    console.error("Błąd rejestracji (Auth lub Firestore):", authOrFirestoreError);
+                    
+                    // Jeśli użytkownik został utworzony w Auth, ale reszta się nie powiodła
+                    if (auth.currentUser) {
+                        await signOut(auth); // Wyloguj go
+                    }
+                    // Przekaż błąd dalej, aby złapał go zewnętrzny catch
+                    throw authOrFirestoreError; 
                 }
 
-            } catch (error) {
-                // Ta sekcja łapie wszystkie błędy (walidacji, Firebase, Auth)
-                console.error("Błąd rejestracji:", error);
+            } catch (validationOrAuthError) {
+                // ==================================================
+                // === KROK 3: GŁÓWNY CATCH (łapie błędy walidacji LUB błędy z KROKU 2) ===
+                // ==================================================
+                console.error("Błąd podczas procesu rejestracji:", validationOrAuthError);
+
+                // Sprawdzamy nasze spersonalizowane błędy walidacji
+                const errorMsg = validationOrAuthError.message;
+                if (errorMsg === "Grupa o tej nazwie już istnieje. Wybierz inną nazwę lub dołącz do istniejącej." ||
+                    errorMsg === "Grupa o podanej nazwie nie istnieje lub wpisałeś błędną nazwę grupy." ||
+                    errorMsg === "Nazwa grupy jest wymagana, gdy pracujesz w zespole.") {
+                    
+                    authErrorRegister.textContent = errorMsg; // Wyświetlamy spersonalizowaną wiadomość
                 
-                // Próba wylogowania, jeśli użytkownik został utworzony w Auth, ale Firestore zawiódł
-                if (error.code && error.code.startsWith('auth/') && auth.currentUser) {
-                     await signOut(auth);
-                } else if (!error.code && auth.currentUser) {
-                     await signOut(auth);
-                }
-
-                // Spersonalizowane komunikaty błędów
-                let errorMessage = 'Wystąpił nieoczekiwany błąd. Spróbuj ponownie.';
-                if (error.message.includes('auth/email-already-in-use')) {
-                    errorMessage = 'Ten adres e-mail jest już używany.';
-                } else if (error.message.includes('auth/weak-password')) {
-                    errorMessage = 'Hasło jest zbyt słabe (min. 6 znaków).';
-                } else if (error.message) {
-                    errorMessage = error.message;
-                }
+                } else if (errorMsg.includes("auth/email-already-in-use")) {
+                    authErrorRegister.textContent = "Ten adres e-mail jest już używany.";
                 
-                authErrorRegister.textContent = errorMessage;
+                } else if (errorMsg.includes("auth/weak-password")) {
+                    authErrorRegister.textContent = "Hasło jest zbyt słabe (min. 6 znaków).";
 
+                } else {
+                    // Inne nieoczekiwane błędy
+                    authErrorRegister.textContent = "Wystąpił nieoczekiwany błąd: " + errorMsg;
+                }
+            
             } finally {
-                // Blok finally gwarantuje wykonanie tego kodu, niezależnie od wyniku try/catch
+                // ==================================================
+                // === KROK 4: ZAWSZE RESETUJ PRZYCISK ===
+                // ==================================================
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Zarejestruj się';
             }
@@ -11293,51 +11131,6 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         backToProjectsBtn.addEventListener('click', handleBackButtonClick);
         backToProjectsBtnMobile.addEventListener('click', handleBackButtonClick);
         // ▲▲▲ KONIEC NOWEGO LISTNERA ▲▲▲
-       // --- POCZĄTEK NOWEJ LOGIKI ZAPROSZEŃ GRUPOWYCH ---
-        
-        inviteGroupMemberBtn.addEventListener('click', async () => {
-             if (!state.currentUser || !state.currentUser.groupId || !state.currentUser.groupName) return;
-             
-             // Uzupełnij nazwę grupy i otwórz modal
-             inviteGroupModal.groupNameDisplay.textContent = state.currentUser.groupName;
-             
-             // Resetuj pola
-             inviteGroupModal.form.reset();
-             inviteGroupModal.errorP.textContent = '';
-             inviteGroupModal.errorP.style.color = 'var(--danger-primary)'; 
-             
-             closeModal(manageGroupModal.overlay); // Zamknij modal zarządzania grupą
-             openModal(inviteGroupModal.overlay);
-        });
-
-        inviteGroupModal.form.addEventListener('submit', async (e) => {
-             e.preventDefault();
-             inviteGroupModal.errorP.textContent = '';
-             
-             const email = inviteGroupModal.emailInput.value.trim();
-             const groupId = state.currentUser.groupId;
-             const submitBtn = inviteGroupModal.submitBtn;
-
-             if (!email || !groupId) {
-                  inviteGroupModal.errorP.textContent = "Błąd: Brak e-maila lub ID grupy.";
-                  return;
-             }
-
-             submitBtn.disabled = true;
-             submitBtn.textContent = 'Wysyłanie...';
-
-             try {
-                 await sendGroupInviteEmail(email, groupId);
-             } catch (error) {
-                 // sendGroupInviteEmail już obsługuje błędy i wyświetla komunikat
-                 console.error("Błąd zaproszenia:", error);
-             } finally {
-                 submitBtn.disabled = false;
-                 submitBtn.textContent = 'Wyślij zaproszenie';
-             }
-        });
-
-        // --- KONIEC NOWEJ LOGIKI ZAPROSZEŃ GRUPOWYCH ---
         
           // --- LOGIKA EDYCJI UKŁADU DASHBOARDU ---
         
@@ -12402,10 +12195,6 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 </div>
         </div>
         <div class="modal-footer">
-            <button type="button" id="invite-group-member-btn" class="btn btn-primary" style="margin-right: auto;">
-                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.75a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 19.25a7.5 7.5 0 0115 0H4.5z" /></svg>
-                Zaproś do Grupy
-            </button>
             <button type="button" class="btn btn-secondary modal-close-btn">Zamknij</button>
         </div>
     </div>
@@ -12513,30 +12302,6 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         </div>
     </div>
 </div>
-        <div class="modal-overlay" id="invite-group-modal">
-        <div class="modal" style="max-width: 450px;">
-            <form id="invite-group-form">
-                <div class="modal-header">
-                    <h2>Zaproś do grupy: <span id="invite-group-name-display"></span></h2>
-                    <button type="button" class="modal-close-btn">&times;</button>
-                </div>
-                <div class="form-modal-content">
-                    <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
-                        Wpisz adres e-mail, aby wysłać link z zaproszeniem do dołączenia do grupy roboczej.
-                    </p>
-                    <div class="form-group">
-                        <label for="invite-group-email-input">Adres e-mail</label>
-                        <input type="email" id="invite-group-email-input" required placeholder="np. jan.kowalski@firma.pl">
-                    </div>
-                    <p id="invite-group-error" class="error-message"></p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
-                    <button type="submit" class="btn btn-primary" id="send-group-invite-btn">Wyślij zaproszenie</button>
-                </div>
-            </form>
-        </div>
-    </div>
     <div class="modal-overlay" id="subtask-modal">
         <div class="modal">
             <form id="subtask-form">
@@ -12723,14 +12488,6 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
-
-
-
-
-
-
-
-
 
 
 
