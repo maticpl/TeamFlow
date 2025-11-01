@@ -4560,7 +4560,8 @@ let state = {
             title: document.getElementById('poll-details-title'),
             content: document.getElementById('poll-details-content'),
             footer: document.getElementById('poll-details-footer'),
-            closePollBtn: document.getElementById('poll-details-close-btn') // <-- NOWA LINIA
+            closePollBtn: document.getElementById('poll-details-close-btn'),
+            deletePollBtn: document.getElementById('poll-details-delete-btn') // <-- NOWA LINIA
         };
         // === KONIEC NOWYCH REFERENCJI ===
 
@@ -6605,8 +6606,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // Pobierz zadania z projektu
             const tasks = project.tasks || [];
 
-            // NOWA LOGIKA: Pobierz sondaże dla tego projektu
-            const polls = state.polls.filter(poll => poll.projectId === project.id && poll.status === 'open');
+            // [ZMIANA 1] Pobieramy WSZYSTKIE sondaże dla projektu
+            const allPolls = state.polls.filter(poll => poll.projectId === project.id);
 
             Object.keys(STATUSES).forEach(statusKey => {
                 const column = document.createElement('div');
@@ -6617,15 +6618,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const tasksInColumn = (tasks || []).filter(t => t.status === statusKey);
                 const tasksHTML = tasksInColumn.map(task => createTaskCardHTML(task, isInteractive)).join('');
 
-                let pollsHTML = '';
-                let totalCount = tasksInColumn.length;
-
-                // Specjalna logika dla kolumny "Do realizacji"
+                // [ZMIANA 2] Logika filtrowania sondaży przeniesiona do wnętrza pętli
+                let pollsInColumn = [];
                 if (statusKey === 'todo') {
-                    // Renderuj sondaże
-                    pollsHTML = polls.map(poll => createPollCardHTML(poll)).join('');
-                    totalCount += polls.length; // Dodaj liczę sondaży do licznika kolumny
+                    // Otwarte sondaże lądują w "Do realizacji"
+                    pollsInColumn = allPolls.filter(p => p.status === 'open');
+                } else if (statusKey === 'done') {
+                    // Zamknięte sondaże lądują w "Wykonane"
+                    pollsInColumn = allPolls.filter(p => p.status === 'closed');
                 }
+                // (Sondaże nigdy nie będą w 'inprogress')
+
+                // [ZMIANA 3] Renderowanie i liczenie odbywa się teraz w każdej kolumnie
+                const pollsHTML = pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
+                const totalCount = tasksInColumn.length + pollsInColumn.length; // Licznik uwzględnia zadania i sondaże
+
                 
                 const addTaskBtnHTML = (isInteractive && statusKey === 'todo') ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
                 
@@ -7751,14 +7758,25 @@ newTaskModal.projectGroup.style.display = 'block';
 
             // Wstrzyknij gotowy HTML do modala
             pollDetailsModal.content.innerHTML = contentHTML;
-            // --- NOWA LOGIKA: Pokaż/Ukryj przycisk zarządzania ---
-            if (poll.createdBy === state.currentUser.uid && poll.status === 'open') {
+            // --- NOWA LOGIKA: Pokaż/Ukryj przyciski zarządzania ---
+            const isCreator = poll.createdBy === state.currentUser.uid;
+            
+            // Pokaż "Zakończ sondaż" (tylko dla twórcy, jeśli otwarty)
+            if (isCreator && poll.status === 'open') {
                 pollDetailsModal.closePollBtn.style.display = 'block';
-                pollDetailsModal.closePollBtn.dataset.pollId = pollId; // Zapisz ID do użycia w listenerze
+                pollDetailsModal.closePollBtn.dataset.pollId = pollId; 
                 pollDetailsModal.closePollBtn.disabled = false;
                 pollDetailsModal.closePollBtn.textContent = 'Zakończ sondaż';
             } else {
                 pollDetailsModal.closePollBtn.style.display = 'none';
+            }
+            
+            // Pokaż "Usuń sondaż" (tylko dla twórcy, zawsze)
+            if (isCreator) {
+                pollDetailsModal.deletePollBtn.style.display = 'block';
+                pollDetailsModal.deletePollBtn.dataset.pollId = pollId;
+            } else {
+                pollDetailsModal.deletePollBtn.style.display = 'none';
             }
             // --- KONIEC NOWEJ LOGIKI ---
 
@@ -11532,6 +11550,40 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             );
         });
         // === KONIEC NOWEGO LISTENERA ===
+       // === NOWY LISTENER: Obsługa przycisku "Usuń sondaż" w modalu ===
+        pollDetailsModal.deletePollBtn.addEventListener('click', (e) => {
+            const pollId = e.target.dataset.pollId;
+            if (!pollId) return;
+
+            const poll = state.polls.find(p => p.id === pollId);
+            if (!poll) return;
+
+            // Użyj tej samej funkcji potwierdzającej
+            showConfirmation(
+                "Trwale usunąć sondaż?",
+                `Czy na pewno chcesz usunąć sondaż "${poll.title}"? Tej operacji nie można cofnąć.`,
+                async (confirmed) => {
+                    if (confirmed) {
+                        try {
+                            const pollRef = doc(pollsRef, pollId);
+                            // Usuń dokument sondażu z Firestore
+                            await deleteDoc(pollRef);
+                            
+                            showNotification("Sondaż został usunięty.", "Sukces");
+                            closeModal(pollDetailsModal.overlay);
+                            // Nie musimy wywoływać render(), 
+                            // onSnapshot (z Kroku 13) wykryje usunięcie i automatycznie odświeży tablicę Kanban.
+                            
+                        } catch (error) {
+                            console.error("Błąd podczas usuwania sondażu:", error);
+                            showNotification("Wystąpił błąd podczas usuwania sondażu.", "Błąd");
+                        }
+                    }
+                },
+                true // Użyj czerwonego przycisku
+            );
+        });
+        // === KONIEC NOWEGO LISTENERA ===
         document.querySelectorAll('.modal-overlay').forEach(overlay => {
             overlay.addEventListener('click', e => {
                 if (e.target === overlay || e.target.closest('.modal-close-btn')) {
@@ -13830,13 +13882,16 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 <p style="color: var(--text-secondary);">Ładowanie danych sondażu...</p>
             </div>
             <div class="modal-footer" id="poll-details-footer">
-                <button type="button" id="poll-details-close-btn" class="btn btn-danger" style="display: none; margin-right: auto;">Zakończ sondaż</button>
+                <button type="button" id="poll-details-delete-btn" class="btn btn-danger" style="display: none; margin-right: auto;">Usuń sondaż</button>
+                <button type="button" id="poll-details-close-btn" class="btn btn-secondary" style="display: none; margin-left: 8px;">Zakończ sondaż</button>
+                
                 <button type="button" class="btn btn-secondary modal-close-btn">Zamknij</button>
             </div>
         </div>
     </div>
 </body>
 </html>
+
 
 
 
