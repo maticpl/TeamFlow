@@ -3027,6 +3027,147 @@
              padding-left: 0; /* Usuwa ewentualne dopełnienie kontenera listy */
         }
         /* === KONIEC NOWYCH REGUŁ === */
+        /* === NOWE STYLE DLA KAFELKA SONDARŻU === */
+        .poll-card {
+            background-color: var(--bg-secondary);
+            border-radius: var(--border-radius);
+            padding: 12px;
+            margin-bottom: 12px;
+            box-shadow: var(--shadow-sm);
+            cursor: default; /* Domyślnie nie jest klikalny jak zadanie */
+            transition: all 0.2s;
+            position: relative;
+            /* Zielona obwódka dla odróżnienia od zadań */
+            border: 1px solid var(--success-primary); 
+        }
+        .poll-card:hover {
+            box-shadow: var(--shadow-md);
+        }
+
+        .poll-card h4 {
+            font-size: 15px; 
+            font-weight: 600; 
+            margin-bottom: 12px; 
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: block; 
+            max-width: 80%; /* Dajemy miejsce na ikonę */
+        }
+
+        .poll-card-icon {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: var(--success-primary);
+        }
+        .poll-card-icon svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .poll-options {
+            display: flex;
+            flex-direction: column;
+            gap: 8px; /* Odstęp między opcjami */
+            margin-bottom: 12px;
+        }
+
+        /* --- Style dla opcji (przyciski) --- */
+        .poll-option-item {
+            width: 100%;
+        }
+        .poll-vote-btn {
+            width: 100%;
+            padding: 8px 12px;
+            border-radius: var(--border-radius);
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 14px;
+            cursor: pointer;
+            text-align: left;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .poll-vote-btn:hover {
+            background-color: var(--bg-tertiary);
+            border-color: var(--accent-primary);
+        }
+        /* Zablokowany przycisk podczas głosowania */
+        .poll-vote-btn:disabled {
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: wait;
+        }
+
+        /* --- Style dla opcji (wyniki) --- */
+        .poll-option-result {
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .poll-option-result.voted {
+            color: var(--accent-primary); /* Podświetl opcję, na którą zagłosował użytkownik */
+            font-weight: 700;
+        }
+        .poll-result-bar-container {
+            width: 100%;
+            height: 10px;
+            background-color: var(--bg-tertiary);
+            border-radius: 5px;
+            margin-top: 2px;
+            overflow: hidden;
+        }
+        .poll-result-bar-fill {
+            height: 100%;
+            background-color: var(--success-primary);
+            width: 0%; /* Ustawiane przez JS */
+            transition: width 0.5s ease-out;
+            border-radius: 5px;
+        }
+        .poll-result-text {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .poll-vote-count {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Meta (avatary i data) - używa stylów .task-meta */
+        .poll-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 8px;
+        }
+        .poll-details {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .poll-detail {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .poll-detail svg {
+            width: 15px;
+            height: 15px;
+        }
+        .poll-assignees {
+            display: flex;
+        }
+        .poll-assignees .avatar {
+            width: 24px;
+            height: 24px;
+            font-size: 12px;
+            border-color: var(--bg-tertiary);
+        }
+        /* === KONIEC STYLI DLA KAFELKA SONDARŻU === */
         
     </style>
 </head>
@@ -4127,6 +4268,7 @@
         const usersRef = collection(db, `artifacts/${appId}/public/data/users`);
         const groupsRef = collection(db, `artifacts/${appId}/public/data/groups`);
         const templatesRef = collection(db, `artifacts/${appId}/public/data/projectTemplates`);
+        const pollsRef = collection(db, `artifacts/${appId}/public/data/polls`); // <-- NOWA LINIA
 
 
     // ============================
@@ -4159,6 +4301,7 @@ let state = {
             completedProjects: [],
             projectTemplates: [], // <-- NOWA LINIA
             selectedTemplateId: null, // <-- NOWA LINIA
+            polls: [], // <-- NOWA LINIA
             currentProjectId: null,
             notifications: [],
             ui: {
@@ -4181,6 +4324,7 @@ let state = {
                 unsubscribeCompleted: null,
                 unsubscribeUsers: null,
                 unsubscribeNotifications: null, // <-- NOWA LINIA
+                unsubscribePolls: null, // <-- NOWA LINIA
                 chartInstance: null,
                 mobileCalendarDate: new Date().toISOString(), // Data dla widoku miesiąca
                 mobileCalendarSelectedDate: new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().split('T')[0],
@@ -5814,7 +5958,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             });
 
             // --- KROK 3: Wyrenderuj przefiltrowane zadania ---
-            renderKanbanBoard(filteredTasks, !isCompleted);
+            const viewProject = { ...project, tasks: filteredTasks };
+            renderKanbanBoard(viewProject, !isCompleted);
             
             // Upewnij się, że wiadomość o statusie filtra jest aktualna (dla wizualnego feedbacku na przycisku)
             updateFilterStatusMessage();
@@ -6445,15 +6590,46 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             renderMyTasksKanban(myTasks, myTasksKanbanEl);
         }
-        function renderKanbanBoard(tasks, isInteractive) {
+        function renderKanbanBoard(project, isInteractive) { // ZMIANA: tasks -> project
             kanbanBoardEl.innerHTML = '';
+            
+            // Pobierz zadania z projektu
+            const tasks = project.tasks || [];
+
+            // NOWA LOGIKA: Pobierz sondaże dla tego projektu
+            const polls = state.polls.filter(poll => poll.projectId === project.id && poll.status === 'open');
+
             Object.keys(STATUSES).forEach(statusKey => {
                 const column = document.createElement('div');
                 column.className = 'kanban-column';
                 column.dataset.status = statusKey;
+                
+                // Renderowanie zadań (tak jak wcześniej)
                 const tasksInColumn = (tasks || []).filter(t => t.status === statusKey);
+                const tasksHTML = tasksInColumn.map(task => createTaskCardHTML(task, isInteractive)).join('');
+
+                let pollsHTML = '';
+                let totalCount = tasksInColumn.length;
+
+                // Specjalna logika dla kolumny "Do realizacji"
+                if (statusKey === 'todo') {
+                    // Renderuj sondaże
+                    pollsHTML = polls.map(poll => createPollCardHTML(poll)).join('');
+                    totalCount += polls.length; // Dodaj liczę sondaży do licznika kolumny
+                }
+                
                 const addTaskBtnHTML = (isInteractive && statusKey === 'todo') ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
-                column.innerHTML = `<div class="kanban-column-header"><h3>${STATUSES[statusKey]}</h3><span class="task-count">${tasksInColumn.length}</span>${addTaskBtnHTML}</div><ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, isInteractive)).join('')}</ul>`;
+                
+                // Zaktualizowany innerHTML:
+                column.innerHTML = `
+                    <div class="kanban-column-header">
+                        <h3>${STATUSES[statusKey]}</h3>
+                        <span class="task-count">${totalCount}</span>
+                        ${addTaskBtnHTML}
+                    </div>
+                    <ul class="kanban-tasks">
+                        ${pollsHTML} ${tasksHTML} </ul>
+                `;
                 kanbanBoardEl.appendChild(column);
             });
         }
@@ -6567,6 +6743,99 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     <div class="task-assignees">${assigneesHTML}</div>
                 </div>
             </li>`;
+        }
+       /**
+         * Tworzy HTML dla kafelka sondażu.
+         * @param {object} poll - Obiekt sondażu z Firestore.
+         * @returns {string} - Kod HTML dla kafelka.
+         */
+        function createPollCardHTML(poll) {
+            
+            // 1. Renderowanie awatarów (uczestników)
+            const assigneesHTML = (poll.assignees || [])
+                .map(assigneeId => findUser(assigneeId))
+                .filter(Boolean)
+                // Używamy tych samych klas co w .task-assignees dla spójności
+                .map(user => renderAvatarHTML(user, 'avatar')) 
+                .join('');
+
+            // 2. Renderowanie terminu
+            const isOverdue = poll.deadline && new Date(poll.deadline).getTime() < Date.now() && poll.status === 'open';
+            const deadlineHTML = poll.deadline ? `
+                <div class="poll-detail ${isOverdue ? 'overdue' : ''}">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
+                    <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${new Date(poll.deadline).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}</span>
+                </div>` : '';
+
+            // 3. Logika głosowania: Sprawdzenie, czy bieżący użytkownik głosował
+            const currentUserId = state.currentUser.uid;
+            let currentUserVoteOptionId = null;
+            let totalVotes = 0;
+            
+            poll.options.forEach(opt => {
+                const voteCount = (opt.votes || []).length;
+                totalVotes += voteCount;
+                if ((opt.votes || []).includes(currentUserId)) {
+                    currentUserVoteOptionId = opt.id;
+                }
+            });
+
+            const hasVoted = !!currentUserVoteOptionId;
+
+            // 4. Generowanie HTML dla opcji (guziki lub wyniki)
+            let optionsHTML = '';
+            if (hasVoted) {
+                // --- Widok WYNIKÓW (użytkownik już zagłosował) ---
+                optionsHTML = poll.options.map(opt => {
+                    const voteCount = (opt.votes || []).length;
+                    const percentage = totalVotes > 0 ? (voteCount / totalVotes) * 100 : 0;
+                    const isVotedClass = opt.id === currentUserVoteOptionId ? 'voted' : '';
+
+                    return `
+                        <div class="poll-option-result ${isVotedClass}">
+                            <div class="poll-result-text">
+                                <span>${opt.text} ${isVotedClass ? '✓' : ''}</span>
+                                <span class="poll-vote-count">${voteCount} ${voteCount === 1 ? 'głos' : (voteCount > 1 && voteCount < 5 ? 'głosy' : 'głosów')}</span>
+                            </div>
+                            <div class="poll-result-bar-container">
+                                <div class="poll-result-bar-fill" style="width: ${percentage.toFixed(1)}%;"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                // --- Widok GŁOSOWANIA (przyciski) ---
+                optionsHTML = poll.options.map(opt => {
+                    return `
+                        <div class="poll-option-item">
+                            <button class="poll-vote-btn" data-poll-id="${poll.id}" data-option-id="${opt.id}">
+                                ${opt.text}
+                            </button>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // 5. Składanie finalnego HTML
+            return `
+            <li class="poll-card" data-poll-id="${poll.id}">
+                <div class="poll-card-icon" title="Sondaż">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <h4 title="${poll.title}">${poll.title}</h4>
+                
+                <div class="poll-options">
+                    ${optionsHTML}
+                </div>
+
+                <div class="poll-meta">
+                    <div class="poll-details">${deadlineHTML}</div>
+                    <div class="poll-assignees">${assigneesHTML}</div>
+                </div>
+            </li>
+            `;
         }
         
         function openModal(modal) {
@@ -8121,6 +8390,26 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             }, (error) => {
                  console.error("Błąd odczytu zakończonych projektów:", error)
             });
+            // === NOWY LISTENER DLA SONDARŻY (POPRAWIONY) ===
+            if (state.ui.unsubscribePolls) state.ui.unsubscribePolls();
+            
+            // Pobieramy groupId z BIEŻĄCEGO STANU
+            const currentGroupId = state.currentUser ? state.currentUser.groupId : null;
+            if (currentGroupId) {
+                console.log(`[setupFirestoreListeners] Uruchamianie listenera dla SONDARŻY (grupa: ${currentGroupId})`);
+                const pollsQuery = query(pollsRef, where("groupId", "==", currentGroupId));
+
+                state.ui.unsubscribePolls = onSnapshot(pollsQuery, (snapshot) => {
+                    state.polls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    console.log(`[setupFirestoreListeners] Pobrano sondaże. Liczba: ${state.polls.length}`);
+                    render(); // Przerenderuj po aktualizacji stanu sondaży
+                }, (error) => {
+                    console.error("Błąd odczytu sondaży:", error)
+                });
+            } else {
+                 console.warn("[setupFirestoreListeners/polls] Nie można uruchomić listenera sondaży, brak currentGroupId.");
+            }
+            // === KONIEC NOWEGO LISTENERA ===
 
 
             // Listener dla powiadomień (pozostaje bez zmian)
@@ -10652,6 +10941,69 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
           if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
           await handleTaskCompletion(updatedTask, project);
         }
+       /**
+         * Obsługuje logikę oddawania głosu w sondażu.
+         * @param {string} pollId - ID dokumentu sondażu.
+         * @param {string} optionId - ID wybranej opcji.
+         * @param {string} userId - ID głosującego użytkownika.
+         */
+        async function handleVote(pollId, optionId, userId) {
+            const poll = state.polls.find(p => p.id === pollId);
+            if (!poll) {
+                console.error("Nie znaleziono sondażu o ID:", pollId);
+                showNotification("Wystąpił błąd, nie znaleziono sondażu.", "Błąd");
+                render(); // Odśwież UI, aby odblokować przyciski
+                return;
+            }
+
+            // Sprawdzenie, czy użytkownik już nie głosował (zabezpieczenie)
+            const alreadyVoted = poll.options.some(opt => (opt.votes || []).includes(userId));
+            if (alreadyVoted) {
+                console.warn("Użytkownik już głosował w tym sondażu.");
+                render(); // Po prostu odśwież widok (co pokaże wyniki)
+                return;
+            }
+
+            // Tworzymy głęboką kopię tablicy opcji, aby bezpiecznie ją modyfikować
+            const updatedOptions = JSON.parse(JSON.stringify(poll.options));
+            
+            let foundOption = false;
+            for (const opt of updatedOptions) {
+                if (opt.id === optionId) {
+                    opt.votes = (opt.votes || []); // Upewnij się, że tablica istnieje
+                    if (!opt.votes.includes(userId)) { // Dodatkowe zabezpieczenie
+                        opt.votes.push(userId);
+                    }
+                    foundOption = true;
+                }
+                // Na razie nie pozwalamy na zmianę głosu, więc nie musimy usuwać starych.
+            }
+
+            if (!foundOption) {
+                console.error("Nie znaleziono opcji o ID:", optionId);
+                showNotification("Wystąpił błąd, wybrana opcja nie istnieje.", "Błąd");
+                render();
+                return;
+            }
+
+            try {
+                // Zapisz zaktualizowaną tablicę 'options' w Firestore
+                const pollRef = doc(pollsRef, pollId);
+                await updateDoc(pollRef, {
+                    options: updatedOptions
+                });
+                
+                // Nie musimy wywoływać render() ręcznie, 
+                // ponieważ onSnapshot (z Kroku 13) wykryje tę zmianę 
+                // i automatycznie odświeży interfejs, pokazując wyniki.
+                console.log(`Użytkownik ${userId} zagłosował na opcję ${optionId} w sondażu ${pollId}`);
+
+            } catch (error) {
+                console.error("Błąd podczas zapisywania głosu:", error);
+                showNotification("Wystąpił błąd podczas zapisywania Twojego głosu.", "Błąd");
+                render(); // Ręczne odświeżenie w razie błędu zapisu
+            }
+        }
 
 
          kanbanBoardEl.addEventListener('click', (e) => {
@@ -10665,6 +11017,26 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 handleTaskCheckboxClick(e.target, e);
                 return;
             }
+             // === NOWA LOGIKA OBSŁUGI GŁOSOWANIA ===
+            const voteBtn = e.target.closest('.poll-vote-btn');
+            if (voteBtn) {
+                const pollId = voteBtn.dataset.pollId;
+                const optionId = voteBtn.dataset.optionId;
+                const currentUserId = state.currentUser.uid;
+
+                // Natychmiastowe wyłączenie wszystkich przycisków w tym sondażu (feedback dla użytkownika)
+                const pollCard = voteBtn.closest('.poll-card');
+                if (pollCard) {
+                    pollCard.querySelectorAll('.poll-vote-btn').forEach(btn => {
+                        btn.disabled = true;
+                        btn.textContent = 'Głosowanie...';
+                    });
+                }
+                
+                handleVote(pollId, optionId, currentUserId); // Wywołanie nowej funkcji
+                return; // Zakończ obsługę
+            }
+            // === KONIEC NOWEJ LOGIKI ===
 
             const taskItem = e.target.closest('.task-card'); // Usunięto .my-day-task-item
             if (taskItem) {
@@ -10879,6 +11251,101 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
         });
         // === KONIEC NOWYCH LISTENERÓW ===
+       // === NOWY LISTENER: ZAPIS SONDARŻU DO FIRESTORE ===
+        newPollModal.form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Tworzenie...';
+
+            try {
+                // 1. Walidacja i zbieranie danych
+                const title = newPollModal.titleInput.value.trim();
+                const deadline = newPollModal.deadlineInput.value || null;
+                const projectId = newPollModal.overlay.dataset.projectId;
+                const project = findProject(projectId); // Pobieramy dane projektu
+
+                if (!title) {
+                    throw new Error("Tytuł sondażu jest wymagany.");
+                }
+                if (!project) {
+                    throw new Error("Nie można znaleźć projektu. Odśwież stronę.");
+                }
+
+                // 2. Zbieranie opcji (z unikalnymi ID)
+                const options = Array.from(newPollModal.optionsList.querySelectorAll('.new-poll-option-input'))
+                    .map((input, index) => ({
+                        id: `opt_${Date.now()}_${index}`, // Unikalne ID dla każdej opcji
+                        text: input.value.trim(),
+                        votes: [] // Pusta tablica na głosy
+                    }))
+                    .filter(opt => opt.text.length > 0); // Filtruj puste opcje
+
+                if (options.length < 2) {
+                     throw new Error("Sondaż musi mieć przynajmniej dwie niepuste opcje.");
+                }
+
+                // 3. Zbieranie uczestników
+                const assignees = Array.from(newPollModal.assigneesContainer.querySelectorAll('.member-pill.selected'))
+                    .map(pill => pill.dataset.userId);
+                
+                if (assignees.length === 0) {
+                    throw new Error("Sondaż musi mieć przynajmniej jednego uczestnika.");
+                }
+
+                // 4. Budowanie obiektu sondażu
+                const newPollData = {
+                    projectId: projectId,
+                    groupId: project.groupId, // Dodajemy groupId dla listenerów
+                    title: title,
+                    options: options, // Tablica obiektów z ID, text, votes
+                    assignees: assignees,
+                    deadline: deadline,
+                    createdBy: state.currentUser.uid,
+                    createdAt: Date.now(),
+                    status: 'open' // Domyślny status
+                };
+
+                // 5. Zapis sondażu do Firestore
+                const newPollRef = await addDoc(pollsRef, newPollData);
+                console.log("Sondaż pomyślnie zapisany z ID:", newPollRef.id);
+
+                // 6. Przygotowanie i wysłanie powiadomień
+                const batch = writeBatch(db);
+                const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+
+                assignees.forEach(assigneeId => {
+                    // Nie wysyłaj powiadomienia do samego siebie
+                    if (assigneeId === state.currentUser.uid) return;
+
+                    const notification = {
+                        userId: assigneeId,
+                        creatorId: state.currentUser.uid,
+                        type: 'poll_invite', // Nowy typ powiadomienia
+                        message: `<strong>${state.currentUser.name}</strong> zaprasza Cię do udziału w sondażu "<strong>${title}</strong>" w projekcie <em>${project.name}</em>.`,
+                        isRead: false,
+                        timestamp: Date.now(),
+                        link: { type: 'poll', projectId: projectId, pollId: newPollRef.id } // Link do sondażu
+                    };
+                    const newNotifRef = doc(notificationsRef);
+                    batch.set(newNotifRef, notification);
+                });
+                
+                await batch.commit();
+                console.log(`Wysłano powiadomienia o sondażu do ${assignees.length - 1} użytkowników.`);
+                // === KONIEC RZECZYWISTEGO ZAPISU ===
+
+                closeModal(newPollModal.overlay);
+
+            } catch (error) {
+                console.error("Błąd walidacji lub zapisu sondażu:", error);
+                showNotification(error.message, "Błąd");
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Utwórz sondaż';
+            }
+        });
+        // === KONIEC LISTENERA SONDARŻU ===
         document.querySelectorAll('.modal-overlay').forEach(overlay => {
             overlay.addEventListener('click', e => {
                 if (e.target === overlay || e.target.closest('.modal-close-btn')) {
@@ -13169,6 +13636,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
