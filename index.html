@@ -4025,7 +4025,7 @@ let state = {
                 sortMyTasksByDate: 'asc',
                 projectSortOrders: {},
                 currentProjectFilters: { // <-- NOWY OBIEKT FILTRÓW
-                    assigneeId: '',
+                    assigneeIds: [], // <-- ZMIENIONO NA TABLICĘ DLA WIELOKROTNEGO WYBORU
                     priority: '',
                     dueDate: '',
                     budgetStatus: ''
@@ -4231,7 +4231,7 @@ let state = {
        // --- NOWY MODAL FILTROWANIA ---
         const projectFilterModal = {
             overlay: document.getElementById('project-filter-modal'),
-            assigneeSelect: document.getElementById('filter-assignee'),
+            assigneeListContainer: document.getElementById('filter-assignee-list-container'), // <-- ZMIENIONO REFERENCJĘ
             prioritySelect: document.getElementById('filter-priority'),
             dueDateSelect: document.getElementById('filter-dueDate'),
             budgetStatusSelect: document.getElementById('filter-budgetStatus'),
@@ -5678,8 +5678,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             return tasks.filter(task => {
                 // 1. Filtr Osoba Przypisana
-                if (filters.assigneeId && !task.assignees.includes(filters.assigneeId)) {
-                    return false;
+                if (filters.assigneeIds && filters.assigneeIds.length > 0) {
+                    // Sprawdzamy, czy tablica assignees zadania zawiera przynajmniej jedno ID z tablicy filters.assigneeIds
+                    const hasSelectedAssignee = task.assignees.some(assigneeId => filters.assigneeIds.includes(assigneeId));
+                    if (!hasSelectedAssignee) {
+                        return false;
+                    }
                 }
 
                 // 2. Filtr Priorytet
@@ -9841,18 +9845,46 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             const project = findProject(projectId) || findCompletedProject(projectId);
             if (!project) return;
             
-            // 1. Wyczyść stare opcje i dodaj domyślną
-            projectFilterModal.assigneeSelect.innerHTML = '<option value="">Wszyscy członkowie</option>';
-
+            // 1. Wyczyść stary kontener checkboxów
+            projectFilterModal.assigneeListContainer.innerHTML = '';
+            
+            // Dodaj opcję "Wszyscy członkowie" (checkbox do odznaczania wszystkich)
+            const everyoneCheckboxId = 'filter-assignee-all';
+            projectFilterModal.assigneeListContainer.innerHTML += `
+                 <div class="form-group-checkbox" style="margin-bottom: 4px; border-bottom: 1px dashed var(--border-color); padding-bottom: 4px;">
+                     <input type="checkbox" id="${everyoneCheckboxId}" value="">
+                     <label for="${everyoneCheckboxId}" style="font-weight: 600;">Wszyscy członkowie</label>
+                 </div>
+            `;
+            
             // 2. Wypełnij listę członków
-            (project.members || []).map(findUser).filter(Boolean).forEach(member => {
-                 projectFilterModal.assigneeSelect.innerHTML += 
-                     `<option value="${member.id}">${member.name || member.email}</option>`;
-            });
-
-            // 3. Ustaw aktualne wartości filtrów ze stanu aplikacji
             const filters = state.ui.currentProjectFilters;
-            projectFilterModal.assigneeSelect.value = filters.assigneeId || '';
+            const currentAssigneeIds = filters.assigneeIds || [];
+            
+            (project.members || []).map(findUser).filter(Boolean).forEach(member => {
+                 const memberId = member.id;
+                 const isSelected = currentAssigneeIds.includes(memberId);
+                 const memberCheckboxId = `filter-assignee-${memberId}`;
+                 
+                 projectFilterModal.assigneeListContainer.innerHTML += `
+                     <div class="form-group-checkbox" style="margin-bottom: 4px;">
+                         <input type="checkbox" id="${memberCheckboxId}" value="${memberId}" ${isSelected ? 'checked' : ''}>
+                         <label for="${memberCheckboxId}" style="display: flex; align-items: center; gap: 8px;">
+                            ${renderAvatarHTML(member, 'avatar-comment')}
+                            <span>${member.name || member.email}</span>
+                         </label>
+                     </div>
+                 `;
+            });
+            
+            // Ustaw stan checkboxa "Wszyscy członkowie"
+            const everyoneCheckbox = document.getElementById(everyoneCheckboxId);
+            if (everyoneCheckbox) {
+                // Jeśli lista filtrów jest pusta, zaznacz "Wszyscy członkowie"
+                everyoneCheckbox.checked = currentAssigneeIds.length === 0;
+            }
+
+            // 3. Ustaw aktualne wartości filtrów dla pozostałych pól
             projectFilterModal.prioritySelect.value = filters.priority || '';
             projectFilterModal.dueDateSelect.value = filters.dueDate || '';
             projectFilterModal.budgetStatusSelect.value = filters.budgetStatus || '';
@@ -9871,9 +9903,10 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             const filters = state.ui.currentProjectFilters;
             const activeFilters = [];
 
-            if (filters.assigneeId) {
-                const user = findUser(filters.assigneeId);
-                if (user) activeFilters.push(`Przypisany do: ${user.name || user.email}`);
+            if (filters.assigneeIds && filters.assigneeIds.length > 0) { // <-- ZMIANA: Obsługa tablicy
+                const userNames = filters.assigneeIds.map(findUser).filter(Boolean).map(u => u.name || u.email);
+                const displayNames = userNames.length > 2 ? `${userNames.slice(0, 2).join(', ')} +${userNames.length - 2}` : userNames.join(', ');
+                activeFilters.push(`Osoby: ${displayNames}`);
             }
             if (filters.priority) {
                 activeFilters.push(`Priorytet: ${filters.priority}`);
@@ -9897,9 +9930,13 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         
         // --- LISTENER DLA PRZYCISKÓW FILTRA ---
         projectFilterModal.applyBtn.addEventListener('click', () => {
+             // 1. Zbieranie zaznaczonych ID członków
+            const selectedAssigneeIds = Array.from(projectFilterModal.assigneeListContainer.querySelectorAll('input[type="checkbox"]:checked:not(#filter-assignee-all)'))
+                                            .map(cb => cb.value);
+
             // Zapisz nowe filtry do stanu
             state.ui.currentProjectFilters = {
-                assigneeId: projectFilterModal.assigneeSelect.value,
+                assigneeIds: selectedAssigneeIds, // <-- ZMIANA: Zapisujemy tablicę ID
                 priority: projectFilterModal.prioritySelect.value,
                 dueDate: projectFilterModal.dueDateSelect.value,
                 budgetStatus: projectFilterModal.budgetStatusSelect.value,
@@ -9912,13 +9949,13 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         projectFilterModal.clearBtn.addEventListener('click', () => {
             // Zresetuj stan filtrów
             state.ui.currentProjectFilters = {
-                assigneeId: '',
+                assigneeIds: [], // <-- ZMIANA: Resetujemy tablicę ID
                 priority: '',
                 dueDate: '',
                 budgetStatus: ''
             };
             // Wyczyść pola w modalu
-            projectFilterModal.assigneeSelect.value = '';
+            // Zmieniono: projectFilterModal.assigneeSelect.value = '';
             projectFilterModal.prioritySelect.value = '';
             projectFilterModal.dueDateSelect.value = '';
             projectFilterModal.budgetStatusSelect.value = '';
@@ -10028,6 +10065,33 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 pill.classList.toggle('selected');
             }
         });
+       // --- NOWY LISTENER: Obsługa checkboxa "Wszyscy członkowie" ---
+        // (Ten listener został dodany w poprzednim kroku i znajduje się w odpowiednim miejscu)
+        projectFilterModal.assigneeListContainer.addEventListener('change', (e) => {
+            if (e.target.id === 'filter-assignee-all') {
+                const isChecked = e.target.checked;
+                // Odznacz/Zaznacz wszystkie inne checkboxe, ale NIE te w sekcji Budżetu/etc.
+                projectFilterModal.assigneeListContainer.querySelectorAll('input[type="checkbox"]:not(#filter-assignee-all)').forEach(cb => {
+                    // Odznaczamy pozostałe tylko jeśli "Wszyscy członkowie" jest zaznaczony
+                    if (isChecked) {
+                        cb.checked = false; 
+                    }
+                });
+            } else if (e.target.closest('#filter-assignee-list-container')) {
+                 // Jeśli zaznaczono pojedynczego członka, odznacz "Wszyscy członkowie"
+                 const everyoneCheckbox = document.getElementById('filter-assignee-all');
+                 if (everyoneCheckbox && e.target.checked) {
+                     everyoneCheckbox.checked = false;
+                 }
+                 // Jeśli odznaczono ostatniego członka i nikt inny nie jest zaznaczony, zaznacz "Wszyscy członkowie"
+                 const allOtherCheckboxes = projectFilterModal.assigneeListContainer.querySelectorAll('input[type="checkbox"]:not(#filter-assignee-all)');
+                 const anyOtherChecked = Array.from(allOtherCheckboxes).some(cb => cb.checked);
+                 if (!anyOtherChecked) {
+                     document.getElementById('filter-assignee-all').checked = true;
+                 }
+            }
+        });
+        // --- KONIEC NOWEGO LISTENERA ---
 
         newTaskModal.form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -12656,10 +12720,9 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
         <div class="form-modal-content" style="padding-bottom: 8px;">
 
             <div class="form-group" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
-                <label for="filter-assignee">Osoba Przypisana</label>
-                <select id="filter-assignee">
-                    <option value="">Wszyscy członkowie</option>
-                    </select>
+                <label>Osoba Przypisana</label>
+                <div id="filter-assignee-list-container" style="background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--border-radius); max-height: 200px; overflow-y: auto; padding: 8px;">
+                    </div>
             </div>
 
             <div class="form-group" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
@@ -12766,6 +12829,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
