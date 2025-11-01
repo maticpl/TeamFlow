@@ -8031,7 +8031,8 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         let inviteGroupId = null; // Zmienna do przechowywania ID GRUPY
 
         // 1. Sprawdź, czy logowanie nastąpiło przez link e-mail.
-        if (isSignInWithEmailLink(window.location.href)) {
+        // 1. Sprawdź, czy logowanie nastąpiło przez link e-mail.
+        if (isSignInWithEmailLink(auth, window.location.href)) {
              console.log("[AUTH] Logowanie przez link wykryte.");
 
             // 2. Jeśli zalogowanie się przez link, pobierz e-mail z localStorage.
@@ -8040,13 +8041,35 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             if (!email) {
                 // To jest krytyczne, jeśli e-mail nie jest w localStorage. Musimy poprosić o niego.
                  console.warn("[AUTH] Brak e-maila w localStorage. Użytkownik zostanie przekierowany do strony logowania.");
-                 // W tym miejscu powinna być implementacja prośby o e-mail,
-                 // ale na razie pozostawiamy logowanie błędu.
+                 // Jeśli nie ma maila, przekierowujemy na stronę główną, aby użytkownik mógł ponowić próbę.
+                 window.location.href = window.location.origin; 
                  return;
             }
 
-            // 3. Zaloguj użytkownika (TUTAJ BRAK WYWOŁANIA FUNKCJI)
-            // Strona "stoi", bo nie dochodzi do faktycznego zalogowania.
+            // 3. Zaloguj użytkownika przy użyciu linku i e-maila.
+            console.log(`[AUTH] Próba zalogowania dla: ${email}`);
+            signInWithEmailLink(auth, email, window.location.href)
+                .then((result) => {
+                    // Czysty localStorage po pomyślnym zalogowaniu
+                    window.localStorage.removeItem('emailForSignIn');
+                    console.log("[AUTH] Pomyślnie zalogowano użytkownika za pomocą linku.");
+                    
+                    // Opcjonalnie: Usuń link z paska adresu po zalogowaniu, aby strona się odświeżyła do czystego stanu.
+                    if (history.replaceState) {
+                       const cleanUrl = window.location.href.split('?')[0];
+                       history.replaceState(null, '', cleanUrl);
+                    }
+                })
+                .catch((error) => {
+                    console.error("[AUTH] Błąd logowania linkiem:", error);
+                    // Pokaż błąd użytkownikowi i usuń e-mail z localStorage.
+                    window.localStorage.removeItem('emailForSignIn');
+                    // Przekierowanie do głównej strony lub pokazanie komunikatu o błędzie.
+                    // ... (Dodaj tutaj kod do obsługi błędu w UI)
+                });
+                
+            // Zablokuj dalsze przetwarzanie, aby uniknąć ponownego wywołania logiki i pozwolić na dokończenie Promise.
+            return; 
 
         }
              const url = window.location.href;
@@ -12697,6 +12720,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
