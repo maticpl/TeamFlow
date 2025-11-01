@@ -4231,6 +4231,16 @@ let state = {
         };
         // === KONIEC NOWEJ REFERENCJI ===
 
+        // === NOWA REFERENCJA DLA MODALA ZAPROSZENIA ===
+        const inviteMemberModal = {
+            overlay: document.getElementById('invite-member-modal'),
+            form: document.getElementById('invite-member-form'),
+            emailInput: document.getElementById('invite-email-input'),
+            message: document.getElementById('invite-message'),
+        };
+        // === KONIEC NOWEJ REFERENCJI ===
+        // === KONIEC NOWEJ REFERENCJI ===
+
         // === NOWE REFERENCJE DLA MODALI SZABLONÓW ===
         const openTemplatesBtn = document.getElementById('open-templates-btn');
         const templatesModal = {
@@ -8332,6 +8342,36 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             loginForm.style.display = 'block';
         });
 
+        // === NOWA LOGIKA: Sprawdzenie URL i autouzupełnianie formularza rejestracji ===
+        const urlParams = new URLSearchParams(window.location.search);
+        const invitedGroupName = urlParams.get('invite');
+        
+        if (invitedGroupName) {
+            // Dekodowanie i wyświetlanie formularza
+            const decodedGroupName = decodeURIComponent(invitedGroupName);
+            
+            // Wymuszamy, aby formularz rejestracji był widoczny
+            loginForm.style.display = 'none';
+            registerForm.style.display = 'block';
+            
+            // Zaznaczamy checkbox "Będę korzystać z aplikacji z zespołem"
+            registerTeamToggle.checked = true;
+            registerTeamOptions.style.display = 'block';
+            
+            // Wybieramy akcję "Dołącz do grupy" (join)
+            const joinRadio = document.querySelector('input[name="group-action"][value="join"]');
+            if (joinRadio) {
+                joinRadio.checked = true;
+                // Musimy też sprawić, że radio "create" będzie ODZNACZONE
+                const createRadio = document.querySelector('input[name="group-action"][value="create"]');
+                if (createRadio) createRadio.checked = false;
+            }
+            
+            // Wypełniamy nazwę grupy
+            registerGroupNameInput.value = decodedGroupName;
+            registerGroupNameInput.readOnly = true; // Blokujemy edycję
+        }
+
         registerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('register-name').value.trim();
@@ -8984,6 +9024,17 @@ settingsModal.openChangeGroupBtn.addEventListener('click', () => {
     closeModal(settingsModal.overlay);
 });
 
+// Listener otwierający modal zaproszenia
+const openInviteMemberBtn = document.getElementById('open-invite-member-btn');
+if (openInviteMemberBtn) {
+    openInviteMemberBtn.addEventListener('click', () => {
+        inviteMemberModal.form.reset();
+        inviteMemberModal.message.textContent = '';
+        openModal(inviteMemberModal.overlay);
+        closeModal(settingsModal.overlay);
+    });
+}
+
 // Listener do dynamicznego wczytywania podgrup po wpisaniu nazwy grupy
 changeGroupNameInput.addEventListener('blur', async () => {
     const groupName = changeGroupNameInput.value.trim();
@@ -9213,7 +9264,66 @@ if (changeGroupModal.form) {
         }
     } // Koniec logiki dla zwykłego użytkownika
             }); // Koniec listenera submit
-       // === POCZĄTEK NOWEGO LISTENERA (TRANSFER WŁASNOŚCI) - Wersja 3 ===
+       // === NOWA FUNKCJA: Generowanie linku zapraszającego ===
+        function generateInvitationLink(groupName) {
+            const baseUrl = window.location.origin + window.location.pathname;
+            const encodedGroupName = encodeURIComponent(groupName);
+            // Tworzymy link z parametrem 'invite'
+            return `${baseUrl}?invite=${encodedGroupName}#register-form`;
+        }
+
+        // === NOWY LISTENER DLA FORMULARZA ZAPROSZENIA ===
+        inviteMemberModal.form.addEventListener('submit', async (e) => {
+             e.preventDefault();
+             inviteMemberModal.message.textContent = '';
+             
+             const submitBtn = e.target.querySelector('button[type="submit"]');
+             submitBtn.disabled = true;
+             submitBtn.textContent = 'Wysyłanie...';
+
+             const invitedEmail = inviteMemberModal.emailInput.value.trim();
+             const user = state.currentUser;
+
+             if (!user || !user.groupName) {
+                 inviteMemberModal.message.textContent = 'Błąd: Nie jesteś członkiem grupy.';
+                 submitBtn.disabled = false;
+                 submitBtn.textContent = 'Wyślij zaproszenie';
+                 return;
+             }
+             
+             // Generujemy link
+             const invitationLink = generateInvitationLink(user.groupName);
+
+             // W tym kroku, zamiast faktycznej wysyłki, musimy ZASYSULOWAĆ
+             // działanie, które normalnie zrobiłaby usługa mailowa (np. SendGrid/Firebase Functions)
+             // z powodu braku backendu.
+
+             // Właściwy kod (do użycia z realnym backendem) wyglądałby tak:
+             // await callFirebaseFunction('sendInvitationEmail', { email: invitedEmail, link: invitationLink, sender: user.name });
+
+             // Kod symulujący i wyświetlający link dla użytkownika:
+             try {
+                // Symulacja opóźnienia wysyłki
+                await new Promise(resolve => setTimeout(resolve, 1500)); 
+                
+                inviteMemberModal.message.style.color = 'var(--success-primary)';
+                inviteMemberModal.message.innerHTML = `✅ Link wygenerowany i gotowy do ręcznego wysłania (symulacja!):<br>
+                    <a href="${invitationLink}" target="_blank" style="word-break: break-all;">${invitationLink}</a><br>
+                    <small style="color: var(--danger-primary);">Wyślij to ręcznie do: ${invitedEmail}</small>`;
+
+             } catch (error) {
+                 console.error("Błąd symulacji wysyłki zaproszenia:", error);
+                 inviteMemberModal.message.style.color = 'var(--danger-primary)';
+                 inviteMemberModal.message.textContent = 'Wystąpił błąd podczas generowania linku.';
+             } finally {
+                 submitBtn.disabled = false;
+                 submitBtn.textContent = 'Wyślij zaproszenie';
+             }
+        });
+
+// === KONIEC NOWEGO LISTENERA DLA FORMULARZA ZAPROSZENIA ===
+
+// === KONIEC NOWEGO LISTENERA (TRANSFER WŁASNOŚCI) - Wersja 3 ===
         
             console.log('[DEBUG] Formularz transferOwnershipModal.form ZNALEZIONY. Podpinam listener...');
             transferOwnershipModal.form.addEventListener('submit', async (e) => {
@@ -10783,11 +10893,18 @@ settingsBtn.addEventListener('click', async () => {
         const groupSnap = await getDoc(groupRef);
         if (groupSnap.exists() && groupSnap.data().ownerId === user.uid) {
             openManageGroupBtn.style.display = 'block'; // Pokaż przycisk zarządzania
+            if (openInviteMemberBtn) openInviteMemberBtn.style.display = 'block'; // Pokaż przycisk zapraszania
+        } else if (user.groupName) {
+            // Użytkownik jest członkiem nazwanej grupy (nie solo), więc może zapraszać.
+            if (openInviteMemberBtn) openInviteMemberBtn.style.display = 'block';
+            openManageGroupBtn.style.display = 'none'; // Ukryj przycisk zarządzania
         } else {
             openManageGroupBtn.style.display = 'none'; // Ukryj przycisk
+            if (openInviteMemberBtn) openInviteMemberBtn.style.display = 'none';
         }
     } else {
         openManageGroupBtn.style.display = 'none';
+        if (openInviteMemberBtn) openInviteMemberBtn.style.display = 'none';
     }
 
     // Na koniec pokazuje główne okno ustawień
@@ -12102,6 +12219,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     <button id="open-upload-photo-btn" class="btn btn-secondary">Zmień zdjęcie</button>
     <button id="open-change-username-btn" class="btn btn-secondary">Zmień nazwę</button>
     <button id="open-change-password-btn" class="btn btn-secondary">Zmień hasło</button>
+    <button id="open-invite-member-btn" class="btn btn-secondary" style="display: none;">Zaproś do grupy</button>
     <button id="open-change-subgroup-btn" class="btn btn-secondary">Zmień dział/podgrupę</button>
     <button id="open-change-group-btn" class="btn btn-secondary">Zmień lub dołącz do grupy</button>
     <button id="open-manage-group-btn" class="btn btn-primary" style="display: none;">Zarządzaj grupą</button>
@@ -12485,9 +12603,34 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 <button type="button" class="btn btn-secondary modal-close-btn">Zamknij</button>
             </div>
         </div>
+    <div class="modal-overlay" id="invite-member-modal">
+    <div class="modal" style="max-width: 400px;">
+        <form id="invite-member-form">
+            <div class="modal-header">
+                <h2>Zaproś do grupy</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                    Wyślij link rejestracyjny nowemu członkowi zespołu. Jego konto zostanie automatycznie przypisane do Twojej grupy.
+                </p>
+                <div class="form-group">
+                    <label for="invite-email-input">Adres e-mail</label>
+                    <input type="email" id="invite-email-input" required placeholder="jan.kowalski@firma.com">
+                </div>
+                <p id="invite-message" class="error-message" style="min-height: 20px;"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="submit" class="btn btn-primary">Wyślij zaproszenie</button>
+            </div>
+        </form>
+    </div>
+</div>
     </div>
 </body>
 </html>
+
 
 
 
