@@ -13890,22 +13890,33 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
             // 2. Dodaj dymek ładowania
             const loadingMessageId = `msg_${Date.now()}`;
-            addAiChatMessage("Myślę...", 'loading', loadingMessageId);
+            addAiChatMessage("Przetwarzam Twoje pytanie...", 'loading', loadingMessageId);
 
-            // --- POCZĄTEK SYMULACJI RAG i Cloud Function ---
-            // W przyszłości ten blok zostanie zastąpiony prawdziwym wywołaniem
+            // --- POCZĄTEK PRAWDZIWEJ LOGIKI RAG + CLOUD FUNCTION ---
             try {
-                // Krok A: (Symulacja) Znajdź kontekst w manual.json
-                // Na razie udajemy, że zawsze coś znajdujemy
-                const context = "Symulowany kontekst z instrukcji: Aby coś zrobić, kliknij przycisk X, a następnie Y.";
-                console.log(`[AI Pomoc] Pytanie: "${question}"`);
-                console.log(`[AI Pomoc] Znaleziony kontekst: "${context}"`);
+                // Krok A: Znajdź najlepszy kontekst z pliku manual.json
+                const context = await findContext(question);
                 
-                // Krok B: (Symulacja) Wywołaj Cloud Function i poczekaj 2 sekundy
-                // W przyszłości: const response = await callCloudFunction('askGemini', { question, context });
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                const response = `Oto odpowiedź na Twoje pytanie: ${question}. Zgodnie z instrukcją: aby coś zrobić, kliknij przycisk X, a następnie Y.`;
-                // --- KONIEC SYMULACJI ---
+                console.log(`[AI Pomoc] Pytanie: "${question}"`);
+                console.log(`[AI Pomoc] Znaleziony kontekst: "${context || 'Brak'}"`);
+
+                // Krok B: Wywołaj Firebase Cloud Function (na razie symulowane)
+                // W przyszłości odkomentujemy linię z 'getFunctions'
+                // const functions = getFunctions(app);
+                // const askGemini = httpsCallable(functions, 'askGemini');
+                // const result = await askGemini({ question, context });
+                // const response = result.data.response;
+
+                // --- Symulacja wywołania (zostawiamy na razie, aby przetestować RAG) ---
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                let response;
+                if (context) {
+                    response = `(Symulowana odpowiedź AI): Bazując na instrukcji, która mówi: "${context}", odpowiedź na Twoje pytanie "${question}" brzmi: ... [tutaj Gemini wygeneruje zgrabną odpowiedź] ...`;
+                } else {
+                    response = `(Symulowana odpowiedź AI): Przepraszam, nie mogłem znaleźć w instrukcji informacji na temat "${question}". Spróbuj zadać pytanie inaczej.`;
+                }
+                // --- Koniec symulacji ---
+
 
                 // 3. Usuń dymek ładowania
                 const loadingBubble = document.getElementById(loadingMessageId);
@@ -13920,7 +13931,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 const loadingBubble = document.getElementById(loadingMessageId);
                 if (loadingBubble) loadingBubble.remove();
                 // 4. Pokaż błąd
-                addAiChatMessage("Przepraszam, mam problem z połączeniem. Spróbuj ponownie za chwilę.", 'bot');
+                addAiChatMessage(`Przepraszam, wystąpił błąd: ${error.message}. Spróbuj ponownie.`, 'bot');
             } finally {
                 // 5. Odblokuj formularz
                 aiHelpModal.input.disabled = false;
@@ -13954,6 +13965,55 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             // Automatycznie przewiń na dół
             aiHelpModal.container.scrollTop = aiHelpModal.container.scrollHeight;
         }
+        
+        /**
+         * Wyszukuje najbardziej trafny kontekst w pliku manual.json.
+         * To jest nasza uproszczona implementacja RAG.
+         * @param {string} question - Pytanie zadane przez użytkownika.
+         * @returns {Promise<string|null>} - Treść pasującego fragmentu instrukcji lub null.
+         */
+        let knowledgeBase = null; // Pamięć podręczna dla bazy wiedzy
+
+        async function findContext(question) {
+            // Krok 1: Załaduj bazę wiedzy (jeśli jeszcze nie załadowana)
+            if (!knowledgeBase) {
+                try {
+                    const response = await fetch('manual.json');
+                    if (!response.ok) throw new Error('Nie udało się załadować bazy wiedzy.');
+                    knowledgeBase = await response.json();
+                } catch (err) {
+                    console.error(err);
+                    return "Błąd ładowania instrukcji: " + err.message; // Zwróć błąd jako kontekst
+                }
+            }
+
+            // Krok 2: Proste wyszukiwanie oparte na słowach kluczowych
+            const questionWords = question.toLowerCase().split(/\s+/); // Podziel pytanie na słowa
+            let bestMatch = { score: 0, content: null };
+
+            knowledgeBase.forEach(entry => {
+                let currentScore = 0;
+                const keywords = entry.keywords || [];
+                
+                questionWords.forEach(qWord => {
+                    if (qWord.length > 2) { // Ignoruj krótkie słowa
+                        // Sprawdź, czy słowo z pytania pasuje do któregoś słowa kluczowego
+                        if (keywords.some(kWord => qWord.includes(kWord) || kWord.includes(qWord))) {
+                            currentScore++;
+                        }
+                    }
+                });
+
+                if (currentScore > bestMatch.score) {
+                    bestMatch.score = currentScore;
+                    bestMatch.content = entry.content;
+                }
+            });
+
+            // Zwróć najlepszy znaleziony kontekst (lub null, jeśli wynik to 0)
+            return bestMatch.score > 0 ? bestMatch.content : null;
+        }
+
 
         // =========================================================
         // === KONIEC LOGIKI ASYSTENTA AI ===
@@ -14525,6 +14585,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
