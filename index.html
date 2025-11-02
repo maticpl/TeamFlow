@@ -3174,7 +3174,50 @@
             border-color: var(--bg-tertiary);
         }
         /* === KONIEC STYLI DLA KAFELKA SONDARŻU === */
-        
+        /* === NOWE STYLE DLA PRZEŁĄCZNIKA (SUWAKA) === */
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+        }
+        .toggle-switch input[type="checkbox"] {
+            display: none; /* Ukryj domyślny checkbox */
+        }
+        .toggle-switch-slider-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            font-weight: 500;
+            margin-bottom: 0;
+        }
+        .toggle-switch-slider {
+            position: relative;
+            width: 40px;
+            height: 22px;
+            background-color: var(--bg-tertiary);
+            border-radius: 11px;
+            transition: background-color 0.2s;
+            border: 1px solid var(--border-color);
+        }
+        .toggle-switch-slider::before {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background-color: var(--bg-secondary);
+            top: 2px;
+            left: 3px;
+            transition: transform 0.2s;
+            box-shadow: var(--shadow-sm);
+        }
+        .toggle-switch input[type="checkbox"]:checked + .toggle-switch-slider-label .toggle-switch-slider {
+            background-color: var(--success-primary);
+            border-color: var(--success-primary);
+        }
+        .toggle-switch input[type="checkbox"]:checked + .toggle-switch-slider-label .toggle-switch-slider::before {
+            transform: translateX(17px);
+        }
+        /* === KONIEC NOWYCH STYLI === */
     </style>
 </head>
 <body>
@@ -4324,7 +4367,8 @@ let state = {
                     assigneeIds: [], // <-- ZMIENIONO NA TABLICĘ DLA WIELOKROTNEGO WYBORU
                     priority: '',
                     dueDate: '',
-                    budgetStatus: ''
+                    budgetStatus: '',
+                    showPolls: true // <-- DODANA LINIA (domyślnie pokazuj sondaże)
                 },
                 unsubscribeProjects: null,
                 unsubscribeCompleted: null,
@@ -4537,6 +4581,7 @@ let state = {
             prioritySelect: document.getElementById('filter-priority'),
             dueDateSelect: document.getElementById('filter-dueDate'),
             budgetStatusSelect: document.getElementById('filter-budgetStatus'),
+            pollToggle: document.getElementById('filter-showPolls'), // <-- DODANA LINIA
             applyBtn: document.getElementById('filter-apply-btn'),
             clearBtn: document.getElementById('filter-clear-btn'),
             statusMessage: document.getElementById('filter-status-message'),
@@ -6613,6 +6658,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const tasks = project.tasks || [];
 
             // [ZMIANA 1] Pobieramy WSZYSTKIE sondaże dla projektu
+            // Ta linia pozostaje bez zmian, pobieramy wszystkie, bo filtr zastosujemy poniżej
             const allPolls = state.polls.filter(poll => poll.projectId === project.id);
 
             Object.keys(STATUSES).forEach(statusKey => {
@@ -6624,25 +6670,34 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const tasksInColumn = (tasks || []).filter(t => t.status === statusKey);
                 const tasksHTML = tasksInColumn.map(task => createTaskCardHTML(task, isInteractive)).join('');
 
-                // [ZMIANA 2] Logika filtrowania sondaży przeniesiona do wnętrza pętli
+                // === POCZĄTEK MODYFIKACJI ===
+                // [ZMIANA 2] Logika filtrowania sondaży jest teraz zależna od filtra
                 let pollsInColumn = [];
-                if (statusKey === 'todo') {
-                    // Otwarte sondaże lądują w "Do realizacji"
-                    pollsInColumn = allPolls.filter(p => p.status === 'open');
-                } else if (statusKey === 'done') {
-                    // Zamknięte sondaże lądują w "Wykonane"
-                    pollsInColumn = allPolls.filter(p => p.status === 'closed');
-                }
-                // (Sondaże nigdy nie będą w 'inprogress')
-
-                // [ZMIANA 3] Renderowanie i liczenie odbywa się teraz w każdej kolumnie
-                const pollsHTML = pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
-                const totalCount = tasksInColumn.length + pollsInColumn.length; // Licznik uwzględnia zadania i sondaże
-
+                let pollsHTML = '';
                 
+                // SPRAWDŹ FILTR: Renderuj sondaże tylko jeśli filtr jest włączony
+                if (state.ui.currentProjectFilters.showPolls) {
+                    if (statusKey === 'todo') {
+                        // Otwarte sondaże lądują w "Do realizacji"
+                        pollsInColumn = allPolls.filter(p => p.status === 'open');
+                    } else if (statusKey === 'done') {
+                        // Zamknięte sondaże lądują w "Wykonane"
+                        pollsInColumn = allPolls.filter(p => p.status === 'closed');
+                    }
+                    // (Sondaże nigdy nie będą w 'inprogress')
+                    
+                    // Renderuj HTML tylko jeśli są jakieś sondaże
+                    pollsHTML = pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
+                }
+                // Jeśli filtr jest wyłączony, pollsInColumn pozostanie pustą tablicą, a pollsHTML pustym stringiem
+
+                // [ZMIANA 3] Licznik totalCount automatycznie uwzględni 0 sondaży, jeśli są ukryte
+                const totalCount = tasksInColumn.length + pollsInColumn.length; // Licznik uwzględnia zadania i (widoczne) sondaże
+                // === KONIEC MODYFIKACJI ===
+
                 const addTaskBtnHTML = (isInteractive && statusKey === 'todo') ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
                 
-                // Zaktualizowany innerHTML:
+                // Zaktualizowany innerHTML: (pozostaje bez zmian, bo pollsHTML jest dynamiczne)
                 column.innerHTML = `
                     <div class="kanban-column-header">
                         <h3>${STATUSES[statusKey]}</h3>
@@ -10650,6 +10705,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             projectFilterModal.prioritySelect.value = filters.priority || '';
             projectFilterModal.dueDateSelect.value = filters.dueDate || '';
             projectFilterModal.budgetStatusSelect.value = filters.budgetStatus || '';
+            projectFilterModal.pollToggle.checked = filters.showPolls;
 
             // 4. Zaktualizuj komunikat o statusie
             updateFilterStatusMessage();
@@ -10679,6 +10735,11 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             if (filters.budgetStatus) {
                 activeFilters.push(`Budżet: ${filters.budgetStatus === 'has-budget' ? 'Ma koszty' : 'Brak kosztów'}`);
             }
+            // <-- DODANA SEKCJA -->
+            if (!filters.showPolls) {
+                activeFilters.push('Ukryte sondaże');
+            }
+            // <-- KONIEC DODANEJ SEKCJI -->
             
             const message = activeFilters.length > 0 
                 ? `Filtrowanie aktywne: ${activeFilters.join(', ')}`
@@ -10702,6 +10763,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 priority: projectFilterModal.prioritySelect.value,
                 dueDate: projectFilterModal.dueDateSelect.value,
                 budgetStatus: projectFilterModal.budgetStatusSelect.value,
+                showPolls: projectFilterModal.pollToggle.checked // <-- DODANA LINIA
             };
             saveUiState();
             closeModal(projectFilterModal.overlay);
@@ -10714,13 +10776,15 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 assigneeIds: [], // <-- ZMIANA: Resetujemy tablicę ID
                 priority: '',
                 dueDate: '',
-                budgetStatus: ''
+                budgetStatus: '',
+                showPolls: true // <-- DODANA LINIA (reset do domyślnej wartości)
             };
             // Wyczyść pola w modalu
             // Zmieniono: projectFilterModal.assigneeSelect.value = '';
             projectFilterModal.prioritySelect.value = '';
             projectFilterModal.dueDateSelect.value = '';
             projectFilterModal.budgetStatusSelect.value = '';
+            projectFilterModal.pollToggle.checked = true; // <-- DODANA LINIA (reset UI przełącznika)
             
             saveUiState();
             closeModal(projectFilterModal.overlay);
@@ -13911,6 +13975,16 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                     <option value="no-budget">Nie mają przypisanych kosztów</option>
                 </select>
             </div>
+            <div class="form-group" style="border-top: 1px solid var(--border-color); padding-top: 16px; margin-top: 16px;">
+                <label>Widoczność elementów</label>
+                <div class="form-group-checkbox toggle-switch">
+                    <input type="checkbox" id="filter-showPolls" checked>
+                    <label for="filter-showPolls" class="toggle-switch-slider-label">
+                        <span class="toggle-switch-slider"></span>
+                        <span style="margin-left: 8px;">Pokaż Sondaże</span>
+                    </label>
+                </div>
+            </div>
 
             <p id="filter-status-message" class="error-message" style="color: var(--text-secondary); min-height: 20px; font-size: 13px; margin-bottom: 0;">Filtrowanie aktywne: Brak</p>
         </div>
@@ -14052,6 +14126,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
