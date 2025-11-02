@@ -3242,44 +3242,21 @@
         .toggle-switch input[type="checkbox"]:checked ~ .toggle-switch-slider::before {
             transform: translateX(17px);
         }
-        /* === NOWE STYLE DLA MENU "ZASOBY I NARZĘDZIA" (TIPPY.JS) === */
+        /* === NOWE STYLE DLA MENU "ZASOBY I NARZĘDZIA" (Wysuwane) === */
         
-        /* 1. Główny kontener dymka (popover) */
-        .tippy-box[data-theme~='app-menu'] {
-            background-color: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow-md);
-            border-radius: var(--border-radius);
-            font-family: var(--font-family);
-        }
-
-        /* 2. Usuwamy strzałkę (ten mały trójkąt) */
-        .tippy-box[data-theme~='app-menu'] .tippy-arrow {
-            display: none;
-        }
-
-        /* 3. Dostosowujemy zawartość - bazujemy na .mobile-actions-menu, ale resetujemy padding */
-        .tippy-box[data-theme~='app-menu'] .mobile-actions-menu {
-            padding: 4px 0 !important; /* Nadpisujemy padding z oryginalnej klasy */
+        /* 1. Animacja dla ikony strzałki (chevron) */
+        #resources-btn svg {
+            transition: transform 0.3s ease-in-out;
         }
         
-        /* 4. Style dla linków wewnątrz menu */
-        .tippy-box[data-theme~='app-menu'] .mobile-actions-menu li a {
-            padding: 8px 16px; /* Mniejszy padding dla bardziej kompaktowego menu */
-            font-size: 14px;
-            color: var(--text-primary);
-            transition: background-color 0.2s;
-        }
-        
-        /* 5. Efekt hover dla linków */
-        .tippy-box[data-theme~='app-menu'] .mobile-actions-menu li a:hover {
-            background-color: var(--bg-tertiary);
-            color: var(--accent-primary); /* Podświetlamy na kolor akcentu */
+        /* 2. Styl dla strzałki, gdy menu jest otwarte (obrót o 180 stopni) */
+        #resources-btn.open svg {
+            transform: rotate(180deg);
         }
 
-        /* 6. Ustawienia dla Tippy.js (wymagane) */
-        .tippy-box[data-theme~='app-menu'][data-placement^='bottom'] > .tippy-content {
-            padding: 0;
+        /* 3. Styl dla kontenera menu, gdy jest otwarty */
+        #resources-menu.open {
+            max-height: 100px; /* Wystarczająco, by pokazać 2 przyciski */
         }
         /* === KONIEC NOWYCH STYLI === */
     </style>
@@ -3464,6 +3441,14 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
                 </svg>
             </button>
+            <div id="resources-menu" style="max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; margin-bottom: 4px;">
+                <button class="btn btn-secondary" id="open-templates-btn-menu" style="width: 100%; justify-content: flex-start; margin-top: 4px;">
+                    Szablony Projektów
+                </button>
+                <button class="btn btn-secondary" id="open-archive-btn-menu" style="width: 100%; justify-content: flex-start; margin-top: 4px;">
+                    Archiwum Projektów
+                </button>
+            </div>
             <button class="new-project-btn" id="new-project-btn" disabled>+ Nowy Projekt</button>
 
 <div class="sidebar-footer">
@@ -13528,45 +13513,45 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             templatesModal.createProjectBtn.disabled = false;
         }
    
-       // NOWA LOGIKA: Inicjalizacja Tippy.js dla menu "Zasoby i Narzędzia" (ten kod jest poprawny i zostaje)
-        tippy(resourcesBtn, {
-            content: document.getElementById('resources-menu-content').innerHTML,
-            allowHTML: true,
-            trigger: 'click', // Menu otwiera się po kliknięciu
-            interactive: true, // Pozwala na klikanie wewnątrz menu
-            placement: 'bottom-start', // Wyrównanie do lewej krawędzi przycisku
-            theme: 'app-menu', // <-- ZMIANA: Używamy naszego nowego motywu CSS
-            onShow(instance) {
-                // Gdy menu się pokazuje, dodajemy listenery do linków w jego wnętrzu
-                const content = instance.popper.querySelector('.mobile-actions-menu ul');
-                
-                // Listener dla "Szablony Projektów"
-                content.querySelector('a[data-action="templates"]').addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    instance.hide(); // Zamknij menu
-                    // Otwórz modal szablonów (stara logika)
-                    openModal(templatesModal.overlay);
-                    await loadAndRenderTemplates();
-                });
+       // NOWA LOGIKA: Obsługa wysuwanego menu "Zasoby i Narzędzia"
+        const resourcesMenu = document.getElementById('resources-menu');
+        const openTemplatesBtnMenu = document.getElementById('open-templates-btn-menu');
+        const openArchiveBtnMenu = document.getElementById('open-archive-btn-menu');
 
-                // Listener dla "Archiwum Projektów"
-                content.querySelector('a[data-action="archive"]').addEventListener('click', (e) => {
-                    e.preventDefault();
-                    instance.hide(); // Zamknij menu
-                    // Ustaw nowy stan widoku
-                    state.currentProjectId = null;
-                    state.ui.previousView = state.ui.currentView; // Zapamiętaj, skąd przyszliśmy
-                    state.ui.currentView = 'archive'; // Ustaw nowy widok
-                    state.ui.isCalendarView = false;
-                    saveUiState();
-                    render(); // Przerenderuj aplikację
-                    
-                    // Jeśli jesteśmy na mobilce, zamknij sidebar
-                    if (window.innerWidth <= 768) {
-                        sidebar.classList.remove('open');
-                        sidebarOverlay.classList.remove('visible');
-                    }
-                });
+        // 1. Listener dla głównego przycisku "Zasoby i Narzędzia"
+        resourcesBtn.addEventListener('click', () => {
+            resourcesBtn.classList.toggle('open');
+            resourcesMenu.classList.toggle('open');
+        });
+
+        // 2. Listener dla przycisku "Szablony Projektów" (wewnątrz menu)
+        openTemplatesBtnMenu.addEventListener('click', async () => {
+            // Otwórz modal szablonów (stara logika)
+            openModal(templatesModal.overlay);
+            await loadAndRenderTemplates();
+            // Zamknij menu
+            resourcesBtn.classList.remove('open');
+            resourcesMenu.classList.remove('open');
+        });
+
+        // 3. Listener dla przycisku "Archiwum Projektów" (wewnątrz menu)
+        openArchiveBtnMenu.addEventListener('click', () => {
+            // Ustaw nowy stan widoku
+            state.currentProjectId = null;
+            state.ui.previousView = state.ui.currentView; // Zapamiętaj, skąd przyszliśmy
+            state.ui.currentView = 'archive'; // Ustaw nowy widok
+            state.ui.isCalendarView = false;
+            saveUiState();
+            render(); // Przerenderuj aplikację
+            
+            // Zamknij menu
+            resourcesBtn.classList.remove('open');
+            resourcesMenu.classList.remove('open');
+
+            // Jeśli jesteśmy na mobilce, zamknij sidebar
+            if (window.innerWidth <= 768) {
+                sidebar.classList.remove('open');
+                sidebarOverlay.classList.remove('visible');
             }
         });
        // === NOWY LISTENER: Klikanie na liście szablonów (delegacja zdarzeń) ===
@@ -14299,6 +14284,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
