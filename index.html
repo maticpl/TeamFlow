@@ -4441,6 +4441,7 @@
     import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+    import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
     import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
 
     // ============================
@@ -4459,7 +4460,7 @@
     // 3. INICJALIZACJA FIREBASE (poza DOMContentLoaded)
     // ============================
     const appId = "default-app-id";
-    let db, auth, app, storage; // Deklarujemy zmienne globalnie w skrypcie
+    let db, auth, app, storage, functions; // Deklarujemy zmienne globalnie w skrypcie
 
     const loadingOverlay = document.getElementById('loading-overlay');
     const authOverlay = document.getElementById('auth-overlay');
@@ -4470,6 +4471,7 @@
         db = getFirestore(app);
         auth = getAuth(app);
         storage = getStorage(app);
+        functions = getFunctions(app);
     } catch (error) {
         console.error("Błąd inicjalizacji Firebase:", error);
         authOverlay.innerHTML = `<div class="auth-container"><h2>Błąd Konfiguracji</h2><p>${error.message}</p></div>`;
@@ -13865,153 +13867,99 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             openModal(newProjectModal.overlay);
         });
        // =========================================================
-        // === NOWA LOGIKA DLA ASYSTENTA AI (GEMINI) ===
-        // =========================================================
+// === NOWA LOGIKA DLA ASYSTENTA AI (WYWOŁUJĄCA GEMINI) ===
+// =========================================================
 
-        // --- Listener otwierający modal AI ---
-        aiHelpModal.openBtn.addEventListener('click', () => {
-            openModal(aiHelpModal.overlay);
-            aiHelpModal.input.focus();
-        });
+// --- Listener otwierający modal AI ---
+aiHelpModal.openBtn.addEventListener('click', () => {
+    openModal(aiHelpModal.overlay);
+    aiHelpModal.input.focus();
+});
 
-        // --- Listener dla wysyłania pytania ---
-        aiHelpModal.form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const question = aiHelpModal.input.value.trim();
-            if (!question) return;
+// --- Listener dla wysyłania pytania ---
+aiHelpModal.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const question = aiHelpModal.input.value.trim();
+    if (!question) return;
 
-            // Zablokuj formularz i wyczyść input
-            aiHelpModal.input.value = '';
-            aiHelpModal.input.disabled = true;
-            aiHelpModal.sendBtn.disabled = true;
+    // Zablokuj formularz i wyczyść input
+    aiHelpModal.input.value = '';
+    aiHelpModal.input.disabled = true;
+    aiHelpModal.sendBtn.disabled = true;
 
-            // 1. Dodaj dymek użytkownika
-            addAiChatMessage(question, 'user');
+    // 1. Dodaj dymek użytkownika
+    addAiChatMessage(question, 'user');
 
-            // 2. Dodaj dymek ładowania
-            const loadingMessageId = `msg_${Date.now()}`;
-            addAiChatMessage("Przetwarzam Twoje pytanie...", 'loading', loadingMessageId);
+    // 2. Dodaj dymek ładowania
+    const loadingMessageId = `msg_${Date.now()}`;
+    addAiChatMessage("Myślę...", 'loading', loadingMessageId);
 
-            // --- POCZĄTEK LOGIKI "SYMULATORA" AI (100% FRONT-END) ---
-            try {
-                // Krok A: Znajdź najlepszy kontekst z pliku manual.json
-                const context = await findContext(question);
-                
-                console.log(`[AI Pomoc] Pytanie: "${question}"`);
-                console.log(`[AI Pomoc] Znaleziony kontekst: "${context || 'Brak'}"`);
-                
-                // Krok B: (Symulacja) Poczekaj chwilę, aby wyglądało jak "myślenie"
-                await new Promise(resolve => setTimeout(resolve, 750));
+    try {
+        // === TO JEST NOWA LOGIKA ===
 
-                let response;
-                if (context) {
-                    // Jeśli znaleziono kontekst, ZWRÓĆ GO BEZPOŚREDNIO
-                    response = context;
-                } else {
-                    // Jeśli nie znaleziono, zwróć standardową odpowiedź
-                    response = "Przepraszam, nie mogłem znaleźć w instrukcji informacji na ten temat. Spróbuj zadać pytanie inaczej, używając prostych słów kluczowych (np. 'jak usunąć zadanie').";
-                }
-                
-                // 3. Usuń dymek ładowania
-                const loadingBubble = document.getElementById(loadingMessageId);
-                if (loadingBubble) loadingBubble.remove();
-                
-                // 4. Dodaj odpowiedź bota
-                addAiChatMessage(response, 'bot');
+        // 3. Przygotuj wywołanie funkcji "askGemini"
+        const askGemini = httpsCallable(functions, 'askGemini');
 
-            } catch (error) {
-                console.error("Błąd Asystenta AI:", error);
-                // 3. Usuń dymek ładowania
-                const loadingBubble = document.getElementById(loadingMessageId);
-                if (loadingBubble) loadingBubble.remove();
-                // 4. Pokaż błąd
-                addAiChatMessage(`Przepraszam, wystąpił błąd: ${error.message}. Spróbuj ponownie.`, 'bot');
-            } finally {
-                // 5. Odblokuj formularz
-                aiHelpModal.input.disabled = false;
-                aiHelpModal.sendBtn.disabled = false;
-                aiHelpModal.input.focus();
-            }
-        });
+        // 4. Wyślij pytanie do funkcji i czekaj na odpowiedź
+        //    (Firebase automatycznie zajmie się uwierzytelnianiem)
+        const result = await askGemini({ question: question });
 
-        /**
-         * Dodaje nową wiadomość do okna czatu AI
-         * @param {string} text - Treść wiadomości
-         * @param {'user' | 'bot' | 'loading'} type - Typ nadawcy
-         * @param {string | null} [id=null] - Opcjonalne ID dla elementu (używane do usuwania dymka ładowania)
-         */
-        function addAiChatMessage(text, type, id = null) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `ai-chat-message ${type}`;
-            if (id) messageDiv.id = id; // Przypisz ID, jeśli dostarczono
+        // 5. Pobierz tekst odpowiedzi z obiektu result
+        const response = result.data.response;
 
-            let bubbleContent = '';
-            if (type === 'loading') {
-                bubbleContent = `<div class="ai-spinner"></div> <span>${text}</span>`;
-            } else {
-                bubbleContent = text;
-            }
-            
-            messageDiv.innerHTML = `<div class="ai-chat-bubble">${bubbleContent}</div>`;
-            
-            aiHelpModal.container.appendChild(messageDiv);
-            
-            // Automatycznie przewiń na dół
-            aiHelpModal.container.scrollTop = aiHelpModal.container.scrollHeight;
-        }
-        
-        /**
-         * Wyszukuje najbardziej trafny kontekst w pliku manual.json.
-         * To jest nasza uproszczona implementacja RAG.
-         * @param {string} question - Pytanie zadane przez użytkownika.
-         * @returns {Promise<string|null>} - Treść pasującego fragmentu instrukcji lub null.
-         */
-        let knowledgeBase = null; // Pamięć podręczna dla bazy wiedzy
+        // === KONIEC NOWEJ LOGIKI ===
 
-        async function findContext(question) {
-            // Krok 1: Załaduj bazę wiedzy (jeśli jeszcze nie załadowana)
-            if (!knowledgeBase) {
-                try {
-                    const response = await fetch('manual.json');
-                    if (!response.ok) throw new Error('Nie udało się załadować bazy wiedzy.');
-                    knowledgeBase = await response.json();
-                } catch (err) {
-                    console.error(err);
-                    return "Błąd ładowania instrukcji: " + err.message; // Zwróć błąd jako kontekst
-                }
-            }
+        // 6. Usuń dymek ładowania
+        const loadingBubble = document.getElementById(loadingMessageId);
+        if (loadingBubble) loadingBubble.remove();
 
-            // Krok 2: Proste wyszukiwanie oparte na słowach kluczowych
-            const questionWords = question.toLowerCase().split(/\s+/); // Podziel pytanie na słowa
-            let bestMatch = { score: 0, content: null };
+        // 7. Dodaj odpowiedź bota
+        addAiChatMessage(response, 'bot');
 
-            knowledgeBase.forEach(entry => {
-                let currentScore = 0;
-                const keywords = entry.keywords || [];
-                
-                questionWords.forEach(qWord => {
-                    if (qWord.length > 2) { // Ignoruj krótkie słowa
-                        // Sprawdź, czy słowo z pytania pasuje do któregoś słowa kluczowego
-                        if (keywords.some(kWord => qWord.includes(kWord) || kWord.includes(qWord))) {
-                            currentScore++;
-                        }
-                    }
-                });
+    } catch (error) {
+        console.error("Błąd wywołania Cloud Function 'askGemini':", error);
+        // 6. Usuń dymek ładowania
+        const loadingBubble = document.getElementById(loadingMessageId);
+        if (loadingBubble) loadingBubble.remove();
+        // 7. Pokaż błąd użytkownikowi
+        addAiChatMessage(`Przepraszam, wystąpił błąd serwera: ${error.message}. Spróbuj ponownie.`, 'bot');
+    } finally {
+        // 8. Odblokuj formularz
+        aiHelpModal.input.disabled = false;
+        aiHelpModal.sendBtn.disabled = false;
+        aiHelpModal.input.focus();
+    }
+});
 
-                if (currentScore > bestMatch.score) {
-                    bestMatch.score = currentScore;
-                    bestMatch.content = entry.content;
-                }
-            });
+/**
+ * Dodaje nową wiadomość do okna czatu AI
+ * (Ta funkcja jest taka sama jak poprzednio, ale musi tu być)
+ */
+function addAiChatMessage(text, type, id = null) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `ai-chat-message ${type}`;
+    if (id) messageDiv.id = id; 
 
-            // Zwróć najlepszy znaleziony kontekst (lub null, jeśli wynik to 0)
-            return bestMatch.score > 0 ? bestMatch.content : null;
-        }
+    let bubbleContent = '';
+    if (type === 'loading') {
+        bubbleContent = `<div class="ai-spinner"></div> <span>${text}</span>`;
+    } else {
+        // Zamieniamy znaki nowej linii (\n) na tagi <br>
+        // aby odpowiedzi Gemini formatowały się poprawnie
+        bubbleContent = text.replace(/\n/g, '<br>');
+    }
 
+    messageDiv.innerHTML = `<div class="ai-chat-bubble">${bubbleContent}</div>`;
 
-        // =========================================================
-        // === KONIEC LOGIKI ASYSTENTA AI ===
-        // =========================================================
+    aiHelpModal.container.appendChild(messageDiv);
+
+    // Automatycznie przewiń na dół
+    aiHelpModal.container.scrollTop = aiHelpModal.container.scrollHeight;
+}
+
+// =========================================================
+// === KONIEC LOGIKI ASYSTENTA AI ===
+// =========================================================
 
 
     }); // Ten nawias zamyka główny listener DOMContentLoaded
@@ -14579,6 +14527,7 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
     </div>
 </body>
 </html>
+
 
 
 
