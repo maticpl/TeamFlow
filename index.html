@@ -3412,13 +3412,18 @@
                     </ul>
                 </nav>
                 
-                 <nav class="nav-section" id="completed-projects-section" style="display: none;">
+                 <nav class="nav-section" id="completed-projects-section" style="display: none !important;">
                     <h2>Zakończone projekty</h2>
                     <ul class="nav-list" id="completed-projects-list">
                     </ul>
                 </nav>
             </div>
-            <button class="btn btn-secondary" id="open-templates-btn" style="width: 100%; margin-bottom: 8px;">Szablony Projektów</button>
+            <button class="btn btn-secondary" id="resources-btn" style="width: 100%; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                <span>Zasoby i Narzędzia</span>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 16px; height: 16px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                </svg>
+            </button>
             <button class="new-project-btn" id="new-project-btn" disabled>+ Nowy Projekt</button>
 
 <div class="sidebar-footer">
@@ -5505,6 +5510,7 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                 render(); // DODANO: Odświeżenie widoku nawet w przypadku błędu
             }
         }
+       
         // NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU
 function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null) {
     containerElement.innerHTML = ''; // Zawsze czyścimy kontener na starcie
@@ -5558,6 +5564,64 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         containerElement.appendChild(groupDiv);
     });
 }
+       // NOWA FUNKCJA DO RENDEROWANIA WIDOKU ARCHIWUM
+        function renderArchiveView() {
+            kanbanBoardEl.className = 'all-projects-view'; // Używamy tych samych stylów co dla "Wszystkich Projektów"
+            kanbanBoardEl.removeAttribute('style');
+            projectNameHeaderEl.textContent = 'Archiwum Projektów';
+            mobileHeaderTitle.textContent = 'Archiwum';
+            projectMembersHeaderEl.innerHTML = '';
+            projectActionsEl.style.display = 'none';
+            projectProgressEl.innerHTML = '';
+            sortBtn.style.display = 'none'; // Ukrywamy sortowanie
+            editProjectsLayoutBtn.style.display = 'none'; // Ukrywamy edycję układu
+
+            kanbanBoardEl.innerHTML = `<div class="all-projects-grid"></div>`;
+            const grid = kanbanBoardEl.querySelector('.all-projects-grid');
+            
+            // Funkcja do tworzenia kafelka (nieco uproszczona względem renderAllProjectsView)
+            const createArchiveTileHTML = (project) => {
+                const owner = findUser(project.ownerId);
+                const projectTasks = (project.tasks || []);
+                const totalTasks = projectTasks.length;
+                const membersHTML = project.members.map(memberId => findUser(memberId)).filter(Boolean).map(user => renderAvatarHTML(user)).join('');
+
+                return `<div class="project-tile" data-id="${project.id}" style="opacity: 0.8;">
+                    <div class="project-tile-header">
+                        <h3 class="js-project-title" title="${project.name}">${project.name}</h3>
+                        </div>
+                     <div class="project-tile-details">
+                        <div class="project-tile-owner"><strong>Właściciel:</strong> ${owner ? owner.name : 'Nieznany'}</div>
+                        <div class="project-tile-members-list"><strong>Członkowie:</strong> <div class="project-tile-members">${membersHTML}</div></div>
+                    </div>
+                    <div>
+                        <div class="progress-text">${totalTasks} zadań</div>
+                    </div>
+                </div>`;
+            };
+
+            // Sortujemy zakończone projekty alfabetycznie
+            const archivedProjects = [...state.completedProjects].sort((a, b) => a.name.localeCompare(b.name));
+
+            if (archivedProjects.length === 0) {
+                grid.innerHTML = '<p class="no-tasks-message">Archiwum jest puste. Zakończ projekt, aby zobaczyć go tutaj.</p>';
+            } else {
+                grid.innerHTML = archivedProjects.map(p => createArchiveTileHTML(p)).join('');
+            }
+            
+            // Listener do klikania na kafelki w archiwum (otwiera widok projektu)
+            grid.addEventListener('click', (e) => {
+                const projectTile = e.target.closest('.project-tile');
+                if (projectTile) {
+                    const projectId = projectTile.dataset.id;
+                    state.currentProjectId = projectId;
+                    state.ui.previousView = state.ui.currentView;
+                    state.ui.currentView = 'projects'; // Przełączamy na standardowy widok projektu
+                    saveUiState();
+                    render();
+                }
+            });
+        }
         function render() {
             if (!state.currentUser) return;
             applyTheme();
@@ -5746,6 +5810,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     renderMyDayView();
                 } else if (state.ui.currentView === 'all-projects') {
                     renderAllProjectsView();
+                } else if (state.ui.currentView === 'archive') { // <-- DODANY BLOK
+                    renderArchiveView();
                 }
                 projectMembersHeaderEl.style.display = isMyDayView ? 'none' : 'flex';
             }
@@ -13427,6 +13493,47 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
              // 'await' sprawia, że poczekamy, aż dane zostaną załadowane i wyrenderowane
              await loadAndRenderTemplates();
         });
+       // NOWA LOGIKA: Inicjalizacja Tippy.js dla menu "Zasoby i Narzędzia"
+        tippy(resourcesBtn, {
+            content: document.getElementById('resources-menu-content').innerHTML,
+            allowHTML: true,
+            trigger: 'click', // Menu otwiera się po kliknięciu
+            interactive: true, // Pozwala na klikanie wewnątrz menu
+            placement: 'bottom-start', // Wyrównanie do lewej krawędzi przycisku
+            theme: 'light-border', // Używamy domyślnego motywu Tippy (można to pominąć, jeśli nie jest załadowany)
+            onShow(instance) {
+                // Gdy menu się pokazuje, dodajemy listenery do linków w jego wnętrzu
+                const content = instance.popper.querySelector('.mobile-actions-menu ul');
+                
+                // Listener dla "Szablony Projektów"
+                content.querySelector('a[data-action="templates"]').addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    instance.hide(); // Zamknij menu
+                    // Otwórz modal szablonów (stara logika)
+                    openModal(templatesModal.overlay);
+                    await loadAndRenderTemplates();
+                });
+
+                // Listener dla "Archiwum Projektów"
+                content.querySelector('a[data-action="archive"]').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    instance.hide(); // Zamknij menu
+                    // Ustaw nowy stan widoku
+                    state.currentProjectId = null;
+                    state.ui.previousView = state.ui.currentView; // Zapamiętaj, skąd przyszliśmy
+                    state.ui.currentView = 'archive'; // Ustaw nowy widok
+                    state.ui.isCalendarView = false;
+                    saveUiState();
+                    render(); // Przerenderuj aplikację
+                    
+                    // Jeśli jesteśmy na mobilce, zamknij sidebar
+                    if (window.innerWidth <= 768) {
+                        sidebar.classList.remove('open');
+                        sidebarOverlay.classList.remove('visible');
+                    }
+                });
+            }
+        });
        // === NOWY LISTENER: Klikanie na liście szablonów (delegacja zdarzeń) ===
         templatesModal.list.addEventListener('click', (e) => {
              e.preventDefault(); // Zapobiegaj domyślnej akcji linku (przewinięciu)
@@ -14147,8 +14254,17 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             </div>
         </div>
     </div>
+    <div id="resources-menu-content" style="display: none;">
+        <div class="mobile-actions-menu" style="display: block; box-shadow: none; border: none; padding: 0;">
+            <ul>
+                <li><a href="#" data-action="templates">Szablony Projektów</a></li>
+                <li><a href="#" data-action="archive">Archiwum Projektów</a></li>
+            </ul>
+        </div>
+    </div>
 </body>
 </html>
+
 
 
 
