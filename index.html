@@ -2082,25 +2082,23 @@
             background: linear-gradient(90deg, var(--accent-hover), var(--accent-primary));
         }
 
-        /* === KONIEC: NOWE STYLE DLA ZMODERNIZOWANEGO PULPITU === */
-        /* === NOWE STYLE DLA KAFELKA KPI BUDŻETU === */
+        /* === NOWE STYLE DLA KAFELKA KPI BUDŻETU (Z ROZWIJANYMI SZCZEGÓŁAMI) === */
+        
+        /* Wykres kołowy - bez zmian */
         .budget-kpi-circle {
             width: 120px;
             height: 120px;
             border-radius: 50%;
             display: grid;
             place-items: center;
-            /* Używamy conic-gradient do stworzenia pierścienia postępu */
-            /* Zmienna --progress-percent będzie ustawiana dynamicznie przez JS */
             background: conic-gradient(
                 var(--accent-primary) calc(var(--progress-percent, 0) * 1%), 
                 var(--bg-tertiary) calc(var(--progress-percent, 0) * 1%)
             );
             margin: 12px auto 8px auto;
             transition: background 0.5s ease-out;
-            position: relative; /* Dla wewnętrznego kółka */
+            position: relative; 
         }
-        /* Wewnętrzne kółko, aby stworzyć efekt "pączka" (donut chart) */
         .budget-kpi-circle::before {
             content: '';
             position: absolute;
@@ -2110,12 +2108,11 @@
             border-radius: 50%;
         }
         .budget-kpi-percentage {
-            position: relative; /* Aby tekst był nad pseudo-elementem ::before */
+            position: relative;
             font-size: 28px;
             font-weight: 700;
             color: var(--accent-primary);
         }
-        /* Specjalny styl dla przekroczenia budżetu */
         .budget-kpi-circle.over-budget {
              background: conic-gradient(
                 var(--danger-primary) calc(var(--progress-percent, 0) * 1%), 
@@ -2124,6 +2121,76 @@
         }
         .budget-kpi-circle.over-budget .budget-kpi-percentage {
             color: var(--danger-primary);
+        }
+
+        /* NOWY: Styl dla zwijanego kontenera (na liczby) */
+        .budget-kpi-details {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .budget-kpi-details.expanded {
+            max-height: 200px; /* Wystarczająco, by zmieścić liczby */
+        }
+        
+        /* NOWY: Styl dla liczb wewnątrz zwijanego kontenera */
+        .budget-kpi-summary-numbers {
+            font-size: 14px;
+            color: var(--text-secondary);
+            text-align: center;
+            margin: 16px 0;
+            padding: 0 10px;
+        }
+        .budget-kpi-summary-numbers strong {
+            display: block;
+            font-size: 24px; /* Trochę mniejsze niż w poprzednim planie */
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.2;
+            word-break: break-word;
+        }
+        .budget-kpi-summary-numbers span {
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        /* NOWY: Styl dla stopki kafelka z przyciskiem */
+        .budget-kpi-footer {
+            text-align: right;
+            border-top: 1px solid var(--border-color);
+            padding-top: 10px;
+            margin-top: 10px;
+        }
+        
+        /* NOWY: Styl samego przycisku "Szczegóły" */
+        .js-toggle-budget-details {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: 500;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .js-toggle-budget-details:hover {
+            background-color: var(--bg-tertiary);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+        .js-toggle-budget-details .chevron {
+            width: 14px;
+            height: 14px;
+            stroke-width: 2.5px;
+            transition: transform 0.3s ease;
+            transform: rotate(0deg); /* Domyślnie strzałka w dół */
+        }
+        .js-toggle-budget-details.expanded .chevron {
+            transform: rotate(180deg); /* Obrót przy rozwijaniu */
         }
         /* === KONIEC STYLI KPI BUDŻETU === */
          /* === POCZĄTEK: STYLE DLA ZAŁĄCZNIKÓW === */
@@ -7347,10 +7414,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // === KONIEC NOWEJ LOGIKI ===
 
         
-            // +++ POCZĄTEK DODANEGO KODU (Krok 4.2) +++
+            // +++ POCZĄTEK ZAKTUALIZOWANEGO KODU (Wersja z rozwijaniem) +++
             cardHTMLs['my-budget'] = `
                 <div class="dashboard-card kpi-mini-card" data-id="my-budget" data-action="show-my-budget-details">
-                    <h3>Mój Budżet (Właściciel)</h3>
+                    <h3>Budżet projekty</h3>
                     
                     <div class="budget-kpi-circle ${globalBudgetSummary.percentage > 100 ? 'over-budget' : ''}" 
                          style="--progress-percent: ${Math.min(globalBudgetSummary.percentage, 100)}"
@@ -7359,15 +7426,26 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             ${globalBudgetSummary.percentage.toFixed(0)}%
                         </div>
                     </div>
+
+                    <div class="budget-kpi-details">
+                        <div class="budget-kpi-summary-numbers">
+                            <span>Zaangażowano</span>
+                            <strong>${globalBudgetSummary.totalCommitted.toLocaleString('pl-PL')}</strong>
+                            <span>z: <strong>${globalBudgetSummary.totalBudget.toLocaleString('pl-PL')}</strong></span>
+                        </div>
+                    </div>
                     
-                    <p style="font-size: 14px; color: var(--text-secondary); text-align: center;">
-                        Zaangażowano: <strong>${globalBudgetSummary.totalCommitted.toLocaleString('pl-PL')}</strong>
-                        <br>
-                        z: <strong>${globalBudgetSummary.totalBudget.toLocaleString('pl-PL')}</strong>
-                    </p>
+                    <div class="budget-kpi-footer">
+                        <button type="button" class="js-toggle-budget-details">
+                            <span>Szczegóły</span>
+                            <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             `;
-            // +++ KONIEC DODANEGO KODU (Krok 4.2) +++
+            // +++ KONIEC ZAKTUALIZOWANEGO KODU +++
             // 2. Składamy HTML w nowej strukturze grid. 
             // Wszystkie 5 kafelków KPI będą w jednym sortowalnym kontenerze.
             kanbanBoardEl.innerHTML = `
@@ -12395,10 +12473,18 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
              const kpiCard = e.target.closest('.dashboard-card.kpi-mini-card'); 
 
              // KLUCZOWA ZMIANA: Sprawdzamy, czy jesteśmy w trybie edycji.
-             // Jeśli jesteśmy w trybie edycji, kliknięcie kafelka ma służyć do przeciągania, a nie otwierania modala.
              const isInEditMode = document.getElementById('dashboard-grid-main')?.classList.contains('layout-edit-mode');
 
-             if (kpiCard && kpiCard.dataset.action && !isInEditMode) { // DODANO: !isInEditMode
+             // +++ POCZĄTEK MODYFIKACJI +++
+             // Sprawdź, czy kliknięto przycisk "Szczegóły" WEWNĄTRZ kafelka
+             const didClickDetailsToggle = e.target.closest('.js-toggle-budget-details');
+
+             // Uruchom modal TYLKO jeśli:
+             // 1. Kliknięto na kafelek (kpiCard)
+             // 2. Ma on akcję (dataset.action)
+             // 3. NIE jesteśmy w trybie edycji (!isInEditMode)
+             // 4. Kliknięcie NIE DOTYCZYŁO przycisku "Szczegóły" (!didClickDetailsToggle)
+             if (kpiCard && kpiCard.dataset.action && !isInEditMode && !didClickDetailsToggle) { 
                  renderDashboardDetailsModal(kpiCard.dataset.action);
                  return;
              }
@@ -13116,7 +13202,21 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
              // Reset draggedTaskId po zakończeniu operacji drop
              draggedTaskId = null;
         });
+        // --- NOWY LISTENER: Obsługa rozwijania szczegółów budżetu na kafelku ---
+        kanbanBoardEl.addEventListener('click', (e) => {
+            const detailsButton = e.target.closest('.js-toggle-budget-details');
+            if (!detailsButton) return; // Kliknięto gdzie indziej
 
+            // Znajdź kontener do rozwinięcia wewnątrz tego samego kafelka
+            const detailsContainer = detailsButton.closest('.dashboard-card').querySelector('.budget-kpi-details');
+            
+            if (detailsContainer) {
+                // Przełącz klasy, aby pokazać/ukryć zawartość i obrócić strzałkę
+                detailsButton.classList.toggle('expanded');
+                detailsContainer.classList.toggle('expanded');
+            }
+        });
+        // +++ KONIEC DODANEGO KODU +++
         taskModal.deleteBtn.addEventListener('click', async () => {
             const taskId = taskModal.overlay.dataset.taskId;
             const {
@@ -15309,6 +15409,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
