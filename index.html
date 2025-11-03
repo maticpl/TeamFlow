@@ -1448,6 +1448,46 @@
         }
         
         /* === KONIEC NOWYCH REGUŁ === */
+        /* === NOWE STYLE DLA KAFELKA OBCIĄŻENIA ZESPOŁU === */
+        .team-workload-header, .team-workload-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            padding: 6px 4px;
+        }
+        .team-workload-header {
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 4px;
+        }
+        .team-workload-user {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 500;
+        }
+        .team-workload-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 40px); /* 3 kolumny po 40px */
+            text-align: center;
+            gap: 8px;
+            font-weight: 600;
+        }
+        .team-workload-stats span:nth-child(1) { color: var(--danger-primary); } /* Do zrobienia */
+        .team-workload-stats span:nth-child(2) { color: var(--accent-primary); } /* W trakcie */
+        .team-workload-stats span:nth-child(3) { color: var(--success-primary); } /* Wykonane */
+        
+        .team-workload-list {
+            list-style: none;
+            max-height: 120px; /* Ograniczenie wysokości listy */
+            overflow-y: auto;
+        }
+        .team-workload-item:not(:last-child) {
+            border-bottom: 1px dashed var(--border-color);
+        }
+        /* === KONIEC NOWYCH STYLI === */
         /* Ulepszenie wyglądu kart w Dashboardzie */
         .dashboard-grid .dashboard-card:first-child h3 {
              color: var(--danger-primary);
@@ -4673,7 +4713,7 @@ let state = {
                 currentView: 'my-day', // Zmienione na 'my-day'
                 previousView: null, // <-- DODANA LINIA
                 dashboardEditMode: false, 
-                dashboardLayout: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+                dashboardLayout: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload'], // <-- DODANO 'team-workload'
                 allProjectsEditMode: false, // <-- NOWA LINIA
                 isCalendarView: false,
                 sortMyTasksByDate: 'asc',
@@ -5562,6 +5602,58 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
 
              return teamOverdueTasks.length;
         }
+       // === NOWA FUNKCJA: Obliczanie obciążenia zespołu (we wspólnych projektach) ===
+        function calculateTeamWorkload() {
+            const teamWorkload = {}; // Obiekt do zliczania, np. { userId: { todo: 0, inprogress: 0, done: 0 } }
+            const myId = state.currentUser.uid;
+
+            // 1. Przejdź przez wszystkie projekty, w których jestem (aktywne, bo tylko tam liczy się obciążenie)
+            state.projects.forEach(project => {
+                // 2. Znajdź członków tego projektu (oprócz mnie)
+                const otherMembersInProject = project.members.filter(id => id !== myId);
+
+                // 3. Przejdź przez wszystkie zadania w tym projekcie
+                (project.tasks || []).forEach(task => {
+                    const status = task.status;
+                    if (status !== 'todo' && status !== 'inprogress' && status !== 'done') {
+                        return; // Pomiń zadania o innym statusie (jeśli takie istnieją)
+                    }
+
+                    // 4. Sprawdź, komu jest przypisane to zadanie
+                    (task.assignees || []).forEach(assigneeId => {
+                        // 5. Zliczaj tylko, jeśli przypisany jest kimś innym niż ja
+                        if (assigneeId !== myId) {
+                            // Upewnij się, że ten użytkownik istnieje w naszym obiekcie zliczającym
+                            if (!teamWorkload[assigneeId]) {
+                                teamWorkload[assigneeId] = { todo: 0, inprogress: 0, done: 0, name: '' };
+                            }
+                            // Inkrementuj odpowiedni licznik
+                            teamWorkload[assigneeId][status]++;
+                        }
+                    });
+                });
+            });
+
+            // 6. Przekształć obiekt w posortowaną tablicę, dodając nazwy użytkowników
+            const workloadArray = Object.keys(teamWorkload).map(userId => {
+                const user = findUser(userId);
+                const data = teamWorkload[userId];
+                return {
+                    userId: userId,
+                    name: user ? (user.name || user.email) : 'Nieznany Użytkownik',
+                    todo: data.todo,
+                    inprogress: data.inprogress,
+                    done: data.done,
+                    totalActive: data.todo + data.inprogress // Suma aktywnych do sortowania
+                };
+            });
+
+            // 7. Posortuj - od najbardziej obciążonych (aktywnymi zadaniami)
+            workloadArray.sort((a, b) => b.totalActive - a.totalActive);
+
+            return workloadArray;
+        }
+        // === KONIEC NOWEJ FUNKCJI ===
 
         const saveUiState = () => localStorage.setItem(`teamFlowUiState_${appId}`, JSON.stringify(state.ui));
         const loadUiState = () => {
@@ -6969,7 +7061,48 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         </div>
                     </div>`
             };
-            
+            // === NOWA LOGIKA: Generowanie HTML dla "Obciążenie zespołu" ===
+            const teamWorkloadData = calculateTeamWorkload();
+            let teamWorkloadHTML = '';
+
+            if (teamWorkloadData.length === 0) {
+                teamWorkloadHTML = '<p style="font-size: 14px; color: var(--text-secondary); text-align: center; margin-top: 20px;">Brak danych o obciążeniu zespołu we wspólnych projektach.</p>';
+            } else {
+                // Tworzymy listę
+                teamWorkloadHTML = '<ul class="team-workload-list">';
+                teamWorkloadData.forEach(user => {
+                    teamWorkloadHTML += `
+                        <li class="team-workload-item">
+                            <div class="team-workload-user">
+                                ${renderAvatarHTML(findUser(user.userId), 'avatar-comment')}
+                                <span>${user.name}</span>
+                            </div>
+                            <div class="team-workload-stats">
+                                <span title="Do realizacji">${user.todo}</span>
+                                <span title="W trakcie">${user.inprogress}</span>
+                                <span title="Wykonane">${user.done}</span>
+                            </div>
+                        </li>
+                    `;
+                });
+                teamWorkloadHTML += '</ul>';
+            }
+
+            // Dodajemy nowy kafelek do obiektu cardHTMLs
+            cardHTMLs['team-workload'] = `
+                <div class="dashboard-card kpi-mini-card" data-id="team-workload">
+                    <h3>Obciążenie zespołu <span style="color: var(--text-secondary); font-weight: 500; font-size: 13px;">(Wspólne projekty)</span></h3>
+                    <div class="team-workload-header">
+                        <span></span> <div class="team-workload-stats">
+                            <span title="Do realizacji">Do zrob.</span>
+                            <span title="W trakcie">W trak.</span>
+                            <span title="Wykonane">Wykon.</span>
+                        </div>
+                    </div>
+                    ${teamWorkloadHTML}
+                </div>
+            `;
+            // === KONIEC NOWEJ LOGIKI ===
             // 2. Składamy HTML w nowej strukturze grid. 
             // Wszystkie 5 kafelków KPI będą w jednym sortowalnym kontenerze.
             kanbanBoardEl.innerHTML = `
@@ -6986,7 +7119,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const dashboardGrid = document.getElementById('dashboard-grid-main');
             
             // 3. Sortujemy i wstawiamy 5 kafelków do kontenera KPI
-            const allKpis = ['my-overdue', 'team-delays', 'workload', 'upcoming', 'activity'];
+            const allKpis = ['my-overdue', 'team-delays', 'workload', 'upcoming', 'activity', 'team-workload']; // <-- DODANO 'team-workload'
             const order = state.currentUser.layouts.dashboard || allKpis;
             
             // Ustawiamy dashboard grid na 3 kolumny (jest to już w CSS, ale dla pewności zostawiamy)
@@ -9354,7 +9487,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             ...userData,
             favorites: userData.favorites || [],
             layouts: { 
-                dashboard: userData.layouts?.dashboard || ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+                dashboard: userData.layouts?.dashboard || ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload'], // <-- DODANO 'team-workload'
                 allProjects: userData.layouts?.allProjects || []
             }
         };
@@ -14871,6 +15004,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
