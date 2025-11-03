@@ -4881,6 +4881,16 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             sendBtn: document.getElementById('ai-chat-send-btn')
         };
         // === KONIEC NOWYCH REFERENCJI ===
+       // === NOWE REFERENCJE DLA MODALA ZAPROSZENIA ===
+        const openInviteModalBtn = document.getElementById('open-invite-modal-btn');
+        const inviteMemberModal = {
+            overlay: document.getElementById('invite-member-modal'),
+            form: document.getElementById('invite-member-form'),
+            emailInput: document.getElementById('invite-member-email'),
+            error: document.getElementById('invite-member-error'),
+            submitBtn: document.querySelector('#invite-member-form button[type="submit"]')
+        };
+        // === KONIEC NOWYCH REFERENCJI ===
         const myDayNav = {
             container: document.getElementById('my-day-nav'),
             prevBtn: document.getElementById('my-day-prev'),
@@ -12533,11 +12543,14 @@ settingsBtn.addEventListener('click', async () => {
         const groupSnap = await getDoc(groupRef);
         if (groupSnap.exists() && groupSnap.data().ownerId === user.uid) {
             openManageGroupBtn.style.display = 'block'; // Pokaż przycisk zarządzania
+            openInviteModalBtn.style.display = 'block'; // <-- NOWA LINIA: Pokaż przycisk zaproszenia
         } else {
             openManageGroupBtn.style.display = 'none'; // Ukryj przycisk
+            openInviteModalBtn.style.display = 'none'; // <-- NOWA LINIA: Ukryj przycisk zaproszenia
         }
     } else {
         openManageGroupBtn.style.display = 'none';
+        openInviteModalBtn.style.display = 'none'; // <-- NOWA LINIA: Ukryj przycisk zaproszenia
     }
 
     // Na koniec pokazuje główne okno ustawień
@@ -12972,6 +12985,45 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
             } catch (error) {
                 console.error("Błąd wczytywania podgrup:", error);
                 showNotification("Wystąpił błąd podczas wczytywania działów.", "Błąd");
+            }
+        });
+       // === NOWY LISTENER: Otwieranie modala zaproszenia ===
+        openInviteModalBtn.addEventListener('click', () => {
+            inviteMemberModal.form.reset(); // Wyczyść pole email
+            inviteMemberModal.error.textContent = ''; // Wyczyść błędy
+            closeModal(settingsModal.overlay); // Zamknij modal ustawień
+            openModal(inviteMemberModal.overlay); // Otwórz modal zaproszenia
+            inviteMemberModal.emailInput.focus();
+        });
+
+        // === NOWY LISTENER: Obsługa formularza zaproszenia ===
+        inviteMemberModal.form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const emailToInvite = inviteMemberModal.emailInput.value.trim();
+            if (!emailToInvite) return;
+
+            inviteMemberModal.submitBtn.disabled = true;
+            inviteMemberModal.submitBtn.textContent = 'Wysyłanie...';
+            inviteMemberModal.error.textContent = '';
+
+            try {
+                // Definiujemy wywołanie funkcji chmurowej
+                const sendGroupInvite = httpsCallable(functions, 'sendGroupInvite');
+                
+                // Wywołujemy funkcję, przekazując tylko e-mail
+                // (Funkcja sama pobierze ID grupy i nazwę grupy zapraszającego)
+                const result = await sendGroupInvite({ email: emailToInvite });
+
+                closeModal(inviteMemberModal.overlay);
+                showNotification(`Zaproszenie zostało wysłane na adres ${emailToInvite}.`, "Sukces");
+
+            } catch (error) {
+                console.error("Błąd podczas wysyłania zaproszenia:", error);
+                // Wyświetlamy błąd użytkownikowi w modalu
+                inviteMemberModal.error.textContent = error.message || "Wystąpił nieznany błąd.";
+            } finally {
+                inviteMemberModal.submitBtn.disabled = false;
+                inviteMemberModal.submitBtn.textContent = 'Wyślij zaproszenie';
             }
         });
 
@@ -13983,7 +14035,9 @@ function addAiChatMessage(text, type, id = null) {
     <button id="open-change-subgroup-btn" class="btn btn-secondary">Zmień dział/podgrupę</button>
     <button id="open-change-group-btn" class="btn btn-secondary">Zmień lub dołącz do grupy</button>
     <button id="open-manage-group-btn" class="btn btn-primary" style="display: none;">Zarządzaj grupą</button>
-</div>
+    
+    <button id="open-invite-modal-btn" class="btn btn-primary" style="display: none; background-color: var(--success-primary); border-color: var(--success-primary);">Zaproś do grupy</button>
+    </div>
         </div>
     </div>
 </div>
@@ -14525,8 +14579,33 @@ function addAiChatMessage(text, type, id = null) {
             </form>
         </div>
     </div>
+    <div class="modal-overlay" id="invite-member-modal">
+        <div class="modal" style="max-width: 400px;">
+            <form id="invite-member-form">
+                <div class="modal-header">
+                    <h2>Zaproś do grupy</h2>
+                    <button type="button" class="modal-close-btn">&times;</button>
+                </div>
+                <div class="form-modal-content">
+                    <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                        Wpisz adres e-mail osoby, którą chcesz zaprosić. Otrzyma ona e-mail z linkiem rejestracyjnym do Twojej grupy.
+                    </p>
+                    <div class="form-group">
+                        <label for="invite-member-email">Adres e-mail</label>
+                        <input type="email" id="invite-member-email" required>
+                    </div>
+                    <p id="invite-member-error" class="error-message"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                    <button type="submit" class="btn btn-primary">Wyślij zaproszenie</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </body>
 </html>
+
 
 
 
