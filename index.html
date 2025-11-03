@@ -2222,6 +2222,66 @@
             transform: rotate(180deg); /* Obrót przy rozwijaniu */
         }
         /* === KONIEC STYLI KPI BUDŻETU === */
+        /* === NOWE STYLE: Lista budżetów użytkowników w modalu === */
+        .user-budget-list {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            /* Usuwamy klasę .dashboard-detail-list, więc padding dodajemy tutaj */
+            padding: 8px;
+        }
+        .user-budget-row {
+            display: grid;
+            grid-template-columns: 200px 1fr; /* Kolumna na awatar/nazwę i kolumna na wykresy */
+            gap: 24px;
+            align-items: flex-start;
+            padding: 16px;
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+        }
+        .user-budget-info {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 8px;
+        }
+        .user-budget-info .avatar {
+            width: 56px; /* Nieco większy awatar w tym widoku */
+            height: 56px;
+            font-size: 20px;
+            margin: 0; /* Resetowanie marginesów z .avatar */
+        }
+        .user-budget-info h4 {
+            font-size: 15px;
+            font-weight: 600;
+            word-break: break-word; /* Złamanie długich nazw/maili */
+        }
+        /* Dostosowanie wykresów w modalu */
+        .user-budget-bars .modern-chart {
+            margin-top: 0; /* Reset marginesu z .modern-chart */
+        }
+
+        /* Responsywność dla modala na mobilce */
+        @media (max-width: 768px) {
+            .user-budget-row {
+                grid-template-columns: 1fr; /* Jedna kolumna */
+                gap: 16px;
+            }
+            .user-budget-info {
+                flex-direction: row; /* Awatar obok nazwy */
+                text-align: left;
+                border-bottom: 1px solid var(--border-color);
+                padding-bottom: 12px;
+            }
+            .user-budget-info .avatar {
+                width: 42px;
+                height: 42px;
+                font-size: 16px;
+            }
+        }
+        /* === KONIEC NOWYCH STYLI === */
          /* === POCZĄTEK: STYLE DLA ZAŁĄCZNIKÓW === */
         .attachments-list {
             list-style: none;
@@ -5894,7 +5954,7 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             };
         }
         // === KONIEC ZAKTUALIZOWANEJ FUNKCJI ===
-       // === NOWA FUNKCJA: Renderowanie zawartości modala "Budżet - Osoby" ===
+       // === ZAKTUALIZOWANA FUNKCJA (Wersja 2): Renderowanie zawartości modala "Budżet - Osoby" ===
         function renderDashboardUserBudgetDetails(userBudgetList) {
             
             if (userBudgetList.length === 0) {
@@ -5907,15 +5967,33 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                  return value.toLocaleString('pl-PL', { style: 'currency', currency: 'PLN', minimumFractionDigits: 2 });
             }
 
-            // Znajdź maksymalny koszt całkowity, aby proporcjonalnie ustawić paski
+            // Znajdź maksymalny koszt całkowity (user.total), aby proporcjonalnie ustawić paski "Razem"
+            // Używamy maxTotal jako 100% dla paska "Razem".
             const maxTotal = Math.max(...userBudgetList.map(u => u.total), 1); // 1 zapobiega dzieleniu przez zero
 
             const userRowsHTML = userBudgetList.map(user => {
                 
-                // Oblicz procenty dla pasków
-                const reservedPercent = (user.reserved / maxTotal) * 100;
-                const spentPercent = (user.spent / maxTotal) * 100;
+                // --- NOWA LOGIKA PASKÓW ---
+                // Pasek "Razem" (Total) jest skalowany do największego "Total" na liście (maxTotal).
                 const totalPercent = (user.total / maxTotal) * 100;
+
+                // Paski "Zarezerwowane" i "Wydane" są skalowane do "Total" DANEGO użytkownika (user.total).
+                // To pokazuje proporcję zarezerwowane/wydane w ramach budżetu tego użytkownika.
+                const userTotalForScaling = user.total > 0 ? user.total : 1; // Unikamy dzielenia przez zero
+                const reservedPercent = (user.reserved / userTotalForScaling) * 100;
+                const spentPercent = (user.spent / userTotalForScaling) * 100;
+
+                // --- NOWY WYGLĄD PASKÓW ZAREZERWOWANE/WYDANE (JEDEN POŁĄCZONY PASEK) ---
+                const combinedBarHTML = `
+                    <div class="chart-label">
+                        <span>Stosunek Zarezerwowane / Wydane (dla ${formatCurrency(user.total)})</span>
+                    </div>
+                    <div class="chart-bar-wrapper budget-kpi-ratio-bar" title="Zarezerwowane: ${formatCurrency(user.reserved)} | Wydane: ${formatCurrency(user.spent)}">
+                        <div class="budget-kpi-ratio-segment bar-reserved" style="width: ${reservedPercent}%;"></div>
+                        <div class="budget-kpi-ratio-segment bar-spent" style="width: ${spentPercent}%;"></div>
+                    </div>
+                `;
+                // --- KONIEC NOWEGO WYGLĄDU ---
 
                 return `
                     <div class="user-budget-row">
@@ -5924,25 +6002,26 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                             <h4>${user.name}</h4>
                         </div>
                         <div class="user-budget-bars modern-chart">
+                            
                             <div class="chart-row">
                                 <div class="chart-label">
                                     <span>Zarezerwowane</span>
                                     <strong>${formatCurrency(user.reserved)}</strong>
                                 </div>
-                                <div class="chart-bar-wrapper">
-                                    <div class="chart-bar-fill bar-reserved" style="width: ${reservedPercent}%;"></div>
-                                </div>
                             </div>
+                            
                             <div class="chart-row">
                                 <div class="chart-label">
                                     <span>Wydane</span>
                                     <strong>${formatCurrency(user.spent)}</strong>
                                 </div>
-                                <div class="chart-bar-wrapper">
-                                    <div class="chart-bar-fill bar-spent" style="width: ${spentPercent}%;"></div>
-                                </div>
                             </div>
-                            <div class="chart-row">
+
+                            <div class="chart-row" style="margin-top: 8px;">
+                                ${combinedBarHTML}
+                            </div>
+
+                            <div class="chart-row" style="margin-top: 16px; border-top: 1px dashed var(--border-color); padding-top: 12px;">
                                 <div class="chart-label">
                                     <span>Razem (Zaangażowane)</span>
                                     <strong>${formatCurrency(user.total)}</strong>
@@ -5956,9 +6035,10 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                 `;
             }).join('');
 
+            // Zwracamy nową klasę listy, aby style CSS zadziałały
             return `<div class="user-budget-list">${userRowsHTML}</div>`;
         }
-        // +++ KONIEC DODANEGO KODU +++
+        // +++ KONIEC ZAKTUALIZOWANEJ FUNKCJI +++
        // === NOWA FUNKCJA: Renderowanie zawartości modala "Mój Budżet" ===
         function renderDashboardBudgetDetails(projectsWithBudget) {
             
@@ -15630,6 +15710,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
