@@ -2107,6 +2107,35 @@
             background-color: var(--bg-secondary);
             border-radius: 50%;
         }
+        /* === STYLE DLA PASKÓW PROPORCJI (BUDŻET OSOBY) === */
+        /* Ten styl definiuje kontener paska */
+        .budget-kpi-ratio-bar {
+            display: flex;
+            height: 16px; /* Wysokość paska */
+            width: 100%;
+            background-color: var(--bg-tertiary);
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 16px 0 8px 0; /* Odstępy */
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+        }
+        /* Ten styl definiuje segmenty (kolory) wewnątrz paska */
+        .budget-kpi-ratio-segment {
+            height: 100%;
+            transition: width 0.5s ease-out;
+        }
+        /* Kolor dla kwot ZAREZERWOWANYCH (Niebieski/Fioletowy) */
+        .budget-kpi-ratio-segment.bar-reserved {
+            background: linear-gradient(90deg, var(--accent-hover), var(--accent-primary));
+        }
+        /* Kolor dla kwot WYDANYCH (Zielony) */
+        .budget-kpi-ratio-segment.bar-spent {
+            background: linear-gradient(90deg, var(--success-primary), #16a34a);
+        }
+        /* Upewnijmy się, że style dla modala też tu są */
+        .chart-bar-fill.bar-total {
+            background: linear-gradient(90deg, #f59e0b, #fde047);
+        }
         .budget-kpi-percentage {
             position: relative;
             font-size: 28px;
@@ -5785,6 +5814,142 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             };
         }
         // === KONIEC NOWEJ FUNKCJI ===
+       // === NOWA FUNKCJA: Obliczanie globalnego budżetu per użytkownik ===
+        function calculateGlobalUserBudgetSummary() {
+            const userBudgets = {}; // Obiekt do agregacji: { userId: { name, avatar, reserved, spent, total } }
+            let globalReserved = 0; // NOWA ZMIENNA
+            let globalSpent = 0;    // NOWA ZMIENNA
+            let globalTotal = 0;    // NOWA ZMIENNA
+
+            // 1. Przejdź tylko przez aktywne projekty
+            state.projects.forEach(project => {
+                // 2. Przejdź przez wszystkie zadania w projekcie
+                (project.tasks || []).forEach(task => {
+                    // 3. Sprawdź, czy zadanie ma przypisane koszty
+                    if (task.budgetItems && task.budgetItems.length > 0) {
+                        
+                        // 4. Oblicz całkowity koszt tego zadania
+                        const taskTotalCost = task.budgetItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                        if (taskTotalCost === 0) return; // Pomiń, jeśli koszt jest zerowy
+
+                        // 5. Określ status kosztu (zarezerwowane / wydane)
+                        const isSpent = task.status === 'done';
+
+                        // 6. Przypisz koszt do KAŻDEJ osoby przypisanej do zadania
+                        (task.assignees || []).forEach(userId => {
+                            // Pomiń siebie (kafelek ma pokazywać współpracowników)
+                            if (userId === state.currentUser.uid) return;
+
+                            // 7. Znajdź użytkownika
+                            const user = findUser(userId);
+                            if (!user) return; // Pomiń, jeśli nie znaleziono
+
+                            // 8. Zainicjuj obiekt dla użytkownika, jeśli jeszcze nie istnieje
+                            if (!userBudgets[userId]) {
+                                userBudgets[userId] = {
+                                    userId: userId,
+                                    name: user.name || user.email,
+                                    avatarHTML: renderAvatarHTML(user), // Zapisz HTML awatara
+                                    reserved: 0,
+                                    spent: 0,
+                                    total: 0
+                                };
+                            }
+
+                            // 9. Dodaj koszt do odpowiedniej kategorii
+                            if (isSpent) {
+                                userBudgets[userId].spent += taskTotalCost;
+                                globalSpent += taskTotalCost; // DODAJ DO SUMY GLOBALNEJ
+                            } else {
+                                userBudgets[userId].reserved += taskTotalCost;
+                                globalReserved += taskTotalCost; // DODAJ DO SUMY GLOBALNEJ
+                            }
+                            userBudgets[userId].total += taskTotalCost;
+                            globalTotal += taskTotalCost; // DODAJ DO SUMY GLOBALNEJ
+                        });
+                    }
+                });
+            });
+
+            // 10. Przekształć obiekt w tablicę i posortuj
+            const sortedUsers = Object.values(userBudgets).sort((a, b) => b.total - a.total);
+            
+            // 11. ZWRÓĆ OBIEKT ZAWIERAJĄCY LISTĘ I SUMY
+            return {
+                list: sortedUsers,
+                totals: {
+                    reserved: globalReserved,
+                    spent: globalSpent,
+                    total: globalTotal
+                }
+            };
+        }
+        // +++ KONIEC DODANEGO KODU +++
+       // === NOWA FUNKCJA: Renderowanie zawartości modala "Budżet - Osoby" ===
+        function renderDashboardUserBudgetDetails(userBudgetList) {
+            
+            if (userBudgetList.length === 0) {
+                return '<p class="no-tasks-message">Żaden ze współpracowników nie jest przypisany do zadań z budżetem.</p>';
+            }
+            
+            // Funkcja pomocnicza do formatowania waluty
+            const formatCurrency = (value) => {
+                 // Użyjemy PLN jako domyślnej, ponieważ agregujemy różne projekty
+                 return value.toLocaleString('pl-PL', { style: 'currency', currency: 'PLN', minimumFractionDigits: 2 });
+            }
+
+            // Znajdź maksymalny koszt całkowity, aby proporcjonalnie ustawić paski
+            const maxTotal = Math.max(...userBudgetList.map(u => u.total), 1); // 1 zapobiega dzieleniu przez zero
+
+            const userRowsHTML = userBudgetList.map(user => {
+                
+                // Oblicz procenty dla pasków
+                const reservedPercent = (user.reserved / maxTotal) * 100;
+                const spentPercent = (user.spent / maxTotal) * 100;
+                const totalPercent = (user.total / maxTotal) * 100;
+
+                return `
+                    <div class="user-budget-row">
+                        <div class="user-budget-info">
+                            ${user.avatarHTML}
+                            <h4>${user.name}</h4>
+                        </div>
+                        <div class="user-budget-bars modern-chart">
+                            <div class="chart-row">
+                                <div class="chart-label">
+                                    <span>Zarezerwowane</span>
+                                    <strong>${formatCurrency(user.reserved)}</strong>
+                                </div>
+                                <div class="chart-bar-wrapper">
+                                    <div class="chart-bar-fill bar-reserved" style="width: ${reservedPercent}%;"></div>
+                                </div>
+                            </div>
+                            <div class="chart-row">
+                                <div class="chart-label">
+                                    <span>Wydane</span>
+                                    <strong>${formatCurrency(user.spent)}</strong>
+                                </div>
+                                <div class="chart-bar-wrapper">
+                                    <div class="chart-bar-fill bar-spent" style="width: ${spentPercent}%;"></div>
+                                </div>
+                            </div>
+                            <div class="chart-row">
+                                <div class="chart-label">
+                                    <span>Razem (Zaangażowane)</span>
+                                    <strong>${formatCurrency(user.total)}</strong>
+                                </div>
+                                <div class="chart-bar-wrapper">
+                                    <div class="chart-bar-fill bar-total" style="width: ${totalPercent}%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `<div class="user-budget-list">${userRowsHTML}</div>`;
+        }
+        // +++ KONIEC DODANEGO KODU +++
        // === NOWA FUNKCJA: Renderowanie zawartości modala "Mój Budżet" ===
         function renderDashboardBudgetDetails(projectsWithBudget) {
             
@@ -7271,6 +7436,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const myTasks = getAllMyTasks();
              // === NOWA LINIA: Obliczanie globalnego budżetu ===
             const globalBudgetSummary = calculateGlobalBudgetSummary();
+             // === NOWA LINIA: Obliczanie budżetu per osoba ===
+            const userBudgetSummary = calculateGlobalUserBudgetSummary();
 
             // ... (logika sortowania myTasks pozostaje bez zmian) ...
             myTasks.sort((a, b) => {
@@ -7446,6 +7613,35 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </div>
             `;
             // +++ KONIEC ZAKTUALIZOWANEGO KODU +++
+             // +++ POCZĄTEK DODANEGO KODU (Krok 4.2) +++
+            
+            // Obliczenia dla kafelka "Budżet - osoby"
+            const userTotals = userBudgetSummary.totals;
+            const totalCommitted = userTotals.total;
+            const spentPercent = totalCommitted > 0 ? (userTotals.spent / totalCommitted) * 100 : 0;
+            const reservedPercent = totalCommitted > 0 ? (userTotals.reserved / totalCommitted) * 100 : 0;
+
+            cardHTMLs['user-budget'] = `
+                <div class="dashboard-card kpi-mini-card" data-id="user-budget" data-action="show-user-budget-details">
+                    <h3>Budżet - osoby</h3>
+                    
+                    <div class="budget-kpi-ratio-bar" title="Stosunek kosztów Wydanych do Zarezerwowanych przez zespół">
+                        <div class="budget-kpi-ratio-segment bar-spent" style="width: ${spentPercent}%"></div>
+                        <div class="budget-kpi-ratio-segment bar-reserved" style="width: ${reservedPercent}%"></div>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; padding: 0 5px;">
+                        <span style="color: var(--success-primary);">● Wydane</span>
+                        <span style="color: var(--accent-primary);">● Zarezerwowane</span>
+                    </div>
+
+                    <div class="budget-kpi-summary-numbers" style="margin-top: 10px;">
+                        <span>Łącznie zaangażowane przez zespół</span>
+                        <strong>${totalCommitted.toLocaleString('pl-PL', { style: 'currency', currency: 'PLN' })}</strong>
+                    </div>
+                </div>
+            `;
+            // +++ KONIEC DODANEGO KODU (Krok 4.2) +++
             // 2. Składamy HTML w nowej strukturze grid. 
             // Wszystkie 5 kafelków KPI będą w jednym sortowalnym kontenerze.
             kanbanBoardEl.innerHTML = `
@@ -7462,7 +7658,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const dashboardGrid = document.getElementById('dashboard-grid-main');
             
             // 3. Sortujemy i wstawiamy 5 kafelków do kontenera KPI
-            const allKpis = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget']; // <-- DODANO 'my-budget'
+            const allKpis = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget']; // <-- DODANO 'user-budget'
             const order = state.currentUser.layouts.dashboard || allKpis;
             
             // Ustawiamy dashboard grid na 3 kolumny (jest to już w CSS, ale dla pewności zostawiamy)
@@ -7475,16 +7671,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             });
 
-            // NAPRAWA DZIURY: Dodaj pusty kafelek na koniec, aby wypełnić siatkę 3x2 i usunąć niechciany gap
-            if (dashboardGrid.children.length === 6) { // <-- ZMIANA Z 5 NA 6
-                 const emptyTile = document.createElement('div');
-                 emptyTile.className = 'dashboard-card kpi-mini-card';
-                 emptyTile.style.visibility = 'hidden'; // Ukryj, ale zachowaj zajmowane miejsce
-                 emptyTile.style.border = 'none';
-                 emptyTile.style.boxShadow = 'none';
-                 emptyTile.style.cursor = 'default';
-                 emptyTile.innerHTML = '&nbsp;'; // Upewnij się, że ma jakąś zawartość dla wysokości
-                 dashboardGrid.appendChild(emptyTile);
+            // NAPRAWA DZIURY: Dynamicznie dodaje puste kafelki, aby wypełnić ostatni wiersz siatki 3-kolumnowej
+            const fillerCount = 3 - (dashboardGrid.children.length % 3);
+            
+            // Dodaj wypełniacze tylko wtedy, gdy reszta z dzielenia nie wynosi 0 (czyli np. dla 7, 8 kafelków)
+            if (fillerCount < 3) {
+                for (let i = 0; i < fillerCount; i++) {
+                     const emptyTile = document.createElement('div');
+                     emptyTile.className = 'dashboard-card kpi-mini-card';
+                     emptyTile.style.visibility = 'hidden'; // Ukryj, ale zachowaj zajmowane miejsce
+                     emptyTile.style.border = 'none';
+                     emptyTile.style.boxShadow = 'none';
+                     emptyTile.style.cursor = 'default';
+                     emptyTile.innerHTML = '&nbsp;'; // Upewnij się, że ma jakąś zawartość dla wysokości
+                     dashboardGrid.appendChild(emptyTile);
+                }
             }
 
             // 4. Zmieniamy klasę kontenera w zależności od trybu edycji
@@ -9824,7 +10025,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
 
         // Jeśli dotarliśmy tutaj, użytkownik na 100% istnieje i ma dane. Kontynuujemy normalnie.
         // === NOWA LOGIKA: Scalanie domyślnego i zapisanego układu dashboardu ===
-        const defaultDashboardLayout = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget']; // <-- DODANO 'my-budget'
+        const defaultDashboardLayout = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget']; // <-- DODANO 'user-budget'
         
         // 1. Pobierz zapisany układ użytkownika LUB użyj domyślnego
         let userDashboardLayout = userData.layouts?.dashboard || [...defaultDashboardLayout]; // Użyj kopii domyślnego
@@ -9843,7 +10044,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             ...userData,
             favorites: userData.favorites || [],
             layouts: { 
-                dashboard: userData.layouts?.dashboard || ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget'], // <-- DODANO 'my-budget'
+                dashboard: userData.layouts?.dashboard || ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'], // <-- DODANO 'user-budget'
                 allProjects: userData.layouts?.allProjects || []
             }
         };
@@ -10358,7 +10559,7 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                         avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
                         favorites: [],
                         layouts: {
-                            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget'], // <-- DODANO 'team-workload' i 'my-budget'
+                            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'], // <-- DODANO 'user-budget'
                             allProjects: []
                         }
                     });
@@ -12453,6 +12654,17 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     dashboardDetailsModal.content.classList.remove('dashboard-detail-list');
                     break;
                 // +++ KONIEC DODANEGO KODU (Krok 5.1) +++
+                    // +++ POCZĄTEK DODANEGO KODU (Krok 5) +++
+            case 'show-user-budget-details':
+                title = 'Budżet - Osoby';
+                // Wywołujemy funkcję obliczeniową, która zwraca teraz obiekt
+                const userBudgetSummary = calculateGlobalUserBudgetSummary();
+                // Przekazujemy listę (userBudgetSummary.list) do funkcji renderującej
+                contentHTML = renderDashboardUserBudgetDetails(userBudgetSummary.list);
+                // Upewniamy się, że nie ma klasy 'dashboard-detail-list' (siatki)
+                dashboardDetailsModal.content.classList.remove('dashboard-detail-list');
+                break;
+            // +++ KONIEC DODANEGO KODU (Krok 5) +++
                 default:
                     return;
             }
@@ -15409,6 +15621,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
