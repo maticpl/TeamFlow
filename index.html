@@ -2083,6 +2083,49 @@
         }
 
         /* === KONIEC: NOWE STYLE DLA ZMODERNIZOWANEGO PULPITU === */
+        /* === NOWE STYLE DLA KAFELKA KPI BUDŻETU === */
+        .budget-kpi-circle {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            /* Używamy conic-gradient do stworzenia pierścienia postępu */
+            /* Zmienna --progress-percent będzie ustawiana dynamicznie przez JS */
+            background: conic-gradient(
+                var(--accent-primary) calc(var(--progress-percent, 0) * 1%), 
+                var(--bg-tertiary) calc(var(--progress-percent, 0) * 1%)
+            );
+            margin: 12px auto 8px auto;
+            transition: background 0.5s ease-out;
+            position: relative; /* Dla wewnętrznego kółka */
+        }
+        /* Wewnętrzne kółko, aby stworzyć efekt "pączka" (donut chart) */
+        .budget-kpi-circle::before {
+            content: '';
+            position: absolute;
+            width: 85%;
+            height: 85%;
+            background-color: var(--bg-secondary);
+            border-radius: 50%;
+        }
+        .budget-kpi-percentage {
+            position: relative; /* Aby tekst był nad pseudo-elementem ::before */
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--accent-primary);
+        }
+        /* Specjalny styl dla przekroczenia budżetu */
+        .budget-kpi-circle.over-budget {
+             background: conic-gradient(
+                var(--danger-primary) calc(var(--progress-percent, 0) * 1%), 
+                var(--bg-tertiary) calc(var(--progress-percent, 0) * 1%)
+            );
+        }
+        .budget-kpi-circle.over-budget .budget-kpi-percentage {
+            color: var(--danger-primary);
+        }
+        /* === KONIEC STYLI KPI BUDŻETU === */
          /* === POCZĄTEK: STYLE DLA ZAŁĄCZNIKÓW === */
         .attachments-list {
             list-style: none;
@@ -5636,7 +5679,122 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             // === KONIEC ZMIANY ===
         }
         // === KONIEC NOWEJ FUNKCJI ===
+        // === NOWA FUNKCJA: Obliczanie globalnego budżetu Właściciela ===
+        function calculateGlobalBudgetSummary() {
+            if (!state.currentUser) return { totalBudget: 0, totalCommitted: 0, percentage: 0 };
 
+            const myOwnedProjectsWithBudget = state.projects.filter(p => 
+                p.ownerId === state.currentUser.uid && // Tylko moje projekty
+                p.budget &&                            // Które mają obiekt budżetu
+                parseFloat(p.budget.amount) > 0        // I budżet jest większy niż 0
+            );
+
+            let globalTotalBudget = 0;
+            let globalTotalCommitted = 0; // Zarezerwowane + Wydane
+
+            myOwnedProjectsWithBudget.forEach(project => {
+                globalTotalBudget += parseFloat(project.budget.amount) || 0;
+                
+                // Używamy już obliczonego budgetSummary z obiektu projektu
+                if (project.budgetSummary) {
+                    globalTotalCommitted += (project.budgetSummary.totalReserved || 0);
+                    globalTotalCommitted += (project.budgetSummary.totalSpent || 0);
+                }
+            });
+
+            let percentage = 0;
+            if (globalTotalBudget > 0) {
+                percentage = (globalTotalCommitted / globalTotalBudget) * 100;
+            } else if (globalTotalCommitted > 0) {
+                // Jeśli nie ma budżetu, a są koszty, to mamy 100%+ przekroczenia
+                percentage = 101; 
+            }
+
+            return {
+                totalBudget: globalTotalBudget,
+                totalCommitted: globalTotalCommitted,
+                percentage: percentage, // Może być > 100
+                projects: myOwnedProjectsWithBudget // Zwracamy listę do ponownego użycia w modalu
+            };
+        }
+        // === KONIEC NOWEJ FUNKCJI ===
+       // === NOWA FUNKCJA: Renderowanie zawartości modala "Mój Budżet" ===
+        function renderDashboardBudgetDetails(projectsWithBudget) {
+            
+            if (projectsWithBudget.length === 0) {
+                return '<p class="no-tasks-message">Brak projektów z budżetem, których jesteś właścicielem.</p>';
+            }
+
+            // Funkcja pomocnicza do formatowania waluty (zakłada, że wszystkie są w tej samej)
+            const formatCurrency = (value, currency) => {
+                 return value.toLocaleString('pl-PL', { style: 'currency', currency: currency || 'PLN', minimumFractionDigits: 2 });
+            }
+
+            // Tworzymy listę HTML dla każdego projektu
+            const projectRowsHTML = projectsWithBudget.map(project => {
+                
+                const budgetData = project.budget;
+                const summaryData = project.budgetSummary;
+
+                const totalBudget = parseFloat(budgetData.amount) || 0;
+                const currency = budgetData.currency || 'PLN';
+
+                const totalSpent = summaryData?.totalSpent || 0;
+                const totalReserved = summaryData?.totalReserved || 0;
+                const availableAmount = totalBudget - totalSpent - totalReserved;
+                const totalCommitted = totalSpent + totalReserved;
+
+                let committedPercent = 0;
+                if (totalBudget > 0) {
+                    committedPercent = (totalCommitted / totalBudget) * 100;
+                } else if (totalCommitted > 0) {
+                    committedPercent = Infinity;
+                }
+                const isOverBudgetOverall = totalCommitted > totalBudget;
+
+                // Zwracamy HTML dla pojedynczego wiersza projektu
+                return `
+                    <div class"budget-detail-row" style="background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--border-radius); padding: 12px 16px; margin-bottom: 12px;">
+                        
+                        <h3 class="budget-detail-project-title" data-project-id="${project.id}" style="font-size: 16px; font-weight: 600; cursor: pointer; margin-bottom: 12px;">
+                            ${project.name}
+                        </h3>
+
+                        <div class="project-details-budget-grid">
+                            <div>
+                                <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase;">Całkowity Budżet</div>
+                                <strong style="font-size: 15px;">${formatCurrency(totalBudget, currency)}</strong>
+                            </div>
+                            <div>
+                                <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase;">Zarezerwowane</div>
+                                <strong style="font-size: 15px; color: ${isOverBudgetOverall ? 'var(--danger-primary)' : 'inherit'};">${formatCurrency(totalReserved, currency)}</strong>
+                            </div>
+                            <div>
+                                <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase;">Wydane</div>
+                                <strong style="font-size: 15px;">${formatCurrency(totalSpent, currency)}</strong>
+                            </div>
+                            <div>
+                                <div style="color: var(--text-secondary); font-size: 11px; text-transform: uppercase;">Dostępne</div>
+                                <strong style="font-size: 15px; color: ${availableAmount < 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">${formatCurrency(availableAmount, currency)}</strong>
+                            </div>
+                        </div>
+
+                        <div class="budget-label" style="margin-top: 12px;">
+                            <span>Zaangażowane / Całkowity budżet</span>
+                            <span>${committedPercent === Infinity ? '>100' : committedPercent.toFixed(1)}%</span>
+                        </div>
+                        <div class="budget-summary-bar">
+                            <div class="budget-summary-fill ${isOverBudgetOverall ? 'budget-fill-over' : 'budget-fill-items'}" style="width: ${Math.min(committedPercent, 100)}%;">
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Zwracamy cały blok HTML
+            return `<div class="dashboard-detail-list" style="grid-template-columns: 1fr; padding: 8px;">${projectRowsHTML}</div>`;
+        }
+        // === KONIEC NOWEJ FUNKCJI ===
         const saveUiState = () => localStorage.setItem(`teamFlowUiState_${appId}`, JSON.stringify(state.ui));
         const loadUiState = () => {
             const savedUiState = localStorage.getItem(`teamFlowUiState_${appId}`);
@@ -6210,6 +6368,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // Szukamy najbliższego rodzica (lub samego elementu), który jest checkboxem
             const checkbox = e.target.closest('.task-card-checkbox');
 
+            // +++ POCZĄTEK DODANEGO KODU (Krok 7) +++
+            // Szukamy kliknięcia na tytuł projektu w widoku "Mój Budżet"
+            const projectTitle = e.target.closest('.budget-detail-project-title[data-project-id]');
+            // +++ KONIEC DODANEGO KODU (Krok 7) +++
+
+
             if (checkbox && taskCard) {
                 // Przypadek 1: Kliknięto checkbox wewnątrz kafelka
                 console.log(`[Dashboard Details Modal] Kliknięto checkbox dla zadania: ${taskCard.dataset.taskId}`); // Log
@@ -6226,6 +6390,22 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         openTaskModal(taskId);
                     }, 150); // Małe opóźnienie
                 }
+            // +++ POCZĄTEK DODANEGO KODU (Krok 7) +++
+            } else if (projectTitle) {
+                // Przypadek 3: Kliknięto tytuł projektu w modalu "Mój Budżet"
+                const projectId = projectTitle.dataset.projectId;
+                console.log(`[Dashboard Details Modal] Kliknięto tytuł projektu: ${projectId}`);
+                if (projectId) {
+                    closeModal(dashboardDetailsModal.overlay);
+                    setTimeout(() => {
+                        // Przełącz widok na kliknięty projekt
+                        state.currentProjectId = projectId;
+                        state.ui.currentView = 'projects';
+                        saveUiState();
+                        render();
+                    }, 150);
+                }
+            // +++ KONIEC DODANEGO KODU (Krok 7) +++
             }
         });
         // === KONIEC NOWEGO LISTNERA ===
@@ -7022,6 +7202,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             kanbanBoardEl.style.display = 'block'; // Pozostawiamy 'block', flexbox będzie zdefiniowany w CSS
 
             const myTasks = getAllMyTasks();
+             // === NOWA LINIA: Obliczanie globalnego budżetu ===
+            const globalBudgetSummary = calculateGlobalBudgetSummary();
 
             // ... (logika sortowania myTasks pozostaje bez zmian) ...
             myTasks.sort((a, b) => {
@@ -7165,7 +7347,27 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // === KONIEC NOWEJ LOGIKI ===
 
         
-            // === KONIEC NOWEJ LOGIKI ===
+            // +++ POCZĄTEK DODANEGO KODU (Krok 4.2) +++
+            cardHTMLs['my-budget'] = `
+                <div class="dashboard-card kpi-mini-card" data-id="my-budget" data-action="show-my-budget-details">
+                    <h3>Mój Budżet (Właściciel)</h3>
+                    
+                    <div class="budget-kpi-circle ${globalBudgetSummary.percentage > 100 ? 'over-budget' : ''}" 
+                         style="--progress-percent: ${Math.min(globalBudgetSummary.percentage, 100)}"
+                         title="Wykorzystano ${globalBudgetSummary.percentage.toFixed(1)}%">
+                        <div class="budget-kpi-percentage">
+                            ${globalBudgetSummary.percentage.toFixed(0)}%
+                        </div>
+                    </div>
+                    
+                    <p style="font-size: 14px; color: var(--text-secondary); text-align: center;">
+                        Zaangażowano: <strong>${globalBudgetSummary.totalCommitted.toLocaleString('pl-PL')}</strong>
+                        <br>
+                        z: <strong>${globalBudgetSummary.totalBudget.toLocaleString('pl-PL')}</strong>
+                    </p>
+                </div>
+            `;
+            // +++ KONIEC DODANEGO KODU (Krok 4.2) +++
             // 2. Składamy HTML w nowej strukturze grid. 
             // Wszystkie 5 kafelków KPI będą w jednym sortowalnym kontenerze.
             kanbanBoardEl.innerHTML = `
@@ -7182,7 +7384,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const dashboardGrid = document.getElementById('dashboard-grid-main');
             
             // 3. Sortujemy i wstawiamy 5 kafelków do kontenera KPI
-            const allKpis = ['my-overdue', 'team-delays', 'workload', 'upcoming', 'activity', 'team-workload']; // <-- DODANO 'team-workload'
+            const allKpis = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget']; // <-- DODANO 'my-budget'
             const order = state.currentUser.layouts.dashboard || allKpis;
             
             // Ustawiamy dashboard grid na 3 kolumny (jest to już w CSS, ale dla pewności zostawiamy)
@@ -7196,7 +7398,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             });
 
             // NAPRAWA DZIURY: Dodaj pusty kafelek na koniec, aby wypełnić siatkę 3x2 i usunąć niechciany gap
-            if (dashboardGrid.children.length === 5) {
+            if (dashboardGrid.children.length === 6) { // <-- ZMIANA Z 5 NA 6
                  const emptyTile = document.createElement('div');
                  emptyTile.className = 'dashboard-card kpi-mini-card';
                  emptyTile.style.visibility = 'hidden'; // Ukryj, ale zachowaj zajmowane miejsce
@@ -9544,7 +9746,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
 
         // Jeśli dotarliśmy tutaj, użytkownik na 100% istnieje i ma dane. Kontynuujemy normalnie.
         // === NOWA LOGIKA: Scalanie domyślnego i zapisanego układu dashboardu ===
-        const defaultDashboardLayout = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload'];
+        const defaultDashboardLayout = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget']; // <-- DODANO 'my-budget'
         
         // 1. Pobierz zapisany układ użytkownika LUB użyj domyślnego
         let userDashboardLayout = userData.layouts?.dashboard || [...defaultDashboardLayout]; // Użyj kopii domyślnego
@@ -9563,7 +9765,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             ...userData,
             favorites: userData.favorites || [],
             layouts: { 
-                dashboard: userData.layouts?.dashboard || ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload'], // <-- DODANO 'team-workload'
+                dashboard: userData.layouts?.dashboard || ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget'], // <-- DODANO 'my-budget'
                 allProjects: userData.layouts?.allProjects || []
             }
         };
@@ -10078,7 +10280,7 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                         avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
                         favorites: [],
                         layouts: {
-                            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity'],
+                            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget'], // <-- DODANO 'team-workload' i 'my-budget'
                             allProjects: []
                         }
                     });
@@ -12149,8 +12351,11 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                                      </li>`;
                           }).join('') + `</ul>`;
                     
-                    // Używamy dashboard-detail-list tylko dla kafelków zadań, w przypadku aktywności renderujemy bezpośrednio listę ul
-                    dashboardDetailsModal.content.classList.toggle('dashboard-detail-list', recentActivities.length === 0 || type !== 'show-activity-details');
+                    // Używamy dashboard-detail-list tylko dla kafelków zadań
+                    dashboardDetailsModal.content.classList.toggle(
+                        'dashboard-detail-list', 
+                        type !== 'show-activity-details' && type !== 'show-my-budget-details'
+                    );
                     break;
                     // === NOWY BLOK CASE ===
                 case 'show-team-workload-details':
@@ -12159,6 +12364,17 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     contentHTML = '<p>Ładowanie wykresu...</p>'; 
                     break;
                 // === KONIEC NOWEGO BLOKU ===
+                    // +++ POCZĄTEK DODANEGO KODU (Krok 5.1) +++
+                case 'show-my-budget-details':
+                    title = 'Mój Budżet (Projekty Właściciela)';
+                    // Wywołujemy funkcję obliczeniową, aby pobrać listę projektów
+                    const budgetData = calculateGlobalBudgetSummary();
+                    // Przekazujemy listę projektów do funkcji renderującej HTML
+                    contentHTML = renderDashboardBudgetDetails(budgetData.projects);
+                    // Musimy specjalnie ustawić klasę dla tego modala, aby usunąć siatkę
+                    dashboardDetailsModal.content.classList.remove('dashboard-detail-list');
+                    break;
+                // +++ KONIEC DODANEGO KODU (Krok 5.1) +++
                 default:
                     return;
             }
@@ -15093,6 +15309,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
