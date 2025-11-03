@@ -5814,77 +5814,86 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             };
         }
         // === KONIEC NOWEJ FUNKCJI ===
-       // === NOWA FUNKCJA: Obliczanie globalnego budżetu per użytkownik ===
+      // === ZAKTUALIZOWANA FUNKCJA (Wersja 2.1): Obliczanie budżetu per użytkownik (z podziałem kosztów) ===
         function calculateGlobalUserBudgetSummary() {
             const userBudgets = {}; // Obiekt do agregacji: { userId: { name, avatar, reserved, spent, total } }
-            let globalReserved = 0; // NOWA ZMIENNA
-            let globalSpent = 0;    // NOWA ZMIENNA
-            let globalTotal = 0;    // NOWA ZMIENNA
+            let globalReserved = 0; 
+            let globalSpent = 0;    
+            let globalTotal = 0;    
 
             // 1. Przejdź tylko przez aktywne projekty
             state.projects.forEach(project => {
                 // 2. Przejdź przez wszystkie zadania w projekcie
                 (project.tasks || []).forEach(task => {
-                    // 3. Sprawdź, czy zadanie ma przypisane koszty
-                    if (task.budgetItems && task.budgetItems.length > 0) {
+                    // 3. Sprawdź, czy zadanie ma koszty i osoby
+                    if (task.budgetItems && task.budgetItems.length > 0 && task.assignees && task.assignees.length > 0) {
                         
-                        // 4. Oblicz całkowity koszt tego zadania
+                        // 4. Oblicz całkowity koszt zadania
                         const taskTotalCost = task.budgetItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-                        if (taskTotalCost === 0) return; // Pomiń, jeśli koszt jest zerowy
+                        if (taskTotalCost === 0) return; 
 
                         // 5. Określ status kosztu (zarezerwowane / wydane)
                         const isSpent = task.status === 'done';
 
-                        // 6. Przypisz koszt do KAŻDEJ osoby przypisanej do zadania
-                        (task.assignees || []).forEach(userId => {
-                            // Pomiń siebie (kafelek ma pokazywać współpracowników)
-                            if (userId === state.currentUser.uid) return;
+                        // --- NOWA LOGIKA PODZIAŁU KOSZTÓW ---
+                        // 6. Podziel koszt zadania równo przez liczbę przypisanych osób
+                        const costPerUser = taskTotalCost / task.assignees.length;
+                        // --- KONIEC NOWEJ LOGIKI ---
 
-                            // 7. Znajdź użytkownika
+                        // 7. Przypisz koszt cząstkowy do KAŻDEJ osoby
+                        (task.assignees || []).forEach(userId => {
+                            
+                            // 8. Znajdź użytkownika
                             const user = findUser(userId);
                             if (!user) return; // Pomiń, jeśli nie znaleziono
 
-                            // 8. Zainicjuj obiekt dla użytkownika, jeśli jeszcze nie istnieje
+                            // 9. Zainicjuj obiekt dla użytkownika
                             if (!userBudgets[userId]) {
                                 userBudgets[userId] = {
                                     userId: userId,
                                     name: user.name || user.email,
-                                    avatarHTML: renderAvatarHTML(user), // Zapisz HTML awatara
+                                    avatarHTML: renderAvatarHTML(user), 
                                     reserved: 0,
                                     spent: 0,
                                     total: 0
                                 };
                             }
 
-                            // 9. Dodaj koszt do odpowiedniej kategorii
+                            // 10. Dodaj KOSZT CZĄSTKOWY do odpowiedniej kategorii
                             if (isSpent) {
-                                userBudgets[userId].spent += taskTotalCost;
-                                globalSpent += taskTotalCost; // DODAJ DO SUMY GLOBALNEJ
+                                userBudgets[userId].spent += costPerUser;
+                                globalSpent += costPerUser; // DODAJ DO SUMY GLOBALNEJ
                             } else {
-                                userBudgets[userId].reserved += taskTotalCost;
-                                globalReserved += taskTotalCost; // DODAJ DO SUMY GLOBALNEJ
+                                userBudgets[userId].reserved += costPerUser;
+                                globalReserved += costPerUser; // DODAJ DO SUMY GLOBALNEJ
                             }
-                            userBudgets[userId].total += taskTotalCost;
-                            globalTotal += taskTotalCost; // DODAJ DO SUMY GLOBALNEJ
+                            userBudgets[userId].total += costPerUser;
+                            globalTotal += costPerUser; // DODAJ DO SUMY GLOBALNEJ
                         });
                     }
                 });
             });
 
-            // 10. Przekształć obiekt w tablicę i posortuj
+            // 11. Przekształć obiekt w tablicę i posortuj
             const sortedUsers = Object.values(userBudgets).sort((a, b) => b.total - a.total);
             
-            // 11. ZWRÓĆ OBIEKT ZAWIERAJĄCY LISTĘ I SUMY
+            // 12. ZWRÓĆ OBIEKT ZAWIERAJĄCY LISTĘ I SUMY
+            // Używamy .toFixed(2) a potem parseFloat(), aby uniknąć błędów zaokrągleń
             return {
-                list: sortedUsers,
+                list: sortedUsers.map(u => ({
+                    ...u,
+                    reserved: parseFloat(u.reserved.toFixed(2)),
+                    spent: parseFloat(u.spent.toFixed(2)),
+                    total: parseFloat(u.total.toFixed(2))
+                })),
                 totals: {
-                    reserved: globalReserved,
-                    spent: globalSpent,
-                    total: globalTotal
+                    reserved: parseFloat(globalReserved.toFixed(2)),
+                    spent: parseFloat(globalSpent.toFixed(2)),
+                    total: parseFloat(globalTotal.toFixed(2))
                 }
             };
         }
-        // +++ KONIEC DODANEGO KODU +++
+        // === KONIEC ZAKTUALIZOWANEJ FUNKCJI ===
        // === NOWA FUNKCJA: Renderowanie zawartości modala "Budżet - Osoby" ===
         function renderDashboardUserBudgetDetails(userBudgetList) {
             
@@ -15621,6 +15630,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
