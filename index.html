@@ -1448,46 +1448,7 @@
         }
         
         /* === KONIEC NOWYCH REGUŁ === */
-        /* === NOWE STYLE DLA KAFELKA OBCIĄŻENIA ZESPOŁU === */
-        .team-workload-header, .team-workload-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 13px;
-            padding: 6px 4px;
-        }
-        .team-workload-header {
-            font-weight: 600;
-            color: var(--text-secondary);
-            border-bottom: 1px solid var(--border-color);
-            margin-bottom: 4px;
-        }
-        .team-workload-user {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-weight: 500;
-        }
-        .team-workload-stats {
-            display: grid;
-            grid-template-columns: repeat(3, 40px); /* 3 kolumny po 40px */
-            text-align: center;
-            gap: 8px;
-            font-weight: 600;
-        }
-        .team-workload-stats span:nth-child(1) { color: var(--danger-primary); } /* Do zrobienia */
-        .team-workload-stats span:nth-child(2) { color: var(--accent-primary); } /* W trakcie */
-        .team-workload-stats span:nth-child(3) { color: var(--success-primary); } /* Wykonane */
         
-        .team-workload-list {
-            list-style: none;
-            max-height: 120px; /* Ograniczenie wysokości listy */
-            overflow-y: auto;
-        }
-        .team-workload-item:not(:last-child) {
-            border-bottom: 1px dashed var(--border-color);
-        }
-        /* === KONIEC NOWYCH STYLI === */
         /* Ulepszenie wyglądu kart w Dashboardzie */
         .dashboard-grid .dashboard-card:first-child h3 {
              color: var(--danger-primary);
@@ -4807,6 +4768,7 @@ let state = {
         const calendarViewEl = document.getElementById('calendar-view');
         let calendarInstance = null; // Zmienna do przechowywania instancji kalendarza
         let workloadChartInstance = null;
+        let teamWorkloadChartInstance = null; // <-- DODANA LINIA
         const sortBtn = document.getElementById('sort-btn');
         const searchInput = document.getElementById('search-input');
         const projectActionsEl = document.getElementById('project-actions');
@@ -5602,16 +5564,20 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
 
              return teamOverdueTasks.length;
         }
-       // === NOWA FUNKCJA: Obliczanie obciążenia zespołu (we wspólnych projektach) ===
-        function calculateTeamWorkload() {
+       function calculateTeamWorkload() {
             const teamWorkload = {}; // Obiekt do zliczania, np. { userId: { todo: 0, inprogress: 0, done: 0 } }
             const myId = state.currentUser.uid;
+            
+            // === NOWE ZMIENNE: Sumy dla całego zespołu ===
+            let totalTeamTodo = 0;
+            let totalTeamInProgress = 0;
+            let totalTeamDone = 0;
+            // === KONIEC ZMIANY ===
 
-            // 1. Przejdź przez wszystkie projekty, w których jestem (aktywne, bo tylko tam liczy się obciążenie)
+            // 1. Przejdź przez wszystkie projekty, w których jestem (aktywne, bo only tam liczy się obciążenie)
             state.projects.forEach(project => {
-                // 2. Znajdź członków tego projektu (oprócz mnie)
-                const otherMembersInProject = project.members.filter(id => id !== myId);
-
+                // ... (pomiędzy jest logika znajdowania otherMembersInProject) ...
+                
                 // 3. Przejdź przez wszystkie zadania w tym projekcie
                 (project.tasks || []).forEach(task => {
                     const status = task.status;
@@ -5629,6 +5595,12 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                             }
                             // Inkrementuj odpowiedni licznik
                             teamWorkload[assigneeId][status]++;
+                            
+                            // === NOWA LOGIKA: Inkrementuj sumy globalne ===
+                            if (status === 'todo') totalTeamTodo++;
+                            if (status === 'inprogress') totalTeamInProgress++;
+                            if (status === 'done') totalTeamDone++;
+                            // === KONIEC NOWEJ LOGIKI ===
                         }
                     });
                 });
@@ -5651,7 +5623,17 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             // 7. Posortuj - od najbardziej obciążonych (aktywnymi zadaniami)
             workloadArray.sort((a, b) => b.totalActive - a.totalActive);
 
-            return workloadArray;
+            // === ZMIANA: Zwróć obiekt zamiast tablicy ===
+            return {
+                list: workloadArray,
+                totals: {
+                    todo: totalTeamTodo,
+                    inprogress: totalTeamInProgress,
+                    done: totalTeamDone,
+                    totalActive: totalTeamTodo + totalTeamInProgress
+                }
+            };
+            // === KONIEC ZMIANY ===
         }
         // === KONIEC NOWEJ FUNKCJI ===
 
@@ -6826,11 +6808,84 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             });
         }
+       // === NOWA FUNKCJA: Renderowanie wykresu Obciążenia Zespołu (Chart.js) ===
+        function renderTeamWorkloadChart(workloadData) {
+            const container = document.getElementById('dashboard-details-content');
+            if (!container) return;
+
+            // 1. Przygotuj canvas
+            container.innerHTML = `<div style="position: relative; width: 100%; height: 400px;">
+                                     <canvas id="team-workload-chart-canvas"></canvas>
+                                   </div>`;
+            const canvas = document.getElementById('team-workload-chart-canvas');
+            const ctx = canvas.getContext('2d');
+
+            // 2. Zniszcz stary wykres (jeśli istnieje)
+            if (teamWorkloadChartInstance) {
+                teamWorkloadChartInstance.destroy();
+            }
+
+            // 3. Przygotuj dane dla Chart.js
+            const labels = workloadData.map(user => user.name);
+            const todoData = workloadData.map(user => user.todo);
+            const inProgressData = workloadData.map(user => user.inprogress);
+            const doneData = workloadData.map(user => user.done);
+
+            // 4. Utwórz nowy wykres
+            teamWorkloadChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Do realizacji',
+                            data: todoData,
+                            backgroundColor: 'rgba(239, 68, 68, 0.7)', // Czerwony
+                            borderColor: 'rgba(239, 68, 68, 1)',
+                            borderWidth: 1
+                        }, 
+                        {
+                            label: 'W trakcie',
+                            data: inProgressData,
+                            backgroundColor: 'rgba(79, 70, 229, 0.7)', // Fioletowy
+                            borderColor: 'rgba(79, 70, 229, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Wykonane',
+                            data: doneData,
+                            backgroundColor: 'rgba(22, 163, 74, 0.7)', // Zielony
+                            borderColor: 'rgba(22, 163, 74, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true, // Kluczowe: słupki będą na sobie
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            ticks: { stepSize: 1 }
+                        }
+                    }
+                }
+            });
+        }
+        // === KONIEC NOWEJ FUNKCJI ===
        /**
      * ZMODYFIKOWANA FUNKCJA (Wersja 2): Renderuje tabelę zadań obciążających budżet.
      * @param {object} project - Obiekt projektu.
      * @param {string} containerId - ID elementu, w którym ma być renderowana tabela.
      */
+       
     function renderProjectBudgetTasksTable(project, containerId) {
         const container = document.getElementById(containerId);
         if (!container) return;
@@ -7062,31 +7117,52 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     </div>`
             };
             // === NOWA LOGIKA: Generowanie HTML dla "Obciążenie zespołu" ===
-            const teamWorkloadData = calculateTeamWorkload();
-            let teamWorkloadHTML = '';
+            const teamWorkloadData = calculateTeamWorkload(); // Teraz zwraca obiekt { list, totals }
+            const teamTotals = teamWorkloadData.totals;
+            const teamTotalTasks = teamTotals.todo + teamTotals.inprogress + teamTotals.done;
 
-            if (teamWorkloadData.length === 0) {
-                teamWorkloadHTML = '<p style="font-size: 14px; color: var(--text-secondary); text-align: center; margin-top: 20px;">Brak danych o obciążeniu zespołu we wspólnych projektach.</p>';
-            } else {
-                // Tworzymy listę
-                teamWorkloadHTML = '<ul class="team-workload-list">';
-                teamWorkloadData.forEach(user => {
-                    teamWorkloadHTML += `
-                        <li class="team-workload-item">
-                            <div class="team-workload-user">
-                                ${renderAvatarHTML(findUser(user.userId), 'avatar-comment')}
-                                <span>${user.name}</span>
+            // Oblicz procenty dla pasków
+            const teamTodoPercent = teamTotalTasks > 0 ? (teamTotals.todo / teamTotalTasks) * 100 : 0;
+            const teamInProgressPercent = teamTotalTasks > 0 ? (teamTotals.inprogress / teamTotalTasks) * 100 : 0;
+            const teamDonePercent = teamTotalTasks > 0 ? (teamTotals.done / teamTotalTasks) * 100 : 0;
+
+
+            // Dodajemy nowy kafelek do obiektu cardHTMLs
+            cardHTMLs['team-workload'] = `
+                <div class="dashboard-card kpi-mini-card" data-id="team-workload" data-action="show-team-workload-details">
+                    <h3>Obciążenie zespołu <span style="color: var(--text-secondary); font-weight: 500; font-size: 13px;">(Wspólne projekty)</span></h3>
+                    
+                    <div style="font-size: 36px; font-weight: 700; color: var(--text-primary); margin-top: 8px;">
+                        ${teamTotals.totalActive}
+                        <span style="font-size: 16px; font-weight: 500; color: var(--text-secondary); margin-left: 8px;">Aktywne</span>
+                    </div>
+                    
+                    <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">Całkowita liczba zadań: ${teamTotalTasks}</p>
+
+                    <div class="modern-chart">
+                        <div class="chart-row">
+                            <div class="chart-label">
+                                <span>Do realizacji</span>
+                                <strong>${teamTotals.todo}</strong>
                             </div>
-                            <div class="team-workload-stats">
-                                <span title="Do realizacji">${user.todo}</span>
-                                <span title="W trakcie">${user.inprogress}</span>
-                                <span title="Wykonane">${user.done}</span>
+                            <div class="chart-bar-wrapper">
+                                <div class="chart-bar-fill todo" style="width: ${teamTodoPercent}%;"></div>
                             </div>
-                        </li>
-                    `;
-                });
-                teamWorkloadHTML += '</ul>';
-            }
+                        </div>
+                        <div class="chart-row">
+                            <div class="chart-label">
+                                <span>W trakcie</span>
+                                <strong>${teamTotals.inprogress}</strong>
+                            </div>
+                            <div class="chart-bar-wrapper">
+                                <div class="chart-bar-fill inprogress" style="width: ${teamInProgressPercent}%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                </div>
+            `;
+            // === KONIEC NOWEJ LOGIKI ===
 
             // Dodajemy nowy kafelek do obiektu cardHTMLs
             cardHTMLs['team-workload'] = `
@@ -12089,7 +12165,13 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     // Używamy dashboard-detail-list tylko dla kafelków zadań, w przypadku aktywności renderujemy bezpośrednio listę ul
                     dashboardDetailsModal.content.classList.toggle('dashboard-detail-list', recentActivities.length === 0 || type !== 'show-activity-details');
                     break;
-                    
+                    // === NOWY BLOK CASE ===
+                case 'show-team-workload-details':
+                    title = 'Obciążenie Zespołu (Wspólne Projekty)';
+                    // Tylko ustawiamy tytuł. Reszta dzieje się po otwarciu modala.
+                    contentHTML = '<p>Ładowanie wykresu...</p>'; 
+                    break;
+                // === KONIEC NOWEGO BLOKU ===
                 default:
                     return;
             }
@@ -12097,6 +12179,13 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             dashboardDetailsModal.title.textContent = title;
             dashboardDetailsModal.content.innerHTML = contentHTML;
             openModal(dashboardDetailsModal.overlay);
+            // === NOWA LOGIKA: Rysowanie wykresu PO otwarciu modala ===
+            if (type === 'show-team-workload-details') {
+                // Musimy ponownie pobrać dane, ponieważ nie przekazaliśmy ich z renderMyDashboardView
+                const teamWorkloadData = calculateTeamWorkload();
+                renderTeamWorkloadChart(teamWorkloadData.list);
+            }
+            // === KONIEC NOWEJ LOGIKI ===
         }
 
         document.addEventListener('click', (e) => {
@@ -15017,6 +15106,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
