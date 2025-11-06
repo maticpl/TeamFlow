@@ -3674,6 +3674,76 @@
             to { transform: rotate(360deg); }
         }
         /* === KONIEC STYLI DLA MODALA CZATU AI === */
+        /* === POCZĄTEK: NOWE STYLE DLA PODZADAŃ NA KANBANIE === */
+
+        /* 1. Styl dla klikalnego triggera (ikony "2/5") */
+        .task-card-icons .js-toggle-subtasks {
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .task-card-icons .js-toggle-subtasks:hover {
+            transform: scale(1.1);
+        }
+
+        /* 2. Główny kontener na listę podzadań (domyślnie zwinięty) */
+        .kanban-subtask-list-container {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out, margin-top 0.3s ease-out, padding-top 0.3s ease-out;
+            /* Domyślnie zerowe marginesy i paddingi */
+            margin-top: 0;
+            padding-top: 0;
+        }
+        
+        /* 3. Styl kontenera w stanie rozwiniętym */
+        .kanban-subtask-list-container:not(.collapsed) {
+            max-height: 200px; /* Maksymalna wysokość, włącza przewijanie */
+            overflow-y: auto;
+            /* Dodaje odstęp i linię oddzielającą po rozwinięciu */
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed var(--border-color);
+        }
+
+        /* 4. Styl listy wewnątrz kontenera */
+        .kanban-subtask-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 6px; /* Mniejszy odstęp między podzadaniami */
+        }
+        
+        /* 5. Styl pojedynczego elementu (wiersza) podzadania */
+        .kanban-subtask-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        .kanban-subtask-item:hover {
+            background-color: var(--bg-primary);
+        }
+
+        /* 6. Styl checkboxa */
+        .kanban-subtask-checkbox {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+        .kanban-subtask-checkbox:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        /* 7. Styl dla ukończonego podzadania (przekreślenie) */
+        .kanban-subtask-item.completed span {
+            text-decoration: line-through;
+            color: var(--text-secondary);
+        }
+        /* === KONIEC: NOWE STYLE DLA PODZADAŃ NA KANBANIE === */
     </style>
 </head>
 <body>
@@ -7873,7 +7943,31 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 kanbanBoardEl.appendChild(column);
             });
         }
+        /**
+         * NOWA FUNKCJA POMOCNICZA
+         * Tworzy HTML dla pojedynczego podzadania na liście w karcie Kanban.
+         * @param {object} subtask - Obiekt podzadania.
+         * @returns {string} - Kod HTML dla elementu <li>.
+         */
+        function createKanbanSubtaskHTML(subtask) {
+            if (!state.currentUser) return ''; // Zabezpieczenie
 
+            const isCompletedByMe = (subtask.completedBy || []).includes(state.currentUser.uid);
+            const canIComplete = (subtask.assignees || []).includes(state.currentUser.uid);
+            const isCompletedByAll = subtask.isCompleted;
+
+            return `
+                <li class="kanban-subtask-item ${isCompletedByAll ? 'completed' : ''}" data-subtask-id="${subtask.id}">
+                    <input type="checkbox" 
+                           class="kanban-subtask-checkbox" 
+                           data-subtask-id="${subtask.id}"
+                           ${isCompletedByMe ? 'checked' : ''}
+                           ${!canIComplete ? 'disabled' : ''}
+                           title="${canIComplete ? 'Oznacz swoją część' : 'Nie jesteś przypisany/a'}">
+                    <span>${subtask.title}</span>
+                </li>
+            `;
+        }
         function createTaskCardHTML(task, isInteractive) {
             const isCompleted = task.status === 'done';
             const priorityClass = task.priority === 'high' ? 'priority-high' : '';
@@ -7936,21 +8030,93 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         </svg>
     </div>` : '';
 
-            // === NOWA LOGIKA SUBZADAŃ ===
+            function createTaskCardHTML(task, isInteractive) {
+            const isCompleted = task.status === 'done';
+            const priorityClass = task.priority === 'high' ? 'priority-high' : '';
+            const projectNameHTML = task.projectName ? `<span class="task-project-name">${task.projectName}</span>` : '';
+
+            // ▼▼▼ NOWA LOGIKA ▼▼▼
+            let assignmentClass = '';
+            // Sprawdzamy, czy widok to pulpit "Moje zadania" - tam nie kolorujemy
+            const isMyDashboard = state.ui.currentView === 'my-dashboard';
+
+            if (!isMyDashboard && task.status !== 'done') {
+                if (task.type === 'multi') {
+                    assignmentClass = 'multi-member';
+                } else if (task.assignees.length > 0 && task.assignees[0] !== state.currentUser.uid) {
+                    assignmentClass = 'other-member';
+                }
+            }
+            // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
+
+            const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
+            const tooltipText = shouldBeDisabled ? `title="Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części."` : '';
+
+            const taskAssignees = (task.assignees || [])
+                .map(assigneeId => findUser(assigneeId))
+                .filter(Boolean);
+            
+            // Ogranicz do maksymalnie 4 użytkowników
+            const displayedAssignees = taskAssignees.slice(0, 4);
+            const remainingCount = taskAssignees.length - displayedAssignees.length;
+
+            let assigneesHTML = displayedAssignees
+                .map(user => renderAvatarHTML(user))
+                .join('');
+            
+            // Dodaj wielokropek, jeśli jest więcej niż 4 użytkowników
+            if (remainingCount > 0) {
+                 assigneesHTML += `<div class="avatar" style="width: 24px; height: 24px; font-size: 12px; margin-left: -10px; background-color: var(--bg-tertiary); color: var(--text-secondary); border-color: var(--bg-secondary);" title="+${remainingCount} więcej">+${remainingCount}</div>`;
+            }
+
+            const isOverdue = task.dueDate && new Date(task.dueDate).getTime() < Date.now() && task.status !== 'done';
+            const overdueClass = isOverdue ? 'overdue' : '';
+
+            const dueDateHTML = task.dueDate ? `
+                    <div class="task-detail ${overdueClass}">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
+                        <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${new Date(task.dueDate).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
+                    </div>` : '';
+
+            const multiUserIcon = task.type === 'multi' ? `
+    <div class="task-detail" title="Zadanie wieloosobowe">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+    </div>` : '';
+
+            const recurringIcon = task.recurrence ? `
+    <div class="task-detail recurring" title="Zadanie cykliczne">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M23 4v6h-6M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.14L23 10M1 14l4.64 4.14A9 9 0 0 0 20.49 15" />
+        </svg>
+    </div>` : '';
+
+            // === MODYFIKACJA LOGIKI SUBZADAŃ ===
             let subtaskIcon = '';
+            // Zmienna na listę HTML, domyślnie pusta
+            let subtasksListHTML = ''; 
             if (task.subtasks && task.subtasks.length > 0) {
                 const completedCount = task.subtasks.filter(s => s.isCompleted).length;
                 const totalCount = task.subtasks.length;
                 const allDone = completedCount === totalCount;
+                
+                // 1. MODYFIKACJA: Dodajemy klasę 'js-toggle-subtasks' do diva, aby uczynić go klikalnym
                 subtaskIcon = `
-                <div class="task-detail subtasks" title="Podzadania: ${completedCount}/${totalCount}">
+                <div class="task-detail subtasks js-toggle-subtasks" title="Pokaż/Ukryj podzadania: ${completedCount}/${totalCount}">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="${allDone ? 'var(--success-primary)' : 'currentColor'}">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /> // Zmieniona ikona na bardziej pasującą
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                     </svg>
                     <span>${completedCount}/${totalCount}</span>
                 </div>`;
+                
+                // 2. NOWOŚĆ: Generujemy HTML listy podzadań
+                subtasksListHTML = (task.subtasks || [])
+                    .map(subtask => createKanbanSubtaskHTML(subtask)) // Używamy nowej funkcji pomocniczej
+                    .join('');
             }
-            // === KONIEC NOWEJ LOGIKI ===
+            // === KONIEC MODYFIKACJI ===
+            
             // +++ NOWA LOGIKA DLA IKONY BUDŻETU +++
             let budgetIcon = '';
 
@@ -7971,8 +8137,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // Składanie ikon (multiUserIcon, recurringIcon, subtaskIcon zdefiniowane wcześniej)
             const iconsHTML = `${multiUserIcon}${recurringIcon}${subtaskIcon}${budgetIcon}`;
 
-            // console.log(`[Task: ${task.title}] Final iconsHTML:`, iconsHTML); // <-- USUNIĘTE LOGOWANIE
-            
+            // 3. MODYFIKACJA: Dodajemy kontener na podzadania na końcu <li>
             return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}">
                 <div class="task-card-icons">${iconsHTML}</div>
                 <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isInteractive ? '' : 'disabled'} ${shouldBeDisabled ? 'disabled' : ''} ${tooltipText}>
@@ -7982,7 +8147,13 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     <div class="task-details">${dueDateHTML}</div>
                     <div class="task-assignees">${assigneesHTML}</div>
                 </div>
-            </li>`;
+                
+                <div class="kanban-subtask-list-container collapsed">
+                    <ul class="kanban-subtask-list">
+                        ${subtasksListHTML}
+                    </ul>
+                </div>
+                </li>`;
         }
        /**
          * Tworzy HTML dla kafelka sondażu.
@@ -12586,31 +12757,63 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return;
             }
 
+            // === NOWA LOGIKA: Sprawdzenie triggerów podzadań ===
+            
+            // 1. Sprawdź kliknięcie na IKONĘ rozwijania podzadań
+            const subtaskToggleBtn = e.target.closest('.js-toggle-subtasks');
+            if (subtaskToggleBtn) {
+                e.preventDefault(); // Zapobiegaj bąbelkowaniu
+                e.stopPropagation();
+                const taskCard = subtaskToggleBtn.closest('.task-card');
+                if (taskCard) {
+                    const subtaskContainer = taskCard.querySelector('.kanban-subtask-list-container');
+                    if (subtaskContainer) {
+                        subtaskContainer.classList.toggle('collapsed');
+                    }
+                }
+                return; // Zakończ
+            }
+
+            // 2. Sprawdź kliknięcie na CHECKBOX podzadania (wewnątrz rozwiniętej listy)
+            const subtaskCheckbox = e.target.closest('.kanban-subtask-checkbox');
+            if (subtaskCheckbox) {
+                e.stopPropagation(); // Tylko zatrzymaj bąbelkowanie
+                const mainTaskId = subtaskCheckbox.closest('.task-card').dataset.taskId;
+                if (mainTaskId) {
+                    // Używamy funkcji zaimplementowanej w poprzednim kroku
+                    // Przekazujemy sam element checkboxa i ID zadania-rodzica
+                    handleSubtaskToggle(subtaskCheckbox, mainTaskId);
+                }
+                return; // Zakończ
+            }
+            
+            // === KONIEC NOWEJ LOGIKI ===
+
+
+            // 3. Sprawdź kliknięcie na GŁÓWNY checkbox zadania
             if (e.target.matches('.task-card-checkbox')) {
                 handleTaskCheckboxClick(e.target, e);
                 return;
             }
-
-            // === ZMODYFIKOWANA LOGIKA OBSŁUGI KLIKNIĘĆ ===
             
-            // 1. Sprawdź kliknięcie na kafelek Sondażu
-            // Musi być PIERWSZE, ponieważ .poll-card i .task-card są rodzeństwem
+            // 4. Sprawdź kliknięcie na kafelek Sondażu
             const pollCard = e.target.closest('.poll-card');
             if (pollCard) {
                 const pollId = pollCard.dataset.pollId;
                 if (pollId) {
-                    openPollDetailsModal(pollId); // Otwórz nowy modal szczegółów
+                    openPollDetailsModal(pollId); 
                 }
-                return; // Zakończ obsługę
+                return; 
             }
 
-            // 2. Sprawdź kliknięcie na kafelek Zadania
+            // 5. Sprawdź kliknięcie na kafelek Zadania (aby otworzyć modal)
             const taskItem = e.target.closest('.task-card'); // .task-card (bez .poll-card)
             if (taskItem) {
                 openTaskModal(taskItem.dataset.taskId);
                 return;
             }
             
+            // 6. Pozostałe kliknięcia (dodawanie zadania, nawigacja)
             if (e.target.closest('.add-task-icon-btn')) {
                 openNewTaskModal(false);
             } else if (e.target.closest('.js-project-title')) {
@@ -15703,6 +15906,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
