@@ -11453,7 +11453,69 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                     }
                 }, true);
             
-            // === 2. NOWA LOGIKA: OTWIERANIE MODALA KADROWANIA ===
+            taskModal.attachmentsList.addEventListener('click', async (e) => {
+            const deleteBtn = e.target.closest('.delete-attachment-btn');
+            const openCropperBtn = e.target.closest('.js-open-cover-cropper');
+            const removeCoverBtn = e.target.closest('.js-remove-cover-btn');
+
+            const taskId = taskModal.overlay.dataset.taskId;
+            const { task, project } = findTask(taskId);
+            if (!task || !project) return;
+
+            const projectDocRef = findProject(project.id) 
+                ? doc(projectsRef, project.id) 
+                : doc(completedProjectsRef, project.id);
+
+            // === 1. LOGIKA USUWANIA ZAŁĄCZNIKA ===
+            if (deleteBtn) {
+                const attachmentItem = deleteBtn.closest('.attachment-item');
+                const attachmentId = attachmentItem.dataset.attachmentId;
+                if (!attachmentId) return;
+
+                const attachmentToDelete = (task.attachments || []).find(att => att.id === attachmentId);
+                if (!attachmentToDelete) return;
+
+                showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć załącznik: "${attachmentToDelete.name}"?`, async (confirmed) => {
+                    if (confirmed) {
+                        try {
+                            // 1. Usuń plik z Storage
+                            const fileRef = ref(storage, attachmentToDelete.path);
+                            await deleteObject(fileRef);
+
+                            // 2. Zaktualizuj tablicę załączników
+                            const updatedAttachments = task.attachments.filter(att => att.id !== attachmentId);
+                            
+                            // 3. Sprawdź, czy usunięty załącznik był źródłem okładki
+                            let updatedCoverURL = task.coverImageURL;
+                            let updatedOriginalURL = task.coverImageOriginalURL;
+                            if (task.coverImageOriginalURL === attachmentToDelete.url) {
+                                // Jeśli usuwamy plik-źródło, usuwamy też okładkę
+                                await deleteCoverImage(project, task); // Usuń plik okładki ze Storage
+                                updatedCoverURL = null;
+                                updatedOriginalURL = null;
+                            }
+
+                            // 4. Zaktualizuj zadanie w liście zadań projektu
+                            const updatedTasks = project.tasks.map(t => t.id === taskId ? { 
+                                ...t,
+                                attachments: updatedAttachments,
+                                coverImageURL: updatedCoverURL,
+                                coverImageOriginalURL: updatedOriginalURL
+                            } : t);
+                            
+                            // 5. Zapisz w Firestore
+                            await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+                            showNotification("Załącznik został usunięty.", "Sukces");
+                            openTaskModal(taskId); // Przeładuj modal
+                        } catch (error) {
+                            console.error("Błąd usuwania załącznika:", error);
+                            showNotification("Wystąpił błąd podczas usuwania załącznika.", "Błąd");
+                        }
+                    }
+                }, true);
+            
+            // === 2. NOWA LOGIKA: OTWIERANIE MODALA KADROWANIA (ZMODYFIKOWANA) ===
             } else if (openCropperBtn) {
                 const originalUrl = openCropperBtn.dataset.url;
                 if (!originalUrl) return;
@@ -11464,11 +11526,17 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                 cropModalOverlay.dataset.projectId = project.id;
                 cropModalOverlay.dataset.originalUrl = originalUrl; // Zapisz URL oryginału
 
-                // Zainicjuj Croppie
-                initializeCoverCropper(cropModalOverlay.querySelector('#cover-croppie-container'), originalUrl);
-                
-                // Otwórz modal kadrowania
-                openModal(cropModalOverlay);
+                try {
+                    // Otwórz modal kadrowania PRZED ładowaniem obrazka
+                    openModal(cropModalOverlay);
+                    // Zainicjuj Croppie i CZEKAJ (await) na załadowanie obrazka
+                    await initializeCoverCropper(cropModalOverlay.querySelector('#cover-croppie-container'), originalUrl);
+                    
+                } catch (error) {
+                    // Błąd został już obsłużony w 'initializeCoverCropper'
+                    console.error("Inicjalizacja Croppie nie powiodła się.");
+                    // Nie zamykaj modala, 'initializeCoverCropper' wyświetli błąd wewnątrz
+                }
 
             // === 3. NOWA LOGIKA: USUWANIE OKŁADKI ===
             } else if (removeCoverBtn) {
@@ -15572,30 +15640,67 @@ function addAiChatMessage(text, type, id = null) {
         /**
          * Inicjalizuje lub resetuje Croppie w modalu kadrowania okładki.
          */
-        function initializeCoverCropper(container, imageUrl) {
+        async function initializeCoverCropper(container, imageUrl) {
             if (coverCroppieInstance) {
                 coverCroppieInstance.destroy();
             }
             container.innerHTML = ''; // Wyczyść stary kontener
 
-            // Ustawiamy wymiary viewportu (120px * 2 = 240px szerokości dla jakości)
-            // Stosunek 120 (wysokość okładki) / 360 (domyślna szerokość karty) -> uproszczony 1:3
-            // Użyjemy bardziej standardowego 16:9 lub 2:1. Użyjmy ok. 2:1.
+            // Ustawiamy wymiary viewportu
             const viewportWidth = 280;
             const viewportHeight = 140; // Proporcja 2:1
 
             coverCroppieInstance = new Croppie(container, {
-                // Viewport to prostokąt kadrowania
-                viewport: { width: viewportWidth, height: viewportHeight, type: 'square' }, // 'square' oznacza prostokąt
-                // Boundary to cały kontener
+                viewport: { width: viewportWidth, height: viewportHeight, type: 'square' },
                 boundary: { width: 300, height: 180 },
                 enableExif: true
             });
 
-            // Ładujemy obrazek do edytora
-            coverCroppieInstance.bind({
-                url: imageUrl,
-            });
+            // === NOWA LOGIKA: POBIERANIE OBRAZKA PRZEZ FETCH ===
+            try {
+                // 1. Pokaż tymczasowe ładowanie
+                container.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding-top: 60px;">Ładowanie obrazka...</p>';
+
+                // 2. Pobierz obrazek jako Blob
+                const response = await fetch(imageUrl);
+                if (!response.ok) {
+                    throw new Error(`Nie udało się pobrać obrazka (status: ${response.status})`);
+                }
+                const blob = await response.blob();
+
+                // 3. Przekonwertuj Blob na dataURL, którego Croppie może użyć
+                const dataUrl = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+
+                // 4. Załaduj obrazek (jako dataURL) do edytora
+                await coverCroppieInstance.bind({
+                    url: dataUrl,
+                });
+                
+            } catch (error) {
+                console.error("Błąd podczas ładowania obrazka do Croppie:", error);
+                // Pokaż błąd w modalu, jeśli ładowanie się nie powiedzie
+                container.innerHTML = `<p style="color: var(--danger-primary); text-align: center; padding-top: 60px;">Nie udało się załadować obrazka.<br>Spróbuj ponownie.</p>`;
+                // Schowaj przycisk zapisu, aby zapobiec dalszym błędom
+                if (coverCropModal && coverCropModal.saveBtn) {
+                    coverCropModal.saveBtn.style.display = 'none';
+                }
+                // Rzuć błędem dalej, aby listener nadrzędny mógł go złapać
+                throw error;
+            } finally {
+                // Pokaż przycisk zapisu (jeśli nie wystąpił błąd)
+                if (coverCropModal && coverCropModal.saveBtn && container.innerHTML.includes('Ładowanie')) {
+                    // Ten 'finally' wykona się przed 'catch' jeśli chodzi o 'throw',
+                    // więc sprawdzamy, czy nadal jest tekst "Ładowanie"
+                } else if (coverCropModal && coverCropModal.saveBtn) {
+                     coverCropModal.saveBtn.style.display = 'inline-block';
+                }
+            }
+            // === KONIEC NOWEJ LOGIKI ===
         }
 
         /**
@@ -16311,6 +16416,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
