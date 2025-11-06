@@ -3744,6 +3744,81 @@
             color: var(--text-secondary);
         }
         /* === KONIEC: NOWE STYLE DLA PODZADAŃ NA KANBANIE === */
+        /* === POCZĄTEK: NOWE STYLE DLA OKŁADEK KART (COVER IMAGES) === */
+
+        /* 1. Kontener na okładkę na karcie Kanban */
+        .task-card-cover {
+            width: 100%;
+            height: 120px; /* Stała wysokość okładki */
+            overflow: hidden;
+            /* Zaokrąglenie tylko górnych rogów, pasujące do karty */
+            border-radius: var(--border-radius) var(--border-radius) 0 0;
+            margin-bottom: 8px; /* Odstęp od treści */
+        }
+        .task-card-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Kadruje obraz, aby wypełnił kontener */
+            display: block;
+        }
+
+        /* 2. Modyfikacja karty, gdy posiada okładkę */
+        .task-card.has-cover {
+            /* Zerujemy domyślny padding górny, bo okładka przylega do krawędzi */
+            padding-top: 0;
+            /* Zwiększamy padding boczny, aby checkbox nie nachodził na okładkę */
+            /* (Padding-left: 36px zostaje bez zmian) */
+            padding-right: 0;
+        }
+        
+        /* 3. Dostosowanie checkboxa i ikon na karcie z okładką */
+        .task-card.has-cover .task-card-checkbox {
+            /* Podnosimy checkbox wyżej, aby był na okładce */
+            top: 8px;
+            left: 8px;
+            /* Dodajemy tło, aby był widoczny na ciemnych obrazkach */
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: 4px;
+        }
+        .task-card.has-cover .task-card-icons {
+             /* Podnosimy ikony wyżej, na okładkę */
+            top: 8px;
+            right: 8px;
+            /* Dodajemy tło dla widoczności */
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 2px 4px;
+            border-radius: var(--border-radius);
+        }
+
+        /* 4. Przyciemnienie okładki dla zadania ukończonego */
+        .task-card.completed .task-card-cover {
+            opacity: 0.5;
+        }
+
+        /* 5. Style dla nowych przycisków w modalu (lista załączników) */
+        .attachment-item {
+             /* Zmieniamy na flex-direction column, aby zmieścić przyciski */
+            flex-direction: column;
+            align-items: stretch; /* Rozciągamy elementy */
+            gap: 8px;
+        }
+        .attachment-main-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .attachment-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            border-top: 1px dashed var(--border-color);
+            padding-top: 8px;
+        }
+        .attachment-actions .btn {
+            padding: 4px 10px;
+            font-size: 12px;
+        }
+        /* === KONIEC: NOWE STYLE DLA OKŁADEK KART === */
     </style>
 </head>
 <body>
@@ -5508,21 +5583,57 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                 taskModal.attachmentsList.innerHTML = '<li><small>Brak załączników.</small></li>';
                 return;
             }
+
+            // Funkcja pomocnicza do sprawdzania, czy plik jest obrazkiem
+            const isImage = (fileName) => /\.(jpe?g|png|gif|webp)$/i.test(fileName);
+
             task.attachments.forEach(att => {
                 const li = document.createElement('li');
                 li.className = 'attachment-item';
-                li.dataset.attachmentId = att.id;
+                li.dataset.attachmentId = att.id; // Przenosimy ID na główny element <li>
+
                 let deleteBtnHTML = '';
                 if (task.createdBy === state.currentUser.uid || att.uploadedBy === state.currentUser.uid) {
+                    // Przycisk usuwania jest teraz mniejszy i w nowym kontenerze
                     deleteBtnHTML = `<button class="delete-attachment-btn" title="Usuń załącznik">&times;</button>`;
                 }
+
+                let actionsHTML = '';
+                // Sprawdzamy, czy załącznik jest obrazkiem
+                if (isImage(att.name)) {
+                    // Jeśli jest obrazkiem, pokazujemy dodatkowe akcje
+                    if (task.coverImageURL === att.url) {
+                        // Ten obrazek JEST aktualną okładką
+                        actionsHTML = `
+                            <div class="attachment-actions">
+                                <button class="btn btn-secondary js-remove-cover-btn" data-task-id="${task.id}" title="Usuń z okładki">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px; height:14px; margin-right: 4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65" /></svg>
+                                    Usuń okładkę
+                                </button>
+                            </div>`;
+                    } else {
+                        // Ten obrazek NIE JEST okładką
+                        actionsHTML = `
+                            <div class="attachment-actions">
+                                <button class="btn btn-primary js-set-cover-btn" data-task-id="${task.id}" data-url="${att.url}" title="Ustaw jako okładkę">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px; height:14px; margin-right: 4px;"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg>
+                                    Ustaw jako okładkę
+                                </button>
+                            </div>`;
+                    }
+                }
+
+                // Składamy nowy HTML dla <li>
                 li.innerHTML = `
-            <div class="attachment-info">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.94l-7.693 7.693a2.25 2.25 0 003.182 3.182l7.693-7.693a.75.75 0 011.06 1.06l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32" /></svg>
-                <a href="${att.url}" target="_blank" rel="noopener noreferrer" class="attachment-name" title="Pobierz plik">${att.name}</a>
-            </div>
-            ${deleteBtnHTML}
-        `;
+                    <div class="attachment-main-info">
+                        <div class="attachment-info">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.94l-7.693 7.693a2.25 2.25 0 003.182 3.182l7.693-7.693a.75.75 0 011.06 1.06l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32" /></svg>
+                            <a href="${att.url}" target="_blank" rel="noopener noreferrer" class="attachment-name" title="Pobierz plik">${att.name}</a>
+                        </div>
+                        ${deleteBtnHTML}
+                    </div>
+                    ${actionsHTML}
+                `;
                 taskModal.attachmentsList.appendChild(li);
             });
         }
@@ -8075,9 +8186,20 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // Składanie ikon (multiUserIcon, recurringIcon, subtaskIcon zdefiniowane wcześniej)
             const iconsHTML = `${multiUserIcon}${recurringIcon}${subtaskIcon}${budgetIcon}`;
+            
+            // === NOWA LOGIKA: OKŁADKA OBRAZKA ===
+            let coverImageHTML = '';
+            let coverClass = '';
+            if (task.coverImageURL) {
+                coverImageHTML = `<div class="task-card-cover"><img src="${task.coverImageURL}" alt="Okładka zadania"></div>`;
+                coverClass = 'has-cover'; // Ta klasa usunie górny padding
+            }
+            // === KONIEC LOGIKI OKŁADKI ===
 
             // 3. MODYFIKACJA: Dodajemy kontener na podzadania na końcu <li>
-            return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}">
+            // ORAZ: Dodajemy klasę okładki i HTML okładki
+            return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass} ${coverClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}">
+                ${coverImageHTML}
                 <div class="task-card-icons">${iconsHTML}</div>
                 <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isInteractive ? '' : 'disabled'} ${shouldBeDisabled ? 'disabled' : ''} ${tooltipText}>
                 ${projectNameHTML}
@@ -11163,44 +11285,94 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
 
         taskModal.attachmentsList.addEventListener('click', async (e) => {
             const deleteBtn = e.target.closest('.delete-attachment-btn');
-            if (!deleteBtn) return;
+            const setCoverBtn = e.target.closest('.js-set-cover-btn');
+            const removeCoverBtn = e.target.closest('.js-remove-cover-btn');
 
-            const attachmentItem = deleteBtn.closest('.attachment-item');
-            const attachmentId = attachmentItem.dataset.attachmentId;
             const taskId = taskModal.overlay.dataset.taskId;
-            const {
-                task,
-                project
-            } = findTask(taskId);
+            const { task, project } = findTask(taskId);
+            if (!task || !project) return;
 
-            if (!task || !project || !attachmentId) return;
+            const projectDocRef = findProject(project.id) 
+                ? doc(projectsRef, project.id) 
+                : doc(completedProjectsRef, project.id);
 
-            const attachmentToDelete = (task.attachments || []).find(att => att.id === attachmentId);
-            if (!attachmentToDelete) return;
+            // === LOGIKA USUWANIA ZAŁĄCZNIKA (BEZ ZMIAN) ===
+            if (deleteBtn) {
+                const attachmentItem = deleteBtn.closest('.attachment-item');
+                const attachmentId = attachmentItem.dataset.attachmentId;
+                if (!attachmentId) return;
 
-            showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć załącznik: "${attachmentToDelete.name}"?`, async (confirmed) => {
-                if (confirmed) {
-                    try {
-                        const fileRef = ref(storage, attachmentToDelete.path);
-                        await deleteObject(fileRef);
+                const attachmentToDelete = (task.attachments || []).find(att => att.id === attachmentId);
+                if (!attachmentToDelete) return;
 
-                        const updatedAttachments = task.attachments.filter(att => att.id !== attachmentId);
-                        const updatedTasks = project.tasks.map(t => t.id === taskId ? { ...t,
-                            attachments: updatedAttachments
-                        } : t);
-                        const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                        await updateDoc(projectDocRef, {
-                            tasks: updatedTasks
-                        });
+                showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć załącznik: "${attachmentToDelete.name}"?`, async (confirmed) => {
+                    if (confirmed) {
+                        try {
+                            // 1. Usuń plik z Storage
+                            const fileRef = ref(storage, attachmentToDelete.path);
+                            await deleteObject(fileRef);
 
-                        showNotification("Załącznik został usunięty.", "Sukces");
-                        openTaskModal(taskId);
-                    } catch (error) {
-                        console.error("Błąd usuwania załącznika:", error);
-                        showNotification("Wystąpił błąd podczas usuwania załącznika.", "Błąd");
+                            // 2. Zaktualizuj tablicę załączników
+                            const updatedAttachments = task.attachments.filter(att => att.id !== attachmentId);
+                            
+                            // 3. Sprawdź, czy usunięty załącznik był okładką
+                            let updatedCoverURL = task.coverImageURL;
+                            if (task.coverImageURL === attachmentToDelete.url) {
+                                updatedCoverURL = null; // Usuń okładkę, jeśli plik został usunięty
+                            }
+
+                            // 4. Zaktualizuj zadanie w liście zadań projektu
+                            const updatedTasks = project.tasks.map(t => t.id === taskId ? { 
+                                ...t,
+                                attachments: updatedAttachments,
+                                coverImageURL: updatedCoverURL // Zapisz zaktualizowaną okładkę
+                            } : t);
+                            
+                            // 5. Zapisz w Firestore
+                            await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+                            showNotification("Załącznik został usunięty.", "Sukces");
+                            openTaskModal(taskId); // Przeładuj modal
+                        } catch (error) {
+                            console.error("Błąd usuwania załącznika:", error);
+                            showNotification("Wystąpił błąd podczas usuwania załącznika.", "Błąd");
+                        }
                     }
+                }, true);
+            
+            // === NOWA LOGIKA: USTAWIANIE OKŁADKI ===
+            } else if (setCoverBtn) {
+                const newCoverURL = setCoverBtn.dataset.url;
+                if (!newCoverURL) return;
+
+                const updatedTasks = project.tasks.map(t => t.id === taskId ? { 
+                    ...t, 
+                    coverImageURL: newCoverURL 
+                } : t);
+
+                try {
+                    await updateDoc(projectDocRef, { tasks: updatedTasks });
+                    openTaskModal(taskId); // Przeładuj modal, aby pokazać zmianę
+                } catch (error) {
+                    console.error("Błąd ustawiania okładki:", error);
+                    showNotification("Błąd podczas ustawiania okładki.", "Błąd");
                 }
-            }, true);
+
+            // === NOWA LOGIKA: USUWANIE OKŁADKI ===
+            } else if (removeCoverBtn) {
+                const updatedTasks = project.tasks.map(t => t.id === taskId ? { 
+                    ...t, 
+                    coverImageURL: null // Ustaw okładkę na null
+                } : t);
+                
+                try {
+                    await updateDoc(projectDocRef, { tasks: updatedTasks });
+                    openTaskModal(taskId); // Przeładuj modal
+                } catch (error) {
+                    console.error("Błąd usuwania okładki:", error);
+                    showNotification("Błąd podczas usuwania okładki.", "Błąd");
+                }
+            }
         });
 
         taskModal.assigneesEdit.addEventListener('click', (e) => {
@@ -15863,6 +16035,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
