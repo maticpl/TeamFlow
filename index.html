@@ -8242,7 +8242,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // === PRZYWRÓCONE WYPEŁNIANIE STATUSU ===
                 taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
                 // ======================================
-
+                // === NOWA LOGIKA: Resetowanie stanu akordeonu przy otwarciu ===
+                // Gwarantuje, że modal zawsze otwiera się ze zwiniętą listą
+                const subtasksToggleBtn = document.getElementById('subtasks-toggle-btn');
+                const subtasksCollapsibleArea = document.getElementById('subtasks-collapsible-area');
+                if (subtasksToggleBtn && subtasksCollapsibleArea) {
+                    subtasksToggleBtn.classList.add('collapsed');
+                    subtasksCollapsibleArea.classList.add('collapsed');
+                    const toggleText = subtasksToggleBtn.querySelector('.toggle-text');
+                    if (toggleText) toggleText.textContent = 'Rozwiń';
+                }
+                // === KONIEC NOWEJ LOGIKI ===
                 if (task.recurrence) {
                     taskModal.isRecurring.checked = true;
                     taskModal.recurrenceOptions.style.display = 'block';
@@ -14606,12 +14616,6 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
                 subtasksCounter.textContent = subtaskCount > 0 ? `(${subtaskCount})` : '(0)';
              }
              
-             // Resetuj stan akordeonu (zawsze ZWINIĘTY przy odświeżaniu modala)
-             if (subtasksToggleBtn && subtasksCollapsibleArea) {
-                subtasksToggleBtn.classList.add('collapsed'); // ZMIANA Z .remove NA .add
-                subtasksCollapsibleArea.classList.add('collapsed'); // ZMIANA Z .remove NA .add
-                if (toggleText) toggleText.textContent = 'Rozwiń'; // ZMIANA Z 'Zwiń' NA 'Rozwiń'
-             }
              // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
 
              subtasksListMain.innerHTML = ''; // Wyczyść listę
@@ -14700,8 +14704,18 @@ changePasswordModal.form.addEventListener('submit', async (e) => {
 
              try {
                  await updateDoc(projectDocRef, { tasks: updatedTasks });
-                 // Odśwież listę subzadań w głównym modalu bez jego zamykania
-                 renderSubtaskListInMainModal(updatedTask);
+                 // === MODYFIKACJA: Odświeżamy tylko listę, zamiast całego modala ===
+                 // Pobieramy najświeższą wersję zadania (która właśnie została zaktualizowana przez onSnapshot)
+                 const { task: refreshedMainTask } = findTask(mainTaskId);
+                 if (refreshedMainTask) {
+                    // Wywołujemy funkcję, która tylko odświeży listę i licznik,
+                    // nie ruszając stanu akordeonu (zgodnie z Krokiem 2).
+                    renderSubtaskListInMainModal(refreshedMainTask);
+                 } else {
+                    // Fallback, gdyby coś poszło nie tak
+                    await openTaskModal(mainTaskId);
+                 }
+                 // === KONIEC MODYFIKACJI ===
                  // Sprawdź, czy ukończenie tego subzadania powinno zakończyć zadanie główne
                  await checkAndCompleteMainTask(mainTaskId);
              } catch (error) {
@@ -15845,6 +15859,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
