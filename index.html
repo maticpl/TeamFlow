@@ -11857,17 +11857,26 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                     const { task, project } = findTask(taskId);
                     if (!task || !project) {
                          showNotification("Błąd: Nie znaleziono zadania.", "Błąd");
+                         // Musimy zresetować przycisk nawet w razie błędu
+                         taskCoverCroppieModal.saveBtn.disabled = false;
+                         taskCoverCroppieModal.saveBtn.textContent = 'Ustaw jako okładkę';
                          return;
                     }
 
                     // 2. Jeśli zadanie miało już okładkę, usuń stary plik okładki
                     if (task.coverImage && task.coverImage.path) {
-                        try {
-                            const oldCoverRef = ref(storage, task.coverImage.path);
-                            await deleteObject(oldCoverRef);
-                        } catch (oldDeleteError) {
-                            console.warn("Nie udało się usunąć starej okładki (być może już nie istniała):", oldDeleteError);
+                        // === POPRAWKA LOGIKI USUWANIA (Krok 6 z poprzedniej odpowiedzi) ===
+                        // Usuwaj stary plik tylko jeśli NIE BYŁ szablonem
+                        const isOldCoverTemplate = task.coverImage.originalPath && task.coverImage.originalPath.startsWith('template_');
+                        if (!isOldCoverTemplate) {
+                            try {
+                                const oldCoverRef = ref(storage, task.coverImage.path);
+                                await deleteObject(oldCoverRef);
+                            } catch (oldDeleteError) {
+                                console.warn("Nie udało się usunąć starej okładki (być może już nie istniała):", oldDeleteError);
+                            }
                         }
+                        // === KONIEC POPRAWKI ===
                     }
 
                     // 3. Stwórz nową ścieżkę dla przyciętej okładki
@@ -11911,10 +11920,8 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                     croppieInstance.destroy();
                 }
                 croppieInstance = null;
-                // Nie odświeżamy modala edycji, jeśli byliśmy w trybie 'new'
-                // if (taskId !== '__NEW_TASK_MODE__') {
-                //     openTaskModal(taskId); // Odśwież modal zadania, aby pokazać nowy stan przycisków
-                // }
+                // Usunięto automatyczne odświeżanie modala (openTaskModal(taskId)), 
+                // ponieważ jest ono wywoływane tylko w gałęzi 'else' (tryb edycji).
             }
         }
 
@@ -12007,12 +12014,12 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                     if (confirmed) {
                         try {
                             // 1. Usuń plik okładki ze Storage TYLKO jeśli nie był to szablon
-                            if (!isTemplateCover) {
+                            if (!isTemplateCover && coverPathToDelete) { // Dodano sprawdzenie czy coverPathToDelete istnieje
                                 console.log("Usuwanie pliku okładki ze Storage:", coverPathToDelete);
                                 const coverRef = ref(storage, coverPathToDelete);
                                 await deleteObject(coverRef);
                             } else {
-                                console.log("Pomijanie usuwania pliku ze Storage (okładka z szablonu).");
+                                console.log("Pomijanie usuwania pliku ze Storage (okładka z szablonu lub brak ścieżki).");
                             }
 
                             // 2. Zaktualizuj zadanie w Firestore (ustaw coverImage na null)
@@ -13152,12 +13159,10 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         submitBtn.disabled = true;
         submitBtn.textContent = 'Zapisywanie...';
 
-        // ... (istniejąca walidacja title, projectId, assignees) ...
+        // --- Początek Walidacji ---
         const title = newTaskModal.title.value.trim();
         if(!title) {
-            showNotification("Tytuł zadania jest wymagany.", "Błąd");
-            submitBtn.disabled = false; submitBtn.textContent = 'Zapisz zadanie'; // Reset przycisku
-            return;
+            throw new Error("Tytuł zadania jest wymagany.");
         };
 
         let projectId;
@@ -13165,9 +13170,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         projectId = projectSelect.value;
         const project = findProject(projectId);
         if(!project) {
-             showNotification("Nie udało się zidentyfikować projektu docelowego. Wybierz projekt z listy.", "Błąd");
-             submitBtn.disabled = false; submitBtn.textContent = 'Zapisz zadanie'; // Reset przycisku
-             return;
+             throw new Error("Nie udało się zidentyfikować projektu docelowego. Wybierz projekt z listy.");
         }
 
         const taskType = document.querySelector('input[name="task-type"]:checked').value;
@@ -13180,11 +13183,9 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                            .map(pill => pill.dataset.userId);
         }
         if (assignees.length === 0) {
-             showNotification("Wybierz przynajmniej jedną osobę do zadania.", "Błąd");
-             submitBtn.disabled = false; submitBtn.textContent = 'Zapisz zadanie'; // Reset przycisku
-             return;
+             throw new Error("Wybierz przynajmniej jedną osobę do zadania.");
         }
-        // ... (istniejąca logika dueDate, recurrence, budgetItems) ...
+        
         const date = newTaskModal.dueDateDate.value;
         const hour = newTaskModal.dueDateHour.value;
         const minute = newTaskModal.dueDateMinute.value;
@@ -13192,14 +13193,12 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         if (date && hour && minute) {
             newDueDate = `${date}T${hour}:${minute}`;
         }
+        
         let recurrence = null;
         if (newTaskModal.isRecurring.checked) {
-            // UWAGA: Logika polegała na .dueDate.value, co usunęliśmy.
-            // Poprawiam, aby polegała na newDueDate.
+            // === POPRAWKA BŁĘDU: Sprawdzamy newDueDate, a nie stary input ===
             if (!newDueDate) { 
-                showNotification("Zadanie cykliczne musi mieć ustawiony termin wykonania.", "Błąd");
-                submitBtn.disabled = false; submitBtn.textContent = 'Zapisz zadanie'; // Reset przycisku
-                return;
+                throw new Error("Zadanie cykliczne musi mieć ustawiony termin wykonania.");
             }
             const type = newTaskModal.recurrenceType.value;
             recurrence = { type: type };
@@ -13210,14 +13209,14 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 recurrence.weekday = document.getElementById('new-task-recurrence-weekday').value;
             }
         }
+        
         let taskBudgetItems = null;
+        let budgetValidationError = null;
         if (newTaskModal.budgetToggle.checked) {
-            // ... (istniejąca logika walidacji budżetu, która zawiera 'return' w razie błędu) ...
-            // (zakładamy, że ta logika jest poprawna i zatrzyma funkcję w razie błędu)
             taskBudgetItems = [];
             const itemsLi = newTaskModal.budgetItemsList.querySelectorAll('li.budget-item');
             const addedItemNames = new Set();
-            let budgetValidationError = null;
+
             itemsLi.forEach(itemLi => {
                 const nameSelect = itemLi.querySelector('.task-budget-item-name');
                 const amountInput = itemLi.querySelector('.task-budget-item-amount');
@@ -13234,15 +13233,15 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     }
                 }
             });
+
             if (budgetValidationError) {
                 newTaskModal.budgetErrorP.textContent = budgetValidationError;
                 if (!newTaskModal.budgetTabButton.classList.contains('active')) newTaskModal.budgetTabButton.click();
-                submitBtn.disabled = false; submitBtn.textContent = 'Zapisz zadanie'; // Reset przycisku
-                return; 
+                throw new Error(budgetValidationError); // Rzuć błędem, aby zatrzymać i trafić do finally
             }
             if (taskBudgetItems.length === 0) taskBudgetItems = null;
         }
-
+        // --- Koniec Walidacji ---
 
         const newTask = {
                 id: `task${Date.now()}`, title,
@@ -13259,7 +13258,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 recurrence: recurrence,
                 budgetItems: taskBudgetItems,
                 attachments: [] // Pusta tablica, wypełnimy poniżej
-                // coverImage zostanie dodane poniżej, jeśli istnieje
+                // coverImage zostanie dodane poniżej
             };
 
         // === POCZĄTEK MODYFIKACJI: Obsługa okładki i załączników ===
@@ -13287,7 +13286,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 });
         }
 
-        // 2. Przygotuj obietnice dla załączników (istniejąca logika)
+        // 2. Przygotuj obietnice dla załączników (stara logika, ale teraz część Promise.all)
         let attachmentPromises = [];
         if (stagedFiles.length > 0) {
             submitBtn.textContent = `Przesyłanie ${stagedFiles.length} plik(ów)...`;
@@ -13321,18 +13320,18 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         // === KONIEC MODYFIKACJI ===
 
         // Przygotuj listę zadań Z NOWYM zadaniem
-            const updatedTasksList = [...(project.tasks || []), newTask];
+        const updatedTasksList = [...(project.tasks || []), newTask];
 
-            // --- AKTUALIZACJA LOGIKI (Wersja 2): Obliczanie i zapis budgetSummary ---
-            const newBudgetSummary = calculateProjectBudgetSummary(updatedTasksList);
+        // --- AKTUALIZACJA LOGIKI (Wersja 2): Obliczanie i zapis budgetSummary ---
+        const newBudgetSummary = calculateProjectBudgetSummary(updatedTasksList);
 
-            // Zapisz JEDNOCZEŚNIE nową listę zadań i nowy budgetSummary
-            await updateDoc(doc(projectsRef, project.id), {
-                tasks: updatedTasksList,
-                budgetSummary: newBudgetSummary // Zapisz obliczony obiekt (lub null)
-            });
-            console.log(`[Budget v2] Zaktualizowano budgetSummary dla projektu ${project.id} po dodaniu nowego zadania ${newTask.id}.`);
-            // --- KONIEC AKTUALIZACJI ---
+        // Zapisz JEDNOCZEŚNIE nową listę zadań i nowy budgetSummary
+        await updateDoc(doc(projectsRef, project.id), {
+            tasks: updatedTasksList,
+            budgetSummary: newBudgetSummary // Zapisz obliczony obiekt (lub null)
+        });
+        console.log(`[Budget v2] Zaktualizowano budgetSummary dla projektu ${project.id} po dodaniu nowego zadania ${newTask.id}.`);
+        // --- KONIEC AKTUALIZACJI ---
         
         // --- POCZĄTEK DODANEGO KODU POWIADOMIEŃ ---
         if (newTask.assignees.length > 0) {
@@ -13362,17 +13361,18 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         closeModal(newTaskModal.overlay); // Zamknij modal po sukcesie
                 // ==========================================================
 
-            } catch (error) { // Blok catch do obsługi błędów
-                 console.error("Błąd podczas tworzenia zadania:", error);
-                 showNotification("Wystąpił błąd podczas zapisywania zadania.", "Błąd");
-                 // Jeśli wystąpi błąd, modal NIE zostanie zamknięty
-            } finally { // Blok finally (wykona się zawsze)
-                 stagedFiles = [];
-                 renderStagedFiles();
-                 submitBtn.disabled = false;
-                 submitBtn.textContent = 'Zapisz zadanie';
-            }
-        });
+    } catch (error) { // Blok catch do obsługi błędów
+         console.error("Błąd podczas tworzenia zadania:", error);
+         showNotification(error.message || "Wystąpił błąd podczas zapisywania zadania.", "Błąd");
+         // Jeśli wystąpi błąd, modal NIE zostanie zamknięty
+    } finally { // Blok finally (wykona się zawsze)
+         stagedFiles = [];
+         renderStagedFiles();
+         newTaskTempCoverData = null; // <<<=== DODANO RESET OKŁADKI
+         submitBtn.disabled = false;
+         submitBtn.textContent = 'Zapisz zadanie';
+    }
+});
 
 
         async function handleTaskCompletion(task, project, completionSource = 'manual') {
@@ -16758,6 +16758,7 @@ function addAiChatMessage(text, type, id = null) {
 </div>
 </body>
 </html>
+
 
 
 
