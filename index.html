@@ -979,7 +979,15 @@
         #open-cover-gallery-btn:hover {
             background-color: var(--accent-hover);
         }
-        /* === KONIEC NOWEJ REGUŁY === */
+        
+        /* === DODANA REGUŁA: Styl dla przycisku w trybie "Usuń szablon" === */
+        #open-cover-gallery-btn.is-danger-btn {
+            background-color: var(--danger-primary);
+        }
+        #open-cover-gallery-btn.is-danger-btn:hover {
+            background-color: var(--danger-hover);
+        }
+        /* === KONIEC DODANEJ REGUŁY === */
         /* Ten kontener rozciąga się i dostaje własny pasek przewijania */
         .task-modal-tabs-content {
             padding: 24px;
@@ -8511,6 +8519,25 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                  console.error("Nie znaleziono zadania lub projektu dla ID:", taskId, ". Przerywam otwieranie modala.");
                  return;
             }
+
+            // === POCZĄTEK NOWEJ LOGIKI (KROK 3) ===
+            // Sprawdź, czy okładka zadania jest szablonem i zaktualizuj przycisk
+            const openCoverGalleryBtn = document.getElementById('open-cover-gallery-btn');
+            if (openCoverGalleryBtn) {
+                const isTemplateCover = task.coverImage && task.coverImage.originalPath && task.coverImage.originalPath.startsWith('template_');
+                
+                if (isTemplateCover) {
+                    openCoverGalleryBtn.textContent = 'Usuń szablon';
+                    openCoverGalleryBtn.classList.add('is-danger-btn');
+                    openCoverGalleryBtn.dataset.action = 'remove-template-cover'; // Ustaw akcję
+                } else {
+                    openCoverGalleryBtn.textContent = 'Wybierz okładkę';
+                    openCoverGalleryBtn.classList.remove('is-danger-btn');
+                    openCoverGalleryBtn.dataset.action = 'open-gallery'; // Ustaw akcję
+                }
+            }
+            // === KONIEC NOWEJ LOGIKI (KROK 3) ===
+
         
             // --- FUNKCJA DLA TRYBU WIDOKU (z przywróconymi brakującymi fragmentami) ---
             const setViewMode = () => {
@@ -11645,7 +11672,28 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
         }
 
         // --- DODANIE LISTENERÓW ---
-        openCoverGalleryBtn.addEventListener('click', openCoverGalleryModal);
+        // openCoverGalleryBtn.addEventListener('click', openCoverGalleryModal); // <-- USUWAMY STARY LISTENER
+        
+        // NOWY, INTELIGENTNY LISTENER (KROK 4)
+        openCoverGalleryBtn.addEventListener('click', (e) => {
+            const action = e.target.dataset.action;
+            
+            if (action === 'open-gallery') {
+                // Akcja domyślna: otwórz galerię
+                openCoverGalleryModal();
+            } else if (action === 'remove-template-cover') {
+                // Nowa akcja: usuń okładkę
+                const taskId = taskModal.overlay.dataset.taskId;
+                if (taskId) {
+                    // Wywołujemy istniejącą funkcję usuwania, która już potrafi
+                    // obsłużyć usuwanie okładek szablonowych (nie usuwa pliku, tylko referencję)
+                    removeCoverImage(taskId);
+                } else {
+                    console.error("Brak taskId przy próbie usunięcia okładki szablonu.");
+                }
+            }
+        });
+
         coverTemplatesModal.grid.addEventListener('change', handleCoverTemplateSelect);
 
         // === KONIEC NOWEJ LOGIKI GALERII OKŁADEK ===
@@ -16491,6 +16539,9 @@ function addAiChatMessage(text, type, id = null) {
             <h2>Wybierz szablon okładki</h2>
             <button type="button" class="modal-close-btn">&times;</button>
         </div>
+        <p style="font-size: 14px; color: var(--text-secondary); margin: 10px 24px 16px 24px; text-align: center;">
+            Pamiętaj, że po dodaniu załącznika do zadania w formacie .png/.jpeg możesz użyć własnego obrazka jako okładki.
+        </p>
         <div class="form-modal-content">
             <div id="cover-templates-grid">
                 <p style="color: var(--text-secondary);">Ładowanie szablonów...</p>
@@ -16503,6 +16554,7 @@ function addAiChatMessage(text, type, id = null) {
 </div>
 </body>
 </html>
+
 
 
 
