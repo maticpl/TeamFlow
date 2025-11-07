@@ -5588,7 +5588,7 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
 }
 
         // === NOWA FUNKCJA POMOCNICZA: Otwieranie Modala Kadrowania ===
-        function openCoverCropper(imageUrl, originalPath, taskId) {
+        async function openCoverCropper(imageUrl, originalPath, taskId) { // ZMIANA: Dodano 'async'
             // Otwórz modal kadrowania
             openModal(cropPhotoModal.overlay);
 
@@ -5605,14 +5605,30 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                 enableExif: true
             });
 
-            // Załaduj obrazek
-            croppieInstance.bind({
-                url: imageUrl,
-            });
+            // === NOWY BLOK TRY...CATCH ===
+            try {
+                // Załaduj obrazek - AWAIT czeka na załadowanie lub błąd
+                await croppieInstance.bind({
+                    url: imageUrl,
+                });
 
-            // Zapisz kluczowe informacje w modalu, aby przycisk "Zapisz" wiedział, co robić
-            cropPhotoModal.overlay.dataset.taskCoverTaskId = taskId;
-            cropPhotoModal.overlay.dataset.originalAttachmentPath = originalPath;
+                // Zapisz kluczowe informacje w modalu (TYLKO jeśli się udało)
+                cropPhotoModal.overlay.dataset.taskCoverTaskId = taskId;
+                cropPhotoModal.overlay.dataset.originalAttachmentPath = originalPath;
+
+            } catch (error) {
+                // PRZECHWYCENIE BŁĘDU
+                console.error("Błąd podczas ładowania obrazu do Croppie:", error);
+                showNotification("Nie udało się załadować obrazu do edytora. Plik może być uszkodzony.", "Błąd");
+                
+                // Zamknij modal kadrowania, bo jest bezużyteczny
+                closeModal(cropPhotoModal.overlay);
+                
+                // Wyczyść dane, aby zapobiec błędom przycisku "Zapisz"
+                delete cropPhotoModal.overlay.dataset.taskCoverTaskId;
+                delete cropPhotoModal.overlay.dataset.originalAttachmentPath;
+            }
+            // === KONIEC NOWEGO BLOKU ===
         }
 
         // === ZMODYFIKOWANA FUNKCJA RENDEROWANIA ZAŁĄCZNIKÓW ===
@@ -16125,6 +16141,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
