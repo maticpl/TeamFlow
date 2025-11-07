@@ -771,6 +771,26 @@
         .kanban-tasks { list-style: none; flex-grow: 1; overflow-y: auto; padding-right: 4px; }
         .kanban-tasks::-webkit-scrollbar { width: 6px; }
         .kanban-tasks::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 3px; }
+         Dziękuję za szczegółowe zgłoszenie i screen! Rzeczywiście, obrazek jest przycięty, a ikony nie wyglądają najlepiej na tle zdjęcia. To, że kadrowanie działa, ale efekt jest losowy, również wymaga pilnej uwagi.
+
+Wszystkie te problemy są ze sobą powiązane i wynikają z kilku drobnych niedociągnięć w CSS i logice JS, zwłaszcza w zakresie jak obrazek jest wpasowywany w kafelek.
+
+Naprawimy to w kilku krokach, zaczynając od najważniejszej kwestii – niepoprawnego wyświetlania obrazka i kontrolek na kafelku.
+
+Diagnoza Problemów:
+Obrazek nie na całą szerokość: Wynika z padding na elemencie .task-card i braku odpowiednich ujemnych marginesów na okładce, które by go zneutralizowały.
+
+Losowe wyświetlanie po kadrowaniu: Prawdopodobnie Croppie używało contain zamiast cover lub po prostu źle liczyło piksele przy wyjściu. Ustawienie background-size: cover na .task-card-cover powinno to poprawić.
+
+Ikony bez tła, checkbox źle umiejscowiony: Brakuje tła na ikonach, przez co są nieczytelne na obrazku. Checkbox jest źle pozycjonowany, bo nie uwzględnia wysokości okładki.
+
+KROK 1: Modyfikacja CSS (Poprawki wyświetlania okładki i kontrolek)
+Musimy dokładnie dostosować style, aby okładka rozciągała się na całą szerokość, a ikony i checkbox miały odpowiednie tło i pozycję.
+
+Kod PRZED Zmianą (cały fragment STYLY DLA KAFELKA):
+
+CSS
+
          /* === NOWE STYLE: Kontener okładki === */
          .task-card-cover {
             width: 100%;
@@ -823,6 +843,93 @@
        .task-card.priority-high {
             border-top: 4px solid var(--priority-high-border);
             padding-top: 8px; /* Zmniejszamy górny padding, bo ramka zajmuje miejsce */
+        }
+Kod PO Zmianie (Nowy Kod):
+
+CSS
+
+         /* === NOWE STYLE: Kontener okładki (Zmodyfikowany) === */
+         .task-card-cover {
+            width: 100%;
+            height: 130px; /* Stała wysokość okładki */
+            overflow: hidden;
+            background-color: var(--bg-tertiary);
+            /* Obraz będzie ustawiony jako tło, aby łatwo go kontrolować */
+            background-size: cover; /* Upewniamy się, że obraz zawsze pokrywa cały obszar */
+            background-position: center;
+            position: relative;
+            /* Zaokrąglenie tylko górnych rogów */
+            border-radius: var(--border-radius) var(--border-radius) 0 0;
+         }
+         /* === KONIEC NOWYCH STYLI === */
+
+         .task-card,
+         .my-day-task-item {
+            background-color: var(--bg-secondary);
+            border-radius: var(--border-radius);
+            padding: 12px 12px 12px 36px;
+            margin-bottom: 12px;
+            box-shadow: var(--shadow-sm);
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            border: 1px solid var(--accent-primary);
+         }
+
+         /* === NOWE STYLE: Modyfikacja kafelka z okładką (Zmodyfikowany) === */
+         .task-card.has-cover {
+            padding-top: 0; /* Zerujemy górny padding */
+            border-top-width: 0; 
+         }
+         .task-card.has-cover .task-card-cover {
+            /* Przesuwamy obrazek o 1px w górę i w boki, aby zakrył ramkę kafelka
+               oraz aby rozciągnął się na całą szerokość, niwelując padding z .task-card */
+            margin: -1px -1px 0 -1px; /* ZMIANA: Lewy margines na -1px */
+            width: calc(100% + 2px); /* ZMIANA: Rozciągnij na pełną szerokość plus 2px na ramki */
+         }
+         /* Stosujemy border priorytetu na okładce */
+         .task-card.has-cover.priority-high .task-card-cover {
+            border-top: 4px solid var(--priority-high-border);
+         }
+
+         /* ZMIANA: Style dla ikon na okładce */
+         .task-card.has-cover .task-card-icons {
+            position: absolute;
+            top: 8px; /* Odległość od góry okładki */
+            right: 8px; /* Odległość od prawej okładki */
+            z-index: 2; /* Upewnij się, że są nad obrazem */
+            display: flex; /* Aby ikony były w jednym rzędzie */
+            gap: 4px; /* Odstęp między ikonami */
+         }
+         .task-card.has-cover .task-card-icons .task-detail {
+            /* Dodajemy tło dla czytelności */
+            background-color: rgba(0, 0, 0, 0.4); /* Półprzezroczyste czarne tło */
+            border-radius: var(--border-radius);
+            padding: 4px 6px; /* Mniejszy padding dla zgrabniejszego wyglądu */
+            color: white; /* Białe ikony i tekst */
+            font-size: 12px;
+         }
+         .task-card.has-cover .task-card-icons .task-detail svg {
+             color: white; /* Upewnij się, że ikony SVG są białe */
+         }
+
+         /* ZMIANA: Pozycja checkboxa na kafelku z okładką */
+         .task-card.has-cover .task-card-checkbox {
+            /* Wysokość okładki (130px) + połowa paddingu pionowego (12px / 2 = 6px)
+               + mały offset dla lepszego centrowania, np. 8px */
+            top: calc(130px + 6px + 8px); /* 144px, precyzyjniej wyliczone */
+            left: 8px; /* Przesunięcie w lewo dla lepszego wyglądu */
+            background-color: rgba(255, 255, 255, 0.8); /* Półprzezroczyste białe tło */
+            border-radius: var(--border-radius); /* Lekkie zaokrąglenie */
+            border: 1px solid var(--border-color); /* Delikatna ramka */
+            width: 20px;
+            height: 20px;
+         }
+         /* === KONIEC NOWYCH STYLI === */
+
+       .task-card.priority-high {
+            border-top: 4px solid var(--priority-high-border);
+            padding-top: 8px;
         }
         .task-card:hover { box-shadow: var(--shadow-md); }
         .task-card.dragging { opacity: 0.5; transform: rotate(3deg); }
@@ -5600,9 +5707,12 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
             
             // Stwórz nową instancję Croppie dla OKŁADKI
             croppieInstance = new Croppie(cropPhotoModal.container, {
-                viewport: { width: 280, height: 140, type: 'square' }, // Prostokąt 2:1
+                viewport: { width: 280, height: 140, type: 'square' }, // ZMIANA: type: 'square' jest błędne dla prostokąta, ale Croppie ignoruje to, jeśli podano width/height
                 boundary: { width: 300, height: 250 },
-                enableExif: true
+                enableExif: true,
+                // ZMIANA: Dodajemy enableResize i enableOrientation dla lepszej kontroli
+                enableResize: true,
+                enableOrientation: true
             });
 
             // === NOWY BLOK TRY...CATCH ===
@@ -16141,6 +16251,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
