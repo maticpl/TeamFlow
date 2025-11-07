@@ -3785,10 +3785,16 @@
              box-shadow: var(--shadow-sm);
         }
         
-        /* 5. Wrapper dla treści pod okładką */
+       /* 5. Wrapper dla treści pod okładką */
         .task-card-content {
-            /* Przywracamy oryginalny padding (z miejscem na checkbox) dla treści */
-            padding: 12px 12px 12px 36px; 
+            /* Domyślnie wrapper nie ma paddingu, ponieważ padding jest na .task-card */
+            padding: 0; 
+        }
+
+        /* 5b. NOWA REGUŁA: Przywracamy padding dla treści, jeśli jest okładka */
+        .task-card.has-cover .task-card-content {
+            /* (Oryginalny padding kafelka jest przywracany tutaj) */
+            padding: 12px 12px 12px 36px;
         }
         /* === KONIEC: NOWE STYLE DLA OKŁADKI ZADANIA (Wersja 2) === */
         /* === POCZĄTEK: STYLE DLA OKŁADKI W ZAKŁADCE ZAŁĄCZNIKÓW === */
@@ -5047,6 +5053,7 @@
         let sortableProjects = null;
 
         let stagedFiles = [];
+        let croppieCoverInstance = null;
 
         // --- ZMIENNE STANU TYMCZASOWEGO DLA BUDŻETU ---
         let newProjectTempBudgetSaved = false;
@@ -11397,58 +11404,177 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                 project
             } = findTask(taskId);
             if (!task || !project) return;
+            
+            // --- POCZĄTEK NOWEJ LOGIKI KADROWANIA ---
+            
+            // Pobieramy referencje do nowego modala
+            const coverCropModalEl = document.getElementById('cover-crop-modal');
+            const coverCropContainer = document.getElementById('cover-croppie-container');
+            const saveCroppedCoverBtn = document.getElementById('save-cropped-cover-btn');
 
-            taskModal.uploadStatus.textContent = 'Przesyłanie...';
-            taskModal.addAttachmentBtn.disabled = true;
+            // 1. Sprawdź, czy plik jest obrazem
+            if (isFileAnImage(file.type)) {
+                
+                // 2. Jeśli TAK, otwórz modal kadrowania
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    openModal(coverCropModalEl);
+
+                    if (croppieCoverInstance) {
+                        croppieCoverInstance.destroy();
+                    }
+                    
+                    croppieCoverInstance = new Croppie(coverCropContainer, {
+                        // Proporcje 16:9 dla okładki
+                        viewport: { width: 320, height: 180 }, 
+                        boundary: { width: 350, height: 250 },
+                        enableExif: true
+                    });
+
+                    croppieCoverInstance.bind({
+                        url: event.target.result,
+                    });
+
+                    // 3. Zapisz kluczowe informacje na przycisku zapisu, aby użyć ich w KROK 5
+                    saveCroppedCoverBtn.dataset.taskId = taskId;
+                    saveCroppedCoverBtn.dataset.originalFileName = file.name;
+                }
+                reader.readAsDataURL(file);
+                
+                // Zresetuj input pliku (ważne, aby móc wybrać ten sam plik ponownie)
+                taskModal.attachmentFileInput.value = '';
+                
+            } else {
+                // 4. Jeśli NIE, prześlij plik normalnie (stara logika)
+                
+                taskModal.uploadStatus.textContent = 'Przesyłanie...';
+                taskModal.addAttachmentBtn.disabled = true;
+
+                try {
+                    const storagePath = `attachments/${project.id}/${taskId}/${Date.now()}_${file.name}`;
+                    const storageRef = ref(storage, storagePath);
+
+                    const snapshot = await uploadBytes(storageRef, file);
+                    const downloadURL = await getDownloadURL(snapshot.ref);
+
+                    const newAttachment = {
+                        id: `att_${Date.now()}`,
+                        name: file.name,
+                        url: downloadURL,
+                        path: storagePath,
+                        uploadedBy: state.currentUser.uid,
+                        timestamp: Date.now()
+                    };
+
+                    const updatedAttachments = [...(task.attachments || []), newAttachment];
+                    const updatedTasks = project.tasks.map(t => t.id === taskId ? { ...t,
+                        attachments: updatedAttachments
+                    } : t);
+
+                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                    await updateDoc(projectDocRef, {
+                        tasks: updatedTasks
+                    });
+                    
+                    // onSnapshot sam odświeży listę
+                    
+                } catch (error) {
+                    console.error("Błąd przesyłania pliku:", error);
+                    showNotification("Wystąpił błąd podczas przesyłania pliku.", "Błąd");
+                } finally {
+                    taskModal.uploadStatus.textContent = '';
+                    taskModal.addAttachmentBtn.disabled = false;
+                    taskModal.attachmentFileInput.value = '';
+                }
+            }
+            // --- KONIEC NOWEJ LOGIKI KADROWANIA ---
+        });
+        // === POCZĄTEK: NOWY LISTENER ZAPISU KADROWANEJ OKŁADKI ===
+        document.getElementById('save-cropped-cover-btn').addEventListener('click', async (e) => {
+            const saveBtn = e.target;
+            const taskId = saveBtn.dataset.taskId;
+            const originalFileName = saveBtn.dataset.originalFileName;
+            
+            if (!croppieCoverInstance || !taskId || !originalFileName) {
+                console.error("Błąd krytyczny: brak instancji Croppie lub ID zadania przy zapisie okładki.");
+                return;
+            }
+
+            const { task, project } = findTask(taskId);
+            if (!task || !project) {
+                console.error("Błąd krytyczny: nie znaleziono zadania lub projektu.");
+                return;
+            }
+
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Przesyłanie...';
 
             try {
-                const storagePath = `attachments/${project.id}/${taskId}/${Date.now()}_${file.name}`;
+                // 1. Pobierz skadrowany obraz jako Blob
+                const blob = await croppieCoverInstance.result({
+                    type: 'blob',
+                    size: 'viewport', // Użyj rozmiaru viewportu (320x180)
+                    format: 'jpeg',
+                    quality: 0.9,
+                    circle: false
+                });
+
+                // 2. Przygotuj ścieżkę i referencję w Storage
+                // Używamy nazwy pliku, aby zachować rozszerzenie, ale dodajemy prefix 'cover_'
+                const storagePath = `attachments/${project.id}/${taskId}/cover_${Date.now()}_${originalFileName}`;
                 const storageRef = ref(storage, storagePath);
 
-                const snapshot = await uploadBytes(storageRef, file);
+                // 3. Prześlij Bloba (skadrowany obraz)
+                const snapshot = await uploadBytes(storageRef, blob);
+                
+                // 4. Pobierz URL pobierania
                 const downloadURL = await getDownloadURL(snapshot.ref);
 
+                // 5. Usuń starą okładkę (jeśli istniała)
+                await handleOldCoverDeletion(task);
+
+                // 6. Stwórz obiekt nowego załącznika
                 const newAttachment = {
                     id: `att_${Date.now()}`,
-                    name: file.name,
+                    name: `(Okładka) ${originalFileName}`, // Dodajemy prefix do nazwy
                     url: downloadURL,
                     path: storagePath,
                     uploadedBy: state.currentUser.uid,
                     timestamp: Date.now()
                 };
 
+                // 7. Zaktualizuj zadanie w Firestore
+                const projectDocRef = doc(projectsRef, project.id);
                 const updatedAttachments = [...(task.attachments || []), newAttachment];
-                const updatedTasks = project.tasks.map(t => t.id === taskId ? { ...t,
-                    attachments: updatedAttachments
-                } : t);
-
-                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                await updateDoc(projectDocRef, {
-                    tasks: updatedTasks
-                });
                 
-                // Odśwież tylko listę załączników
-                // Musimy pobrać zaktualizowane zadanie, ponieważ 'updatedTasks' to cała lista
-                const finalUpdatedTask = updatedTasks.find(t => t.id === taskId);
-                if (finalUpdatedTask) {
-                    renderAttachments(finalUpdatedTask);
-                } else {
-                    // W razie problemu, fallback do pełnego odświeżenia
-                    // UWAGA: openTaskModal() jest wywoływane przez onSnapshot,
-                    // więc nie musimy go tu wywoływać. Wystarczy zaktualizować bazę.
-                    // openTaskModal(taskId); // <-- Zakomentowane
-                }
+                // Ustawiamy ten nowy plik jako okładkę ORAZ dodajemy go do listy załączników
+                const updatedTask = { 
+                    ...task,
+                    attachments: updatedAttachments,
+                    coverURL: downloadURL,  // Ustaw jako aktywną okładkę
+                    coverPath: storagePath // Ustaw ścieżkę do aktywnej okładki
+                };
 
+                const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+                
+                await updateDoc(projectDocRef, { tasks: updatedTasks });
+                
+                showNotification("Nowa okładka została dodana i ustawiona.", "Sukces");
+                
             } catch (error) {
-                console.error("Błąd przesyłania pliku:", error);
-                showNotification("Wystąpił błąd podczas przesyłania pliku.", "Błąd");
+                console.error("Błąd podczas wysyłania skadrowanej okładki:", error);
+                showNotification("Wystąpił błąd podczas wysyłania okładki.", "Błąd");
             } finally {
-                taskModal.uploadStatus.textContent = '';
-                taskModal.addAttachmentBtn.disabled = false;
-                taskModal.attachmentFileInput.value = '';
+                // 8. Zawsze zamykaj modal i resetuj przycisk
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Ustaw jako okładkę';
+                closeModal(document.getElementById('cover-crop-modal'));
+                if (croppieCoverInstance) {
+                    croppieCoverInstance.destroy();
+                    croppieCoverInstance = null;
+                }
             }
         });
-
         /**
          * ZMODYFIKOWANY LISTENER (Wersja 2)
          * Obsługuje usuwanie załączników ORAZ ustawianie/usuwanie okładek w modalu edycji.
@@ -16157,6 +16283,22 @@ function addAiChatMessage(text, type, id = null) {
             </div>
         </div>
     </div>
+
+    <div class="modal-overlay" id="cover-crop-modal">
+        <div class="modal" style="max-width: 450px;">
+            <div class="modal-header">
+                <h2>Dopasuj okładkę zadania</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <div id="cover-croppie-container" style="width: 350px; height: 250px; margin: 0 auto;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="button" id="save-cropped-cover-btn" class="btn btn-primary">Ustaw jako okładkę</button>
+            </div>
+        </div>
+    </div>
     <div id="resources-menu-content" style="display: none;">
         <div class="mobile-actions-menu" style="display: block; box-shadow: none; border: none; padding: 0;">
             <ul>
@@ -16218,6 +16360,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
