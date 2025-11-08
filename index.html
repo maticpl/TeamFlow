@@ -4902,7 +4902,8 @@
         <span>Cykliczność</span>
     </button>
 </div>
-
+    <button type="button" id="new-task-open-cover-gallery-btn">Wybierz banner</button>
+</div>
                 <div class="task-modal-tabs-content">
                     <div id="tab-new-task-description" class="task-modal-tab-content">
                         <textarea id="new-task-description" placeholder="Dodaj więcej szczegółów..." rows="6"></textarea>
@@ -5180,6 +5181,9 @@
         let editProjectTempBudgetSaved = false;
         let editProjectTempBudgetData = null;
         // --- KONIEC ZMIENNYCH STANU ---
+       // --- NOWA ZMIENNA STANU TYMCZASOWEGO DLA BANNERA ---
+        let newTaskTempBannerData = null;
+        // --- KONIEC ZMIENNYCH STANU ---
 
 
         // --- Definicja stanu i stałych ---
@@ -5407,6 +5411,7 @@ let state = {
     budgetCurrencySpan: document.getElementById('new-task-budget-currency'), // Span na walutę
     budgetErrorP: document.getElementById('new-task-budget-error'), // Paragraf na błędy walidacji
     budgetTabButton: document.getElementById('new-task-tab-taskBudget') // Przycisk zakładki (już istniał)
+    openCoverGalleryBtn: document.getElementById('new-task-open-cover-gallery-btn')
         };
         const searchModal = {
             overlay: document.getElementById('search-modal'),
@@ -9185,7 +9190,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const {
                 isFab = false, isSpecial = false
             } = options;
-newTaskModal.form.reset();
+            
+            // --- RESET STANU TYMCZASOWEGO BANNRA ---
+            newTaskTempBannerData = null;
+            if (newTaskModal.openCoverGalleryBtn) {
+                newTaskModal.openCoverGalleryBtn.textContent = 'Wybierz banner';
+                newTaskModal.openCoverGalleryBtn.classList.remove('is-danger-btn');
+                newTaskModal.openCoverGalleryBtn.dataset.action = 'open-gallery';
+            }
+            // --- KONIEC RESETU ---
+
+            newTaskModal.form.reset();
             // === NOWA LOGIKA: Ustawienie domyślnej daty i godziny (dla 3 pól) ===
             const defaultDateStr = getLocalDateString(); // Pobiera dzisiejszą datę YYYY-MM-DD
             newTaskModal.dueDateDate.value = defaultDateStr;
@@ -11596,14 +11611,38 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
          * Otwiera modal galerii z szablonami okładek.
          */
         function openCoverGalleryModal() {
-            const taskId = taskModal.overlay.dataset.taskId;
-            const { task } = findTask(taskId);
-            if (!task) return;
+            let currentTemplatePath = null;
+            let contextTaskId = null; // Będzie zawierać ID zadania lub 'new-task'
 
-            // Sprawdź, czy obecna okładka pochodzi z szablonu
-            const currentTemplatePath = (task.coverImage && task.coverImage.originalPath && task.coverImage.originalPath.startsWith('template_')) 
-                ? task.coverImage.originalPath 
-                : null;
+            // Sprawdź, który modal jest aktywny
+            if (taskModal.overlay.classList.contains('visible')) {
+                // Tryb EDYCJI - pobierz dane z istniejącego zadania
+                contextTaskId = taskModal.overlay.dataset.taskId;
+                const { task } = findTask(contextTaskId);
+                if (!task) return;
+
+                currentTemplatePath = (task.coverImage && task.coverImage.originalPath && task.coverImage.originalPath.startsWith('template_')) 
+                    ? task.coverImage.originalPath 
+                    : null;
+                
+                // Zapisz kontekst w modalu galerii
+                coverTemplatesModal.overlay.dataset.contextTaskId = contextTaskId;
+
+            } else if (newTaskModal.overlay.classList.contains('visible')) {
+                // Tryb NOWEGO ZADANIA - pobierz dane z tymczasowej zmiennej
+                contextTaskId = 'new-task'; // Specjalny identyfikator kontekstu
+                
+                currentTemplatePath = (newTaskTempBannerData && newTaskTempBannerData.originalPath && newTaskTempBannerData.originalPath.startsWith('template_'))
+                    ? newTaskTempBannerData.originalPath
+                    : null;
+                
+                // Zapisz kontekst w modalu galerii
+                coverTemplatesModal.overlay.dataset.contextTaskId = contextTaskId;
+
+            } else {
+                console.error("openCoverGalleryModal: Nie można ustalić kontekstu (ani Nowe Zadanie, ani Edycja Zadania nie są widoczne).");
+                return;
+            }
 
             coverTemplatesModal.grid.innerHTML = ''; // Wyczyść galerię
 
@@ -11655,13 +11694,21 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             const templateUrl = radioInput.dataset.url;
             const templateName = radioInput.dataset.name;
             
-            // Pobierz ID zadania z głównego modala
-            const taskId = taskModal.overlay.dataset.taskId;
+            // Pobierz ID zadania (lub kontekst 'new-task') z modala galerii
+            const contextTaskId = coverTemplatesModal.overlay.dataset.contextTaskId;
 
-            if (!taskId || !templateUrl) {
-                console.error("Błąd: Brak taskId lub template URL przy wyborze okładki.");
+            if (!contextTaskId || !templateUrl) {
+                console.error("Błąd: Brak contextTaskId lub template URL przy wyborze okładki.");
                 return;
             }
+
+            // 1. Zamknij modal galerii
+            closeModal(coverTemplatesModal.overlay);
+
+            // 2. Otwórz modal kadrowania, przekazując dane szablonu ORAZ KONTEKST
+            // Używamy ID szablonu (np. "template_miasto_postepu") jako "originalPath"
+            openCoverImageCropper(contextTaskId, templateUrl, templateId, templateName);
+        }
 
             // 1. Zamknij modal galerii
             closeModal(coverTemplatesModal.overlay);
@@ -11674,33 +11721,31 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
         // --- DODANIE LISTENERÓW ---
         // openCoverGalleryBtn.addEventListener('click', openCoverGalleryModal); // <-- USUWAMY STARY LISTENER
         
-        // NOWY, INTELIGENTNY LISTENER (KROK 4)
-        openCoverGalleryBtn.addEventListener('click', (e) => {
-            const action = e.target.dataset.action;
-            
-            if (action === 'open-gallery') {
-                // Akcja domyślna: otwórz galerię
-                openCoverGalleryModal();
-            } else if (action === 'remove-template-cover') {
-                // Nowa akcja: usuń okładkę
-                const taskId = taskModal.overlay.dataset.taskId;
-                if (taskId) {
-                    // Wywołujemy istniejącą funkcję usuwania, która już potrafi
-                    // obsłużyć usuwanie okładek szablonowych (nie usuwa pliku, tylko referencję)
-                    removeCoverImage(taskId);
-                } else {
-                    console.error("Brak taskId przy próbie usunięcia okładki szablonu.");
+        // === NOWY LISTENER DLA PRZYCISKU W MODALU NOWEGO ZADANIA ===
+        if (newTaskModal.openCoverGalleryBtn) {
+            newTaskModal.openCoverGalleryBtn.addEventListener('click', (e) => {
+                const action = e.target.dataset.action || 'open-gallery';
+                
+                if (action === 'open-gallery') {
+                    // Akcja domyślna: otwórz galerię
+                    // Funkcja openCoverGalleryModal sama wykryje, że jest w kontekście 'new-task'
+                    openCoverGalleryModal();
+                } else if (action === 'remove-template-cover') {
+                    // Nowa akcja: usuń okładkę (z kontekstem 'new-task')
+                    removeCoverImage('new-task');
                 }
-            }
-        });
+            });
+        }
+        // === KONIEC NOWEGO LISTENERA ===
 
         coverTemplatesModal.grid.addEventListener('change', handleCoverTemplateSelect);
 
         // === KONIEC NOWEJ LOGIKI GALERII OKŁADEK ===
         /**
          * Otwiera modal kadrowania dla okładki zadania.
+         * @param {string} contextTaskId - ID zadania lub specjalny string 'new-task'.
          */
-        function openCoverImageCropper(taskId, originalUrl, originalPath, originalName) {
+        function openCoverImageCropper(contextTaskId, originalUrl, originalPath, originalName) {
             openModal(taskCoverCroppieModal.overlay);
 
             if (croppieInstance) {
@@ -11721,23 +11766,44 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             });
 
             // Zapisujemy kluczowe dane w modalu, aby funkcja zapisu miała do nich dostęp
-            taskCoverCroppieModal.overlay.dataset.taskId = taskId;
+            taskCoverCroppieModal.overlay.dataset.contextTaskId = contextTaskId; // Zmieniona nazwa dataset
             taskCoverCroppieModal.overlay.dataset.originalPath = originalPath;
             taskCoverCroppieModal.overlay.dataset.originalName = originalName;
         }
 
         /**
-         * Zapisuje przyciętą okładkę do Storage i aktualizuje dokument zadania.
+         * Zapisuje przyciętą okładkę do Storage i aktualizuje dokument zadania LUB stan tymczasowy.
          */
         async function saveCroppedCoverImage() {
-            const taskId = taskCoverCroppieModal.overlay.dataset.taskId;
+            // Odczytaj kontekst (ID zadania lub 'new-task')
+            const contextTaskId = taskCoverCroppieModal.overlay.dataset.contextTaskId;
             const originalPath = taskCoverCroppieModal.overlay.dataset.originalPath; // Ścieżka oryginału
             const originalName = taskCoverCroppieModal.overlay.dataset.originalName;
 
-            const { task, project } = findTask(taskId);
-            if (!croppieInstance || !task || !project) {
-                 showNotification("Błąd: Nie znaleziono zadania lub edytora.", "Błąd");
+            // Sprawdź, czy edytor istnieje
+            if (!croppieInstance) {
+                 showNotification("Błąd: Nie znaleziono edytora.", "Błąd");
                  return;
+            }
+            
+            // Ustal, czy to szablon (nie wymaga uploadu)
+            const isTemplateCover = originalPath && originalPath.startsWith('template_');
+
+            // --- Walidacja kontekstu ---
+            let task, project;
+            const isNewTask = contextTaskId === 'new-task';
+            
+            if (isNewTask) {
+                // Kontekst dla nowego zadania, nie potrzebujemy 'task' i 'project'
+            } else {
+                // Kontekst dla edycji zadania, pobierz 'task' i 'project'
+                const { task: foundTask, project: foundProject } = findTask(contextTaskId);
+                if (!foundTask || !foundProject) {
+                    showNotification("Błąd: Nie znaleziono zadania lub projektu.", "Błąd");
+                    return;
+                }
+                task = foundTask;
+                project = foundProject;
             }
 
             taskCoverCroppieModal.saveBtn.disabled = true;
@@ -11753,54 +11819,99 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                     circle: false
                 });
 
-                // 2. Jeśli zadanie miało już okładkę, usuń stary plik okładki
-                if (task.coverImage && task.coverImage.path) {
-                    try {
-                        const oldCoverRef = ref(storage, task.coverImage.path);
-                        await deleteObject(oldCoverRef);
-                    } catch (oldDeleteError) {
-                        console.warn("Nie udało się usunąć starej okładki (być może już nie istniała):", oldDeleteError);
+                let newCoverURL, newCoverPath;
+
+                // --- NOWA LOGIKA ROZDZIELAJĄCA UPLOAD ---
+                if (isTemplateCover) {
+                    // Dla szablonu NIE wysyłamy nic do Storage
+                    // Używamy oryginalnego URL-a szablonu i specjalnej ścieżki
+                    newCoverURL = await croppieInstance.element.src; // Pobierz URL oryginału (z szablonu)
+                    newCoverPath = originalPath; // np. "template_miasto_postepu"
+                    console.log("Zapisywanie okładki z szablonu. URL:", newCoverURL, "Path:", newCoverPath);
+                } else {
+                    // Dla własnego załącznika (logika działa tylko dla edycji)
+                    if (isNewTask) {
+                        // Ta ścieżka nie powinna być nigdy osiągnięta zgodnie z planem (Option 2)
+                        // Ale jeśli w przyszłości dodamy upload z 'new-task', logika pójdzie tutaj
+                        throw new Error("Logika uploadu niestandardowego bannera dla nowego zadania nie jest jeszcze zaimplementowana.");
                     }
+
+                    // --- Istniejąca logika dla trybu EDYCJI ---
+                    // 2. Jeśli zadanie miało już okładkę, usuń stary plik okładki
+                    if (task.coverImage && task.coverImage.path && !task.coverImage.path.startsWith('template_')) {
+                        try {
+                            const oldCoverRef = ref(storage, task.coverImage.path);
+                            await deleteObject(oldCoverRef);
+                        } catch (oldDeleteError) {
+                            console.warn("Nie udało się usunąć starej okładki (być może już nie istniała):", oldDeleteError);
+                        }
+                    }
+
+                    // 3. Stwórz nową ścieżkę dla przyciętej okładki
+                    newCoverPath = `covers/${project.id}/${task.id}/cover_${Date.now()}.jpeg`;
+                    const newCoverRef = ref(storage, newCoverPath);
+
+                    // 4. Wyślij nowy plik
+                    await uploadBytes(newCoverRef, blob);
+
+                    // 5. Pobierz URL do nowego pliku
+                    newCoverURL = await getDownloadURL(newCoverRef);
+                    // --- Koniec istniejącej logiki ---
                 }
+                // --- KONIEC NOWEJ LOGIKI ROZDZIELAJĄCEJ UPLOAD ---
 
-                // 3. Stwórz nową ścieżkę dla przyciętej okładki
-                const newCoverPath = `covers/${project.id}/${taskId}/cover_${Date.now()}.jpeg`;
-                const newCoverRef = ref(storage, newCoverPath);
-
-                // 4. Wyślij nowy plik
-                await uploadBytes(newCoverRef, blob);
-
-                // 5. Pobierz URL do nowego pliku
-                const newCoverURL = await getDownloadURL(newCoverRef);
-
-                // 6. Przygotuj obiekt do zapisu w Firestore
+                // 6. Przygotuj obiekt do zapisu
                 const newCoverData = {
-                    url: newCoverURL,          // URL do przyciętego obrazka
-                    path: newCoverPath,        // Ścieżka do przyciętego obrazka (dla przyszłego usuwania)
-                    originalPath: originalPath, // Ścieżka do ORYGINALNEGO załącznika (dla logiki w renderAttachments)
-                    originalName: originalName  // Nazwa oryginału (dla informacji)
+                    url: newCoverURL,          // URL (przycięty lub z szablonu)
+                    path: newCoverPath,        // Ścieżka (nowa w storage lub ID szablonu)
+                    originalPath: originalPath, // Ścieżka do ORYGINALNEGO załącznika (lub ID szablonu)
+                    originalName: originalName  // Nazwa oryginału (lub nazwa szablonu)
                 };
 
-                // 7. Zaktualizuj dokument zadania w Firestore
-                const updatedTasks = project.tasks.map(t =>
-                    t.id === taskId ? { ...t, coverImage: newCoverData } : t
-                );
-                
-                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                await updateDoc(projectDocRef, { tasks: updatedTasks });
+                // --- NOWA LOGIKA ROZDZIELAJĄCA ZAPIS ---
+                if (isNewTask) {
+                    // Tryb NOWEGO ZADANIA: Zapisz do zmiennej tymczasowej
+                    newTaskTempBannerData = newCoverData;
+                    
+                    // Zaktualizuj przycisk w modalu NOWEGO zadania
+                    if (newTaskModal.openCoverGalleryBtn) {
+                        newTaskModal.openCoverGalleryBtn.textContent = 'Usuń szablon';
+                        newTaskModal.openCoverGalleryBtn.classList.add('is-danger-btn');
+                        newTaskModal.openCoverGalleryBtn.dataset.action = 'remove-template-cover';
+                    }
+                    showNotification("Banner został wybrany. Zostanie zapisany razem z zadaniem.", "Sukces");
 
-                showNotification("Okładka została ustawiona.", "Sukces");
+                } else {
+                    // Tryb EDYCJI ZADANIA: Zapisz do Firestore (istniejąca logika)
+                    const updatedTasks = project.tasks.map(t =>
+                        t.id === task.id ? { ...t, coverImage: newCoverData } : t
+                    );
+                    
+                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                    await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+                    showNotification("Okładka została ustawiona.", "Sukces");
+                }
+                // --- KONIEC NOWEJ LOGIKI ROZDZIELAJĄCEJ ZAPIS ---
 
             } catch (error) {
                 console.error("Błąd podczas zapisywania okładki:", error);
                 showNotification("Wystąpił błąd podczas zapisywania okładki.", "Błąd");
             } finally {
                 taskCoverCroppieModal.saveBtn.disabled = false;
-                taskCoverCroppieModal.saveBtn.textContent = 'Ustaw jako okładkę';
+                taskCoverCroppieModal.saveBtn.textContent = 'Ustaw jako banner';
                 closeModal(taskCoverCroppieModal.overlay);
-                croppieInstance.destroy(); // Zniszcz instancję Croppie
-                croppieInstance = null;
-                openTaskModal(taskId); // Odśwież modal zadania, aby pokazać nowy stan przycisków
+                
+                if (croppieInstance) {
+                    croppieInstance.destroy(); // Zniszcz instancję Croppie
+                    croppieInstance = null;
+                }
+                
+                // Odśwież odpowiedni modal
+                if (!isNewTask) {
+                    openTaskModal(contextTaskId); // Odśwież modal EDYCJI
+                }
+                // Jeśli jest to nowe zadanie, nie robimy nic - modal nowego zadania pozostaje otwarty
             }
         }
         
@@ -11809,52 +11920,88 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
 
 
         /**
-         * Usuwa okładkę z zadania (usuwa plik ze Storage i pole z Firestore).
+         * Usuwa okładkę z zadania (usuwa plik ze Storage i pole z Firestore)
+         * LUB usuwa tymczasową okładkę z modala nowego zadania.
+         * @param {string} contextTaskId - ID zadania lub specjalny string 'new-task'.
          */
-        async function removeCoverImage(taskId) {
-            const { task, project } = findTask(taskId);
-            if (!task || !project || !task.coverImage) {
-                showNotification("Błąd: Zadanie nie ma okładki do usunięcia.", "Błąd");
-                return;
-            }
+        async function removeCoverImage(contextTaskId) {
+            const isNewTask = contextTaskId === 'new-task';
+
+            if (isNewTask) {
+                // --- LOGIKA DLA NOWEGO ZADANIA ---
+                if (!newTaskTempBannerData) {
+                    showNotification("Błąd: Nowe zadanie nie ma wybranego bannera.", "Błąd");
+                    return;
+                }
+                
+                // Pytamy o potwierdzenie
+                showConfirmation(
+                    "Potwierdź usunięcie bannera",
+                    "Czy na pewno chcesz usunąć wybrany banner z tego zadania?",
+                    (confirmed) => {
+                        if (confirmed) {
+                            // Usuwamy dane z pamięci tymczasowej
+                            newTaskTempBannerData = null;
+                            
+                            // Resetujemy przycisk w modalu NOWEGO zadania
+                            if (newTaskModal.openCoverGalleryBtn) {
+                                newTaskModal.openCoverGalleryBtn.textContent = 'Wybierz banner';
+                                newTaskModal.openCoverGalleryBtn.classList.remove('is-danger-btn');
+                                newTaskModal.openCoverGalleryBtn.dataset.action = 'open-gallery';
+                            }
+                            showNotification("Banner został usunięty.", "Sukces");
+                            // Modal nowego zadania pozostaje otwarty
+                        }
+                    },
+                    true // Użyj czerwonego przycisku
+                );
+
+            } else {
+                // --- ISTNIEJĄCA LOGIKA DLA EDYCJI ZADANIA ---
+                const { task, project } = findTask(contextTaskId);
+                if (!task || !project || !task.coverImage) {
+                    showNotification("Błąd: Zadanie nie ma okładki do usunięcia.", "Błąd");
+                    return;
+                }
 
             const coverPathToDelete = task.coverImage.path;
             // NOWA ZMIENNA: Sprawdzamy, czy okładka była szablonem
             const isTemplateCover = task.coverImage.originalPath && task.coverImage.originalPath.startsWith('template_');
 
             showConfirmation(
-                "Potwierdź usunięcie okładki",
-                "Czy na pewno chcesz usunąć okładkę z tego zadania?" + (isTemplateCover ? "" : " Oryginalny załącznik pozostanie nietknięty."),
-                async (confirmed) => {
-                    if (confirmed) {
-                        try {
-                            // 1. Usuń plik okładki ze Storage TYLKO jeśli nie był to szablon
-                            if (!isTemplateCover) {
-                                console.log("Usuwanie pliku okładki ze Storage:", coverPathToDelete);
-                                const coverRef = ref(storage, coverPathToDelete);
-                                await deleteObject(coverRef);
-                            } else {
-                                console.log("Pomijanie usuwania pliku ze Storage (okładka z szablonu).");
+                    "Potwierdź usunięcie bannera",
+                    "Czy na pewno chcesz usunąć banner z tego zadania?" + (isTemplateCover ? "" : " Oryginalny załącznik pozostanie nietknięty."),
+                    async (confirmed) => {
+                        if (confirmed) {
+                            try {
+                                // 1. Usuń plik okładki ze Storage TYLKO jeśli nie był to szablon
+                                if (!isTemplateCover) {
+                                    console.log("Usuwanie pliku okładki ze Storage:", coverPathToDelete);
+                                    const coverRef = ref(storage, coverPathToDelete);
+                                    await deleteObject(coverRef);
+                                } else {
+                                    console.log("Pomijanie usuwania pliku ze Storage (okładka z szablonu).");
+                                }
+
+                                // 2. Zaktualizuj zadanie w Firestore (ustaw coverImage na null)
+                                const updatedTasks = project.tasks.map(t =>
+                                    t.id === contextTaskId ? { ...t, coverImage: null } : t
+                                );
+                                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                                await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+                                showNotification("Okładka została usunięta.", "Sukces");
+                                openTaskModal(contextTaskId); // Odśwież modal
+
+                            } catch (error) {
+                                console.error("Błąd podczas usuwania okładki:", error);
+                                showNotification("Wystąpił błąd podczas usuwania okładki.", "Błąd");
                             }
-
-                            // 2. Zaktualizuj zadanie w Firestore (ustaw coverImage na null)
-                            const updatedTasks = project.tasks.map(t =>
-                                t.id === taskId ? { ...t, coverImage: null } : t
-                            );
-                            const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                            await updateDoc(projectDocRef, { tasks: updatedTasks });
-
-                            showNotification("Okładka została usunięta.", "Sukces");
-                            openTaskModal(taskId); // Odśwież modal
-
-                        } catch (error) {
-                            console.error("Błąd podczas usuwania okładki:", error);
-                            showNotification("Wystąpił błąd podczas usuwania okładki.", "Błąd");
                         }
-                    }
-                },
-                true // Użyj czerwonego przycisku
-            );
+                    },
+                    true // Użyj czerwonego przycisku
+                );
+            }
         }
 
         // --- KONIEC NOWYCH FUNKCJI ---
@@ -13092,7 +13239,12 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 comments: [], 
                 activityLog: [],
                 recurrence: recurrence,
-                budgetItems: taskBudgetItems, // <<<===== TUTAJ JEST POPRAWKA (DODAJ TĘ LINIĘ)
+                budgetItems: taskBudgetItems, // (istniejąca poprawna linia)
+                
+                // --- NOWA LINIA: Dodanie bannera ---
+                coverImage: newTaskTempBannerData, // Dodaj dane z pamięci tymczasowej
+                // --- KONIEC NOWEJ LINII ---
+
                 attachments: [] // <-- Ważne: dodajemy pustą tablicę na załączniki
             };
 
@@ -13165,6 +13317,11 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             } finally { // Blok finally (wykona się zawsze)
                  stagedFiles = [];
                  renderStagedFiles();
+                 
+                 // --- NOWA LINIA: Reset bannera po zapisie ---
+                 newTaskTempBannerData = null; 
+                 // --- KONIEC NOWEJ LINII ---
+
                  submitBtn.disabled = false;
                  submitBtn.textContent = 'Zapisz zadanie';
             }
@@ -16554,6 +16711,7 @@ function addAiChatMessage(text, type, id = null) {
 </div>
 </body>
 </html>
+
 
 
 
