@@ -15099,91 +15099,91 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
 
                 showNotification("Zdjęcie profilowe zostało zaktualizowane.", "Sukces");
             
-            } catch (error) {
+            } catch (error) { // <--- NAPRAWIONA STRUKTURA: 'catch' jest teraz bezpośrednio po 'try'
                 console.error("Błąd podczas wysyłania zdjęcia:", error);
                 showNotification("Wystąpił błąd podczas zmiany zdjęcia.", "Błąd");
-            } finally {
+            } finally { // <--- NAPRAWIONA STRUKTURA: 'finally' jest teraz po 'catch'
                 // Niezależnie od wyniku, przywracamy przycisk i zamykamy modal
                 cropPhotoModal.saveBtn.disabled = false;
                 cropPhotoModal.saveBtn.textContent = 'Zapisz';
                 closeModal(cropPhotoModal.overlay);
                 photoUploadInput.value = ''; // Czyści input
             }
+        }); // <--- TUTAJ POPRAWNIE KOŃCZY SIĘ 'cropPhotoModal.saveBtn.addEventListener'
+
+        // --- CZĘŚĆ 3: Logika zmiany nazwy użytkownika ---
+        
+        // Ten listener reaguje na wysłanie formularza zmiany nazwy.
+        changeUsernameModal.form.addEventListener('submit', async (e) => { // <--- PRZENIESIONY BLOK
+            e.preventDefault(); // Zapobiega przeładowaniu strony
+            const newName = changeUsernameModal.input.value.trim();
+            const user = state.currentUser;
+            if (!newName || !user) return;
+
+            try {
+                const userDocRef = doc(usersRef, user.uid);
+                // Aktualizuje pole 'name' w dokumencie użytkownika w Firestore
+                await updateDoc(userDocRef, { name: newName });
+                
+                closeModal(changeUsernameModal.overlay);
+                showNotification("Nazwa użytkownika została zmieniona.", "Sukces");
+            } catch (error) {
+                console.error("Błąd podczas zmiany nazwy:", error);
+                showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+            }
         });
 
-// --- CZĘŚĆ 3: Logika zmiany nazwy użytkownika ---
+        // --- CZĘŚĆ 4: Logika zmiany hasła (przeniesiona i dostosowana) ---
 
-// Ten listener reaguje na wysłanie formularza zmiany nazwy.
-changeUsernameModal.form.addEventListener('submit', async (e) => {
-    e.preventDefault(); // Zapobiega przeładowaniu strony
-    const newName = changeUsernameModal.input.value.trim();
-    const user = state.currentUser;
-    if (!newName || !user) return;
+        // Ten listener obsługuje formularz zmiany hasła z nowego okna.
+        changePasswordModal.form.addEventListener('submit', async (e) => { // <--- PRZENIESIONY BLOK
+            e.preventDefault();
+            const currentPassword = changePasswordModal.currentPassword.value;
+            const newPassword = changePasswordModal.newPassword.value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
 
-    try {
-        const userDocRef = doc(usersRef, user.uid);
-        // Aktualizuje pole 'name' w dokumencie użytkownika w Firestore
-        await updateDoc(userDocRef, { name: newName });
-        
-        closeModal(changeUsernameModal.overlay);
-        showNotification("Nazwa użytkownika została zmieniona.", "Sukces");
-    } catch (error) {
-        console.error("Błąd podczas zmiany nazwy:", error);
-        showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
-    }
-});
+            if (newPassword !== confirmPassword) {
+                changePasswordModal.error.textContent = 'Nowe hasła nie są takie same.';
+                return;
+            }
+            if (newPassword.length < 6) {
+                changePasswordModal.error.textContent = 'Nowe hasło musi mieć co najmniej 6 znaków.';
+                return;
+            }
 
-// --- CZĘŚĆ 4: Logika zmiany hasła (przeniesiona i dostosowana) ---
+            changePasswordModal.error.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Zmienianie...';
 
-// Ten listener obsługuje formularz zmiany hasła z nowego okna.
-changePasswordModal.form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const currentPassword = changePasswordModal.currentPassword.value;
-    const newPassword = changePasswordModal.newPassword.value;
-    const confirmPassword = changePasswordModal.confirmPassword.value;
-    const submitBtn = e.target.querySelector('button[type="submit"]');
+            const user = auth.currentUser;
+            if (!user) {
+                changePasswordModal.error.textContent = 'Błąd: Użytkownik nie jest zalogowany.';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Zmień hasło';
+                return;
+            }
 
-    if (newPassword !== confirmPassword) {
-        changePasswordModal.error.textContent = 'Nowe hasła nie są takie same.';
-        return;
-    }
-    if (newPassword.length < 6) {
-        changePasswordModal.error.textContent = 'Nowe hasło musi mieć co najmniej 6 znaków.';
-        return;
-    }
-
-    changePasswordModal.error.textContent = '';
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Zmienianie...';
-
-    const user = auth.currentUser;
-    if (!user) {
-        changePasswordModal.error.textContent = 'Błąd: Użytkownik nie jest zalogowany.';
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Zmień hasło';
-        return;
-    }
-
-    try {
-        const credential = EmailAuthProvider.credential(user.email, currentPassword);
-        await reauthenticateWithCredential(user, credential);
-        await updatePassword(user, newPassword);
-        showNotification("Hasło zostało pomyślnie zmienione.", "Sukces");
-        closeModal(changePasswordModal.overlay);
-    } catch (error) {
-        console.error("Błąd podczas zmiany hasła:", error);
-        if (error.code === 'auth/wrong-password') {
-            changePasswordModal.error.textContent = 'Bieżące hasło jest nieprawidłowe.';
-        } else if (error.code === 'auth/weak-password') {
-            changePasswordModal.error.textContent = 'Nowe hasło jest zbyt słabe.';
-        } else {
-            changePasswordModal.error.textContent = 'Wystąpił nieoczekiwany błąd. Spróbuj ponownie.';
-        }
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Zmień hasło';
-    }
-});
+            try {
+                const credential = EmailAuthProvider.credential(user.email, currentPassword);
+                await reauthenticateWithCredential(user, credential);
+                await updatePassword(user, newPassword);
+                showNotification("Hasło zostało pomyślnie zmienione.", "Sukces");
+                closeModal(changePasswordModal.overlay);
+            } catch (error) {
+                console.error("Błąd podczas zmiany hasła:", error);
+                if (error.code === 'auth/wrong-password') {
+                    changePasswordModal.error.textContent = 'Bieżące hasło jest nieprawidłowe.';
+                } else if (error.code === 'auth/weak-password') {
+                    changePasswordModal.error.textContent = 'Nowe hasło jest zbyt słabe.';
+                } else {
+                    changePasswordModal.error.textContent = 'Wystąpił nieoczekiwany błąd. Spróbuj ponownie.';
+                }
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Zmień hasło';
+            }
+        });
    // ▼▼▼ DODAJ NOWY LISTENER DLA PRZYCISKÓW "COFNIJ" ▼▼▼
         const handleBackButtonClick = (e) => {
             e.preventDefault();
@@ -16955,6 +16955,7 @@ function addAiChatMessage(text, type, id = null) {
 </div>
 </body>
 </html>
+
 
 
 
