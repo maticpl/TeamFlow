@@ -7801,15 +7801,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             });
         }
-       // === NOWA FUNKCJA: Renderowanie wykresu Obciążenia Zespołu (Chart.js) ===
-        function renderTeamWorkloadChart(workloadData) {
-            const container = document.getElementById('dashboard-details-content');
+       // === ZMODYFIKOWANA FUNKCJA: Renderowanie wykresu Obciążenia Zespołu (Chart.js) ===
+        function renderTeamWorkloadChart(workloadData, containerId) {
+            const container = document.getElementById(containerId);
             if (!container) return;
 
-            // 1. Przygotuj canvas
-            container.innerHTML = `<div style="position: relative; width: 100%; height: 400px;">
-                                     <canvas id="team-workload-chart-canvas"></canvas>
-                                   </div>`;
+            // Zniszcz poprzednią instancję, jeśli istnieje (ważne przy przełączaniu)
+            if (teamWorkloadChartInstance) {
+                teamWorkloadChartInstance.destroy();
+            }
+
+            // 1. Przygotuj canvas (Wyczyść kontener i wstaw canvas)
+            container.innerHTML = `<canvas id="team-workload-chart-canvas"></canvas>`;
             const canvas = document.getElementById('team-workload-chart-canvas');
             const ctx = canvas.getContext('2d');
 
@@ -7873,6 +7876,172 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             });
         }
         // === KONIEC NOWEJ FUNKCJI ===
+       // === NOWA FUNKCJA: Obliczanie obciążenia godzinowego zespołu ===
+        function calculateTeamWorkloadHours(monthFilter = 'all') {
+            const teamWorkload = {}; // { userId: { hours: 0, name: '' } }
+            const myId = state.currentUser.uid;
+            
+            // 1. Filtruj projekty, które w ogóle używają śledzenia godzin
+            const projectsWithHours = state.projects.filter(p => p.estimationType === 'hours');
+
+            projectsWithHours.forEach(project => {
+                (project.tasks || []).forEach(task => {
+                    const taskHours = parseFloat(task.estimation) || 0;
+                    if (taskHours === 0 || task.status === 'done') return; // Pomiń zadania bez estymacji lub ukończone
+
+                    // 2. Filtrowanie daty (jeśli 'monthFilter' nie jest 'all')
+                    if (monthFilter !== 'all') {
+                        if (!task.dueDate || !task.dueDate.startsWith(monthFilter)) {
+                            return; // Pomiń zadanie, jeśli nie pasuje do wybranego miesiąca (YYYY-MM)
+                        }
+                    }
+
+                    // 3. Agregacja godzin per użytkownik (z wyłączeniem mnie)
+                    (task.assignees || []).forEach(assigneeId => {
+                        if (assigneeId !== myId) {
+                            if (!teamWorkload[assigneeId]) {
+                                const user = findUser(assigneeId);
+                                teamWorkload[assigneeId] = { 
+                                    hours: 0, 
+                                    name: user ? (user.name || user.email) : 'Nieznany' 
+                                };
+                            }
+                            teamWorkload[assigneeId].hours += taskHours;
+                        }
+                    });
+                });
+            });
+
+            // 4. Konwertuj na tablicę i sortuj
+            const workloadArray = Object.values(teamWorkload).sort((a, b) => b.hours - a.hours);
+            
+            return workloadArray; // Zwraca np. [{ name: 'Anna', hours: 40 }, { name: 'Piotr', hours: 25 }]
+        }
+        
+        // === NOWA FUNKCJA: Renderowanie wykresu obciążenia GODZINOWEGO ===
+        function renderTeamWorkloadHoursChart(workloadData, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            // Zniszcz poprzednią instancję, jeśli istnieje (ważne przy przełączaniu)
+            if (teamWorkloadChartInstance) {
+                teamWorkloadChartInstance.destroy();
+            }
+
+            // 1. Przygotuj canvas
+            container.innerHTML = `<canvas id="team-workload-hours-chart-canvas"></canvas>`;
+            const canvas = document.getElementById('team-workload-hours-chart-canvas');
+            const ctx = canvas.getContext('2d');
+
+            // 2. Przygotuj dane
+            const labels = workloadData.map(user => user.name);
+            const hoursData = workloadData.map(user => user.hours);
+
+            // 3. Utwórz nowy wykres
+            teamWorkloadChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Obciążenie (godziny)',
+                            data: hoursData,
+                            backgroundColor: 'rgba(245, 158, 11, 0.7)', // Kolor pomarańczowy/bursztynowy
+                            borderColor: 'rgba(245, 158, 11, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom' },
+                        tooltip: {
+                             callbacks: {
+                                 label: function(context) {
+                                     let label = context.dataset.label || '';
+                                     if (label) label += ': ';
+                                     if (context.parsed.y !== null) {
+                                         label += context.parsed.y + ' godzin'; // Dodaj jednostkę
+                                     }
+                                     return label;
+                                 }
+                             }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: false, // Nie stackujemy, jest tylko jedna seria danych
+                        },
+                        y: {
+                            stacked: false,
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Liczba godzin'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // === NOWA FUNKCJA: Listenery dla modala obciążenia ===
+        function setupWorkloadModalListeners() {
+            const tabTasks = document.getElementById('workload-tab-tasks');
+            const tabHours = document.getElementById('workload-tab-hours');
+            const filtersContainer = document.getElementById('workload-hours-filters');
+            const monthFilterSelect = document.getElementById('workload-month-filter');
+            const chartContainerId = 'workload-chart-container'; // ID kontenera wykresu
+
+            // --- Wypełnij filtr miesięcy ---
+            const now = new Date();
+            let optionsHTML = '<option value="all">Całościowo (wszystkie aktywne)</option>';
+            for (let i = 0; i < 6; i++) { // 6 miesięcy wstecz (w tym bieżący)
+                const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const value = `${year}-${month}`; // Format YYYY-MM
+                const label = date.toLocaleString('pl-PL', { month: 'long', year: 'numeric' });
+                optionsHTML += `<option value="${value}">${label}</option>`;
+            }
+            monthFilterSelect.innerHTML = optionsHTML;
+
+            // --- Listener dla zakładki ZADANIA ---
+            tabTasks.addEventListener('click', () => {
+                tabTasks.classList.add('active');
+                tabHours.classList.remove('active');
+                filtersContainer.style.display = 'none';
+
+                // Przeładuj dane i renderuj wykres zadań
+                const teamWorkloadData = calculateTeamWorkload();
+                renderTeamWorkloadChart(teamWorkloadData.list, chartContainerId);
+            });
+
+            // --- Listener dla zakładki GODZINY ---
+            tabHours.addEventListener('click', () => {
+                tabHours.classList.add('active');
+                tabTasks.classList.remove('active');
+                filtersContainer.style.display = 'block';
+
+                // Przeładuj dane i renderuj wykres godzinowy (z domyślnym filtrem 'all')
+                const monthFilter = monthFilterSelect.value;
+                const workloadHoursData = calculateTeamWorkloadHours(monthFilter);
+                renderTeamWorkloadHoursChart(workloadHoursData, chartContainerId);
+            });
+
+            // --- Listener dla FILTRA MIESIĘCY ---
+            monthFilterSelect.addEventListener('change', () => {
+                // Ta zmiana ma sens tylko, gdy zakładka "Godziny" jest aktywna
+                if (tabHours.classList.contains('active')) {
+                    const monthFilter = monthFilterSelect.value;
+                    const workloadHoursData = calculateTeamWorkloadHours(monthFilter);
+                    renderTeamWorkloadHoursChart(workloadHoursData, chartContainerId);
+                }
+            });
+        }
+        // === KONIEC NOWYCH FUNKCJI ===
        /**
      * ZMODYFIKOWANA FUNKCJA (Wersja 2): Renderuje tabelę zadań obciążających budżet.
      * @param {object} project - Obiekt projektu.
@@ -13946,13 +14115,48 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                         type !== 'show-activity-details' && type !== 'show-my-budget-details'
                     );
                     break;
-                    // === NOWY BLOK CASE ===
+                    // === MODYFIKACJA BLOKU CASE ===
                 case 'show-team-workload-details':
                     title = 'Obciążenie Zespołu (Wspólne Projekty)';
-                    // Tylko ustawiamy tytuł. Reszta dzieje się po otwarciu modala.
-                    contentHTML = '<p>Ładowanie wykresu...</p>'; 
+                    
+                    // KROK 1: Wygeneruj HTML dla zakładek i filtrów
+                    contentHTML = `
+                        <div class="task-modal-tabs" style="padding: 0 0 16px 0; border-bottom: 1px solid var(--border-color); display: flex; gap: 8px;">
+                            <button class="task-modal-tab active" id="workload-tab-tasks" data-view="tasks">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <span>Obciążenie Zadaniami</span>
+                            </button>
+                            <button class="task-modal-tab" id="workload-tab-hours" data-view="hours">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                                <span>Obciążenie Godzinowe</span>
+                            </button>
+                        </div>
+
+                        <div id="workload-hours-filters" style="display: none; padding: 16px 0 0 0;">
+                            <label for="workload-month-filter" style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">Wybierz okres:</label>
+                            <select id="workload-month-filter" style="width: 250px; padding: 8px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-secondary); color: var(--text-primary);">
+                                <option value="all">Całościowo (wszystkie aktywne)</option>
+                                </select>
+                        </div>
+
+                        <div id="workload-chart-container" style="position: relative; width: 100%; height: 400px; margin-top: 16px;">
+                            <p>Ładowanie wykresu...</p>
+                        </div>
+                    `;
+                    
+                    // Ustaw HTML w modalu
+                    dashboardDetailsModal.content.innerHTML = contentHTML;
+                    // Otwórz modal (to jest wywoływane na końcu funkcji renderDashboardDetailsModal)
+                    // openModal(dashboardDetailsModal.overlay); // (To jest już na końcu funkcji nadrzędnej)
+
+                    // KROK 2: Dopinanie listenerów (zrobimy to na końcu renderDashboardDetailsModal)
+                    // Ta funkcja jest teraz wywoływana na końcu `renderDashboardDetailsModal`
+                    setupWorkloadModalListeners(); 
+
+                    // KROK 3: Renderuj domyślny wykres (zadaniowy)
+                    // To jest wywoływane na końcu `renderDashboardDetailsModal`
                     break;
-                // === KONIEC NOWEGO BLOKU ===
+                // === KONIEC MODYFIKACJI BLOKU ===
                     // +++ POCZĄTEK DODANEGO KODU (Krok 5.1) +++
                 case 'show-my-budget-details':
                     title = 'Mój Budżet (Projekty Właściciela)';
@@ -13982,15 +14186,19 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             dashboardDetailsModal.title.textContent = title;
             dashboardDetailsModal.content.innerHTML = contentHTML;
             openModal(dashboardDetailsModal.overlay);
-            // === NOWA LOGIKA: Rysowanie wykresu PO otwarciu modala ===
+
+            // === NOWA LOGIKA: Rysowanie wykresu I PODPINANIE LISTENERÓW ===
             if (type === 'show-team-workload-details') {
-                // Musimy ponownie pobrać dane, ponieważ nie przekazaliśmy ich z renderMyDashboardView
+                // 1. Domyślnie renderuj wykres zadań
                 const teamWorkloadData = calculateTeamWorkload();
-                renderTeamWorkloadChart(teamWorkloadData.list);
+                // Przekazujemy kontener, do którego ma się renderować
+                renderTeamWorkloadChart(teamWorkloadData.list, 'workload-chart-container'); 
+                
+                // 2. Uruchom listenery dla zakładek i filtra
+                setupWorkloadModalListeners();
             }
             // === KONIEC NOWEJ LOGIKI ===
         }
-
         document.addEventListener('click', (e) => {
              const kpiCard = e.target.closest('.dashboard-card.kpi-mini-card'); 
 
@@ -16974,6 +17182,7 @@ function addAiChatMessage(text, type, id = null) {
 </div>
 </body>
 </html>
+
 
 
 
