@@ -3617,11 +3617,12 @@
              padding-left: 0; /* Usuwa ewentualne dopełnienie kontenera listy */
         }
         /* === KONIEC NOWYCH REGUŁ === */
-        /* === NOWE STYLE DLA KAFELKA SONDARŻU === */
-        /* === NOWE STYLE DLA KAFELKA SONDARŻU === */
+        
         /* === NOWE STYLE DLA KAFELKA SONDARŻU === */
         .poll-card {
-            background-color: var(--success-primary); /* <-- ZMIANA: Użycie zmiennej --success-primary */
+            /* ZMIANA: Usunięto zielone tło, dodano ciemny gradient */
+            background: linear-gradient(180deg, var(--bg-tertiary), var(--bg-primary));
+            color: var(--text-on-accent); /* ZMIANA: Domyślny kolor tekstu na biały */
             border-radius: var(--border-radius);
             padding: 12px;
             margin-bottom: 12px;
@@ -3633,10 +3634,13 @@
             border: 1px solid var(--accent-primary); 
         }
 
-        /* Dodatkowa reguła dla trybu ciemnego */
-        .dark-mode .poll-card {
-             background-color: var(--success-primary); /* <-- ZMIANA: Użycie tej samej zmiennej dla spójności */
+        /* NOWA REGUŁA: Styl dla opóźnionego sondażu (czerwony gradient) */
+        .poll-card.overdue {
+            background: linear-gradient(180deg, var(--danger-hover), var(--danger-primary));
         }
+
+        /* USUNIĘTA REGUŁA: .dark-mode .poll-card została usunięta, aby nie nadpisywać gradientu */
+        
         .poll-card:hover {
             box-shadow: var(--shadow-md);
         }
@@ -3650,13 +3654,20 @@
             text-overflow: ellipsis;
             display: block; 
             max-width: 80%; /* Dajemy miejsce na ikonę */
+            /* Kolor jest dziedziczony z .poll-card (biały) */
         }
 
         .poll-card-icon {
             position: absolute;
             top: 10px;
             right: 10px;
-            color: var(--success-primary);
+            /* ZMIANA: Stylizacja na wzór banneru */
+            background-color: rgba(255, 255, 255, 0.85);
+            color: var(--text-secondary); /* Ciemna ikona na jasnym tle */
+            padding: 4px;
+            border-radius: 4px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            /* USUNIĘTO: color: var(--success-primary); */
         }
         .poll-card-icon svg {
             width: 20px;
@@ -3699,6 +3710,25 @@
         }
 
         /* --- Style dla opcji (wyniki) --- */
+        .poll-card .poll-content-box {
+            background-color: rgba(255, 255, 255, 0.85);
+            color: var(--text-primary); /* Ciemny tekst na jasnym tle */
+            padding: 8px 10px;
+            border-radius: var(--border-radius);
+            margin-bottom: 8px; /* Odstęp między boksami */
+        }
+        /* Nadpisanie marginesów, aby były spójne */
+        .poll-card .poll-options {
+            margin-bottom: 0;
+        }
+        .poll-card .poll-detail {
+            margin-bottom: 0;
+        }
+        .poll-card .poll-meta {
+            margin-bottom: 0;
+            margin-top: 0; /* Margin-top jest teraz na .poll-content-box */
+        }
+
         .poll-option-result {
             font-size: 13px;
             font-weight: 500;
@@ -3737,7 +3767,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-top: 8px;
+            /* USUNIĘTO: margin-top: 8px; (przeniesione do .poll-content-box) */
         }
         .poll-details {
             display: flex;
@@ -6764,13 +6794,15 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                 render(); // DODANO: Odświeżenie widoku nawet w przypadku błędu
             }
         }
-       
-        // NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU
-function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null) {
+       // NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU
+function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null, memberSourceList = null) {
     containerElement.innerHTML = ''; // Zawsze czyścimy kontener na starcie
 
-    // 1. Filtrujemy wszystkich użytkowników, aby pokazać tylko tych z tej samej grupy co zalogowany użytkownik
-    const teamMembers = state.users.filter(u => u.groupId === state.currentUser.groupId);
+    // 1. Użyj dostarczonej listy 'memberSourceList' LUB domyślnie pobierz wszystkich członków grupy
+    //    To jest kluczowa zmiana, która naprawia błąd w sondażach.
+    const teamMembers = memberSourceList 
+        ? memberSourceList 
+        : state.users.filter(u => u.groupId === state.currentUser.groupId);
 
     // 2. Grupujemy odfiltrowanych członków po ich podgrupie (subgroupName)
     const usersBySubgroup = teamMembers.reduce((acc, user) => {
@@ -8471,15 +8503,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 .join('');
 
             const isOverdue = poll.deadline && new Date(poll.deadline).getTime() < Date.now() && poll.status === 'open';
+            
+            // === ZMIANA: Przeniesienie logiki 'overdue' do klasy CSS ===
+            const overdueClass = isOverdue ? 'overdue' : '';
+            const deadlineStyle = isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : '';
+
             const deadlineHTML = poll.deadline ? `
-                <div class="poll-detail ${isOverdue ? 'overdue' : ''}">
+                <div class="poll-detail ${overdueClass}">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
-                    <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${new Date(poll.deadline).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}</span>
+                    <span style="${deadlineStyle}">${new Date(poll.deadline).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}</span>
                 </div>` : '';
 
             // --- 3. Nowy HTML dla paska postępu frekwencji i lidera ---
+            // === ZMIANA: Dodanie klasy .poll-content-box ===
             const progressHTML = `
-                <div class="poll-option-result" style="margin-bottom: 8px;">
+                <div class="poll-option-result poll-content-box">
                     <div class="poll-result-text" style="margin-bottom: 2px;">
                         <span>Frekwencja</span>
                         <span class="poll-vote-count">${votedCount} / ${totalAssignees}</span>
@@ -8490,16 +8528,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </div>
             `;
             
+            // === ZMIANA: Dodanie klasy .poll-content-box i usunięcie stylów inline ===
             const leadingOptionHTML = `
-                <div class="poll-detail" style="font-size: 13px; margin-bottom: 12px; justify-content: center; padding: 4px; background-color: var(--bg-primary); border-radius: var(--border-radius);">
+                <div class="poll-detail poll-content-box" style="font-size: 13px; justify-content: center;">
                     <strong>Prowadzi:</strong>
                     <span style="color: var(--accent-primary); font-weight: 600; margin-left: 4px;">${leadingOption.text}</span>
                 </div>
             `;
 
             // --- 4. Składanie finalnego HTML (bez .poll-options) ---
+            // === ZMIANA: Dodanie 'overdueClass' do <li> ===
             return `
-            <li class="poll-card" data-poll-id="${poll.id}">
+            <li class="poll-card ${overdueClass}" data-poll-id="${poll.id}">
                 <div class="poll-card-icon" title="Sondaż">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -8510,7 +8550,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 ${progressHTML}
                 ${leadingOptionHTML}
 
-                <div class="poll-meta">
+                <div class="poll-meta poll-content-box">
                     <div class="poll-details">${deadlineHTML}</div>
                     <div class="poll-assignees">${assigneesHTML}</div>
                 </div>
@@ -9407,7 +9447,13 @@ newTaskModal.projectGroup.style.display = 'block';
             // Używamy tej samej funkcji co przy tworzeniu projektu.
             // Domyślnie zaznaczamy wszystkich członków projektu.
             const allMemberIds = project.members || [];
-            buildTeamMembersAccordion(newPollModal.assigneesContainer, allMemberIds, project.ownerId);
+            
+            // === NOWA LOGIKA: Przygotowanie listy użytkowników ===
+            // 1. Pobieramy obiekty użytkowników tylko dla członków projektu
+            const projectMemberUsers = allMemberIds.map(findUser).filter(Boolean);
+            // 2. Przekazujemy tę listę jako czwarty argument do funkcji
+            buildTeamMembersAccordion(newPollModal.assigneesContainer, allMemberIds, project.ownerId, projectMemberUsers);
+            // === KONIEC NOWEJ LOGIKI ===
 
             // Zapisujemy ID projektu w modalu do późniejszego wykorzystania
             newPollModal.overlay.dataset.projectId = projectId;
@@ -16761,6 +16807,7 @@ function addAiChatMessage(text, type, id = null) {
 </div>
 </body>
 </html>
+
 
 
 
