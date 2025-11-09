@@ -16704,68 +16704,36 @@ function addAiChatMessage(text, type, id = null) {
             const groupName = createNewGroupModal.input.value.trim();
             if (!groupName) return;
 
-            const user = state.currentUser;
-            if (!user) {
-                showNotification("Błąd: Użytkownik nie jest zalogowany.", "Błąd");
-                return;
-            }
-
+            // Nie potrzebujemy już `state.currentUser`, funkcja chmurowa pobierze go z kontekstu
+            
             const submitBtn = e.target.querySelector('button[type="submit"]');
             submitBtn.disabled = true;
             submitBtn.textContent = 'Tworzenie...';
 
             try {
-                const qCheck = query(groupsRef, where("name", "==", groupName));
-                const checkSnapshot = await getDocs(qCheck);
-                if (!checkSnapshot.empty) {
-                    throw new Error("Grupa o takiej nazwie już istnieje. Wybierz inną.");
-                }
-
-                const batch = writeBatch(db);
-
-                const newGroupRef = doc(groupsRef);
-                const newGroupId = newGroupRef.id;
-                batch.set(newGroupRef, {
-                    name: groupName,
-                    ownerId: user.uid,
-                    memberIds: [user.uid],
-                    subgroups: []
-                });
-
-                const userRef = doc(usersRef, user.uid);
-                batch.update(userRef, {
-                    groupIds: arrayUnion(newGroupId), 
-                    [`groupInfo.${newGroupId}`]: { 
-                        name: groupName,
-                        role: "owner",
-                        subgroup: null
-                    },
-                    lastActiveGroupId: newGroupId 
-                });
-
-                const inboxProject = {
-                    name: "Skrzynka zadań",
-                    ownerId: user.uid,
-                    members: [user.uid],
-                    tasks: [],
-                    isInbox: true,
-                    createdAt: Date.now(),
-                    groupId: newGroupId
-                };
-                const inboxRef = doc(collection(db, `artifacts/${appId}/public/data/projects`));
-                batch.set(inboxRef, inboxProject);
-
-                await batch.commit();
+                // === NOWA LOGIKA: Wywołanie Cloud Function ===
+                // 1. Uzyskaj referencję do funkcji chmurowej
+                const createNewGroup = httpsCallable(functions, 'createNewGroup');
                 
-                console.log(`Stworzono nową grupę: ${groupName} (${newGroupId})`);
+                // 2. Wywołaj funkcję z nazwą grupy
+                const result = await createNewGroup({ groupName: groupName });
+                
+                // 3. Odbierz dane (jeśli funkcja zwróciła sukces)
+                const { newGroupId, newGroupName } = result.data;
+                // === KONIEC NOWEJ LOGIKI ===
+                
+                console.log(`Stworzono nową grupę: ${newGroupName} (${newGroupId})`);
 
+                // 4. Zaktualizuj stan lokalny na podstawie odpowiedzi z serwera
                 state.currentUser.groupIds.push(newGroupId);
-                state.currentUser.groupInfo[newGroupId] = { name: groupName, role: "owner", subgroup: null };
+                state.currentUser.groupInfo[newGroupId] = { name: newGroupName, role: "owner", subgroup: null };
+                state.currentUser.lastActiveGroupId = newGroupId; // Zapisz też lastActiveGroupId
 
                 closeModal(createNewGroupModal.overlay);
-                handleGroupSwitch(newGroupId); 
+                handleGroupSwitch(newGroupId); // Przełącz na nowo utworzoną grupę
 
             } catch (error) {
+                // Błędy (np. "already-exists") będą teraz przychodzić z funkcji chmurowej
                 console.error("Błąd podczas tworzenia nowej grupy:", error);
                 showNotification(error.message, "Błąd");
             } finally {
@@ -17612,6 +17580,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
