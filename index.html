@@ -4253,7 +4253,104 @@
                 <button class="new-project-btn" id="new-project-btn" disabled style="margin-top: 8px;">+ Nowy Projekt</button>
 
                 <div class="sidebar-footer">
-    <p class="user-info">Zalogowano jako:<br><span id="user-email-display"></span><br><span id="user-group-display"></span></p>
+    
+    <div class="user-info">
+        Zalogowano jako:<br><span id="user-email-display"></span>
+    </div>
+    
+    <style>
+        #group-switcher {
+            position: relative;
+            margin-bottom: 8px;
+        }
+        #group-switcher-toggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            padding: 8px 10px;
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        #group-switcher-toggle:hover {
+            background-color: var(--bg-tertiary);
+        }
+        #group-switcher-toggle svg {
+            width: 16px;
+            height: 16px;
+            transition: transform 0.2s;
+        }
+        #group-switcher-toggle.open svg {
+            transform: rotate(180deg);
+        }
+        #group-switcher-menu {
+            display: none;
+            position: absolute;
+            bottom: 105%; /* Otwiera się w górę */
+            left: 0;
+            width: 100%;
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow-lg);
+            z-index: 2001; /* Wyżej niż sidebar */
+            padding: 4px;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+        #group-switcher-menu.open {
+            display: block;
+        }
+        #group-switcher-menu .group-menu-item,
+        #group-switcher-menu .group-menu-action {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 8px 10px;
+            font-size: 14px;
+            font-weight: 500;
+            background: none;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--text-primary);
+        }
+        #group-switcher-menu .group-menu-item:hover,
+        #group-switcher-menu .group-menu-action:hover {
+            background-color: var(--bg-tertiary);
+        }
+        #group-switcher-menu .group-menu-item.active {
+            background-color: var(--accent-primary);
+            color: var(--text-on-accent);
+            font-weight: 600;
+        }
+        #group-switcher-menu hr {
+            border: none;
+            border-top: 1px solid var(--border-color);
+            margin: 4px 0;
+        }
+    </style>
+    
+    <div id="group-switcher">
+        <button id="group-switcher-toggle">
+            <span id="active-group-name">Ładowanie grupy...</span>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+        </button>
+        <div id="group-switcher-menu">
+            <div id="group-switcher-list">
+                <span class="group-menu-action">Ładowanie...</span>
+            </div>
+            <hr>
+            <button class="group-menu-action" id="manage-groups-btn" style="display: none;">Zarządzaj grupą</button>
+            <button class="group-menu-action" id="create-group-btn">+ Stwórz nową grupę</button>
+        </div>
+    </div>
     <div class="sidebar-footer-buttons">
         <button id="open-ai-help-btn" class="btn btn-secondary" title="Pomoc AI">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
@@ -5301,39 +5398,49 @@
             done: 'Wykonane'
         };
 let state = {
-            currentUser: null,
-            users: [],
-            projects: [],
-            completedProjects: [],
-            projectTemplates: [], // <-- NOWA LINIA
-            selectedTemplateId: null, // <-- NOWA LINIA
-            polls: [], // <-- NOWA LINIA
+            currentUser: null, // Będzie teraz zawierać `groupInfo` i `groupIds`
+            users: [], // Będą ładowani dynamicznie per grupa
+            projects: [], // Będą ładowane dynamicznie per grupa
+            completedProjects: [], // Będą ładowane dynamicznie per grupa
+            projectTemplates: [], 
+            selectedTemplateId: null, 
+            polls: [], // Będą ładowane dynamicznie per grupa
             currentProjectId: null,
-            notifications: [],
+            notifications: [], // Będą ładowane dynamicznie per grupa
             ui: {
                 theme: 'light',
-                currentView: 'my-day', // Zmienione na 'my-day'
-                previousView: null, // <-- DODANA LINIA
+                currentView: 'my-day', 
+                previousView: null, 
+                
+                // === POCZĄTEK ZMIANY ===
+                // Nowe pola do zarządzania aktywną grupą
+                activeGroupId: null, // Np. "GROUP_ID_A"
+                activeGroupInfo: null, // Np. { name: "Moja Firma", role: "owner", ... }
+                // === KONIEC ZMIANY ===
+                
                 dashboardEditMode: false, 
-                dashboardLayout: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload'], // <-- DODANO 'team-workload'
-                allProjectsEditMode: false, // <-- NOWA LINIA
+                dashboardLayout: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload'], 
+                allProjectsEditMode: false, 
                 isCalendarView: false,
                 sortMyTasksByDate: 'asc',
                 projectSortOrders: {},
-                currentProjectFilters: { // <-- NOWY OBIEKT FILTRÓW
-                    assigneeIds: [], // <-- ZMIENIONO NA TABLICĘ DLA WIELOKROTNEGO WYBORU
+                currentProjectFilters: { 
+                    assigneeIds: [], 
                     priority: '',
                     dueDate: '',
                     budgetStatus: '',
-                    showPolls: true // <-- DODANA LINIA (domyślnie pokazuj sondaże)
+                    showPolls: true 
                 },
+                // === ZMIANA: Słuchacze pozostają, ale będą dynamicznie zarządzane ===
                 unsubscribeProjects: null,
                 unsubscribeCompleted: null,
-                unsubscribeUsers: null,
-                unsubscribeNotifications: null, // <-- NOWA LINIA
-                unsubscribePolls: null, // <-- NOWA LINIA
+                unsubscribeUsers: null, 
+                unsubscribeNotifications: null, 
+                unsubscribePolls: null, 
+                // === KONIEC ZMIANY ===
+                
                 chartInstance: null,
-                mobileCalendarDate: new Date().toISOString(), // Data dla widoku miesiąca
+                mobileCalendarDate: new Date().toISOString(), 
                 mobileCalendarSelectedDate: new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().split('T')[0],
                 myDayDate: getLocalDateString()
             }
@@ -5385,11 +5492,7 @@ let state = {
         form: document.getElementById('change-subgroup-form'),
         select: document.getElementById('change-subgroup-select-list'),
     };
-        const changeGroupModal = {
-    overlay: document.getElementById('change-group-modal'),
-    form: document.getElementById('change-group-form'),
-    select: document.getElementById('change-group-select'),
-};
+        
         const notificationToggleBtn = document.getElementById('notification-toggle-btn');
         const sidebar = document.getElementById('sidebar');
         const sidebarOverlay = document.getElementById('sidebar-overlay');
@@ -5657,10 +5760,7 @@ let state = {
     confirmPassword: document.getElementById('confirm-password'),
     error: document.getElementById('change-password-error'),
 };
-        // NOWE REFERENCJE DO MODALA ZMIANY GRUPY
-const changeGroupNameInput = document.getElementById('change-group-name');
-const changeSubgroupSection = document.getElementById('change-subgroup-section');
-const changeSubgroupSelect = document.getElementById('change-subgroup-select');
+       
 
         // NOWY MODAL: Szczegóły zadań z Dashboardu
         const dashboardDetailsModal = {
@@ -6994,10 +7094,42 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         function render() {
             if (!state.currentUser) return;
             applyTheme();
+            // === POCZĄTEK ZMIANY: Renderowanie Przełącznika Grup ===
+            if (state.ui.activeGroupInfo) {
+                // 1. Ustaw nazwę aktywnej grupy
+                groupSwitcher.activeName.textContent = state.ui.activeGroupInfo.name;
+                
+                // 2. Sprawdź, czy użytkownik jest właścicielem AKTYWNEJ grupy
+                const amIOwner = state.ui.activeGroupInfo.role === 'owner';
+                groupSwitcher.manageBtn.style.display = amIOwner ? 'block' : 'none';
+
+                // 3. Zbuduj listę grup do przełączenia
+                const groupIds = state.currentUser.groupIds || [];
+                groupSwitcher.list.innerHTML = ''; // Wyczyść listę
+                
+                groupIds.forEach(gid => {
+                    const groupInfo = state.currentUser.groupInfo[gid];
+                    if (groupInfo) {
+                        const isActive = (gid === state.ui.activeGroupId);
+                        groupSwitcher.list.innerHTML += `
+                            <button class="group-menu-item ${isActive ? 'active' : ''}" data-group-id="${gid}">
+                                ${isActive ? '✓ ' : ''}${groupInfo.name}
+                            </button>
+                        `;
+                    }
+                });
+            } else {
+                // Stan awaryjny, jeśli użytkownik nie ma aktywnej grupy (nie powinien wystąpić po zalogowaniu)
+                groupSwitcher.activeName.textContent = "Brak Grupy";
+                groupSwitcher.list.innerHTML = '';
+                groupSwitcher.manageBtn.style.display = 'none';
+            }
+            // === KONIEC ZMIANY ===
             renderSidebar();
 
             // === NOWA LOGIKA DLA DZWONKA I LICZNIKA POWIADOMIEŃ ===
-            const unreadCount = state.notifications.filter(n => !n.isRead).length;
+            // (filtrujemy powiadomienia tylko z aktywnej grupy, choć listener już to robi)
+            const unreadCount = state.notifications.filter(n => !n.isRead && n.groupId === state.ui.activeGroupId).length;
             document.querySelectorAll('#notification-toggle-btn, #notification-toggle-btn-mobile').forEach(btn => {
                 const badge = btn.querySelector('.notification-badge');
                 btn.classList.toggle('has-notifications', unreadCount > 0);
@@ -10679,70 +10811,124 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             return null; // Zwróć null, jeśli budżet jest nietknięty
         }
     }
-        function setupFirestoreListeners(userId) {
-            if (!userId) return;
-            // <<<--- POCZĄTEK POPRAWKI ---<<<
-
-    // 1. Pobieramy groupId z BIEŻĄCEGO STANU (state.currentUser)
-    //    (jest on już ustawiony przez onAuthStateChanged, zanim ta funkcja jest wywołana)
-    const currentGroupId = state.currentUser ? state.currentUser.groupId : null;
-    
-    // 2. Zabezpieczenie: Jeśli z jakiegoś powodu nie ma groupId, nie wykonuj zapytania
-    if (!currentGroupId) {
-        console.error("Nie można uruchomić listenera użytkowników: brak currentGroupId w stanie.");
-        return; 
-    }
-
-    if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
-
-    // 3. Tworzymy zapytanie, które pobierze TYLKO użytkowników z naszej grupy.
-    const usersQuery = query(usersRef, where("groupId", "==", currentGroupId));
-
-    // 4. Nasłuchujemy na WYNIK TEGO KONKRETNEGO ZAPYTANIA
-    state.ui.unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-        // <<<--- KONIEC POPRAWKI ---<<<
-                state.users = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
-                // UWAGA: Usunięto 'render()' stąd, aby uniknąć potencjalnego podwójnego renderowania
-                //        gdyż jest ono wywoływane w listenerach projektów.
-            }, (error) => console.error("Błąd odczytu użytkowników:", error));
-
+        // === POCZĄTEK ZMIANY: Nowe funkcje pomocnicze ===
+        
+        /**
+         * Zatrzymuje wszystkie aktywne subskrypcje Firestore.
+         * Niezbędne przy wylogowywaniu lub przełączaniu grup.
+         */
+        function unsubscribeAllListeners() {
             if (state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
+            if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
+            if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
+            if (state.ui.unsubscribeNotifications) state.ui.unsubscribeNotifications();
+            if (state.ui.unsubscribePolls) state.ui.unsubscribePolls();
+            
+            state.ui.unsubscribeProjects = null;
+            state.ui.unsubscribeCompleted = null;
+            state.ui.unsubscribeUsers = null;
+            state.ui.unsubscribeNotifications = null;
+            state.ui.unsubscribePolls = null;
+            
+            console.log("Zatrzymano wszystkie słuchacze Firestore.");
+        }
 
-            // <<<--- USUNIĘTO DEFINICJĘ I FILTROWANIE currentGroupId Z ZAPYTANIA ---<<<
+        /**
+         * Asynchronicznie zapisuje ostatnio wybraną grupę w profilu użytkownika.
+         */
+        async function saveActiveGroup(groupId) {
+            if (!state.currentUser) return;
+            try {
+                const userRef = doc(usersRef, state.currentUser.uid);
+                await updateDoc(userRef, { lastActiveGroupId: groupId });
+                state.currentUser.lastActiveGroupId = groupId;
+            } catch (error) {
+                console.error("Błąd zapisu ostatniej aktywnej grupy:", error);
+            }
+        }
+        
+        /**
+         * Logika przełączania grup roboczych.
+         */
+        async function handleGroupSwitch(newGroupId) {
+            if (newGroupId === state.ui.activeGroupId) {
+                console.log("Ta grupa jest już aktywna.");
+                return;
+            }
+
+            console.log(`Przełączanie na grupę: ${newGroupId}`);
+            loadingOverlay.style.display = 'flex'; // Pokaż ekran ładowania
+
+            // 1. Zapisz nową grupę w tle
+            saveActiveGroup(newGroupId);
+
+            // 2. Zaktualizuj stan lokalny
+            state.ui.activeGroupId = newGroupId;
+            state.ui.activeGroupInfo = state.currentUser.groupInfo[newGroupId];
+            
+            // Ustawiamy widok domyślny dla nowej grupy
+            state.ui.currentView = 'my-dashboard';
+            state.currentProjectId = null;
+
+            // 3. Wyczyść stare dane i słuchaczy
+            unsubscribeAllListeners();
+            state.projects = [];
+            state.completedProjects = [];
+            state.users = [];
+            state.polls = [];
+            state.notifications = [];
+
+            // 4. Uruchom nowe słuchacze dla nowej grupy
+            // (loadingOverlay zostanie ukryty wewnątrz setupFirestoreListeners)
+            setupFirestoreListeners(state.currentUser.uid, newGroupId);
+            
+            // 5. Natychmiastowe odświeżenie UI (pokaże pusty stan przed nadejściem danych)
+            render();
+        }
+
+        // === KONIEC NOWYCH FUNKCJI POMOCNICZYCH ===
+        
+        // === ZMODYFIKOWANA FUNKCJA: `setupFirestoreListeners` ===
+        
+        /**
+         * Uruchamia wszystkie niezbędne słuchacze Firestore dla DANEJ GRUPY.
+         * @param {string} userId - ID zalogowanego użytkownika.
+         * @param {string} groupId - ID aktywnej grupy do monitorowania.
+         */
+        function setupFirestoreListeners(userId, groupId) {
+            if (!userId || !groupId) {
+                console.error("Błąd krytyczny: setupFirestoreListeners wywołane bez userId lub groupId.");
+                return;
+            }
+            
+            // Wyczyść ewentualne stare słuchacze (zabezpieczenie)
+            unsubscribeAllListeners();
+            console.log(`[Nowe Listenery] Uruchamianie dla Użytkownika: ${userId} w Grupie: ${groupId}`);
+
+            // --- 1. Słuchacz Użytkowników ---
+            // Pobierz WSZYSTKICH użytkowników, którzy są w tej samej grupie co ja
+            const usersQuery = query(usersRef, where("groupIds", "array-contains", groupId));
+            state.ui.unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+                state.users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log(`[Listener Users] Załadowano ${state.users.length} użytkowników dla grupy ${groupId}.`);
+                // Nie renderujemy tutaj, czekamy na projekty
+            }, (error) => console.error(`Błąd odczytu użytkowników dla grupy ${groupId}:`, error));
+
+            // --- 2. Słuchacz Aktywnych Projektów ---
+            // Pobierz projekty, które należą do tej grupy I w których jestem członkiem
             const projectsQuery = query(projectsRef,
-                // where("groupId", "==", currentGroupId), // <-- USUNIĘTA LINIA
+                where("groupId", "==", groupId),
                 where("members", "array-contains", userId)
             );
-            console.log(`[setupFirestoreListeners] Uruchamianie listenera dla AKTYWNYCH projektów użytkownika ${userId}`);
-
             state.ui.unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
-                // Sprawdź czy currentUser jest zdefiniowany ZANIM go użyjesz
-                if (!state.currentUser) {
-                     console.warn("[setupFirestoreListeners/projects] currentUser jest null. Przerywam przetwarzanie snapshotu.");
-                     return;
-                }
-                const currentGroupId = state.currentUser.groupId; // Pobierz groupId aktualnego użytkownika
-                const userId = state.currentUser.uid; // Pobierz uid aktualnego użytkownika
-
-                // <<<--- DODANO FILTROWANIE LOKALNE PO POBRANIU DANYCH ---<<<
-                state.projects = snapshot.docs
-                    .map(doc => ({ id: doc.id, ...doc.data() })) // Najpierw mapujemy
-                    .filter(project => // Następnie filtrujemy
-                        (project.groupId === currentGroupId) || // Zachowaj, jeśli groupId pasuje
-                        (project.isInbox === true && project.ownerId === userId) // LUB jeśli to skrzynka tego użytkownika
-                    );
-                console.log(`[setupFirestoreListeners] Przefiltrowano aktywne projekty. Liczba po filtracji: ${state.projects.length}`);
-                // <<<--- KONIEC FILTROWANIA LOKALNEGO ---<<<
-
-                // Sprawdzanie spójności currentProjectId (pozostaje bez zmian, ale wewnątrz callbacka)
+                state.projects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log(`[Listener Projects] Załadowano ${state.projects.length} projektów dla grupy ${groupId}.`);
+                
+                // Sprawdzanie spójności (czy stary projectId nadal istnieje)
                 const isProjectView = state.ui.currentView === 'projects';
-                 if (isProjectView && state.currentProjectId) { // Dodano sprawdzenie state.currentProjectId
+                 if (isProjectView && state.currentProjectId) {
                      const stillExists = state.projects.some(p => p.id === state.currentProjectId) ||
                                        state.completedProjects.some(p => p.id === state.currentProjectId);
-
                      if (!stillExists) {
                          const nextProject = state.projects.find(p => !p.isInbox) || state.projects.find(p => p.isInbox);
                          state.currentProjectId = nextProject ? nextProject.id : null;
@@ -10752,87 +10938,50 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                          saveUiState();
                      }
                  }
-                 loadingOverlay.style.display = 'none';
-                 render(); // Przerenderuj po aktualizacji stanu projektów
+                 loadingOverlay.style.display = 'none'; // Ukryj ładowanie po pobraniu projektów
+                 render(); // Renderuj
             }, (error) => {
-                console.error("Błąd odczytu projektów:", error);
+                console.error(`Błąd odczytu projektów dla grupy ${groupId}:`, error);
                 loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small></p>`;
             });
 
-
-            if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
-
-             // <<<--- USUNIĘTO FILTROWANIE groupId Z ZAPYTANIA ---<<<
+            // --- 3. Słuchacz Zakończonych Projektów ---
              const completedQuery = query(completedProjectsRef,
-                // where("groupId", "==", currentGroupId), // <-- USUNIĘTA LINIA
+                where("groupId", "==", groupId),
                 where("members", "array-contains", userId)
             );
-            console.log(`[setupFirestoreListeners] Uruchamianie listenera dla ZAKOŃCZONYCH projektów użytkownika ${userId}`);
-
             state.ui.unsubscribeCompleted = onSnapshot(completedQuery, (snapshot) => {
-                 // Sprawdź czy currentUser jest zdefiniowany ZANIM go użyjesz
-                if (!state.currentUser) {
-                     console.warn("[setupFirestoreListeners/completed] currentUser jest null. Przerywam przetwarzanie snapshotu.");
-                     return;
-                }
-                const currentGroupId = state.currentUser.groupId;
-                 const userId = state.currentUser.uid;
-
-                // <<<--- DODANO FILTROWANIE LOKALNE PO POBRANIU DANYCH ---<<<
-                state.completedProjects = snapshot.docs
-                    .map(doc => ({ id: doc.id, ...doc.data() })) // Najpierw mapujemy
-                    .filter(project => // Następnie filtrujemy
-                        (project.groupId === currentGroupId) || // Zachowaj, jeśli groupId pasuje
-                        (project.isInbox === true && project.ownerId === userId) // LUB jeśli to skrzynka tego użytkownika
-                    );
-                 console.log(`[setupFirestoreListeners] Przefiltrowano zakończone projekty. Liczba po filtracji: ${state.completedProjects.length}`);
-                // <<<--- KONIEC FILTROWANIA LOKALNEGO ---<<<
-
-                render(); // Przerenderuj po aktualizacji stanu zakończonych projektów
+                state.completedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log(`[Listener Completed] Załadowano ${state.completedProjects.length} zakończonych projektów dla grupy ${groupId}.`);
+                render(); 
             }, (error) => {
-                 console.error("Błąd odczytu zakończonych projektów:", error)
+                 console.error(`Błąd odczytu zakończonych projektów dla grupy ${groupId}:`, error)
             });
-            // === NOWY LISTENER DLA SONDARŻY (POPRAWIONY) ===
-            if (state.ui.unsubscribePolls) state.ui.unsubscribePolls();
             
-            // Pobieramy groupId z BIEŻĄCEGO STANU
-            // const currentGroupId = state.currentUser ? state.currentUser.groupId : null; // <-- USUŃ LUB ZAKOMENTUJ TĘ LINIĘ
-            
-            // Poprawka: Używamy 'currentGroupId' zadeklarowanego na początku funkcji setupFirestoreListeners
-            if (currentGroupId) {
-                console.log(`[setupFirestoreListeners] Uruchamianie listenera dla SONDARŻY (grupa: ${currentGroupId})`);
-                const pollsQuery = query(pollsRef, where("groupId", "==", currentGroupId));
+            // --- 4. Słuchacz Sondaży ---
+            const pollsQuery = query(pollsRef, where("groupId", "==", groupId));
+            state.ui.unsubscribePolls = onSnapshot(pollsQuery, (snapshot) => {
+                state.polls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log(`[Listener Polls] Załadowano ${state.polls.length} sondaży dla grupy ${groupId}.`);
+                render(); 
+            }, (error) => {
+                console.error(`Błąd odczytu sondaży dla grupy ${groupId}:`, error)
+            });
 
-                state.ui.unsubscribePolls = onSnapshot(pollsQuery, (snapshot) => {
-                    state.polls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    console.log(`[setupFirestoreListeners] Pobrano sondaże. Liczba: ${state.polls.length}`);
-                    render(); // Przerenderuj po aktualizacji stanu sondaży
-                }, (error) => {
-                    console.error("Błąd odczytu sondaży:", error)
-                });
-            } else {
-                 console.warn("[setupFirestoreListeners/polls] Nie można uruchomić listenera sondaży, brak currentGroupId.");
-            }
-            // === KONIEC NOWEGO LISTENERA ===
-
-
-            // Listener dla powiadomień (pozostaje bez zmian)
-             if (state.ui.unsubscribeNotifications) state.ui.unsubscribeNotifications();
-             const notificationCollectionPath = `artifacts/${appId}/public/data/notifications`;
-             console.log(`[DEBUG] Tworzenie listenera dla ścieżki: ${notificationCollectionPath} i userId: ${userId}`);
-             const notificationsRef = collection(db, notificationCollectionPath);
-             const notificationsQuery = query(notificationsRef, where("userId", "==", userId), orderBy("timestamp", "desc"));
+            // --- 5. Słuchacz Powiadomień ---
+             const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+             // Pobierz powiadomienia dla mnie ORAZ dla tej aktywnej grupy
+             const notificationsQuery = query(notificationsRef, 
+                where("userId", "==", userId),
+                where("groupId", "==", groupId), // NOWY FILTR
+                orderBy("timestamp", "desc")
+             );
              state.ui.unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
-                 console.log(`[DEBUG] Snapshot powiadomień dla userId: ${userId}. Liczba dokumentów: ${snapshot.size}`);
-                 state.notifications = snapshot.docs.map(doc => {
-                     const data = doc.data();
-                     console.log(`[DEBUG] Otrzymano powiadomienie ID: ${doc.id}, dla: ${data.userId}`);
-                     return { id: doc.id, ...data };
-                 });
-                 render(); // Przerenderuj, aby zaktualizować np. licznik powiadomień
+                 state.notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                 console.log(`[Listener Notifications] Załadowano ${state.notifications.length} powiadomień dla grupy ${groupId}.`);
+                 render(); 
              }, (error) => {
-                  console.error(`[DEBUG] Błąd w onSnapshot powiadomień dla userId: ${userId}`, error);
-                  console.error("Błąd odczytu powiadomień:", error);
+                  console.error(`Błąd odczytu powiadomień dla grupy ${groupId}:`, error);
              });
         }
         loadUiState();
@@ -10964,189 +11113,179 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             }
         }
          onAuthStateChanged(auth, async (user) => {
-    // Jeśli Firebase twierdzi, że użytkownik jest zalogowany...
+    // === POCZĄTEK ZMIANY: Nowa logika `onAuthStateChanged` ===
     if (user) {
         
         let userDocRef = doc(usersRef, user.uid);
         let userDoc = await getDoc(userDocRef);
 
-        // --- INTELIGENTNA WERYFIKACJA ---
-        // Sprawdzamy, czy to jest świeżo zarejestrowany użytkownik.
+        // --- INTELIGENTNA WERYFIKACJA (BEZ ZMIAN) ---
         const creationTime = new Date(user.metadata.creationTime).getTime();
         const lastSignInTime = new Date(user.metadata.lastSignInTime).getTime();
-        // Jeśli logowanie nastąpiło w ciągu 5 sekund od utworzenia konta, zakładamy, że to nowa rejestracja.
         const isNewUser = (lastSignInTime - creationTime) < 5000;
 
-        // Wyrzuć użytkownika TYLKO jeśli jego dokument nie istnieje ORAZ NIE jest to nowa rejestracja.
         if (!userDoc.exists() && !isNewUser) {
             console.error("Weryfikacja nieudana: Użytkownik nie istnieje w bazie danych. Wymuszanie wylogowania.");
             await signOut(auth);
             return;
         }
         
-        // Czekamy na dane użytkownika, jeśli jeszcze ich nie ma (w przypadku nowej rejestracji).
         let userData = userDoc.data();
         if (!userData) {
-            // Spróbujmy pobrać dane jeszcze raz po krótkiej chwili, aby dać czas na ich zapisanie.
             await new Promise(resolve => setTimeout(resolve, 500));
             const freshUserDoc = await getDoc(userDocRef);
             userData = freshUserDoc.data();
         }
 
-        // Jeśli po tym czasie nadal nie ma danych, coś poszło bardzo nie tak.
         if (!userData) {
              console.error("Krytyczny błąd: Nie udało się wczytać danych profilu po rejestracji.");
              await signOut(auth);
              return;
         }
         // --- KONIEC INTELIGENTNEJ WERYFIKACJI ---
+        
+        // --- NOWA LOGIKA: Sprawdzanie przynależności do grup ---
+        
+        // Sprawdzamy, czy użytkownik ma NOWE pola (groupIds, groupInfo)
+        // i czy ma przypisaną jakąkolwiek grupę.
+        const userGroupsIds = userData.groupIds || [];
+        const userGroupInfo = userData.groupInfo || {};
+        
+        if (userGroupsIds.length === 0) {
+            // SCENARIUSZ 1: Użytkownik nie ma żadnej grupy.
+            // (np. nowy użytkownik po rejestracji solo)
+            // Wymuszamy stworzenie pierwszej grupy.
+            console.log("Użytkownik nie ma grup. Otwieram modal #create-first-group-modal.");
+            authOverlay.style.display = 'none'; // Ukryj ekran logowania
+            appContainer.classList.add('hidden'); // Ukryj główną apkę
+            openModal(document.getElementById('create-first-group-modal'));
+            // Przerywamy dalsze ładowanie, czekamy na akcję w modalu
+            return;
+        }
+        
+        // SCENARIUSZ 2: Użytkownik ma grupy. Ładujemy aplikację.
         authOverlay.style.display = 'none';
         appContainer.classList.remove('hidden');
-        
-        // NOWA LOGIKA: Sprawdzanie flagi i wymuszanie wyboru podgrupy
-        if (userData && !userData.hasSelectedSubgroup && userData.groupId && userData.groupId !== user.uid) {
-            // Użytkownik musi wybrać podgrupę, zanim zobaczy aplikację.
-            // Ta funkcja rozwiąże Promise dopiero po zapisaniu wyboru.
-            await handleFirstLoginSubgroupSelection(user.uid, userData.groupId);
-            
-            // Po dokonaniu wyboru, musimy odświeżyć dane użytkownika
-            userDoc = await getDoc(userDocRef);
-            userData = userDoc.data();
-        }
         loadingOverlay.style.display = 'flex';
 
-        // Jeśli dotarliśmy tutaj, użytkownik na 100% istnieje i ma dane. Kontynuujemy normalnie.
-        // === NOWA LOGIKA: Scalanie domyślnego i zapisanego układu dashboardu ===
-        const defaultDashboardLayout = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget']; // <-- DODANO 'user-budget'
-        
-        // 1. Pobierz zapisany układ użytkownika LUB użyj domyślnego
-        let userDashboardLayout = userData.layouts?.dashboard || [...defaultDashboardLayout]; // Użyj kopii domyślnego
+        // --- USUNIĘTO: Logika `handleFirstLoginSubgroupSelection` ---
+        // Ta logika zostanie przeniesiona do modala "Dołącz do grupy" (w przyszłości)
 
-        // 2. Sprawdź, czy w zapisanym układzie brakuje jakiegoś kafelka z domyślnego
+        // --- NOWA LOGIKA: Scalanie układu dashboardu (BEZ ZMIAN) ---
+        const defaultDashboardLayout = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'];
+        let userDashboardLayout = userData.layouts?.dashboard || [...defaultDashboardLayout];
         defaultDashboardLayout.forEach(kpiId => {
             if (!userDashboardLayout.includes(kpiId)) {
-                userDashboardLayout.push(kpiId); // Dodaj brakujący kafelek na końcu
+                userDashboardLayout.push(kpiId);
             }
         });
-        // === KONIEC NOWEJ LOGIKI ===
+        
+        // --- NOWA LOGIKA: Ustawienie `state.currentUser` ---
+        // Zauważ brak `groupId`, `groupName` itd.
         state.currentUser = {
             id: user.uid,
             uid: user.uid,
             email: user.email,
-            ...userData,
+            name: userData.name,
+            avatarColor: userData.avatarColor,
+            photoURL: userData.photoURL,
+            // Nowe pola grup
+            groupIds: userGroupsIds,
+            groupInfo: userGroupInfo,
+            lastActiveGroupId: userData.lastActiveGroupId,
+            // Reszta
             favorites: userData.favorites || [],
             layouts: { 
-                dashboard: userData.layouts?.dashboard || ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'], // <-- DODANO 'user-budget'
+                dashboard: userDashboardLayout,
                 allProjects: userData.layouts?.allProjects || []
             }
         };
-        state.ui.dashboardLayout = state.currentUser.layouts.dashboard;
-    
+        
+        // --- NOWA LOGIKA: Ustalenie aktywnej grupy ---
+        let groupIdToLoad = state.currentUser.lastActiveGroupId;
+        // Sprawdzamy, czy zapisana ostatnia grupa nadal istnieje
+        if (!groupIdToLoad || !state.currentUser.groupIds.includes(groupIdToLoad)) {
+            groupIdToLoad = state.currentUser.groupIds[0]; // Załaduj pierwszą z listy
+        }
+
+        state.ui.activeGroupId = groupIdToLoad;
+        state.ui.activeGroupInfo = state.currentUser.groupInfo[groupIdToLoad];
+        
+        // Ustawiamy domyślny widok
         if (window.innerWidth <= 768) {
             state.ui.currentView = 'my-day';
         } else {
             state.ui.currentView = 'my-dashboard';
         }
-        
         state.currentProjectId = null;
         
-        
+        // Aktualizujemy UI sidebara (tylko email)
         userEmailDisplay.textContent = state.currentUser.email;
-        // --- POCZĄTEK NOWEJ LOGIKI ---
-        // --- POCZĄTEK NOWEJ LOGIKI ---
-        // Pobieramy nowo dodany element span
-        const userGroupDisplay = document.getElementById('user-group-display');
-        if (userGroupDisplay) {
-            // Sprawdzamy, czy użytkownik ma przypisaną nazwę grupy (nie jest użytkownikiem solo)
-            if (state.currentUser.groupName) {
-                userGroupDisplay.textContent = `Grupa: ${state.currentUser.groupName}`;
-            } else {
-                // Jeśli użytkownik jest solo (groupName jest null lub undefined)
-                userGroupDisplay.textContent = `Konto indywidualne`;
-            }
-        }
-        // --- KONIEC NOWEJ LOGIKI ---
-
-        // POPRAWKA: Dodano brakujący nawias zamykający ")"
-        setupFirestoreListeners(user.uid);
+        // Render przełącznika grup zostanie wywołany w `render()`
+        
+        // --- NOWA LOGIKA: Wywołanie listenerów z ID aktywnej grupy ---
+        setupFirestoreListeners(user.uid, state.ui.activeGroupId); 
+        
         requestNotificationPermission();
         updateNotificationBellUI();
 
-        // <<<--- TUTAJ WŁĄCZ PRZYCISK ---<<<
         const newProjectBtn = document.getElementById('new-project-btn');
         if (newProjectBtn) {
-            newProjectBtn.disabled = false; // Włącz przycisk
-             console.log("[DEBUG] Przycisk '+ Nowy Projekt' włączony.");
+            newProjectBtn.disabled = false;
         }
-        // <<<--- KONIEC ZMIANY ---<<<
 
-    } else { // Użytkownik jest wylogowany
-        // Upewnij się, że przycisk jest wyłączony po wylogowaniu
+    } else { // Użytkownik jest wylogowany (logika w większości bez zmian)
         const newProjectBtn = document.getElementById('new-project-btn');
          if (newProjectBtn) {
             newProjectBtn.disabled = true;
          }
         state.currentUser = null;
-        state.notifications = []; // <-- DODANA LINIA: Wyczyść powiadomienia
+        state.notifications = []; 
         appContainer.classList.add('hidden');
-        // === PRZENIESIONA LOGIKA OBSŁUGI LINKU ===
-        // Najpierw sprawdzamy, czy to zaproszenie
+        
+        // Logika zaproszeń (bez zmian)
         try {
             const urlParams = new URLSearchParams(window.location.search);
             const action = urlParams.get('action');
             const inviteGroupId = urlParams.get('groupId');
             const inviteGroupName = urlParams.get('groupName');
 
-            // Sprawdzamy, czy parametry istnieją w URL
             if (action === 'invite' && inviteGroupId && inviteGroupName) {
-                
-                // 1. Pokaż formularz rejestracji (i ukryj logowanie)
                 document.getElementById('login-form').style.display = 'none';
                 document.getElementById('register-form').style.display = 'block';
-
-                // 2. Automatycznie zaznacz opcje "pracy w zespole"
                 const teamToggle = document.getElementById('register-team-toggle');
                 if (teamToggle) {
                     teamToggle.checked = true;
-                    teamToggle.disabled = true; // Zablokuj możliwość zmiany
-                    // Wymuś pokazanie opcji grupy
+                    teamToggle.disabled = true; 
                     document.getElementById('register-team-options').style.display = 'block';
                 }
-
-                // 3. Automatycznie zaznacz "Dołącz do grupy"
                 const joinRadio = document.querySelector('input[name="group-action"][value="join"]');
                 const createRadio = document.querySelector('input[name="group-action"][value="create"]');
                 if (joinRadio) {
                     joinRadio.checked = true;
-                    joinRadio.disabled = true; // Zablokuj
+                    joinRadio.disabled = true; 
                 }
                 if (createRadio) {
-                    createRadio.disabled = true; // Zablokuj
+                    createRadio.disabled = true; 
                 }
-                
-                // 4. Wypełnij i zablokuj nazwę grupy
                 const groupNameInput = document.getElementById('register-group-name');
                 if (groupNameInput) {
                     groupNameInput.value = decodeURIComponent(inviteGroupName);
-                    groupNameInput.disabled = true; // Zablokuj edycję
+                    groupNameInput.disabled = true; 
                 }
-
-                // 5. Opcjonalnie: usuń parametry z URL, aby nie raziły w oczy
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         } catch (e) {
             console.warn("Nie udało się sparsować parametrów URL zaproszenia:", e);
         }
-        // === KONIEC PRZENIESIONEJ LOGIKI ===
+        
         authOverlay.style.display = 'flex';
         loadingOverlay.style.display = 'none';
-        if (state.ui.unsubscribeProjects) state.ui.unsubscribeProjects();
-        if (state.ui.unsubscribeCompleted) state.ui.unsubscribeCompleted();
-        if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
-        // --- DODANA LINIA ---
-        if (state.ui.unsubscribeNotifications) state.ui.unsubscribeNotifications(); 
-        // --- KONIEC DODANEJ LINII ---
+        
+        // === NOWA LOGIKA: Wywołanie funkcji czyszczącej listenery ===
+        unsubscribeAllListeners();
     }
+    // === KONIEC ZMIANY ===
 });
         
         // --- LISTENERY ---
@@ -11444,17 +11583,15 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             const name = document.getElementById('register-name').value.trim();
             const email = document.getElementById('register-email').value;
             const password = document.getElementById('register-password').value;
-            // [NOWA LINIA] Pobranie wartości z pola "Potwierdź hasło"
             const confirmPassword = document.getElementById('register-password-confirm').value;
             authErrorRegister.textContent = '';
             const submitBtn = e.target.querySelector('button[type="submit"]');
 
-            // [NOWA WALIDACJA] Sprawdzenie, czy hasła są identyczne
+            // --- Walidacja lokalna (bez zmian) ---
             if (password !== confirmPassword) {
                 authErrorRegister.textContent = 'Hasła nie są takie same.';
-                return; // Przerwij wysyłanie
+                return;
             }
-
             if (!name) {
                 authErrorRegister.textContent = 'Nazwa użytkownika jest wymagana.';
                 return;
@@ -11463,100 +11600,122 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             submitBtn.disabled = true;
             submitBtn.textContent = 'Rejestrowanie...';
 
-            // Zmienne do przechowywania wyników walidacji
-            let groupId = null;
-            let groupName = null;
-            let action = null;
+            // --- ZMIANA: Nowa logika walidacji i zapisu ---
+            
+            // Zmienne do przechowywania danych grupy docelowej
+            let targetGroupId = null;
+            let targetGroupName = null;
+            let targetRole = 'owner'; // Domyślnie właściciel
+            let action = 'create-solo'; // Domyślna akcja
 
             try {
                 // ==================================================
-                // === KROK 1: WALIDACJA GRUPY (PRZED UTWORZENIEM UŻYTKOWNIKA) ===
+                // KROK 1: WALIDACJA GRUPY (PRZED AUTH)
                 // ==================================================
-                if (registerTeamToggle.checked) {
-                    action = document.querySelector('input[name="group-action"]:checked').value;
-                    const enteredGroupName = registerGroupNameInput.value.trim();
+                const isTeam = registerTeamToggle.checked;
+                const enteredGroupName = registerGroupNameInput.value.trim();
 
+                if (isTeam) {
+                    action = document.querySelector('input[name="group-action"]:checked').value;
+                    
                     if (!enteredGroupName) {
-                        // Błąd lokalny #1
                         throw new Error("Nazwa grupy jest wymagana, gdy pracujesz w zespole.");
                     }
 
                     if (action === 'create') {
-                        // Sprawdzamy, czy grupa o tej nazwie już istnieje
+                        // Walidacja: Sprawdź, czy nazwa nie jest zajęta
                         const qCheck = query(groupsRef, where("name", "==", enteredGroupName));
                         const checkSnapshot = await getDocs(qCheck);
                         if (!checkSnapshot.empty) {
-                            // Błąd lokalny #2 (Spersonalizowany)
                             throw new Error("Grupa o tej nazwie już istnieje. Wybierz inną nazwę lub dołącz do istniejącej.");
                         }
-                        // Walidacja pomyślna, zapisujemy nazwę do późniejszego użycia
-                        groupName = enteredGroupName;
-                        // groupId zostanie ustawione na user.uid po utworzeniu użytkownika
+                        targetGroupName = enteredGroupName;
+                        targetRole = 'owner';
+                        // targetGroupId zostanie wygenerowane później
 
-                    } else { // action === 'join'
-                        // Sprawdzamy, czy grupa, do której chcemy dołączyć, istnieje
+                    } else { // action === 'join' (z zaproszenia)
+                        // Walidacja: Sprawdź, czy grupa istnieje
                         const q = query(groupsRef, where("name", "==", enteredGroupName));
                         const querySnapshot = await getDocs(q);
-
                         if (querySnapshot.empty) {
-                            // Błąd lokalny #3 (Spersonalizowany)
-                            throw new Error("Grupa o podanej nazwie nie istnieje lub wpisałeś błędną nazwę grupy.");
+                            throw new Error("Grupa o podanej nazwie nie istnieje. Użyj linku z zaproszenia.");
                         }
-                        // Walidacja pomyślna, zapisujemy dane znalezionej grupy
                         const groupDoc = querySnapshot.docs[0];
-                        groupId = groupDoc.id;
-                        groupName = groupDoc.data().name;
+                        targetGroupId = groupDoc.id;
+                        targetGroupName = groupDoc.data().name;
+                        targetRole = 'member';
                     }
+                } else {
+                    // Użytkownik "Solo" - traktujemy jak tworzenie grupy
+                    action = 'create-solo';
+                    targetGroupName = `${name} (Osobista)`; // Domyślna nazwa grupy
+                    targetRole = 'owner';
+                    // targetGroupId zostanie wygenerowane później
                 }
-                // Jeśli registerTeamToggle nie jest zaznaczone, użytkownik jest solo.
-                // groupId zostanie ustawione na user.uid, a groupName pozostanie null.
 
                 // ==================================================
-                // === KROK 2: TWORZENIE UŻYTKOWNIKA I DOKUMENTÓW ===
-                // (Ten blok wykona się tylko jeśli KROK 1 nie zwrócił błędu)
+                // KROK 2: TWORZENIE UŻYTKOWNIKA (AUTH)
+                // ==================================================
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+
+                // ==================================================
+                // KROK 3: ZAPIS DO FIRESTORE (UŻYTKOWNIK, GRUPA, SKRZYNKA)
                 // ==================================================
                 try {
-                    // === KROK 2A: TWORZENIE UŻYTKOWNIKA W AUTH ===
-                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                    const user = userCredential.user;
+                    const batch = writeBatch(db);
+                    let finalGroupId, finalGroupName;
+                    
+                    if (action === 'join') {
+                        // Akcja: DOŁĄCZ do istniejącej grupy
+                        finalGroupId = targetGroupId;
+                        finalGroupName = targetGroupName;
+                        
+                        // Zaktualizuj dokument Grupy: dodaj nowego członka
+                        const groupRef = doc(groupsRef, finalGroupId);
+                        batch.update(groupRef, {
+                            memberIds: admin.firestore.FieldValue.arrayUnion(user.uid)
+                        });
 
-                    // === KROK 2B: FINALIZOWANIE DANYCH GRUPY ===
-                    if (registerTeamToggle.checked) {
-                        if (action === 'create') {
-                            // Teraz, gdy mamy user.uid, ustawiamy je jako ID grupy
-                            groupId = user.uid;
-                            
-                            // Zapisujemy nowy dokument grupy
-                            await setDoc(doc(groupsRef, groupId), {
-                                name: groupName, // Nazwa sprawdzona w kroku 1
-                                ownerId: user.uid,
-                                subgroups: []
-                            });
-                        }
-                        // Jeśli action === 'join', groupId i groupName są już ustawione z kroku 1.
-                    } else {
-                        // Użytkownik pracuje sam - jego grupa to on sam
-                        groupId = user.uid;
+                    } else { // Akcja: STWÓRZ nową grupę (solo lub zespół)
+                        const newGroupRef = doc(groupsRef); // Wygeneruj ID dla nowej grupy
+                        finalGroupId = newGroupRef.id;
+                        finalGroupName = targetGroupName;
+                        
+                        // Stwórz nowy dokument Grupy
+                        batch.set(newGroupRef, {
+                            name: finalGroupName,
+                            ownerId: user.uid,
+                            memberIds: [user.uid], // Właściciel jest pierwszym członkiem
+                            subgroups: [] // Domyślnie pusta lista działów
+                        });
                     }
 
-                    // === KROK 2C: ZAPIS DOKUMENTU UŻYTKOWNIKA ===
-                    await setDoc(doc(usersRef, user.uid), {
+                    // Stwórz dokument Użytkownika (zgodnie z nowym modelem)
+                    const userRef = doc(usersRef, user.uid);
+                    batch.set(userRef, {
                         uid: user.uid,
                         email: user.email,
                         name: name,
-                        groupId: groupId,       // Używamy groupId ustalonego wcześniej
-                        groupName: groupName,   // Używamy groupName ustalonego wcześniej
-                        subgroupName: null, 
-                        hasSelectedSubgroup: false, 
+                        groupIds: [finalGroupId], // Tablica z ID grupy
+                        groupInfo: {
+                            [finalGroupId]: {
+                                name: finalGroupName,
+                                role: targetRole,
+                                subgroup: null
+                            }
+                        },
+                        lastActiveGroupId: finalGroupId, // Ustaw jako domyślnie aktywną
                         avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
                         favorites: [],
                         layouts: {
-                            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'], // <-- DODANO 'user-budget'
+                            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'],
                             allProjects: []
                         }
+                        // Stare pola (groupId, groupName, hasSelectedSubgroup) nie są już tworzone
                     });
 
-                    // === KROK 2D: TWORZENIE SKRZYNKI ===
+                    // Stwórz Skrzynkę Zadań (Inbox) dla tego użytkownika w tej grupie
                     const inboxProject = {
                         name: "Skrzynka zadań",
                         ownerId: user.uid,
@@ -11564,15 +11723,18 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                         tasks: [],
                         isInbox: true,
                         createdAt: Date.now(),
-                        groupId: groupId // Dodajemy groupId również do skrzynki
+                        groupId: finalGroupId // Powiąż skrzynkę z grupą
                     };
-                    await addDoc(projectsRef, inboxProject);
+                    const inboxRef = doc(collection(db, `artifacts/${appId}/public/data/projects`));
+                    batch.set(inboxRef, inboxProject);
 
-                    // === KROK 2E/2F: WERYFIKACJA I Wylogowanie ===
+                    // Wykonaj wszystkie operacje
+                    await batch.commit();
+
+                    // === KROK 4: Weryfikacja i Sukces (bez zmian) ===
                     await sendEmailVerification(user);
                     await signOut(auth);
                     
-                    // === KROK 2G: SUKCES (pokazanie wiadomości) ===
                     loginForm.style.display = 'none';
                     registerForm.style.display = 'none';
                     document.getElementById('password-reset-form').style.display = 'none';
@@ -11580,64 +11742,48 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                     const successMessageContainer = document.getElementById('register-success-message');
                     const emailDisplay = document.getElementById('success-email-display');
                     
-                    if (emailDisplay) {
-                        emailDisplay.textContent = email;
-                    }
-                    if (successMessageContainer) {
-                        successMessageContainer.style.display = 'block';
-                    }
+                    if (emailDisplay) emailDisplay.textContent = email;
+                    if (successMessageContainer) successMessageContainer.style.display = 'block';
                     
                     const backToLoginBtn = document.getElementById('back-to-login-btn');
                     if (backToLoginBtn) {
                         backToLoginBtn.addEventListener('click', () => {
-                            if (successMessageContainer) {
-                                successMessageContainer.style.display = 'none';
-                            }
+                            if (successMessageContainer) successMessageContainer.style.display = 'none';
                             loginForm.style.display = 'block';
                         });
                     }
 
-                } catch (authOrFirestoreError) {
-                    // Ten catch łapie błędy z createUserWithEmailAndPassword LUB zapisu do Firestore
-                    console.error("Błąd rejestracji (Auth lub Firestore):", authOrFirestoreError);
-                    
-                    // Jeśli użytkownik został utworzony w Auth, ale reszta się nie powiodła
+                } catch (firestoreError) {
+                    console.error("Błąd zapisu do Firestore:", firestoreError);
+                    // Jeśli zapis do Firestore się nie powiódł, usuń utworzonego użytkownika Auth
                     if (auth.currentUser) {
-                        await signOut(auth); // Wyloguj go
+                        await auth.currentUser.delete();
+                        console.log("Usunięto użytkownika Auth z powodu błędu Firestore.");
                     }
-                    // Przekaż błąd dalej, aby złapał go zewnętrzny catch
-                    throw authOrFirestoreError; 
+                    throw firestoreError; // Rzuć błędem dalej
                 }
 
             } catch (validationOrAuthError) {
                 // ==================================================
-                // === KROK 3: GŁÓWNY CATCH (łapie błędy walidacji LUB błędy z KROKU 2) ===
+                // KROK 5: GŁÓWNY CATCH (łapie błędy walidacji LUB błędy z Auth/Firestore)
                 // ==================================================
                 console.error("Błąd podczas procesu rejestracji:", validationOrAuthError);
 
-                // Sprawdzamy nasze spersonalizowane błędy walidacji
                 const errorMsg = validationOrAuthError.message;
-                if (errorMsg === "Grupa o tej nazwie już istnieje. Wybierz inną nazwę lub dołącz do istniejącej." ||
-                    errorMsg === "Grupa o podanej nazwie nie istnieje lub wpisałeś błędną nazwę grupy." ||
-                    errorMsg === "Nazwa grupy jest wymagana, gdy pracujesz w zespole.") {
-                    
-                    authErrorRegister.textContent = errorMsg; // Wyświetlamy spersonalizowaną wiadomość
-                
+                if (errorMsg.includes("Grupa o tej nazwie już istnieje") ||
+                    errorMsg.includes("Grupa o podanej nazwie nie istnieje") ||
+                    errorMsg.includes("Nazwa grupy jest wymagana")) {
+                    authErrorRegister.textContent = errorMsg;
                 } else if (errorMsg.includes("auth/email-already-in-use")) {
                     authErrorRegister.textContent = "Ten adres e-mail jest już używany.";
-                
                 } else if (errorMsg.includes("auth/weak-password")) {
                     authErrorRegister.textContent = "Hasło jest zbyt słabe (min. 6 znaków).";
-
                 } else {
-                    // Inne nieoczekiwane błędy
                     authErrorRegister.textContent = "Wystąpił nieoczekiwany błąd: " + errorMsg;
                 }
             
             } finally {
-                // ==================================================
-                // === KROK 4: ZAWSZE RESETUJ PRZYCISK ===
-                // ==================================================
+                // KROK 6: ZAWSZE RESETUJ PRZYCISK
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Zarejestruj się';
             }
@@ -12566,245 +12712,20 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             render();
         });
 
-// Listener otwierający modal zmiany grupy
-settingsModal.openChangeGroupBtn.addEventListener('click', () => {
-    changeGroupModal.form.reset(); // Czyści formularz
-    changeSubgroupSection.style.display = 'none'; // Ukrywa sekcję podgrup
-    openModal(changeGroupModal.overlay);
-    closeModal(settingsModal.overlay);
-});
+// ... (listener dla settingsModal.openPasswordBtn) ...
 
-// Listener do dynamicznego wczytywania podgrup po wpisaniu nazwy grupy
-changeGroupNameInput.addEventListener('blur', async () => {
-    const groupName = changeGroupNameInput.value.trim();
-    if (!groupName) {
-        changeSubgroupSection.style.display = 'none';
-        return;
-    }
+// === USUNIĘTO BLOK: Listener dla settingsModal.openChangeGroupBtn ===
 
-    try {
-        const q = query(groupsRef, where("name", "==", groupName));
-        const querySnapshot = await getDocs(q);
+// === USUNIĘTO BLOK: Listener dla changeGroupNameInput.addEventListener('blur', ...) ===
 
-        if (querySnapshot.empty) {
-            changeSubgroupSection.style.display = 'none';
-            // Opcjonalnie: można tu dodać informację zwrotną dla użytkownika
-            return;
-        }
-        
-        const groupData = querySnapshot.docs[0].data();
-        if (groupData.subgroups && groupData.subgroups.length > 0) {
-            changeSubgroupSelect.innerHTML = '<option value="">-- Wybierz podgrupę (opcjonalnie) --</option>';
-            groupData.subgroups.forEach(subgroup => {
-                const option = document.createElement('option');
-                option.value = subgroup;
-                option.textContent = subgroup;
-                changeSubgroupSelect.appendChild(option);
-            });
-            changeSubgroupSection.style.display = 'block';
-        } else {
-            changeSubgroupSection.style.display = 'none';
-        }
-    } catch (error) {
-        console.error("Błąd wczytywania podgrup:", error);
-    }
-});
+// === USUNIĘTO BLOK: Listener dla changeGroupModal.form.addEventListener('submit', ...) ===
 
-// Listener obsługujący wysłanie formularza zmiany grupy
-if (changeGroupModal.form) {
-            console.log('[DEBUG] Formularz changeGroupModal.form ZNALEZIONY. Podpinam listener...');
-            changeGroupModal.form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                // === LOGOWANIE STARTU ===
-                console.log('[ZMIANA GRUPY] Listener formularza URUCHOMIONY.'); 
-                
-                const submitBtn = e.target.querySelector('button[type="submit"]'); // Pobieramy przycisk submit
-                submitBtn.disabled = true; // Wyłączamy przycisk od razu
-                submitBtn.textContent = 'Przetwarzanie...'; 
-    
-                const targetGroupName = changeGroupNameInput.value.trim();
-                const newSubgroupName = changeSubgroupSelect.value || null; 
-                
-                if (!targetGroupName) {
-                    console.warn('[ZMIANA GRUPY] Przerwano: Brak nazwy grupy docelowej.');
-                    showNotification("Wpisz nazwę grupy docelowej.", "Błąd");
-                    submitBtn.disabled = false; // Włączamy przycisk z powrotem
-                    submitBtn.textContent = 'Zmień grupę';
-                    return;
-                }
-            
-                const user = state.currentUser;
-                const oldGroupId = user.groupId;
-                if (!user) {
-                    console.error('[ZMIANA GRUPY] Przerwano: Brak zalogowanego użytkownika (state.currentUser jest null).');
-                    showNotification("Błąd: Użytkownik nie jest zalogowany.", "Błąd");
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Zmień grupę';
-                    return;
-                }
-                console.log(`[ZMIANA GRUPY] Użytkownik: ${user.uid}, Email: ${user.email}`);
-                console.log(`[ZMIANA GRUPY] Aktualna grupa użytkownika (ze state): groupId=${user.groupId}, groupName=${user.groupName}`);
-                console.log(`[ZMIANA GRUPY] Grupa docelowa: ${targetGroupName}, Podgrupa docelowa: ${newSubgroupName || 'brak'}`);
-                
-                // --- KROK 1: Sprawdź, czy użytkownik jest właścicielem grupy ---
-                let isGroupOwner = false;
-                let currentGroupData = null;
 
-                // ▼▼▼ POCZĄTEK ZMIANY ▼▼▼
-                // Sprawdzamy, czy użytkownik NALEŻY do jakiejś nazwanej grupy (nie jest solo)
-                if (user.groupId && user.groupName) { // Usunięto warunek '&& user.groupId !== user.uid'
-                // ▲▲▲ KONIEC ZMIANY ▲▲▲
-                    console.log(`[ZMIANA GRUPY] Użytkownik NALEŻY do grupy: ${user.groupName} (${user.groupId}). Sprawdzam, czy jest właścicielem...`);
-                    try {
-                        const groupRef = doc(groupsRef, user.groupId);
-                        console.log(`[ZMIANA GRUPY] Próbuję odczytać dokument grupy: ${groupRef.path}`);
-                        const currentGroupSnap = await getDoc(groupRef);
-            
-                        if (currentGroupSnap.exists()) {
-                            currentGroupData = currentGroupSnap.data();
-                            console.log(`[ZMIANA GRUPY] Dokument grupy istnieje. Dane:`, currentGroupData);
-                            if (currentGroupData.ownerId === user.uid) {
-                                isGroupOwner = true;
-                            }
-                        } else {
-                            // Ten scenariusz nie powinien wystąpić dla użytkownika z groupName, ale logujemy na wszelki wypadek
-                            console.warn(`[ZMIANA GRUPY] Niespójność danych: Użytkownik ma groupName=${user.groupName}, ale dokument grupy ${user.groupId} nie istnieje! Traktuję jak zwykłego użytkownika.`);
-                        }
-                        console.log(`[ZMIANA GRUPY] Wynik sprawdzenia właściciela: isGroupOwner = ${isGroupOwner}`);
-            
-                    } catch (error) {
-                        console.error("[ZMIANA GRUPY] Błąd podczas sprawdzania właściciela grupy:", error);
-                        showNotification("Wystąpił błąd przy weryfikacji grupy. Spróbuj ponownie.", "Błąd");
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = 'Zmień grupę';
-                        return;
-                    }
-                } else {
-                     console.log(`[ZMIANA GRUPY] Użytkownik jest SOLO (groupId: ${user.groupId}, groupName: ${user.groupName}). Traktowany jak zwykły użytkownik.`);
-                }
-            
-                // --- KROK 2: Rozdziel logikę ---
-            
-                if (isGroupOwner) {
-                    // --- LOGIKA DLA WŁAŚCICIELA (PROBLEM 2) ---
-                    console.log('[ZMIANA GRUPY] Akcja dla WŁAŚCICIELA GRUPY. Otwieram modal transferu...');
-                    openTransferOwnershipModal(targetGroupName, newSubgroupName);
-                    // Resetujemy przycisk, bo akcja została przekierowana
-                    submitBtn.disabled = false; 
-                    submitBtn.textContent = 'Zmień grupę';
-                    
-                } else {
-                    // --- LOGIKA DLA ZWYKŁEGO UŻYTKOWNIKA lub SOLO (PROBLEM 1) ---
-                    console.log('[ZMIANA GRUPY] Akcja dla ZWYKŁEGO UŻYTKOWNIKA lub SOLO.');
-                    try {
-                        // Krok 2a: Znajdź grupę docelową
-                        console.log(`[ZMIANA GRUPY] Szukam grupy docelowej: ${targetGroupName}`);
-                        const qGroup = query(groupsRef, where("name", "==", targetGroupName));
-                        const groupSnapshot = await getDocs(qGroup);
-            
-                        if (groupSnapshot.empty) {
-                            showNotification("Grupa o podanej nazwie nie istnieje.", "Błąd");
-                            console.warn(`[ZMIANA GRUPY] Nie znaleziono grupy docelowej: ${targetGroupName}`);
-                            submitBtn.disabled = false;
-                            submitBtn.textContent = 'Zmień grupę';
-                            return;
-                        }
-            
-                        const groupDoc = groupSnapshot.docs[0];
-                        const newGroupId = groupDoc.id;
-                        const newGroupName = groupDoc.data().name;
-                        console.log(`[ZMIANA GRUPY] Znaleziono grupę docelową: ${newGroupName} (${newGroupId})`);
-            
-                        // Krok 2b: Znajdź projekty do usunięcia (bezpośrednie zapytanie)
-                        // Krok 2b: Znajdź projekty do usunięcia (bezpośrednie zapytanie)
-                        console.log(`[ZMIANA GRUPY] Szukam projektów użytkownika ${user.uid} do usunięcia z grupy ${user.groupId}...`);
-            // Tworzymy zapytanie - szukamy projektów, gdzie ownerId pasuje ORAZ groupId pasuje
-            const qProjects = query(projectsRef,
-                where("ownerId", "==", user.uid),
-                where("groupId", "==", user.groupId)
-            );
-            let projectsSnapshot;
-            try {
-                // BRAKUJĄCA LINIA: Musimy faktycznie wykonać zapytanie i poczekać na wynik
-                projectsSnapshot = await getDocs(qProjects);
-                console.log(`[ZMIANA GRUPY] Zapytanie o projekty wykonane. Znaleziono dokumentów: ${projectsSnapshot.size}`);
-            } catch (queryError) {
-                console.error("[ZMIANA GRUPY] Błąd podczas zapytania o projekty:", queryError);
-                // BŁĄD INDEKSU: Jeśli TERAZ pojawi się błąd indeksu, pokażemy go użytkownikowi.
-                 if (queryError.code === 'failed-precondition') {
-                     showNotification("Błąd konfiguracji bazy danych: Brak wymaganego indeksu. Sprawdź konsolę (F12) po instrukcje.", "Błąd Krytyczny");
-                     // Wyrzuć link do konsoli, który jest w błędach Firebase
-                     console.error("BŁĄD INDEKSU: " + queryError.message);
-                 } else {
-                     showNotification("Błąd podczas wyszukiwania projektów.", "Błąd");
-                 }
-                throw queryError; // Przerwij dalsze wykonywanie
-            }
-            // ▲▲▲ KONIEC ZMIANY ▲▲▲
+// === KOD, KTÓRY POZOSTAJE (BEZ ZMIAN) ===
+// Ta logika jest nadal potrzebna dla Właścicieli Grup.
+// Jej wyzwalacz zostanie przeniesiony do nowego menu "Zarządzaj Grupą".
 
-            // Mapujemy wyniki do tablicy ID, filtrując inbox
-            const projectsToDeleteIds = projectsSnapshot.docs
-                .filter(doc => !doc.data().isInbox)
-                .map(doc => doc.id);
-
-            console.log(`[ZMIANA GRUPY] Znaleziono ${projectsToDeleteIds.length} projektów do usunięcia (po filtracji inboxa):`, projectsToDeleteIds);
-
-            if (projectsToDeleteIds.length > 0) {
-                // Krok 2c: Wymagaj potwierdzenia
-                console.log('[ZMIANA GRUPY] Pokazuję potwierdzenie usunięcia projektów...');
-
-                // <<<--- POCZĄTEK ZMIANY ---<<<
-                closeModal(changeGroupModal.overlay); // Zamknij modal zmiany grupy NAJPIERW
-                // <<<--- KONIEC ZMIANY ---<<<
-
-                showConfirmation( // A dopiero POTEM pokaż potwierdzenie
-                    "Potwierdzenie zmiany grupy",
-                    `Jesteś właścicielem ${projectsToDeleteIds.length} projekt(ów) w tej grupie. Przejście do innej grupy spowoduje ich TRWAŁE usunięcie (wraz ze wszystkimi zadaniami). Czy na pewno chcesz kontynuować?`,
-                    async (confirmed) => {
-                        if (confirmed) {
-                            console.log('[ZMIANA GRUPY] Użytkownik potwierdził usunięcie projektów.');
-                            // Wyświetl overlay ładowania na czas usuwania i aktualizacji
-                            if(loadingOverlay) loadingOverlay.style.display = 'flex';
-                            try {
-                                await removeUserFromProjectsMembership(user.uid, oldGroupId);
-                                await deleteUserProjects(projectsToDeleteIds);
-                                await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
-
-                                // closeModal(changeGroupModal.overlay); // <--- Usunięte stąd, bo zamykamy wcześniej
-                                showNotification("Przynależność do grupy została zaktualizowana, a Twoje projekty usunięte.", "Sukces");
-                            } catch (finalizationError) {
-                                console.error("[ZMIANA GRUPY] Błąd podczas usuwania projektów lub aktualizacji grupy po potwierdzeniu:", finalizationError);
-                                showNotification(finalizationError.message || "Wystąpił błąd podczas finalizowania zmiany grupy.", "Błąd");
-                            } finally {
-                                // Ukryj overlay ładowania niezależnie od wyniku
-                                if(loadingOverlay) loadingOverlay.style.display = 'none';
-                            }
-                        } else {
-                            console.log('[ZMIANA GRUPY] Użytkownik anulował usuwanie projektów.');
-                            // Nie trzeba resetować przycisku, bo modal był już zamknięty
-                        }
-                    },
-                    true // Użyj czerwonego przycisku (danger = true)
-                );
-            } else {
-                // Krok 2d: Brak projektów do usunięcia, po prostu zmień grupę
-                console.log('[ZMIANA GRUPY] Brak projektów do usunięcia. Zmieniam tylko grupę...');
-                await removeUserFromProjectsMembership(user.uid, oldGroupId);            
-                await updateUserGroup(user.uid, newGroupId, newGroupName, newSubgroupName);
-                closeModal(changeGroupModal.overlay); // Zamykamy modal tutaj
-                showNotification("Przynależność do grupy została zaktualizowana.", "Sukces");
-            }
-
-        } catch (error) {
-             console.error("[ZMIANA GRUPY] Błąd w głównej logice zwykłego użytkownika:", error);
-             showNotification(error.message || "Wystąpił błąd. Spróbuj ponownie.", "Błąd");
-             submitBtn.disabled = false; // Reset przycisku w razie błędu
-             submitBtn.textContent = 'Zmień grupę';
-        }
-    } // Koniec logiki dla zwykłego użytkownika
-            }); // Koniec listenera submit
-       // === POCZĄTEK NOWEGO LISTENERA (TRANSFER WŁASNOŚCI) - Wersja 3 ===
-        
+if (transferOwnershipModal.form) {
             console.log('[DEBUG] Formularz transferOwnershipModal.form ZNALEZIONY. Podpinam listener...');
             transferOwnershipModal.form.addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -12978,7 +12899,7 @@ if (changeGroupModal.form) {
         } else {
              console.error('[DEBUG] KRYTYCZNY BŁĄD: Nie znaleziono elementu transferOwnershipModal.form w DOM!');
         }
-        // === KONIEC NOWEGO LISTENERA ===
+        // === KONIEC KODU, KTÓRY POZOSTAJE ===
         document.querySelectorAll('#notification-toggle-btn, #notification-toggle-btn-mobile').forEach(btn => {
             btn.addEventListener('click', requestNotificationPermission);
         });
@@ -13139,7 +13060,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     name: newName,
                     ownerId: state.currentUser.uid,
                     members: selectedMembers,
-                    groupId: state.currentUser.groupId,
+                    groupId: state.ui.activeGroupId,
                     description: newDescription,
                     // ZMIANA START: Dodanie nowych pól
                     startDate: newProjectModal.startDateInput.value,
@@ -14471,7 +14392,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 // 4. Budowanie obiektu sondażu
                 const newPollData = {
                     projectId: projectId,
-                    groupId: project.groupId, // Dodajemy groupId dla listenerów
+                    groupId: state.ui.activeGroupId, // Dodajemy groupId dla listenerów
                     title: title,
                     description: description, // <-- DODANA TA LINIA
                     options: options, // Tablica obiektów z ID, text, votes
@@ -14753,6 +14674,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                         const notification = {
                             userId: userToNotify.id, // ID odbiorcy
                             creatorId: state.currentUser.uid, // ID twórcy
+                            groupId: state.ui.activeGroupId, // <-- DODANA LINIA
                             type: 'mention',
                             message: `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie w komentarzu w zadaniu "<strong>${task.title}</strong>".`,
                             isRead: false,
@@ -15148,24 +15070,33 @@ settingsBtn.addEventListener('click', async () => {
     // Na koniec pokazuje główne okno ustawień
     openModal(settingsModal.overlay);
 });
-        // Listener do otwierania modala zarządzania grupą
-openManageGroupBtn.addEventListener('click', async () => {
+        /**
+ * Otwiera i wypełnia modal zarządzania dla AKTYWNEJ grupy.
+ * Zakłada, że użytkownik jest właścicielem.
+ */
+async function openManageGroupModal() {
     const user = state.currentUser;
-    if (!user || !user.groupId) return;
+    const activeGroupId = state.ui.activeGroupId; // Używamy aktywnej grupy
+    
+    if (!user || !activeGroupId) {
+        showNotification("Błąd: Brak aktywnej grupy do zarządzania.", "Błąd");
+        return;
+    }
 
-    // Pobieramy referencję do nowego elementu HTML
+    // Pobieramy referencję do elementu HTML
     const membersListEl = document.getElementById('group-members-list');
     
     try {
-        const groupRef = doc(groupsRef, user.groupId);
+        const groupRef = doc(groupsRef, activeGroupId); // Używamy aktywnej grupy
         const groupSnap = await getDoc(groupRef);
 
         if (groupSnap.exists()) {
             const groupData = groupSnap.data();
             const subgroups = groupData.subgroups || [];
             
-            // --- NOWA LOGIKA: Wypełnianie listy członków ---
-            const groupMembers = state.users.filter(u => u.groupId === user.groupId && u.uid !== groupData.ownerId);
+            // Wypełnianie listy członków
+            // Używamy `state.users`, które jest już przefiltrowane do aktywnej grupy
+            const groupMembers = state.users.filter(u => u.uid !== groupData.ownerId);
             membersListEl.innerHTML = '';
             if (groupMembers.length > 0) {
                 groupMembers.forEach(member => {
@@ -15184,7 +15115,7 @@ openManageGroupBtn.addEventListener('click', async () => {
                 membersListEl.innerHTML = '<li>Brak innych członków w tej grupie.</li>';
             }
             
-            // --- Istniejąca logika dla podgrup (bez zmian) ---
+            // Logika dla podgrup
             manageGroupModal.subgroupsList.innerHTML = ''; 
             if (subgroups.length > 0) {
                 subgroups.forEach(name => {
@@ -15201,13 +15132,22 @@ openManageGroupBtn.addEventListener('click', async () => {
             }
         }
         
-        closeModal(settingsModal.overlay);
+        // Zamykamy modal ustawień TYLKO jeśli jest otwarty
+        if (settingsModal.overlay.classList.contains('visible')) {
+            closeModal(settingsModal.overlay);
+        }
         openModal(manageGroupModal.overlay);
     } catch (error) {
         console.error("Błąd otwierania zarządzania grupą:", error);
         showNotification("Wystąpił błąd.", "Błąd");
     }
-});
+}
+
+// Listener do otwierania modala zarządzania grupą (teraz tylko wywołuje funkcję)
+openManageGroupBtn.addEventListener('click', openManageGroupModal);
+
+// === KONIEC ZMIANY ===
+
 
 // Listener do dodawania nowej podgrupy
 manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
@@ -15602,9 +15542,13 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                 // Definiujemy wywołanie funkcji chmurowej
                 const sendGroupInvite = httpsCallable(functions, 'sendGroupInvite');
                 
-                // Wywołujemy funkcję, przekazując tylko e-mail
-                // (Funkcja sama pobierze ID grupy i nazwę grupy zapraszającego)
-                const result = await sendGroupInvite({ email: emailToInvite });
+                // === POCZĄTEK ZMIANY ===
+                // Wywołujemy funkcję, przekazując e-mail ORAZ ID aktywnej grupy
+                const result = await sendGroupInvite({ 
+                    email: emailToInvite,
+                    groupId: state.ui.activeGroupId // <-- DODANA LINIA
+                });
+                // === KONIEC ZMIANY ===
 
                 closeModal(inviteMemberModal.overlay);
                 showNotification(`Zaproszenie zostało wysłane na adres ${emailToInvite}.`, "Sukces");
@@ -16613,7 +16557,249 @@ function addAiChatMessage(text, type, id = null) {
 // === KONIEC LOGIKI ASYSTENTA AI ===
 // =========================================================
 
+    // === POCZĄTEK ZMIANY: Nowe listenery dla Grup ===
 
+        // === POCZĄTEK ZMIANY: Nowe listenery dla Grup ===
+
+        const createFirstGroupModal = {
+            overlay: document.getElementById('create-first-group-modal'),
+            form: document.getElementById('create-first-group-form'),
+            input: document.getElementById('first-group-name'),
+            logoutBtn: document.getElementById('logout-from-first-group-modal')
+        };
+        
+        // --- NOWA REFERENCJA ---
+        const createNewGroupModal = {
+            overlay: document.getElementById('create-new-group-modal'),
+            form: document.getElementById('create-new-group-form'),
+            input: document.getElementById('new-group-name')
+        };
+        // --- KONIEC NOWEJ REFERENCJI ---
+
+        const groupSwitcher = {
+            toggle: document.getElementById('group-switcher-toggle'),
+            menu: document.getElementById('group-switcher-menu'),
+            list: document.getElementById('group-switcher-list'),
+            activeName: document.getElementById('active-group-name'),
+            manageBtn: document.getElementById('manage-groups-btn'),
+            createBtn: document.getElementById('create-group-btn')
+        };
+
+        // --- Listener dla modala "Stwórz Pierwszą Grupę" ---
+        createFirstGroupModal.form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const groupName = createFirstGroupModal.input.value.trim();
+            if (!groupName) return;
+
+            const user = auth.currentUser;
+            if (!user) {
+                showNotification("Błąd: Użytkownik nie jest zalogowany.", "Błąd");
+                return;
+            }
+            
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Tworzenie...';
+            
+            try {
+                const batch = writeBatch(db);
+                
+                // 1. Stwórz nowy dokument Grupy
+                const newGroupRef = doc(groupsRef); // Firestore sam wygeneruje ID
+                const newGroupId = newGroupRef.id;
+                batch.set(newGroupRef, {
+                    name: groupName,
+                    ownerId: user.uid,
+                    memberIds: [user.uid], // Właściciel jest pierwszym członkiem
+                    subgroups: []
+                });
+
+                // 2. Zaktualizuj dokument Użytkownika
+                const userRef = doc(usersRef, user.uid);
+                // Używamy `set` z `merge: true` zamiast `update`, bo dokument może być tworzony po raz pierwszy
+                // (chociaż logika w onAuthStateChanged powinna już go utworzyć - to jest bezpieczniejsze)
+                batch.set(userRef, {
+                    groupIds: [newGroupId],
+                    groupInfo: {
+                        [newGroupId]: {
+                            name: groupName,
+                            role: "owner",
+                            subgroup: null
+                        }
+                    },
+                    lastActiveGroupId: newGroupId
+                }, { merge: true }); // Użyj merge, aby nie nadpisać pól `name`, `email` itd.
+                
+                // 3. Stwórz skrzynkę dla tej grupy
+                const inboxProject = {
+                    name: "Skrzynka zadań",
+                    ownerId: user.uid,
+                    members: [user.uid],
+                    tasks: [],
+                    isInbox: true,
+                    createdAt: Date.now(),
+                    groupId: newGroupId // Powiąż skrzynkę z nową grupą
+                };
+                const newProjectRef = doc(projectsRef); // Użyj doc() dla batcha
+                batch.set(newProjectRef, inboxProject);
+
+                // 4. Wykonaj operację
+                await batch.commit();
+                
+                console.log(`Stworzono pierwszą grupę: ${groupName} (${newGroupId}) dla użytkownika ${user.uid}`);
+                
+                // 5. Zamknij modal i przeładuj aplikację
+                closeModal(createFirstGroupModal.overlay);
+                // Wymuszamy odświeżenie strony. onAuthStateChanged teraz znajdzie grupę.
+                window.location.reload(); 
+
+            } catch (error) {
+                console.error("Błąd podczas tworzenia pierwszej grupy:", error);
+                showNotification("Wystąpił błąd: " + error.message, "Błąd");
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Stwórz grupę i kontynuuj';
+            }
+        });
+        
+        // Listener wylogowania z modala "Stwórz Pierwszą Grupę"
+        createFirstGroupModal.logoutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            signOut(auth);
+        });
+
+        // --- NOWY LISTENER: Listener dla modala "Stwórz KOLEJNĄ Grupę" ---
+        createNewGroupModal.form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const groupName = createNewGroupModal.input.value.trim();
+            if (!groupName) return;
+
+            const user = state.currentUser;
+            if (!user) {
+                showNotification("Błąd: Użytkownik nie jest zalogowany.", "Błąd");
+                return;
+            }
+
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Tworzenie...';
+
+            try {
+                // Walidacja: Sprawdź, czy grupa o tej nazwie już istnieje (globalnie)
+                const qCheck = query(groupsRef, where("name", "==", groupName));
+                const checkSnapshot = await getDocs(qCheck);
+                if (!checkSnapshot.empty) {
+                    throw new Error("Grupa o takiej nazwie już istnieje. Wybierz inną.");
+                }
+
+                const batch = writeBatch(db);
+
+                // 1. Stwórz nowy dokument Grupy
+                const newGroupRef = doc(groupsRef);
+                const newGroupId = newGroupRef.id;
+                batch.set(newGroupRef, {
+                    name: groupName,
+                    ownerId: user.uid,
+                    memberIds: [user.uid],
+                    subgroups: []
+                });
+
+                // 2. Zaktualizuj dokument Użytkownika (DODAJ nową grupę)
+                const userRef = doc(usersRef, user.uid);
+                batch.update(userRef, {
+                    groupIds: admin.firestore.FieldValue.arrayUnion(newGroupId),
+                    [`groupInfo.${newGroupId}`]: { // Używamy notacji kropkowej do aktualizacji mapy
+                        name: groupName,
+                        role: "owner",
+                        subgroup: null
+                    },
+                    lastActiveGroupId: newGroupId // Automatycznie ustaw jako aktywną
+                });
+
+                // 3. Stwórz Skrzynkę Zadań (Inbox) dla nowej grupy
+                const inboxProject = {
+                    name: "Skrzynka zadań",
+                    ownerId: user.uid,
+                    members: [user.uid],
+                    tasks: [],
+                    isInbox: true,
+                    createdAt: Date.now(),
+                    groupId: newGroupId
+                };
+                const inboxRef = doc(collection(db, `artifacts/${appId}/public/data/projects`));
+                batch.set(inboxRef, inboxProject);
+
+                // 4. Wykonaj operację
+                await batch.commit();
+                
+                console.log(`Stworzono nową grupę: ${groupName} (${newGroupId})`);
+
+                // 5. Zaktualizuj stan lokalny (ważne!)
+                state.currentUser.groupIds.push(newGroupId);
+                state.currentUser.groupInfo[newGroupId] = { name: groupName, role: "owner", subgroup: null };
+
+                // 6. Zamknij modal i płynnie przełącz na nową grupę
+                closeModal(createNewGroupModal.overlay);
+                handleGroupSwitch(newGroupId); // Płynne przełączenie
+
+            } catch (error) {
+                console.error("Błąd podczas tworzenia nowej grupy:", error);
+                showNotification(error.message, "Błąd");
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Stwórz grupę';
+                createNewGroupModal.form.reset(); // Wyczyść pole po operacji
+            }
+        });
+        // --- KONIEC NOWEGO LISTENERA ---
+
+
+        // --- Listenery dla przełącznika grup (Group Switcher) ---
+        groupSwitcher.toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            groupSwitcher.toggle.classList.toggle('open');
+            groupSwitcher.menu.classList.toggle('open');
+        });
+        
+        // Zamykanie menu po kliknięciu poza nim
+        document.addEventListener('click', (e) => {
+            if (!groupSwitcher.toggle.contains(e.target) && !groupSwitcher.menu.contains(e.target)) {
+                groupSwitcher.toggle.classList.remove('open');
+                groupSwitcher.menu.classList.remove('open');
+            }
+        });
+        
+       // Listener do obsługi kliknięć wewnątrz menu
+        groupSwitcher.menu.addEventListener('click', (e) => {
+            const groupItem = e.target.closest('.group-menu-item');
+            const createBtn = e.target.closest('#create-group-btn');
+            const manageBtn = e.target.closest('#manage-groups-btn');
+            
+            // 1. Kliknięto na przełączenie grupy
+            if (groupItem) {
+                const newGroupId = groupItem.dataset.groupId;
+                handleGroupSwitch(newGroupId); // Wywołaj główną funkcję przełączającą
+            }
+            // 2. Kliknięto "Stwórz grupę"
+            else if (createBtn) {
+                // === ZMIANA: Otwieramy nowy modal ===
+                openModal(createNewGroupModal.overlay);
+                createNewGroupModal.input.focus();
+            }
+            // 3. Kliknięto "Zarządzaj grupą"
+            else if (manageBtn) {
+                 // === POCZĄTEK ZMIANY: Bezpośrednie wywołanie nowej funkcji ===
+                 openManageGroupModal();
+                 // === KONIEC ZMIANY ===
+            }
+            
+            // Zawsze zamykaj menu po kliknięciu
+            groupSwitcher.toggle.classList.remove('open');
+            groupSwitcher.menu.classList.remove('open');
+        });
+        
+        // === KONIEC ZMIANY ===
+        
+    
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
 </script>
@@ -16633,7 +16819,6 @@ function addAiChatMessage(text, type, id = null) {
     <button id="open-change-username-btn" class="btn btn-secondary">Zmień nazwę</button>
     <button id="open-change-password-btn" class="btn btn-secondary">Zmień hasło</button>
     <button id="open-change-subgroup-btn" class="btn btn-secondary">Zmień dział/podgrupę</button>
-    <button id="open-change-group-btn" class="btn btn-secondary">Zmień lub dołącz do grupy</button>
     <button id="open-manage-group-btn" class="btn btn-primary" style="display: none;">Zarządzaj grupą</button>
     
     <button id="open-invite-modal-btn" class="btn btn-primary" style="display: none; background-color: var(--success-primary); border-color: var(--success-primary);">Zaproś do grupy</button>
@@ -16662,31 +16847,7 @@ function addAiChatMessage(text, type, id = null) {
         </form>
     </div>
 </div>
-<div class="modal-overlay" id="change-group-modal">
-    <div class="modal" style="max-width: 400px;">
-        <form id="change-group-form">
-            <div class="modal-header">
-                <h2>Zmień lub dołącz do grupy</h2>
-                <button type="button" class="modal-close-btn">&times;</button>
-            </div>
-            <div class="form-modal-content">
-                <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">Wpisz nazwę grupy, do której chcesz dołączyć. Twoje członkostwo w obecnych projektach pozostanie bez zmian.</p>
-                <div class="form-group">
-                    <label for="change-group-name">Nazwa grupy docelowej</label>
-                    <input type="text" id="change-group-name" required>
-                </div>
-                <div class="form-group" id="change-subgroup-section" style="display: none;">
-                    <label for="change-subgroup-select">Wybierz podgrupę (dział)</label>
-                    <select id="change-subgroup-select"></select>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
-                <button type="submit" class="btn btn-primary">Zmień grupę</button>
-            </div>
-        </form>
-    </div>
-</div>
+
 <div class="modal-overlay" id="change-password-modal">
     <div class="modal" style="max-width: 400px;">
         <form id="change-password-form">
@@ -17240,8 +17401,54 @@ function addAiChatMessage(text, type, id = null) {
             </div>
     </div>
 </div>
+    <div class="modal-overlay" id="create-first-group-modal" data-backdrop-static="true">
+        <div class="modal" style="max-width: 450px; height: auto;">
+            <form id="create-first-group-form">
+                <div class="modal-header">
+                    <h2>Witaj w TeamFlow!</h2>
+                    </div>
+                <div class="form-modal-content">
+                    <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                        Wygląda na to, że logujesz się po raz pierwszy. Aby zacząć, stwórz swoją pierwszą przestrzeń roboczą (grupę).
+                    </p>
+                    <div class="form-group">
+                        <label for="first-group-name">Nazwa Twojej Grupy</label>
+                        <input type="text" id="first-group-name" placeholder="np. Moja Firma, Projekty Prywatne" required>
+                    </div>
+                </div>
+                <div class="modal-footer" style="justify-content: space-between;">
+                    <a href="#" id="logout-from-first-group-modal" style="font-size: 14px; color: var(--text-secondary);">Wyloguj się</a>
+                    <button type="submit" class="btn btn-primary">Stwórz grupę i kontynuuj</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div class="modal-overlay" id="create-new-group-modal">
+        <div class="modal" style="max-width: 450px; height: auto;">
+            <form id="create-new-group-form">
+                <div class="modal-header">
+                    <h2>Stwórz nową grupę (Przestrzeń roboczą)</h2>
+                    <button type="button" class="modal-close-btn">&times;</button>
+                </div>
+                <div class="form-modal-content">
+                    <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                        Utwórz nową, oddzielną przestrzeń do zarządzania innym zespołem lub projektami.
+                    </p>
+                    <div class="form-group">
+                        <label for="new-group-name">Nazwa Nowej Grupy</label>
+                        <input type="text" id="new-group-name" placeholder="np. Klient ABC, Projekty Hobbystyczne" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                    <button type="submit" class="btn btn-primary">Stwórz grupę</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </body>
 </html>
+
 
 
 
