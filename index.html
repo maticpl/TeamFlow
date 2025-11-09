@@ -5434,10 +5434,14 @@ let state = {
             projects: [], // Będą ładowane dynamicznie per grupa
             completedProjects: [], // Będą ładowane dynamicznie per grupa
             projectTemplates: [], 
-            selectedTemplateId: null, 
             polls: [], // Będą ładowane dynamicznie per grupa
             currentProjectId: null,
             notifications: [], // Będą ładowane dynamicznie per grupa
+            // === POCZĄTEK ZMIANY (KROK 1) ===
+            // Nowe pola dla wszystkich projektów użytkownika (widok "Mój dzień")
+            allGroupsProjects: [], 
+            allGroupsCompletedProjects: [],
+            // === KONIEC ZMIANY ===
             ui: {
                 theme: 'light',
                 currentView: 'my-day', 
@@ -5468,7 +5472,10 @@ let state = {
                 unsubscribeUsers: null, 
                 unsubscribeNotifications: null, 
                 unsubscribePolls: null, 
-                // === KONIEC ZMIANY ===
+                // === NOWE SUBKSKRYPCJE GLOBALNE ===
+                unsubscribeAllGroupsProjects: null,
+                unsubscribeAllGroupsCompleted: null,
+                // === KONIEC NOWYCH SUBKSKRYPCJI ===
                 
                 chartInstance: null,
                 mobileCalendarDate: new Date().toISOString(), 
@@ -6308,14 +6315,46 @@ let state = {
             return task;
         }
 
+        /**
+         * Zwraca zadanie i projekt na podstawie ID zadania.
+         * Dla widoków lokalnych (Dashboard, Kanban) używa state.projects.
+         * Dla widoków globalnych (Mój Dzień) używa state.allGroupsProjects.
+         * @param {string} taskId
+         * @returns {{task: object|null, project: object|null}}
+         */
         function findTask(taskId) {
-            const allProjects = [...state.projects, ...state.completedProjects];
-            for (const project of allProjects) {
+            // Logika: Domyślnie szukamy w LOKALNYCH projektach (aktywna grupa)
+            // Jeśli jednak jesteśmy w widoku 'Mój dzień', szukamy GLOBALNIE, 
+            // a następnie re-mapujemy projekt na LOKALNY dla akcji (np. przenoszenie).
+            
+            let allProjectsToSearch;
+            const isMyDayView = state.ui.currentView === 'my-day';
+            
+            if (isMyDayView) {
+                // W widoku "Mój dzień" szukamy w globalnych listach
+                allProjectsToSearch = [...state.allGroupsProjects, ...state.allGroupsCompletedProjects];
+            } else {
+                // W każdym innym widoku szukamy w lokalnych listach (aktywna grupa)
+                allProjectsToSearch = [...state.projects, ...state.completedProjects];
+            }
+
+            for (const project of allProjectsToSearch) {
                 const task = (project.tasks || []).find(t => t.id === taskId);
-                if (task) return {
-                    task: migrateTask(task),
-                    project
-                };
+                if (task) {
+                    let projectForAction = project;
+                    
+                    // Jeśli znaleźliśmy zadanie w globalnej liście, musimy upewnić się,
+                    // że operacje (np. zapis/usunięcie) będą działać na LOKALNYM obiekcie projektu.
+                    // Najlepiej jest po prostu znaleźć projekt w lokalnej liście.
+                    if (isMyDayView) {
+                         projectForAction = findProject(project.id) || findCompletedProject(project.id) || project;
+                    }
+                    
+                    return {
+                        task: migrateTask(task),
+                        project: projectForAction
+                    };
+                }
             }
             return {
                 task: null,
@@ -6323,8 +6362,17 @@ let state = {
             };
         };
 
+        /**
+         * Zwraca listę WSZYSTKICH zadań przypisanych do zalogowanego użytkownika
+         * ze WSZYSTKICH projektów (globalnie). Używane TYLKO przez "Mój dzień".
+         * @returns {Array<object>}
+         */
         function getAllMyTasks() {
-            const allProjects = [...state.projects, ...state.completedProjects];
+            // === POCZĄTEK ZMIANY (KROK 4) ===
+            // Używamy globalnych list projektów
+            const allProjects = [...state.allGroupsProjects, ...state.allGroupsCompletedProjects];
+            // === KONIEC ZMIANY (KROK 4) ===
+            
             return allProjects.flatMap(p =>
                 (p.tasks || [])
                 .map(migrateTask)
@@ -11008,6 +11056,13 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
             if (state.ui.unsubscribeNotifications) state.ui.unsubscribeNotifications();
             if (state.ui.unsubscribePolls) state.ui.unsubscribePolls();
+            // === POCZĄTEK ZMIANY (KROK 1) ===
+            if (state.ui.unsubscribeAllGroupsProjects) state.ui.unsubscribeAllGroupsProjects();
+            if (state.ui.unsubscribeAllGroupsCompleted) state.ui.unsubscribeAllGroupsCompleted();
+
+            state.ui.unsubscribeAllGroupsProjects = null;
+            state.ui.unsubscribeAllGroupsCompleted = null;
+            // === KONIEC ZMIANY ===
             
             state.ui.unsubscribeProjects = null;
             state.ui.unsubscribeCompleted = null;
@@ -11076,7 +11131,33 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         // === ZMODYFIKOWANA FUNKCJA: `setupFirestoreListeners` ===
         
         /**
-         * Uruchamia wszystkie niezbędne słuchacze Firestore dla DANEJ GRUPY.
+         * Uruchamia słuchacze Firestore dla WSZYSTKICH projektów użytkownika (widok Mój Dzień).
+         * @param {string} userId - ID zalogowanego użytkownika.
+         */
+        function setupGlobalListeners(userId) {
+            if (!userId) {
+                console.error("Błąd krytyczny: setupGlobalListeners wywołane bez userId.");
+                return;
+            }
+
+            // --- 1. Słuchacz WSZYSTKICH Aktywnych Projektów (dla widoku Mój Dzień) ---
+            // Używamy "array-contains" na polu "members", aby pobrać projekty niezależnie od groupId
+            const allProjectsQuery = query(projectsRef, where("members", "array-contains", userId));
+            state.ui.unsubscribeAllGroupsProjects = onSnapshot(allProjectsQuery, (snapshot) => {
+                state.allGroupsProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log(`[Listener Global Projects] Załadowano ${state.allGroupsProjects.length} aktywnych projektów ze wszystkich grup.`);
+            }, (error) => console.error(`Błąd odczytu globalnych projektów:`, error));
+
+            // --- 2. Słuchacz WSZYSTKICH Zakończonych Projektów (dla widoku Mój Dzień) ---
+            const allCompletedQuery = query(completedProjectsRef, where("members", "array-contains", userId));
+            state.ui.unsubscribeAllGroupsCompleted = onSnapshot(allCompletedQuery, (snapshot) => {
+                state.allGroupsCompletedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log(`[Listener Global Completed] Załadowano ${state.allGroupsCompletedProjects.length} zakończonych projektów ze wszystkich grup.`);
+            }, (error) => console.error(`Błąd odczytu globalnych zakończonych projektów:`, error));
+        }
+
+        /**
+         * Uruchamia wszystkie niezbędne słuchacze Firestore dla DANEJ GRUPY (Lokalne).
          * @param {string} userId - ID zalogowanego użytkownika.
          * @param {string} groupId - ID aktywnej grupy do monitorowania.
          */
@@ -11446,9 +11527,13 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         
         userEmailDisplay.textContent = state.currentUser.email;
         
-        setupFirestoreListeners(user.uid, state.ui.activeGroupId); 
+        // === POCZĄTEK ZMIANY (KROK 3) ===
+        setupGlobalListeners(user.uid); // Uruchom słuchacza globalnego RAZ
+        setupFirestoreListeners(user.uid, state.ui.activeGroupId); // Uruchom słuchacza lokalnego (aktywna grupa)
+        // === KONIEC ZMIANY ===
         
         requestNotificationPermission();
+
         updateNotificationBellUI();
 
         const newProjectBtn = document.getElementById('new-project-btn');
@@ -17550,6 +17635,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
