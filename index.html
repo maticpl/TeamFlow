@@ -6262,7 +6262,7 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
 
              return teamOverdueTasks.length;
         }
-       function calculateTeamWorkload() {
+       function calculateTeamWorkload(monthFilter = 'all') {
             const teamWorkload = {}; // Obiekt do zliczania, np. { userId: { todo: 0, inprogress: 0, done: 0 } }
             const myId = state.currentUser.uid;
             
@@ -6283,8 +6283,66 @@ const changeSubgroupSelect = document.getElementById('change-subgroup-select');
                         return; // Pomiń zadania o innym statusie (jeśli takie istnieją)
                     }
 
+                    // === NOWA LOGIKA FILTROWANIA DATY ===
+                    if (monthFilter !== 'all') {
+                        // Jeśli filtr jest aktywny, sprawdzamy datę
+                        // Pomiń zadanie, jeśli nie ma terminu LUB jego termin nie zaczyna się od wybranego YYYY-MM
+                        if (!task.dueDate || !task.dueDate.startsWith(monthFilter)) {
+                            return; 
+                        }
+                    }
+                    // === KONIEC NOWEJ LOGIKI ===
+
                     // 4. Sprawdź, komu jest przypisane to zadanie
                     (task.assignees || []).forEach(assigneeId => {
+                        // 5. Zliczaj tylko, jeśli przypisany jest kimś innym niż ja
+                        if (assigneeId !== myId) {
+                            // Upewnij się, że ten użytkownik istnieje w naszym obiekcie zliczającym
+                            if (!teamWorkload[assigneeId]) {
+                                teamWorkload[assigneeId] = { todo: 0, inprogress: 0, done: 0, name: '' };
+                            }
+                            // Inkrementuj odpowiedni licznik
+                            teamWorkload[assigneeId][status]++;
+                            
+                            // === NOWA LOGIKA: Inkrementuj sumy globalne ===
+                            if (status === 'todo') totalTeamTodo++;
+                            if (status === 'inprogress') totalTeamInProgress++;
+                            if (status === 'done') totalTeamDone++;
+                            // === KONIEC NOWEJ LOGIKI ===
+                        }
+                    });
+                });
+            });
+
+            // 6. Przekształć obiekt w posortowaną tablicę, dodając nazwy użytkowników
+            const workloadArray = Object.keys(teamWorkload).map(userId => {
+                const user = findUser(userId);
+                const data = teamWorkload[userId];
+                return {
+                    userId: userId,
+                    name: user ? (user.name || user.email) : 'Nieznany Użytkownik',
+                    todo: data.todo,
+                    inprogress: data.inprogress,
+                    done: data.done,
+                    totalActive: data.todo + data.inprogress // Suma aktywnych do sortowania
+                };
+            });
+
+            // 7. Posortuj - od najbardziej obciążonych (aktywnymi zadaniami)
+            workloadArray.sort((a, b) => b.totalActive - a.totalActive);
+
+            // === ZMIANA: Zwróć obiekt zamiast tablicy ===
+            return {
+                list: workloadArray,
+                totals: {
+                    todo: totalTeamTodo,
+                    inprogress: totalTeamInProgress,
+                    done: totalTeamDone,
+                    totalActive: totalTeamTodo + totalTeamInProgress
+                }
+            };
+            // === KONIEC ZMIANY ===
+        }
                         // 5. Zliczaj tylko, jeśli przypisany jest kimś innym niż ja
                         if (assigneeId !== myId) {
                             // Upewnij się, że ten użytkownik istnieje w naszym obiekcie zliczającym
@@ -8000,7 +8058,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             });
         }
 
-        // === NOWA FUNKCJA: Listenery dla modala obciążenia ===
+        
         // === NOWA FUNKCJA: Listenery dla modala obciążenia ===
         function setupWorkloadModalListeners() {
             const tabTasks = document.getElementById('workload-tab-tasks');
@@ -8011,41 +8069,19 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const chartContainerId = 'team-workload-modal-chart-container'; // ID kontenera wykresu
 
             // --- Wypełnij filtr miesięcy ---
-            const now = new Date(); // np. 9 Listopada 2025
-            const targetYear = 2026; // Cel: do końca 2026
-            const targetMonth = 11; // 11 = Grudzień (bo jest 0-indeksowany)
-
-            // Data, od której zaczynamy pętlę (pierwszy dzień bieżącego miesiąca)
-            const loopDate = new Date(now.getFullYear(), now.getMonth(), 1); // 1 Listopada 2025
-            
-            let optionsHTML = '<option value="all">Całościowo (wszystkie aktywne)</option>';
-            
-            // Pętla będzie się wykonywać dopóki data jest mniejsza lub równa celowi (Grudzień 2026)
-            while (loopDate.getFullYear() < targetYear || (loopDate.getFullYear() === targetYear && loopDate.getMonth() <= targetMonth)) {
-                
-                const year = loopDate.getFullYear();
-                const month = loopDate.getMonth() + 1; // getMonth() jest 0-indeksowane, więc +1
-                
-                const value = `${year}-${String(month).padStart(2, '0')}`; // Format YYYY-MM
-                const label = loopDate.toLocaleString('pl-PL', { month: 'long', year: 'numeric' });
-                
-                optionsHTML += `<option value="${value}">${label}</option>`;
-                
-                // Przejdź do następnego miesiąca
-                loopDate.setMonth(loopDate.getMonth() + 1);
-            }
-            
+            // ... (kod wypełniania filtra - zostaje bez zmian) ...
             monthFilterSelect.innerHTML = optionsHTML;
 
             // --- Listener dla zakładki ZADANIA ---
             tabTasks.addEventListener('click', () => {
                 tabTasks.classList.add('active');
                 tabHours.classList.remove('active');
-                filtersContainer.style.display = 'none';
+                // filtersContainer.style.display = 'none'; // USUNIĘTE - filtr jest teraz zawsze widoczny
 
                 // Przeładuj dane i renderuj wykres zadań
-                // === POPRAWKA: Oblicz dane WEWNĄTRZ listenera ===
-                const teamWorkloadData = calculateTeamWorkload();
+                // === POPRAWKA: Oblicz dane WEWNĄTRZ listenera i przekaż filtr ===
+                const monthFilter = monthFilterSelect.value;
+                const teamWorkloadData = calculateTeamWorkload(monthFilter);
                 renderTeamWorkloadChart(teamWorkloadData.list, chartContainerId);
             });
 
@@ -8053,7 +8089,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             tabHours.addEventListener('click', () => {
                 tabHours.classList.add('active');
                 tabTasks.classList.remove('active');
-                filtersContainer.style.display = 'block';
+                // filtersContainer.style.display = 'block'; // USUNIĘTE - filtr jest teraz zawsze widoczny
 
                 // Przeładuj dane i renderuj wykres godzinowy (z domyślnym filtrem 'all')
                 const monthFilter = monthFilterSelect.value;
@@ -8061,6 +8097,23 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const workloadHoursData = calculateTeamWorkloadHours(monthFilter);
                 renderTeamWorkloadHoursChart(workloadHoursData, chartContainerId);
             });
+
+            // --- Listener dla FILTRA MIESIĘCY ---
+            monthFilterSelect.addEventListener('change', () => {
+                const monthFilter = monthFilterSelect.value;
+                
+                // === POPRAWKA: Sprawdź, która zakładka jest aktywna i odśwież ją ===
+                if (tabTasks.classList.contains('active')) {
+                    // Zakładka ZADANIA jest aktywna
+                    const teamWorkloadData = calculateTeamWorkload(monthFilter);
+                    renderTeamWorkloadChart(teamWorkloadData.list, chartContainerId);
+                } else if (tabHours.classList.contains('active')) {
+                    // Zakładka GODZINY jest aktywna
+                    const workloadHoursData = calculateTeamWorkloadHours(monthFilter);
+                    renderTeamWorkloadHoursChart(workloadHoursData, chartContainerId);
+                }
+            });
+        }
 
             // --- Listener dla FILTRA MIESIĘCY ---
             monthFilterSelect.addEventListener('change', () => {
@@ -14168,9 +14221,9 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                             </button>
                         </div>
 
-                        <div id="workload-hours-filters" style="display: none; padding: 16px 0 0 0;">
-                            <label for="workload-month-filter" style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">Wybierz okres:</label>
-                            <select id="workload-month-filter" style="width: 250px; padding: 8px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-secondary); color: var(--text-primary);">
+                        <div id="workload-hours-filters" style="display: block; padding: 16px 0 0 0;">
+                        <label for="workload-month-filter" style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">Wybierz okres:</label>
+                        <select id="workload-month-filter" style="width: 250px; padding: 8px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-secondary); color: var(--text-primary);">
                                 <option value="all">Całościowo (wszystkie aktywne)</option>
                                 </select>
                         </div>
@@ -17221,6 +17274,7 @@ function addAiChatMessage(text, type, id = null) {
 </div>
 </body>
 </html>
+
 
 
 
