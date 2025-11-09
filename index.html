@@ -6399,6 +6399,53 @@ let state = {
             ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
         }
 
+        /**
+         * Oblicza obciążenie godzinowe dla członków danego projektu.
+         * Oblicza tylko dla zadań w statusie 'todo' i 'inprogress' z estymacją w godzinach/punktach.
+         * Obciążenie jest dzielone równo między przypisane osoby.
+         * @param {object} project - Obiekt projektu.
+         * @returns {Array<object>} Lista { userId, hours, name }.
+         */
+        function calculateProjectWorkloadHours(project) {
+            const workloadHours = {}; // { userId: hours }
+            const members = project.members || [];
+
+            // 1. Inicjalizuj wszystkich członków projektem z 0 godzinami
+            members.forEach(userId => {
+                const user = findUser(userId);
+                workloadHours[userId] = {
+                    hours: 0,
+                    name: user ? (user.name || user.email) : 'Nieznany',
+                    userId: userId
+                };
+            });
+
+            // 2. Agreguj godziny z zadań
+            (project.tasks || []).map(migrateTask).forEach(task => {
+                const taskHours = parseFloat(task.estimation) || 0;
+                const assignees = task.assignees || [];
+                const numberOfAssignees = assignees.length;
+                
+                // Zliczaj tylko zadania aktywne z estymacją > 0
+                if (taskHours > 0 && ['todo', 'inprogress'].includes(task.status) && numberOfAssignees > 0) {
+                    const hoursPerUser = taskHours / numberOfAssignees;
+
+                    assignees.forEach(assigneeId => {
+                        // Sprawdź, czy użytkownik jest faktycznie członkiem projektu i jest w mapie
+                        if (workloadHours[assigneeId]) {
+                            workloadHours[assigneeId].hours += hoursPerUser;
+                        }
+                    });
+                }
+            });
+
+            // 3. Konwertuj na tablicę i sortuj malejąco
+            return Object.values(workloadHours)
+                .filter(w => w.hours > 0) // Usuń osoby z 0 godzinami
+                .sort((a, b) => b.hours - a.hours)
+                .map(w => ({ ...w, hours: parseFloat(w.hours.toFixed(2)) })); // Zaokrągl do 2 miejsc
+        }
+
         function getTeamOverdueCount() {
              const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
              // 1. Zbierz wszystkie zadania z MOICH projektów
@@ -17709,6 +17756,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
