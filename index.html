@@ -2693,29 +2693,7 @@
 
 /* === KONIEC: Efekt "lupy" dla awatarów === */
         /* === POCZĄTEK: Style dla ikon w rogu karty zadania === */
-/* === POCZĄTEK NOWYCH STYLI DZWONKA === */
-.task-detail-bell {
-    color: var(--text-secondary); /* Domyślny kolor (wyłączony) */
-    opacity: 0.5;
-    transition: all 0.2s;
-    width: 22px; /* Domyślny rozmiar, aby pasował */
-    height: 22px;
-}
-.task-detail-bell.subscribed,
-.task-detail-bell:hover {
-    color: var(--accent-primary); /* Aktywny/hover: Niebieski */
-    opacity: 1;
-}
-.dark-mode .task-detail-bell.subscribed {
-    color: var(--success-primary); /* W trybie ciemnym, zielony */
-}
-.my-day-project-name .task-detail-bell { /* Wyczyść domyślne style .my-day-task-item */
-    display: inline-flex;
-    vertical-align: middle;
-    width: 18px;
-    height: 18px;
-}
-/* === KONIEC NOWYCH STYLI DZWONKA === */
+
 .task-card-icons {
     position: absolute;
     top: 10px;
@@ -6131,17 +6109,7 @@ let state = {
             // Correctly format the full date and time
             const dateTimeString = dueDate.toLocaleString('pl-PL', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
             const isOverdue = new Date(task.dueDate).getTime() < new Date().setHours(0,0,0,0) && !isCompleted;
-            const isSubscribedToCompletion = (task.completionNotifyUsers || []).includes(state.currentUser.uid);
-            const bellIconHTML = `
-                <button type="button" class="header-btn task-detail task-detail-bell ${isSubscribedToCompletion ? 'subscribed' : ''}" 
-                    data-task-id="${task.id}" 
-                    data-action="toggle-notify-on-complete" 
-                    title="${isSubscribedToCompletion ? 'Otrzymasz powiadomienie po ukończeniu.' : 'Kliknij, aby subskrybować powiadomienie o ukończeniu.'}" 
-                    style="border: none; padding: 0; background: none; margin-left: 8px;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-                    </svg>
-                </button>`;
+
             return `
                <li class="my-day-task-item ${statusClassForVisuals} ${completedClass}" data-task-id="${task.id}">
                     <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''}>
@@ -6152,9 +6120,8 @@ let state = {
                         </div>
                         <div class="my-day-task-item-meta">
                             <div class="my-day-project-name">
-                                Z grupy: <strong>${task.groupName}</strong> | Projekt: <a href="#" data-project-id="${task.projectId}">${task.projectName}</a>
+                                Z projektu: <a href="#" data-project-id="${task.projectId}">${task.projectName}</a>
                                 | Termin: <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${dateTimeString}</span>
-                                ${bellIconHTML}
                             </div>
                             <div class="task-assignees">${assigneesHTML}</div>
                         </div>
@@ -6228,15 +6195,7 @@ let state = {
       return; // <-- kluczowe: kończymy obsługę
   } else if (e.target.closest('a[data-project-id]')) {
       handleProjectLinkClick(e);
-      return;
- } else if (e.target.closest('button[data-action="toggle-notify-on-complete"]')) {
-                const bellBtn = e.target.closest('button[data-action="toggle-notify-on-complete"]');
-                const taskId = taskItem.dataset.taskId;
-                // <<< ZMIANA: POBIERAMY PROJECT ID Z taskItem dataset (z renderMyDayView)
-                const projectId = taskItem.querySelector('a[data-project-id]').dataset.projectId;
-                toggleNotifyOnComplete(taskId, projectId, bellBtn); // <<< DODANO projectId
-                return;
-            } else {
+  } else {
       openTaskModal(taskItem.dataset.taskId);
   }
 }
@@ -7397,26 +7356,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         }
        // === NOWY LISTENER: Obsługa kliknięć w modalu Dashboard Details ===
         dashboardDetailsModal.content.addEventListener('click', (e) => {
-            // === NOWA LOGIKA: Obsługa dzwonka ===
-            const bellButton = e.target.closest('button[data-action="toggle-notify-on-complete"]');
-            if (bellButton) {
-                 e.stopPropagation(); 
-                 const taskCard = bellButton.closest('[data-task-id]');
-                 const taskId = taskCard.dataset.taskId;
-
-                 // <<< POPRAWNE I CZYSTE POBRANIE ID PROJEKTU
-                 const { task: t, project: p } = findTask(taskId);
-                 const finalProjectId = p?.id; 
-                 
-                 if (taskId && finalProjectId) {
-                     toggleNotifyOnComplete(taskId, finalProjectId, bellButton);
-                 } else {
-                      console.warn("Nie udało się znaleźć ID projektu dla zadania", taskId);
-                 }
-                 return;
-            }
-            // === KONIEC NOWEJ LOGIKI ===
-            
             // Szukamy najbliższego rodzica, który jest kafelkiem zadania
             const taskCard = e.target.closest('.task-card');
             // Szukamy najbliższego rodzica (lub samego elementu), który jest checkboxem
@@ -8872,17 +8811,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             function createTaskCardHTML(task, isInteractive) {
             const isCompleted = task.status === 'done';
             const priorityClass = task.priority === 'high' ? 'priority-high' : '';
-                const isSubscribedToCompletion = (task.completionNotifyUsers || []).includes(state.currentUser.uid);
-            const bellIconHTML = `
-                <button type="button" class="header-btn task-detail task-detail-bell ${isSubscribedToCompletion ? 'subscribed' : ''}" 
-                    data-task-id="${task.id}" 
-                    data-action="toggle-notify-on-complete" 
-                    title="${isSubscribedToCompletion ? 'Otrzymasz powiadomienie po ukończeniu.' : 'Kliknij, aby subskrybować powiadomienie o ukończeniu.'}" 
-                    style="border: none; padding: 0; background: none; margin-left: 8px;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-                    </svg>
-                </button>`;
             const projectNameHTML = task.projectName ? `<span class="task-project-name">${task.projectName}</span>` : '';
 
             // ▼▼▼ NOWA LOGIKA ▼▼▼
@@ -8931,15 +8859,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const isOverdue = task.dueDate && new Date(task.dueDate).getTime() < Date.now() && task.status !== 'done';
             const overdueClass = isOverdue ? 'overdue' : '';
 
-
             const dueDateHTML = task.dueDate ? `
                     <div class="task-detail ${overdueClass}">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
                         <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${new Date(task.dueDate).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
                     </div>` : '';
-
-            // KROK 2: Połącz termin i dzwonek
-            const taskDetailsContent = task.dueDate ? `${dueDateHTML}${bellIconHTML}` : ''; // Zmieniono: bellIconHTML został usunięty z sekcji `task-details-content` w przypadku braku daty, aby uniknąć duplikacji (ikona jest już renderowana w innej sekcji karty).
 
             const multiUserIcon = task.type === 'multi' ? `
     <div class="task-detail" title="Zadanie wieloosobowe">
@@ -9036,7 +8960,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 ${projectNameHTML}
                 <h4 title="${task.title}">${task.title}</h4>
                 <div class="task-meta">
-                    <div class="task-details">${taskDetailsContent}</div> 
+                    <div class="task-details">${dueDateHTML}</div>
                     <div class="task-assignees">${assigneesHTML}</div>
                 </div>
                 
@@ -9957,39 +9881,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const newBudgetSummary = calculateProjectBudgetSummary(tasks);
 
             // Zaktualizuj dokument projektu, zapisując listę zadań i NOWY obiekt budgetSummary
-            // NOWA LOGIKA: Wyślij powiadomienie do subskrybentów, jeśli status zmienił się na 'done'
-        if (task.status === 'done' && (task.completionNotifyUsers || []).length > 0) {
-            const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-            const batch = writeBatch(db);
-            
-            const senderName = state.currentUser.name || state.currentUser.email;
-
-            task.completionNotifyUsers.forEach(notifyUserId => {
-                 // Nie wysyłaj powiadomienia do tego, który zakończył zadanie
-                 if (notifyUserId === state.currentUser.uid) return; 
-                 
-                 const notification = {
-                     userId: notifyUserId,
-                     creatorId: state.currentUser.uid,
-                     groupId: project.groupId, // Ważne: ID grupy
-                     type: 'task_completed', // Nowy typ
-                     message: `Zadanie "<strong>${task.title}</strong>" w projekcie <em>${project.name}</em> zostało ukończone przez <strong>${senderName}</strong>.`,
-                     isRead: false,
-                     timestamp: Date.now(),
-                     link: { type: 'task', projectId: project.id, taskId: task.id }
-                 };
-                 batch.set(doc(notificationsRef), notification);
+            await updateDoc(projectDocRef, {
+                tasks: tasks,
+                budgetSummary: newBudgetSummary // Zapisz obliczony obiekt (lub null)
             });
-            await batch.commit();
-            console.log(`[Notifications] Wysyłanie powiadomień o ukończeniu zadania ${task.id} do ${task.completionNotifyUsers.length} osób.`);
-        }
-        
-        await updateDoc(projectDocRef, {
-            tasks: tasks,
-            budgetSummary: newBudgetSummary
-        });
-        console.log(`[Budget v2] Zaktualizowano budgetSummary po zmianie statusu zadania ${task.id}.`);
-    
+            console.log(`[Budget v2] Zaktualizowano budgetSummary dla projektu ${project.id} po edycji zadania ${taskId}.`);
+            // --- KONIEC AKTUALIZACJI ---
                 
                 // === NOWA LOGIKA - POWIADOMIENIA PRZY EDYCJI ZADANIA ===
                 const newlyAssigned = newAssignees.filter(id => !oldAssignees.includes(id));
@@ -10885,50 +10782,6 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
             } else {
                 upcomingListEl.innerHTML = upcomingTasks.map(task => createTaskCardHTML(task, true)).join('');
             }
-        }
-      /**
-         * Wywołuje Cloud Function, aby włączyć/wyłączyć powiadomienia o ukończeniu zadania.
-         */
-        async function toggleNotifyOnComplete(taskId, projectId, buttonElement) {
-             if (!state.currentUser) return;
-
-             buttonElement.disabled = true;
-
-             try {
-                const toggleNotification = httpsCallable(functions, 'toggleTaskCompletionNotification');
-                // MUSIMY PRZEKAZAĆ projectId i groupId
-                const result = await toggleNotification({ 
-                    taskId: taskId, 
-                    projectId: projectId,
-                    groupId: state.ui.activeGroupId // Używamy aktywnej grupy
-                });
-
-                const isSubscribed = result.data.isSubscribed;
-
-                // Odśwież UI lokalnie po sukcesie
-                const { task, project } = findTask(taskId);
-                
-                if (task && project && project.id !== projectId) { 
-                     console.error(`Błąd synchronizacji! Otrzymany projectId (${projectId}) różni się od znalezionego projektu (${project.id}).`);
-                }
-                
-                if (task) {
-                    // <<< KLUCZOWA ZMIANA: W funkcji chmurowej usunęliśmy logikę aktualizacji tablicy
-                    // Aktualizujemy ją LOKALNIE w stanie aplikacji.
-                    task.completionNotifyUsers = isSubscribed 
-                        ? [...(task.completionNotifyUsers || []), state.currentUser.uid]
-                        : (task.completionNotifyUsers || []).filter(id => id !== state.currentUser.uid);
-
-                 }
-                showNotification(result.data.message, "Sukces");
-                render(); // Wymuś pełne ponowne renderowanie, aby odświeżyć wszystkie dzwonki
-
-             } catch (error) {
-                console.error("Błąd subskrypcji powiadomienia:", error);
-                showNotification(error.message || "Nie udało się zaktualizować ustawień powiadomień.", "Błąd");
-             } finally {
-                buttonElement.disabled = false;
-             }
         }
 // Funkcja do renderowania listy plików oczekujących na wysłanie
 function renderStagedFiles() {
@@ -14249,27 +14102,8 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return; // Zakończ
             }
             
-            const bellButton = e.target.closest('button[data-action="toggle-notify-on-complete"]');
-            if (bellButton) {
-                 e.stopPropagation(); 
-                 const taskCard = bellButton.closest('.task-card');
-                 const taskId = taskCard.dataset.taskId;
-                 // <<< ZMIANA: Upraszczamy pobieranie ID projektu dla Kanban/Dashboard
-                 // Sprawdzamy: 1. state.currentProjectId (dla widoku projektu) LUB 2. osadzony ID projektu w nazwie (.task-project-name)
-                 
-                 
-                 // Krok 1: Wyszukaj zadanie, aby upewnić się, że pobierasz ID projektu z prawilnego źródła
-                 const { task: t, project: p } = findTask(taskId); 
-                 const finalProjectId = p?.id; // Używamy ID projektu ze znalezionego zadania.
-                 
-                 if (taskId && finalProjectId) { // Używamy finalProjectId do walidacji
-                     toggleNotifyOnComplete(taskId, finalProjectId, bellButton);
-                 } else {
-                      console.warn("Nie udało się znaleźć ID projektu dla zadania", taskId);
-                 }
-                 return;
-            }
             // === KONIEC NOWEJ LOGIKI ===
+
 
             // 3. Sprawdź kliknięcie na GŁÓWNY checkbox zadania
             if (e.target.matches('.task-card-checkbox')) {
@@ -17716,17 +17550,6 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
 
 
 
