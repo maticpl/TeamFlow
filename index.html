@@ -16795,54 +16795,31 @@ function addAiChatMessage(text, type, id = null) {
         joinGroupModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const groupName = joinGroupModal.input.value.trim();
-            const user = state.currentUser;
-            if (!groupName || !user) return;
+            if (!groupName) return;
+            
+            // Nie potrzebujemy już `state.currentUser`, funkcja sama pobierze ID
 
             joinGroupModal.submitBtn.disabled = true;
             joinGroupModal.submitBtn.textContent = 'Wysyłanie...';
             joinGroupModal.error.textContent = '';
 
-            const requestsRef = collection(db, `artifacts/${appId}/public/data/groupRequests`);
+            // Nie potrzebujemy już `requestsRef` ani `groupsRef` po stronie klienta
 
             try {
-                const q = query(groupsRef, where("name", "==", groupName));
-                const querySnapshot = await getDocs(q);
-                if (querySnapshot.empty) {
-                    throw new Error("Grupa o podanej nazwie nie istnieje.");
-                }
-                const groupDoc = querySnapshot.docs[0];
-                const targetGroupId = groupDoc.id;
-                const targetGroupName = groupDoc.data().name;
+                // === NOWA LOGIKA: Wywołanie Cloud Function ===
+                // 1. Uzyskaj referencję do funkcji chmurowej
+                const requestToJoinGroup = httpsCallable(functions, 'requestToJoinGroup');
 
-                if (user.groupIds.includes(targetGroupId)) {
-                    throw new Error("Jesteś już członkiem tej grupy.");
-                }
-
-                const qCheckRequest = query(requestsRef, 
-                    where("groupId", "==", targetGroupId), 
-                    where("userId", "==", user.uid),
-                    where("status", "==", "pending")
-                );
-                const requestSnapshot = await getDocs(qCheckRequest);
-                if (!requestSnapshot.empty) {
-                    throw new Error("Już wysłałeś prośbę o dołączenie do tej grupy.");
-                }
-
-                await addDoc(requestsRef, {
-                    groupId: targetGroupId,
-                    groupName: targetGroupName,
-                    userId: user.uid,
-                    userName: user.name,
-                    userEmail: user.email,
-                    status: "pending",
-                    type: "request",
-                    createdAt: Date.now()
-                });
-
+                // 2. Wywołaj funkcję z nazwą grupy
+                const result = await requestToJoinGroup({ groupName: groupName });
+                
+                // 3. Odbierz komunikat o sukcesie
                 closeModal(joinGroupModal.overlay);
-                showNotification("Prośba o dołączenie została wysłana do właściciela grupy.", "Sukces");
+                showNotification(result.data.message, "Sukces");
+                // === KONIEC NOWEJ LOGIKI ===
 
             } catch (error) {
+                // Błędy (np. "not-found", "already-exists") przyjdą z funkcji chmurowej
                 joinGroupModal.error.textContent = error.message;
             } finally {
                 joinGroupModal.submitBtn.disabled = false;
@@ -17580,6 +17557,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
