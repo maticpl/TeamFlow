@@ -15300,149 +15300,120 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
     }
 });
 
-// Listener do usuwania podgrupy (delegacja zdarzeń)
-manageGroupModal.overlay.addEventListener('click', async (e) => {
-    // === POCZĄTEK ZMIANY: Dodana logika akceptacji/odrzucenia ===
-    
-    const approveBtn = e.target.closest('.js-approve-request');
-    const rejectBtn = e.target.closest('.js-reject-request');
-
-    if (approveBtn) {
-        const requestId = approveBtn.dataset.id;
-        handleProcessRequest(requestId, 'approve', approveBtn);
-        return;
-    }
-    
-    if (rejectBtn) {
-        const requestId = rejectBtn.dataset.id;
-        handleProcessRequest(requestId, 'reject', rejectBtn);
-        return;
-    }
-    
-    // === KONIEC ZMIANY ===
-   // Obsługa usuwania podgrupy
-    if (e.target.classList.contains('js-delete-subgroup')) {
-        const nameToDelete = e.target.dataset.name;
-        
-        // === POCZĄTEK ZMIANY: Poprawka odwołania do ID grupy ===
-        // const user = state.currentUser; // Już niepotrzebne
-        // const groupRef = doc(groupsRef, user.groupId); // BŁĘDNA LINIA
-        const groupRef = doc(groupsRef, state.ui.activeGroupId); // POPRAWNA LINIA
-        // === KONIEC ZMIANY ===
-        
-        showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć podgrupę "${nameToDelete}"?`, async (confirmed) => {
-            if (confirmed) {
-                try {
-                    const groupSnap = await getDoc(groupRef);
-                    if (groupSnap.exists()) {
-                        const subgroups = groupSnap.data().subgroups || [];
-                        const updatedSubgroups = subgroups.filter(name => name !== nameToDelete);
-                        await updateDoc(groupRef, { subgroups: updatedSubgroups });
-                        openManageGroupBtn.click();
-                    }
-                } catch (error) {
-                    console.error("Błąd usuwania podgrupy:", error);
-                }
+// Listener do usuwania podgrupy, członków ORAZ akceptacji/odrzucenia próśb
+        manageGroupModal.overlay.addEventListener('click', async (e) => {
+            
+            // === NOWA LOGIKA: Akceptacja/Odrzucenie ===
+            const approveBtn = e.target.closest('.js-approve-request');
+            if (approveBtn) {
+                const requestId = approveBtn.dataset.id;
+                handleProcessRequest(requestId, 'approve', approveBtn);
+                return;
             }
-        }, true);
-    }
+            
+            const rejectBtn = e.target.closest('.js-reject-request');
+            if (rejectBtn) {
+                const requestId = rejectBtn.dataset.id;
+                handleProcessRequest(requestId, 'reject', rejectBtn);
+                return;
+            }
+            // === KONIEC NOWEJ LOGIKI ===
 
-    // NOWA LOGIKA: Obsługa usuwania członka
-    if (e.target.classList.contains('js-delete-member')) {
-        const userIdToRemove = e.target.dataset.userId;
-        const userToRemove = findUser(userIdToRemove);
-        if (!userToRemove) return;
-
-        showConfirmation(
-            "Potwierdź usunięcie członka", 
-            `Czy na pewno chcesz usunąć "${userToRemove.name || userToRemove.email}" z grupy? Użytkownik straci dostęp do przyszłych projektów, ale jego konto nie zostanie usunięte.`, 
-            async (confirmed) => {
-                if (confirmed) {
-                    try {
-                        const userToRemoveRef = doc(usersRef, userIdToRemove);
-                        // Zmieniamy groupId na własne UID, czyniąc go użytkownikiem indywidualnym
-                        await updateDoc(userToRemoveRef, {
-                            groupId: userIdToRemove,
-                            groupName: null,
-                            subgroupName: null // Czyścimy też dział
-                        });
-                        showNotification("Użytkownik został usunięty z grupy.", "Sukces");
-                        openManageGroupBtn.click(); // Odśwież widok modala
-                    } catch (error) {
-                        console.error("Błąd usuwania użytkownika z grupy:", error);
-                        showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+            // Obsługa usuwania podgrupy
+            if (e.target.classList.contains('js-delete-subgroup')) {
+                const nameToDelete = e.target.dataset.name;
+                const groupRef = doc(groupsRef, state.ui.activeGroupId); // Poprawione odwołanie
+                
+                showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć podgrupę "${nameToDelete}"?`, async (confirmed) => {
+                    if (confirmed) {
+                        try {
+                            const groupSnap = await getDoc(groupRef);
+                            if (groupSnap.exists()) {
+                                const subgroups = groupSnap.data().subgroups || [];
+                                const updatedSubgroups = subgroups.filter(name => name !== nameToDelete);
+                                await updateDoc(groupRef, { subgroups: updatedSubgroups });
+                                openManageGroupBtn.click();
+                            }
+                        } catch (error) {
+                            console.error("Błąd usuwania podgrupy:", error);
+                        }
                     }
-                }
-            }, 
-            true
-        );
-    }
-});
-       // === POCZĄTEK ZMIANY: Przeniesienie logiki do poprawnego listenera ===
+                }, true);
+            }
 
-    // 1. Sprawdź kliknięcie na AKCEPTUJ
-    const approveBtn = e.target.closest('.js-approve-request');
-    if (approveBtn) {
-        const requestId = approveBtn.dataset.id;
-        handleProcessRequest(requestId, 'approve', approveBtn); // Wywołaj funkcję pomocniczą
-        return; // Zakończ
-    }
-    
-    // 2. Sprawdź kliknięcie na ODRZUĆ
-    const rejectBtn = e.target.closest('.js-reject-request');
-    if (rejectBtn) {
-        const requestId = rejectBtn.dataset.id;
-        handleProcessRequest(requestId, 'reject', rejectBtn); // Wywołaj funkcję pomocniczą
-        return; // Zakończ
-    }
-    
-    // === KONIEC ZMIANY ===
+            // NOWA LOGIKA: Obsługa usuwania członka
+            if (e.target.classList.contains('js-delete-member')) {
+                const userIdToRemove = e.target.dataset.userId;
+                const userToRemove = findUser(userIdToRemove);
+                if (!userToRemove) return;
 
-});
-       // === POCZĄTEK ZMIANY: Nowe funkcje i listenery dla akceptacji próśb ===
-
-/**
- * Funkcja pomocnicza wywołująca Cloud Function do przetworzenia prośby.
- * @param {string} requestId - ID dokumentu z kolekcji 'groupRequests'.
- * @param {'approve' | 'reject'} action - Akcja do wykonania.
- * @param {HTMLElement} buttonElement - Kliknięty przycisk (dla feedbacku UI).
- */
-async function handleProcessRequest(requestId, action, buttonElement) {
-    // Zablokuj oba przyciski w tym wierszu
-    const controls = buttonElement.closest('.attachment-item-controls');
-    controls.querySelectorAll('button').forEach(btn => btn.disabled = true);
-    buttonElement.textContent = 'Przetwarzanie...';
-
-    try {
-        // 1. Zdefiniuj wywołanie nowej funkcji chmurowej
-        const processRequest = httpsCallable(functions, 'processGroupRequest');
-        
-        // 2. Wyślij ID prośby oraz akcję
-        const result = await processRequest({ 
-            requestId: requestId, 
-            action: action 
+                showConfirmation(
+                    "Potwierdź usunięcie członka", 
+                    `Czy na pewno chcesz usunąć "${userToRemove.name || userToRemove.email}" z grupy? Użytkownik straci dostęp do przyszłych projektów, ale jego konto nie zostanie usunięte.`, 
+                    async (confirmed) => {
+                        if (confirmed) {
+                            try {
+                                const userToRemoveRef = doc(usersRef, userIdToRemove);
+                                // Zmieniamy groupId na własne UID, czyniąc go użytkownikiem indywidualnym
+                                // TODO: W przyszłości ta logika powinna usuwać ID grupy z tablicy groupIds użytkownika
+                                await updateDoc(userToRemoveRef, {
+                                    groupId: userIdToRemove, 
+                                    groupName: null,
+                                    subgroupName: null 
+                                });
+                                showNotification("Użytkownik został usunięty z grupy.", "Sukces");
+                                openManageGroupBtn.click(); // Odśwież widok modala
+                            } catch (error) {
+                                console.error("Błąd usuwania użytkownika z grupy:", error);
+                                showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+                            }
+                        }
+                    }, 
+                    true
+                );
+            }
         });
 
-        // 3. Obsłuż sukces
-        showNotification(result.data.message, "Sukces");
-        
-        // 4. Usuń wiersz z listy w UI (nie musimy przeładowywać)
-        buttonElement.closest('li.attachment-item').remove();
-        
-        // 5. Sprawdź, czy lista nie jest pusta
-        const pendingListEl = document.getElementById('pending-requests-list');
-        if (pendingListEl.children.length === 0) {
-            pendingListEl.innerHTML = '<li>Brak oczekujących próśb o dołączenie.</li>';
-        }
+        /**
+         * Funkcja pomocnicza wywołująca Cloud Function do przetworzenia prośby.
+         * (Przeniesiona tutaj dla lepszej czytelności)
+         */
+        async function handleProcessRequest(requestId, action, buttonElement) {
+            // Zablokuj oba przyciski w tym wierszu
+            const controls = buttonElement.closest('.attachment-item-controls');
+            controls.querySelectorAll('button').forEach(btn => btn.disabled = true);
+            buttonElement.textContent = 'Przetwarzanie...';
 
-    } catch (error) {
-        console.error("Błąd podczas przetwarzania prośby:", error);
-        showNotification(error.message, "Błąd");
-        // Odblokuj przyciski w razie błędu
-        controls.querySelectorAll('button').forEach(btn => btn.disabled = false);
-        buttonElement.textContent = (action === 'approve') ? 'Akceptuj' : 'Odrzuć';
-    }
-}
+            try {
+                // 1. Zdefiniuj wywołanie nowej funkcji chmurowej
+                const processRequest = httpsCallable(functions, 'processGroupRequest');
+                
+                // 2. Wyślij ID prośby oraz akcję
+                const result = await processRequest({ 
+                    requestId: requestId, 
+                    action: action 
+                });
+
+                // 3. Obsłuż sukces
+                showNotification(result.data.message, "Sukces");
+                
+                // 4. Usuń wiersz z listy w UI (nie musimy przeładowywać)
+                buttonElement.closest('li.attachment-item').remove();
+                
+                // 5. Sprawdź, czy lista nie jest pusta
+                const pendingListEl = document.getElementById('pending-requests-list');
+                if (pendingListEl.children.length === 0) {
+                    pendingListEl.innerHTML = '<li>Brak oczekujących próśb o dołączenie.</li>';
+                }
+
+            } catch (error) {
+                console.error("Błąd podczas przetwarzania prośby:", error);
+                showNotification(error.message, "Błąd");
+                // Odblokuj przyciski w razie błędu
+                controls.querySelectorAll('button').forEach(btn => btn.disabled = false);
+                buttonElement.textContent = (action === 'approve') ? 'Akceptuj' : 'Odrzuć';
+            }
+        }
 
 // === KONIEC ZMIANY ===
 // Otwieranie okien podrzędnych z głównego menu ustawień
@@ -17829,6 +17800,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
