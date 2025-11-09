@@ -11123,7 +11123,12 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             setupFirestoreListeners(state.currentUser.uid, newGroupId);
             
             // 5. Natychmiastowe odświeżenie UI (pokaże pusty stan przed nadejściem danych)
-            render();
+            // === POCZĄTEK ZMIANY (KROK 4) ===
+            // UWAGA: Używamy setTimeout, aby dać czas na przetworzenie odłączenia starych listenerów
+            setTimeout(() => {
+                render();
+            }, 50); 
+            // === KONIEC ZMIANY ===
         }
 
         // === KONIEC NOWYCH FUNKCJI POMOCNICZYCH ===
@@ -11140,12 +11145,30 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                 return;
             }
 
+            // === POCZĄTEK ZMIANY (KROK 2) ===
+            // Używamy zmiennej lokalnej (zamiast pól stanu), by uniknąć ryzyka, że inna asynchroniczna operacja 
+            // nadpisze je w trakcie ładowania.
+            let globalProjectsLoaded = false;
+            let globalCompletedLoaded = false;
+
+            const checkGlobalReady = () => {
+                 // Wywołujemy render, jeśli obie flagi są true ORAZ jesteśmy w widoku 'Mój dzień'
+                 if (globalProjectsLoaded && globalCompletedLoaded && state.ui.currentView === 'my-day') {
+                      render();
+                 }
+            };
+            // === KONIEC ZMIANY ===
+
             // --- 1. Słuchacz WSZYSTKICH Aktywnych Projektów (dla widoku Mój Dzień) ---
             // Używamy "array-contains" na polu "members", aby pobrać projekty niezależnie od groupId
             const allProjectsQuery = query(projectsRef, where("members", "array-contains", userId));
             state.ui.unsubscribeAllGroupsProjects = onSnapshot(allProjectsQuery, (snapshot) => {
                 state.allGroupsProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 console.log(`[Listener Global Projects] Załadowano ${state.allGroupsProjects.length} aktywnych projektów ze wszystkich grup.`);
+                // === POCZĄTEK ZMIANY (KROK 2) ===
+                globalProjectsLoaded = true; // Ustaw flagę
+                checkGlobalReady();          // Sprawdź gotowość
+                // === KONIEC ZMIANY ===
             }, (error) => console.error(`Błąd odczytu globalnych projektów:`, error));
 
             // --- 2. Słuchacz WSZYSTKICH Zakończonych Projektów (dla widoku Mój Dzień) ---
@@ -11153,6 +11176,10 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             state.ui.unsubscribeAllGroupsCompleted = onSnapshot(allCompletedQuery, (snapshot) => {
                 state.allGroupsCompletedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 console.log(`[Listener Global Completed] Załadowano ${state.allGroupsCompletedProjects.length} zakończonych projektów ze wszystkich grup.`);
+                // === POCZĄTEK ZMIANY (KROK 2) ===
+                 globalCompletedLoaded = true; // Ustaw flagę
+                 checkGlobalReady();           // Sprawdź gotowość
+                // === KONIEC ZMIANY ===
             }, (error) => console.error(`Błąd odczytu globalnych zakończonych projektów:`, error));
         }
 
@@ -11205,7 +11232,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                      }
                  }
                  loadingOverlay.style.display = 'none'; // Ukryj ładowanie po pobraniu projektów
-                 render(); // Renderuj
+                 // render(); // USUNIĘTO: Renderowanie nie jest potrzebne, ponieważ listener projektów zakończonych i tak to zrobi
             }, (error) => {
                 console.error(`Błąd odczytu projektów dla grupy ${groupId}:`, error);
                 loadingOverlay.innerHTML = `<p>Błąd dostępu do bazy danych.<br><small>Komunikat: ${error.message}</small></p>`;
@@ -17635,6 +17662,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
