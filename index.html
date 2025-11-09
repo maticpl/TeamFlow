@@ -4342,13 +4342,12 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
             </svg>
         </button>
-        <div id="group-switcher-menu">
-            <div id="group-switcher-list">
+        <div id="group-switcher-list">
                 <span class="group-menu-action">Ładowanie...</span>
             </div>
             <hr>
-            <button class="group-menu-action" id="manage-groups-btn" style="display: none;">Zarządzaj grupą</button>
-            <button class="group-menu-action" id="create-group-btn">+ Stwórz nową grupę</button>
+            <button class="group-menu-action" id="join-group-btn">Dołącz do grupy</button> <button class="group-menu-action" id="create-group-btn">+ Stwórz nową grupę</button>
+            <button class="group-menu-action" id="manage-groups-btn" style="display: none; border-top: 1px solid var(--border-color); margin-top: 4px; padding-top: 8px;">Zarządzaj aktywną grupą</button>
         </div>
     </div>
     <div class="sidebar-footer-buttons">
@@ -11116,6 +11115,8 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
     // === POCZĄTEK ZMIANY: Nowa logika `onAuthStateChanged` ===
     if (user) {
         
+        // === USUNIĘTO: Logika linku zaproszeniowego (przeniesiona do Fazy 5) ===
+
         let userDocRef = doc(usersRef, user.uid);
         let userDoc = await getDoc(userDocRef);
 
@@ -11144,15 +11145,56 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         }
         // --- KONIEC INTELIGENTNEJ WERYFIKACJI ---
         
+        // === POCZĄTEK ZMIANY: NOWA LOGIKA POCZEKALNI ===
+        
+        // SCENARIUSZ 0: Użytkownik czeka na akceptację
+        if (userData.status === 'pending_approval' && userData.pendingGroupId) {
+            console.log("Użytkownik w poczekalni. Pokazuję #waiting-room-overlay.");
+            authOverlay.style.display = 'none'; // Ukryj ekran logowania
+            appContainer.classList.add('hidden'); // Ukryj główną apkę
+            
+            // Znajdź nazwę grupy, do której chce dołączyć
+            const groupDoc = await getDoc(doc(groupsRef, userData.pendingGroupId));
+            const groupName = groupDoc.exists() ? groupDoc.data().name : "[usunięta grupa]";
+
+            document.getElementById('waiting-room-group-name').textContent = groupName;
+            
+            // Pokaż overlay poczekalni
+            const waitingRoom = document.getElementById('waiting-room-overlay');
+            openModal(waitingRoom);
+            
+            // Rozpocznij nasłuchiwanie na zmianę statusu
+            // Użyjemy `unsubUser` z `unsubscribeAllListeners`, aby go śledzić
+            if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
+            state.ui.unsubscribeUsers = onSnapshot(userDocRef, (doc) => {
+                const updatedUserData = doc.data();
+                if (updatedUserData.status === 'active') {
+                    // AKCEPTOWANY! Przeładuj aplikację
+                    console.log("Użytkownik zaakceptowany! Przeładowuję...");
+                    window.location.reload();
+                } else if (updatedUserData.status === 'rejected') {
+                    // ODRZUCONY
+                    document.getElementById('waiting-room-status').textContent = "Status: Odrzucono";
+                    document.getElementById('waiting-room-status').style.color = "var(--danger-primary)";
+                    document.getElementById('waiting-room-overlay').querySelector('p:nth-of-type(2)').textContent = "Twoja prośba o dołączenie została odrzucona przez właściciela. Możesz się wylogować lub skontaktować z administratorem.";
+                    unsubscribeAllListeners(); // Zatrzymaj słuchanie
+                }
+            });
+            
+            // Zatrzymaj dalsze ładowanie aplikacji
+            return;
+        }
+        
+        // === KONIEC ZMIANY ===
+        
         // --- NOWA LOGIKA: Sprawdzanie przynależności do grup ---
         
-        // Sprawdzamy, czy użytkownik ma NOWE pola (groupIds, groupInfo)
-        // i czy ma przypisaną jakąkolwiek grupę.
         const userGroupsIds = userData.groupIds || [];
         const userGroupInfo = userData.groupInfo || {};
         
-        if (userGroupsIds.length === 0) {
-            // SCENARIUSZ 1: Użytkownik nie ma żadnej grupy.
+        // === ZMIANA: Dodano warunek && userData.status !== 'pending_approval' ===
+        if (userGroupsIds.length === 0 && userData.status !== 'pending_approval') {
+            // SCENARIUSZ 1: Użytkownik jest 'active', ale nie ma żadnej grupy.
             // (np. nowy użytkownik po rejestracji solo)
             // Wymuszamy stworzenie pierwszej grupy.
             console.log("Użytkownik nie ma grup. Otwieram modal #create-first-group-modal.");
@@ -11169,7 +11211,6 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         loadingOverlay.style.display = 'flex';
 
         // --- USUNIĘTO: Logika `handleFirstLoginSubgroupSelection` ---
-        // Ta logika zostanie przeniesiona do modala "Dołącz do grupy" (w przyszłości)
 
         // --- NOWA LOGIKA: Scalanie układu dashboardu (BEZ ZMIAN) ---
         const defaultDashboardLayout = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'];
@@ -11181,7 +11222,6 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         });
         
         // --- NOWA LOGIKA: Ustawienie `state.currentUser` ---
-        // Zauważ brak `groupId`, `groupName` itd.
         state.currentUser = {
             id: user.uid,
             uid: user.uid,
@@ -11203,9 +11243,8 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         
         // --- NOWA LOGIKA: Ustalenie aktywnej grupy ---
         let groupIdToLoad = state.currentUser.lastActiveGroupId;
-        // Sprawdzamy, czy zapisana ostatnia grupa nadal istnieje
         if (!groupIdToLoad || !state.currentUser.groupIds.includes(groupIdToLoad)) {
-            groupIdToLoad = state.currentUser.groupIds[0]; // Załaduj pierwszą z listy
+            groupIdToLoad = state.currentUser.groupIds[0]; 
         }
 
         state.ui.activeGroupId = groupIdToLoad;
@@ -11219,11 +11258,8 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         }
         state.currentProjectId = null;
         
-        // Aktualizujemy UI sidebara (tylko email)
         userEmailDisplay.textContent = state.currentUser.email;
-        // Render przełącznika grup zostanie wywołany w `render()`
         
-        // --- NOWA LOGIKA: Wywołanie listenerów z ID aktywnej grupy ---
         setupFirestoreListeners(user.uid, state.ui.activeGroupId); 
         
         requestNotificationPermission();
@@ -11243,36 +11279,41 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         state.notifications = []; 
         appContainer.classList.add('hidden');
         
-        // Logika zaproszeń (bez zmian)
+        // Logika zaproszeń (teraz odblokowana)
         try {
             const urlParams = new URLSearchParams(window.location.search);
             const action = urlParams.get('action');
             const inviteGroupId = urlParams.get('groupId');
             const inviteGroupName = urlParams.get('groupName');
 
+            const teamToggle = document.getElementById('register-team-toggle');
+            const joinRadio = document.querySelector('input[name="group-action"][value="join"]');
+            const createRadio = document.querySelector('input[name="group-action"][value="create"]');
+            const groupNameInput = document.getElementById('register-group-name');
+
+            if (teamToggle) teamToggle.disabled = false;
+            if (joinRadio) joinRadio.disabled = false;
+            if (createRadio) createRadio.disabled = false;
+            if (groupNameInput) groupNameInput.disabled = false;
+
             if (action === 'invite' && inviteGroupId && inviteGroupName) {
+                
                 document.getElementById('login-form').style.display = 'none';
                 document.getElementById('register-form').style.display = 'block';
-                const teamToggle = document.getElementById('register-team-toggle');
+
                 if (teamToggle) {
                     teamToggle.checked = true;
-                    teamToggle.disabled = true; 
                     document.getElementById('register-team-options').style.display = 'block';
                 }
-                const joinRadio = document.querySelector('input[name="group-action"][value="join"]');
-                const createRadio = document.querySelector('input[name="group-action"][value="create"]');
+
                 if (joinRadio) {
                     joinRadio.checked = true;
-                    joinRadio.disabled = true; 
                 }
-                if (createRadio) {
-                    createRadio.disabled = true; 
-                }
-                const groupNameInput = document.getElementById('register-group-name');
+                
                 if (groupNameInput) {
                     groupNameInput.value = decodeURIComponent(inviteGroupName);
-                    groupNameInput.disabled = true; 
                 }
+
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         } catch (e) {
@@ -11282,7 +11323,6 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         authOverlay.style.display = 'flex';
         loadingOverlay.style.display = 'none';
         
-        // === NOWA LOGIKA: Wywołanie funkcji czyszczącej listenery ===
         unsubscribeAllListeners();
     }
     // === KONIEC ZMIANY ===
@@ -11587,7 +11627,6 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             authErrorRegister.textContent = '';
             const submitBtn = e.target.querySelector('button[type="submit"]');
 
-            // --- Walidacja lokalna (bez zmian) ---
             if (password !== confirmPassword) {
                 authErrorRegister.textContent = 'Hasła nie są takie same.';
                 return;
@@ -11600,13 +11639,13 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             submitBtn.disabled = true;
             submitBtn.textContent = 'Rejestrowanie...';
 
-            // --- ZMIANA: Nowa logika walidacji i zapisu ---
-            
-            // Zmienne do przechowywania danych grupy docelowej
             let targetGroupId = null;
             let targetGroupName = null;
-            let targetRole = 'owner'; // Domyślnie właściciel
-            let action = 'create-solo'; // Domyślna akcja
+            let targetRole = 'owner';
+            let action = 'create-solo';
+
+            // Nowa kolekcja dla próśb
+            const requestsRef = collection(db, `artifacts/${appId}/public/data/groupRequests`);
 
             try {
                 // ==================================================
@@ -11618,18 +11657,16 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                 if (isTeam) {
                     action = document.querySelector('input[name="group-action"]:checked').value;
                     
-                    // === POCZĄTEK ZMIANY: Zabezpieczenie przed ręcznym dołączaniem ===
                     if (action === 'join' && !registerGroupNameInput.disabled) {
-                        throw new Error("Dołączenie do grupy jest możliwe tylko poprzez specjalny link z zaproszenia.");
+                        // Użytkownik ręcznie wpisał nazwę (bez linku)
+                        // To jest teraz dozwolone, ale będzie "prośbą"
                     }
-                    // === KONIEC ZMIANY ===
                     
                     if (!enteredGroupName) {
                         throw new Error("Nazwa grupy jest wymagana, gdy pracujesz w zespole.");
                     }
 
                     if (action === 'create') {
-                        // Walidacja: Sprawdź, czy nazwa nie jest zajęta
                         const qCheck = query(groupsRef, where("name", "==", enteredGroupName));
                         const checkSnapshot = await getDocs(qCheck);
                         if (!checkSnapshot.empty) {
@@ -11637,14 +11674,11 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                         }
                         targetGroupName = enteredGroupName;
                         targetRole = 'owner';
-                        // targetGroupId zostanie wygenerowane później
-
-                    } else { // action === 'join' (z zaproszenia)
-                        // Walidacja: Sprawdź, czy grupa istnieje
+                    } else { // action === 'join'
                         const q = query(groupsRef, where("name", "==", enteredGroupName));
                         const querySnapshot = await getDocs(q);
                         if (querySnapshot.empty) {
-                            throw new Error("Grupa o podanej nazwie nie istnieje. Użyj linku z zaproszenia.");
+                            throw new Error("Grupa o podanej nazwie nie istnieje.");
                         }
                         const groupDoc = querySnapshot.docs[0];
                         targetGroupId = groupDoc.id;
@@ -11652,11 +11686,9 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                         targetRole = 'member';
                     }
                 } else {
-                    // Użytkownik "Solo" - traktujemy jak tworzenie grupy
                     action = 'create-solo';
-                    targetGroupName = `${name} (Osobista)`; // Domyślna nazwa grupy
+                    targetGroupName = `${name} (Osobista)`;
                     targetRole = 'owner';
-                    // targetGroupId zostanie wygenerowane później
                 }
 
                 // ==================================================
@@ -11666,78 +11698,106 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                 const user = userCredential.user;
 
                 // ==================================================
-                // KROK 3: ZAPIS DO FIRESTORE (UŻYTKOWNIK, GRUPA, SKRZYNKA)
+                // KROK 3: ZAPIS DO FIRESTORE
                 // ==================================================
                 try {
                     const batch = writeBatch(db);
-                    let finalGroupId, finalGroupName;
-                    
+                    const userRef = doc(usersRef, user.uid); // Referencja do dokumentu użytkownika
+
                     if (action === 'join') {
-                        // Akcja: DOŁĄCZ do istniejącej grupy
-                        finalGroupId = targetGroupId;
-                        finalGroupName = targetGroupName;
+                        // === NOWA LOGIKA: UŻYTKOWNIK DOŁĄCZA (CZEKA NA AKCEPTACJĘ) ===
                         
-                        // Zaktualizuj dokument Grupy: dodaj nowego członka
-                        const groupRef = doc(groupsRef, finalGroupId);
-                        batch.update(groupRef, {
-                            memberIds: arrayUnion(user.uid) // <-- ZMIANA TUTAJ
+                        // 1. Stwórz dokument Użytkownika ze statusem "pending"
+                        batch.set(userRef, {
+                            uid: user.uid,
+                            email: user.email,
+                            name: name,
+                            status: "pending_approval", // <- NOWY STATUS
+                            pendingGroupId: targetGroupId, // <- ID grupy na którą czeka
+                            avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+                            // Puste pola przynależności
+                            groupIds: [],
+                            groupInfo: {},
+                            lastActiveGroupId: null,
+                            favorites: [],
+                            layouts: {
+                                dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'],
+                                allProjects: []
+                            }
+                        });
+                        
+                        // 2. Stwórz dokument Prośby o Dołączenie
+                        const newRequestRef = doc(requestsRef);
+                        batch.set(newRequestRef, {
+                            groupId: targetGroupId,
+                            groupName: targetGroupName,
+                            userId: user.uid,
+                            userName: name,
+                            userEmail: email,
+                            status: "pending",
+                            type: "request",
+                            createdAt: Date.now()
                         });
 
-                    } else { // Akcja: STWÓRZ nową grupę (solo lub zespół)
-                        const newGroupRef = doc(groupsRef); // Wygeneruj ID dla nowej grupy
-                        finalGroupId = newGroupRef.id;
+                        // 3. Nie tworzymy Inboksa - użytkownik nie ma jeszcze grupy
+
+                    } else { 
+                        // === LOGIKA TWORZENIA GRUPY (SOLO LUB ZESPÓŁ) - Jak poprzednio ===
+                        
+                        // 1. Stwórz nową Grupę
+                        const newGroupRef = doc(groupsRef);
+                        const finalGroupId = newGroupRef.id;
                         finalGroupName = targetGroupName;
                         
-                        // Stwórz nowy dokument Grupy
                         batch.set(newGroupRef, {
                             name: finalGroupName,
                             ownerId: user.uid,
-                            memberIds: [user.uid], // Właściciel jest pierwszym członkiem
-                            subgroups: [] // Domyślnie pusta lista działów
+                            memberIds: [user.uid],
+                            subgroups: []
                         });
-                    }
-
-                    // Stwórz dokument Użytkownika (zgodnie z nowym modelem)
-                    const userRef = doc(usersRef, user.uid);
-                    batch.set(userRef, {
-                        uid: user.uid,
-                        email: user.email,
-                        name: name,
-                        groupIds: [finalGroupId], // Tablica z ID grupy
-                        groupInfo: {
-                            [finalGroupId]: {
-                                name: finalGroupName,
-                                role: targetRole,
-                                subgroup: null
+                        
+                        // 2. Stwórz dokument Użytkownika (już aktywny)
+                        batch.set(userRef, {
+                            uid: user.uid,
+                            email: user.email,
+                            name: name,
+                            status: "active", // <-- Użytkownik jest aktywny
+                            pendingGroupId: null,
+                            groupIds: [finalGroupId],
+                            groupInfo: {
+                                [finalGroupId]: {
+                                    name: finalGroupName,
+                                    role: targetRole,
+                                    subgroup: null
+                                }
+                            },
+                            lastActiveGroupId: finalGroupId,
+                            avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
+                            favorites: [],
+                            layouts: {
+                                dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'],
+                                allProjects: []
                             }
-                        },
-                        lastActiveGroupId: finalGroupId, // Ustaw jako domyślnie aktywną
-                        avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-                        favorites: [],
-                        layouts: {
-                            dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'],
-                            allProjects: []
-                        }
-                        // Stare pola (groupId, groupName, hasSelectedSubgroup) nie są już tworzone
-                    });
+                        });
 
-                    // Stwórz Skrzynkę Zadań (Inbox) dla tego użytkownika w tej grupie
-                    const inboxProject = {
-                        name: "Skrzynka zadań",
-                        ownerId: user.uid,
-                        members: [user.uid],
-                        tasks: [],
-                        isInbox: true,
-                        createdAt: Date.now(),
-                        groupId: finalGroupId // Powiąż skrzynkę z grupą
-                    };
-                    const inboxRef = doc(collection(db, `artifacts/${appId}/public/data/projects`));
-                    batch.set(inboxRef, inboxProject);
+                        // 3. Stwórz Skrzynkę Zadań (Inbox)
+                        const inboxProject = {
+                            name: "Skrzynka zadań",
+                            ownerId: user.uid,
+                            members: [user.uid],
+                            tasks: [],
+                            isInbox: true,
+                            createdAt: Date.now(),
+                            groupId: finalGroupId
+                        };
+                        const inboxRef = doc(collection(db, `artifacts/${appId}/public/data/projects`));
+                        batch.set(inboxRef, inboxProject);
+                    }
 
                     // Wykonaj wszystkie operacje
                     await batch.commit();
 
-                    // === KROK 4: Weryfikacja i Sukces (bez zmian) ===
+                    // === KROK 4: Weryfikacja i Sukces ===
                     await sendEmailVerification(user);
                     await signOut(auth);
                     
@@ -11749,6 +11809,17 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                     const emailDisplay = document.getElementById('success-email-display');
                     
                     if (emailDisplay) emailDisplay.textContent = email;
+
+                    // === ZMIANA: Inny komunikat dla oczekujących ===
+                    if (action === 'join') {
+                        const successP = successMessageContainer.querySelector('p');
+                        if (successP) {
+                            successP.innerHTML = `Wysłaliśmy link aktywacyjny na Twój adres e-mail: <strong id="success-email-display">${email}</strong>.<br>
+                            Po weryfikacji e-maila, właściciel grupy <strong>${targetGroupName}</strong> będzie musiał zaakceptować Twoją prośbę.`;
+                        }
+                    }
+                    // === KONIEC ZMIANY ===
+                    
                     if (successMessageContainer) successMessageContainer.style.display = 'block';
                     
                     const backToLoginBtn = document.getElementById('back-to-login-btn');
@@ -11761,35 +11832,18 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
 
                 } catch (firestoreError) {
                     console.error("Błąd zapisu do Firestore:", firestoreError);
-                    // Jeśli zapis do Firestore się nie powiódł, usuń utworzonego użytkownika Auth
                     if (auth.currentUser) {
                         await auth.currentUser.delete();
                         console.log("Usunięto użytkownika Auth z powodu błędu Firestore.");
                     }
-                    throw firestoreError; // Rzuć błędem dalej
+                    throw firestoreError;
                 }
 
             } catch (validationOrAuthError) {
-                // ==================================================
-                // KROK 5: GŁÓWNY CATCH (łapie błędy walidacji LUB błędy z Auth/Firestore)
-                // ==================================================
                 console.error("Błąd podczas procesu rejestracji:", validationOrAuthError);
-
-                const errorMsg = validationOrAuthError.message;
-                if (errorMsg.includes("Grupa o tej nazwie już istnieje") ||
-                    errorMsg.includes("Grupa o podanej nazwie nie istnieje") ||
-                    errorMsg.includes("Nazwa grupy jest wymagana")) {
-                    authErrorRegister.textContent = errorMsg;
-                } else if (errorMsg.includes("auth/email-already-in-use")) {
-                    authErrorRegister.textContent = "Ten adres e-mail jest już używany.";
-                } else if (errorMsg.includes("auth/weak-password")) {
-                    authErrorRegister.textContent = "Hasło jest zbyt słabe (min. 6 znaków).";
-                } else {
-                    authErrorRegister.textContent = "Wystąpił nieoczekiwany błąd: " + errorMsg;
-                }
+                authErrorRegister.textContent = validationOrAuthError.message; // Uproszczona obsługa błędów
             
             } finally {
-                // KROK 6: ZAWSZE RESETUJ PRZYCISK
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Zarejestruj się';
             }
@@ -15082,78 +15136,118 @@ settingsBtn.addEventListener('click', async () => {
     // Na koniec pokazuje główne okno ustawień
     openModal(settingsModal.overlay);
 });
-        /**
- * Otwiera i wypełnia modal zarządzania dla AKTYWNEJ grupy.
- * Zakłada, że użytkownik jest właścicielem.
- */
-async function openManageGroupModal() {
-    const user = state.currentUser;
-    const activeGroupId = state.ui.activeGroupId; // Używamy aktywnej grupy
-    
-    if (!user || !activeGroupId) {
-        showNotification("Błąd: Brak aktywnej grupy do zarządzania.", "Błąd");
-        return;
-    }
-
-    // Pobieramy referencję do elementu HTML
-    const membersListEl = document.getElementById('group-members-list');
-    
-    try {
-        const groupRef = doc(groupsRef, activeGroupId); // Używamy aktywnej grupy
-        const groupSnap = await getDoc(groupRef);
-
-        if (groupSnap.exists()) {
-            const groupData = groupSnap.data();
-            const subgroups = groupData.subgroups || [];
-            
-            // Wypełnianie listy członków
-            // Używamy `state.users`, które jest już przefiltrowane do aktywnej grupy
-            const groupMembers = state.users.filter(u => u.uid !== groupData.ownerId);
-            membersListEl.innerHTML = '';
-            if (groupMembers.length > 0) {
-                groupMembers.forEach(member => {
-                    const li = document.createElement('li');
-                    li.className = 'attachment-item';
-                    li.innerHTML = `
-                        <div class="attachment-info">
-                            ${renderAvatarHTML(member, 'avatar-comment')}
-                            <span>${member.name || member.email}</span>
-                        </div>
-                        <button class="delete-attachment-btn js-delete-member" data-user-id="${member.id}" title="Usuń z grupy">&times;</button>
-                    `;
-                    membersListEl.appendChild(li);
-                });
-            } else {
-                membersListEl.innerHTML = '<li>Brak innych członków w tej grupie.</li>';
-            }
-            
-            // Logika dla podgrup
-            manageGroupModal.subgroupsList.innerHTML = ''; 
-            if (subgroups.length > 0) {
-                subgroups.forEach(name => {
-                    const li = document.createElement('li');
-                    li.className = 'attachment-item';
-                    li.innerHTML = `
-                        <div class="attachment-info">${name}</div>
-                        <button class="delete-attachment-btn js-delete-subgroup" data-name="${name}" title="Usuń podgrupę">&times;</button>
-                    `;
-                    manageGroupModal.subgroupsList.appendChild(li);
-                });
-            } else {
-                manageGroupModal.subgroupsList.innerHTML = '<li>Brak zdefiniowanych podgrup.</li>';
-            }
-        }
         
-        // Zamykamy modal ustawień TYLKO jeśli jest otwarty
-        if (settingsModal.overlay.classList.contains('visible')) {
-            closeModal(settingsModal.overlay);
+/**
+         * Otwiera i wypełnia modal zarządzania dla AKTYWNEJ grupy.
+         * Zakłada, że użytkownik jest właścicielem.
+         */
+        async function openManageGroupModal() {
+            const user = state.currentUser;
+            const activeGroupId = state.ui.activeGroupId; // Używamy aktywnej grupy
+            
+            if (!user || !activeGroupId) {
+                showNotification("Błąd: Brak aktywnej grupy do zarządzania.", "Błąd");
+                return;
+            }
+
+            // === POCZĄTEK ZMIANY: Referencje do zakładek i nowej kolekcji ===
+            const membersListEl = document.getElementById('group-members-list');
+            const pendingListEl = document.getElementById('pending-requests-list');
+            const requestsRef = collection(db, `artifacts/${appId}/public/data/groupRequests`);
+            
+            // Resetowanie zakładek do domyślnego widoku
+            manageGroupModal.overlay.querySelectorAll('.modal-tab-btn').forEach(btn => btn.classList.remove('active'));
+            manageGroupModal.overlay.querySelectorAll('.modal-tab-content').forEach(content => content.classList.remove('active'));
+            manageGroupModal.overlay.querySelector('.modal-tab-btn[data-tab="mg-members"]').classList.add('active');
+            manageGroupModal.overlay.querySelector('#mg-members').classList.add('active');
+            // === KONIEC ZMIANY ===
+
+            try {
+                // --- Logika wypełniania zakładki "Członkowie i Działy" (bez zmian) ---
+                const groupRef = doc(groupsRef, activeGroupId); 
+                const groupSnap = await getDoc(groupRef);
+
+                if (groupSnap.exists()) {
+                    const groupData = groupSnap.data();
+                    const subgroups = groupData.subgroups || [];
+                    
+                    const groupMembers = state.users.filter(u => u.uid !== groupData.ownerId);
+                    membersListEl.innerHTML = '';
+                    if (groupMembers.length > 0) {
+                        groupMembers.forEach(member => {
+                            const li = document.createElement('li');
+                            li.className = 'attachment-item';
+                            li.innerHTML = `
+                                <div class="attachment-info">
+                                    ${renderAvatarHTML(member, 'avatar-comment')}
+                                    <span>${member.name || member.email}</span>
+                                </div>
+                                <button class="delete-attachment-btn js-delete-member" data-user-id="${member.id}" title="Usuń z grupy">&times;</button>
+                            `;
+                            membersListEl.appendChild(li);
+                        });
+                    } else {
+                        membersListEl.innerHTML = '<li>Brak innych członków w tej grupie.</li>';
+                    }
+                    
+                    manageGroupModal.subgroupsList.innerHTML = ''; 
+                    if (subgroups.length > 0) {
+                        subgroups.forEach(name => {
+                            const li = document.createElement('li');
+                            li.className = 'attachment-item';
+                            li.innerHTML = `
+                                <div class="attachment-info">${name}</div>
+                                <button class="delete-attachment-btn js-delete-subgroup" data-name="${name}" title="Usuń podgrupę">&times;</button>
+                            `;
+                            manageGroupModal.subgroupsList.appendChild(li);
+                        });
+                    } else {
+                        manageGroupModal.subgroupsList.innerHTML = '<li>Brak zdefiniowanych podgrup.</li>';
+                    }
+                }
+                
+                // === POCZĄTEK ZMIANY: Wypełnianie zakładki "Oczekujący" ===
+                pendingListEl.innerHTML = '<li>Ładowanie próśb...</li>';
+                const q = query(requestsRef, 
+                    where("groupId", "==", activeGroupId), 
+                    where("status", "==", "pending")
+                );
+                const requestsSnapshot = await getDocs(q);
+                
+                if (requestsSnapshot.empty) {
+                    pendingListEl.innerHTML = '<li>Brak oczekujących próśb o dołączenie.</li>';
+                } else {
+                    pendingListEl.innerHTML = ''; // Wyczyść "Ładowanie..."
+                    requestsSnapshot.docs.forEach(doc => {
+                        const request = doc.data();
+                        const requestId = doc.id;
+                        const li = document.createElement('li');
+                        li.className = 'attachment-item';
+                        // Dodajemy przyciski Akceptuj / Odrzuć
+                        li.innerHTML = `
+                            <div class="attachment-info" title="${request.userEmail}">
+                                ${renderAvatarHTML({ name: request.userName, email: request.userEmail }, 'avatar-comment')}
+                                <span>${request.userName || request.userEmail}</span>
+                            </div>
+                            <div class="attachment-item-controls">
+                                <button class="btn btn-secondary js-reject-request" data-id="${requestId}" style="padding: 4px 8px; font-size: 12px;">Odrzuć</button>
+                                <button class="btn btn-primary js-approve-request" data-id="${requestId}" style="padding: 4px 8px; font-size: 12px;">Akceptuj</button>
+                            </div>
+                        `;
+                        pendingListEl.appendChild(li);
+                    });
+                }
+                // === KONIEC ZMIANY ===
+                
+                if (settingsModal.overlay.classList.contains('visible')) {
+                    closeModal(settingsModal.overlay);
+                }
+                openModal(manageGroupModal.overlay);
+            } catch (error) {
+                console.error("Błąd otwierania zarządzania grupą:", error);
+                showNotification("Wystąpił błąd.", "Błąd");
+            }
         }
-        openModal(manageGroupModal.overlay);
-    } catch (error) {
-        console.error("Błąd otwierania zarządzania grupą:", error);
-        showNotification("Wystąpił błąd.", "Błąd");
-    }
-}
 
 // Listener do otwierania modala zarządzania grupą (teraz tylko wywołuje funkcję)
 openManageGroupBtn.addEventListener('click', openManageGroupModal);
@@ -15245,6 +15339,69 @@ manageGroupModal.overlay.addEventListener('click', async (e) => {
         );
     }
 });
+       // === POCZĄTEK ZMIANY: Nowe funkcje i listenery dla akceptacji próśb ===
+
+/**
+ * Funkcja pomocnicza wywołująca Cloud Function do przetworzenia prośby.
+ * @param {string} requestId - ID dokumentu z kolekcji 'groupRequests'.
+ * @param {'approve' | 'reject'} action - Akcja do wykonania.
+ * @param {HTMLElement} buttonElement - Kliknięty przycisk (dla feedbacku UI).
+ */
+async function handleProcessRequest(requestId, action, buttonElement) {
+    // Zablokuj oba przyciski w tym wierszu
+    const controls = buttonElement.closest('.attachment-item-controls');
+    controls.querySelectorAll('button').forEach(btn => btn.disabled = true);
+    buttonElement.textContent = 'Przetwarzanie...';
+
+    try {
+        // 1. Zdefiniuj wywołanie nowej funkcji chmurowej
+        const processRequest = httpsCallable(functions, 'processGroupRequest');
+        
+        // 2. Wyślij ID prośby oraz akcję
+        const result = await processRequest({ 
+            requestId: requestId, 
+            action: action 
+        });
+
+        // 3. Obsłuż sukces
+        showNotification(result.data.message, "Sukces");
+        
+        // 4. Usuń wiersz z listy w UI (nie musimy przeładowywać)
+        buttonElement.closest('li.attachment-item').remove();
+        
+        // 5. Sprawdź, czy lista nie jest pusta
+        const pendingListEl = document.getElementById('pending-requests-list');
+        if (pendingListEl.children.length === 0) {
+            pendingListEl.innerHTML = '<li>Brak oczekujących próśb o dołączenie.</li>';
+        }
+
+    } catch (error) {
+        console.error("Błąd podczas przetwarzania prośby:", error);
+        showNotification(error.message, "Błąd");
+        // Odblokuj przyciski w razie błędu
+        controls.querySelectorAll('button').forEach(btn => btn.disabled = false);
+        buttonElement.textContent = (action === 'approve') ? 'Akceptuj' : 'Odrzuć';
+    }
+}
+
+// Delegowany listener dla kliknięć na liście oczekujących
+document.getElementById('pending-requests-list').addEventListener('click', (e) => {
+    const approveBtn = e.target.closest('.js-approve-request');
+    const rejectBtn = e.target.closest('.js-reject-request');
+    
+    if (approveBtn) {
+        const requestId = approveBtn.dataset.id;
+        handleProcessRequest(requestId, 'approve', approveBtn);
+        return;
+    }
+    
+    if (rejectBtn) {
+        const requestId = rejectBtn.dataset.id;
+        handleProcessRequest(requestId, 'reject', rejectBtn);
+        return;
+    }
+});
+// === KONIEC ZMIANY ===
 // Otwieranie okien podrzędnych z głównego menu ustawień
 settingsModal.openUploadBtn.addEventListener('click', () => photoUploadInput.click());
 
@@ -16812,8 +16969,121 @@ function addAiChatMessage(text, type, id = null) {
         });
         
         // === KONIEC ZMIANY ===
+        // === POCZĄTEK ZMIANY: Listenery dla nowych modali (Dołączanie i Poczekalnia) ===
         
-    
+        // Referencje do nowych modali
+        const joinGroupModal = {
+            overlay: document.getElementById('join-group-modal'),
+            form: document.getElementById('join-group-form'),
+            input: document.getElementById('join-group-name-input'),
+            error: document.getElementById('join-group-error'),
+            submitBtn: document.querySelector('#join-group-form button[type="submit"]')
+        };
+
+        const waitingRoom = {
+            overlay: document.getElementById('waiting-room-overlay'),
+            logoutBtn: document.getElementById('logout-from-waiting-room')
+        };
+        
+        // Listener otwierający modal dołączania do grupy (dla zalogowanych)
+        document.getElementById('join-group-btn').addEventListener('click', () => {
+            joinGroupModal.form.reset();
+            joinGroupModal.error.textContent = '';
+            openModal(joinGroupModal.overlay);
+            joinGroupModal.input.focus();
+        });
+
+        // Listener wysyłający prośbę o dołączenie (dla zalogowanych)
+        joinGroupModal.form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const groupName = joinGroupModal.input.value.trim();
+            const user = state.currentUser;
+            if (!groupName || !user) return;
+
+            joinGroupModal.submitBtn.disabled = true;
+            joinGroupModal.submitBtn.textContent = 'Wysyłanie...';
+            joinGroupModal.error.textContent = '';
+
+            // Nowa kolekcja dla próśb
+            const requestsRef = collection(db, `artifacts/${appId}/public/data/groupRequests`);
+
+            try {
+                // 1. Sprawdź, czy grupa istnieje
+                const q = query(groupsRef, where("name", "==", groupName));
+                const querySnapshot = await getDocs(q);
+                if (querySnapshot.empty) {
+                    throw new Error("Grupa o podanej nazwie nie istnieje.");
+                }
+                const groupDoc = querySnapshot.docs[0];
+                const targetGroupId = groupDoc.id;
+                const targetGroupName = groupDoc.data().name;
+
+                // 2. Sprawdź, czy użytkownik już jest członkiem
+                if (user.groupIds.includes(targetGroupId)) {
+                    throw new Error("Jesteś już członkiem tej grupy.");
+                }
+
+                // 3. Sprawdź, czy prośba już nie została wysłana
+                const qCheckRequest = query(requestsRef, 
+                    where("groupId", "==", targetGroupId), 
+                    where("userId", "==", user.uid),
+                    where("status", "==", "pending")
+                );
+                const requestSnapshot = await getDocs(qCheckRequest);
+                if (!requestSnapshot.empty) {
+                    throw new Error("Już wysłałeś prośbę o dołączenie do tej grupy.");
+                }
+
+                // 4. Stwórz dokument Prośby o Dołączenie
+                await addDoc(requestsRef, {
+                    groupId: targetGroupId,
+                    groupName: targetGroupName,
+                    userId: user.uid,
+                    userName: user.name,
+                    userEmail: user.email,
+                    status: "pending",
+                    type: "request",
+                    createdAt: Date.now()
+                });
+
+                closeModal(joinGroupModal.overlay);
+                showNotification("Prośba o dołączenie została wysłana do właściciela grupy.", "Sukces");
+
+            } catch (error) {
+                joinGroupModal.error.textContent = error.message;
+            } finally {
+                joinGroupModal.submitBtn.disabled = false;
+                joinGroupModal.submitBtn.textContent = 'Wyślij prośbę';
+            }
+        });
+
+        // Listener wylogowania z Poczekalni
+        waitingRoom.logoutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            unsubscribeAllListeners(); // Zatrzymaj słuchanie statusu
+            signOut(auth);
+        });
+
+        // Listener dla zakładek w modalu Zarządzania Grupą
+        manageGroupModal.overlay.addEventListener('click', (e) => {
+            const tabBtn = e.target.closest('.modal-tab-btn');
+            if (!tabBtn) return;
+            
+            const tabContainer = tabBtn.closest('.modal-tabs');
+            const contentContainer = tabBtn.closest('.modal').querySelector('.form-modal-content');
+            
+            // Deaktywuj wszystkie
+            tabContainer.querySelectorAll('.modal-tab-btn').forEach(btn => btn.classList.remove('active'));
+            contentContainer.querySelectorAll('.modal-tab-content').forEach(content => content.classList.remove('active'));
+            
+            // Aktywuj kliknięty
+            tabBtn.classList.add('active');
+            const tabId = tabBtn.dataset.tab;
+            contentContainer.querySelector(`#${tabId}`).classList.add('active');
+        });
+        
+        // === KONIEC ZMIANY ===  
+        
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
 </script>
@@ -16940,28 +17210,49 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </div>
 <div class="modal-overlay" id="manage-group-modal">
-    <div class="modal" style="max-width: 500px;">
-        <div class="modal-header">
+    <div class="modal" style="max-width: 600px;"> <div class="modal-header">
             <h2>Zarządzaj grupą</h2>
             <button type="button" class="modal-close-btn">&times;</button>
         </div>
+        
+        <style>
+            .modal-tabs { display: flex; border-bottom: 1px solid var(--border-color); padding: 0 24px; }
+            .modal-tab-btn { background: none; border: none; padding: 12px 16px; font-size: 14px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-bottom: 3px solid transparent; }
+            .modal-tab-btn.active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
+            .modal-tab-content { display: none; }
+            .modal-tab-content.active { display: block; }
+        </style>
+        
+        <div class="modal-tabs">
+            <button class="modal-tab-btn active" data-tab="mg-members">Członkowie i Działy</button>
+            <button class="modal-tab-btn" data-tab="mg-pending">Oczekujący</button>
+        </div>
         <div class="form-modal-content">
-            <h4>Członkowie zespołu</h4>
-            <ul id="group-members-list" class="attachments-list" style="margin-top: 8px;">
+            <div id="mg-members" class="modal-tab-content active">
+                <h4>Członkowie zespołu</h4>
+                <ul id="group-members-list" class="attachments-list" style="margin-top: 8px; max-height: 200px; overflow-y: auto;">
                 </ul>
 
-            <h4 style="margin-top: 24px;">Istniejące podgrupy (działy)</h4>
-            <ul id="subgroups-list" class="attachments-list" style="margin-top: 8px;">
-            </ul>
-            <form id="add-subgroup-form" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                <div class="form-group">
-                    <label for="new-subgroup-name-input">Dodaj nową podgrupę</label>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="text" id="new-subgroup-name-input" required placeholder="np. Finanse">
-                        <button type="submit" class="btn btn-primary">Dodaj</button>
+                <h4 style="margin-top: 24px;">Istniejące podgrupy (działy)</h4>
+                <ul id="subgroups-list" class="attachments-list" style="margin-top: 8px; max-height: 150px; overflow-y: auto;">
+                </ul>
+                <form id="add-subgroup-form" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                    <div class="form-group">
+                        <label for="new-subgroup-name-input">Dodaj nową podgrupę</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="new-subgroup-name-input" required placeholder="np. Finanse">
+                            <button type="submit" class="btn btn-primary">Dodaj</button>
+                        </div>
                     </div>
-                </div>
-            </form>
+                </form>
+            </div>
+            
+            <div id="mg-pending" class="modal-tab-content">
+                <h4>Prośby o dołączenie</h4>
+                <ul id="pending-requests-list" class="attachments-list" style="margin-top: 8px; max-height: 400px; overflow-y: auto;">
+                    <li>Brak oczekujących próśb.</li>
+                </ul>
+            </div>
         </div>
     </div>
 </div>
@@ -17460,8 +17751,49 @@ function addAiChatMessage(text, type, id = null) {
             </form>
         </div>
     </div>
+    <div class="modal-overlay" id="join-group-modal">
+        <div class="modal" style="max-width: 450px; height: auto;">
+            <form id="join-group-form">
+                <div class="modal-header">
+                    <h2>Dołącz do istniejącej grupy</h2>
+                    <button type="button" class="modal-close-btn">&times;</button>
+                </div>
+                <div class="form-modal-content">
+                    <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                        Wpisz dokładną nazwę grupy, do której chcesz wysłać prośbę o dołączenie.
+                    </p>
+                    <div class="form-group">
+                        <label for="join-group-name-input">Nazwa grupy</label>
+                        <input type="text" id="join-group-name-input" placeholder="np. Firma Klienta ABC" required>
+                    </div>
+                    <p id="join-group-error" class="error-message"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                    <button type="submit" class="btn btn-primary">Wyślij prośbę</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div class="modal-overlay" id="waiting-room-overlay" data-backdrop-static="true" style="z-index: 10002;">
+        <div class="auth-container">
+            <h2>Prośba wysłana!</h2>
+            <p style="font-size: 14px; color: var(--text-secondary); margin-top: 16px; line-height: 1.6;">
+                Twoja prośba o dołączenie do grupy <strong id="waiting-room-group-name">...</strong> została wysłana do właściciela.
+            </p>
+            <p style="font-size: 14px; color: var(--text-primary); margin-top: 16px;">
+                Gdy Twoja prośba zostanie zaakceptowana, aplikacja odświeży się automatycznie. Możesz też wylogować się i spróbować później.
+            </p>
+            <p id="waiting-room-status" style="font-size: 14px; font-weight: 600; color: var(--accent-primary); margin-top: 16px;">
+                Status: Oczekująca
+            </p>
+            <button id="logout-from-waiting-room" class="btn btn-secondary" style="margin-top: 24px;">Wyloguj się</button>
+        </div>
+    </div>
 </body>
 </html>
+
 
 
 
