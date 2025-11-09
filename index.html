@@ -11837,210 +11837,84 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
             submitBtn.disabled = true;
             submitBtn.textContent = 'Rejestrowanie...';
 
-            let targetGroupId = null;
-            let targetGroupName = null;
-            let targetRole = 'owner';
-            let action = 'create-solo';
-
-            // Nowa kolekcja dla próśb
-            const requestsRef = collection(db, `artifacts/${appId}/public/data/groupRequests`);
-
+            // --- NOWA LOGIKA ---
             try {
-                // ==================================================
-                // KROK 1: WALIDACJA GRUPY (PRZED AUTH)
-                // ==================================================
+                // 1. Zbierz dane o grupie (tak jak wcześniej)
+                let targetGroupName = null;
+                let action = 'create-solo';
                 const isTeam = registerTeamToggle.checked;
                 const enteredGroupName = registerGroupNameInput.value.trim();
 
                 if (isTeam) {
                     action = document.querySelector('input[name="group-action"]:checked').value;
-                    
-                    if (action === 'join' && !registerGroupNameInput.disabled) {
-                        // Użytkownik ręcznie wpisał nazwę (bez linku)
-                        // To jest teraz dozwolone, ale będzie "prośbą"
-                    }
-                    
                     if (!enteredGroupName) {
                         throw new Error("Nazwa grupy jest wymagana, gdy pracujesz w zespole.");
                     }
+                    targetGroupName = enteredGroupName;
+                }
+                
+                // 2. Przygotuj dane do wysłania
+                const registrationData = {
+                    email: email,
+                    password: password,
+                    name: name,
+                    groupAction: action,
+                    groupName: targetGroupName
+                };
 
-                    if (action === 'create') {
-                        const qCheck = query(groupsRef, where("name", "==", enteredGroupName));
-                        const checkSnapshot = await getDocs(qCheck);
-                        if (!checkSnapshot.empty) {
-                            throw new Error("Grupa o tej nazwie już istnieje. Wybierz inną nazwę lub dołącz do istniejącej.");
-                        }
-                        targetGroupName = enteredGroupName;
-                        targetRole = 'owner';
-                    } else { // action === 'join'
-                        const q = query(groupsRef, where("name", "==", enteredGroupName));
-                        const querySnapshot = await getDocs(q);
-                        if (querySnapshot.empty) {
-                            throw new Error("Grupa o podanej nazwie nie istnieje.");
-                        }
-                        const groupDoc = querySnapshot.docs[0];
-                        targetGroupId = groupDoc.id;
-                        targetGroupName = groupDoc.data().name;
-                        targetRole = 'member';
+                // 3. Wywołaj nową funkcję chmurową
+                const processRegistration = httpsCallable(functions, 'processRegistration');
+                const result = await processRegistration(registrationData);
+                
+                // 4. Obsłuż sukces (logika z oryginalnego kodu, ale uproszczona)
+                // Użytkownik NIE jest logowany, wysyłamy go do ekranu weryfikacji
+                
+                // (Funkcja Auth `sendEmailVerification` NIE jest potrzebna,
+                // bo Auth automatycznie wysyła e-mail weryfikacyjny przy tworzeniu)
+                
+                loginForm.style.display = 'none';
+                registerForm.style.display = 'none';
+                document.getElementById('password-reset-form').style.display = 'none';
+                
+                const successMessageContainer = document.getElementById('register-success-message');
+                const emailDisplay = document.getElementById('success-email-display');
+                
+                if (emailDisplay) emailDisplay.textContent = email;
+
+                // Sprawdź odpowiedź z serwera, aby dostosować komunikat
+                const serverAction = result.data.action;
+                const serverGroupName = result.data.groupName;
+
+                if (serverAction === 'join') {
+                    const successP = successMessageContainer.querySelector('p');
+                    if (successP) {
+                        successP.innerHTML = `Wysłaliśmy link aktywacyjny na Twój adres e-mail: <strong id="success-email-display">${email}</strong>.<br>
+                        Po weryfikacji e-maila, właściciel grupy <strong>${serverGroupName}</strong> będzie musiał zaakceptować Twoją prośbę.`;
                     }
                 } else {
-                    action = 'create-solo';
-                    targetGroupName = `${name} (Osobista)`;
-                    targetRole = 'owner';
+                    // Domyślny komunikat dla 'create' i 'create-solo'
+                    const successP = successMessageContainer.querySelector('p');
+                    if (successP) {
+                         successP.innerHTML = `Wysłaliśmy link aktywacyjny na Twój adres e-mail: <strong id="success-email-display">${email}</strong>.
+                        <br>
+                        Proszę, kliknij w link, aby zweryfikować swoje konto i móc się zalogować.`;
+                    }
+                }
+                
+                if (successMessageContainer) successMessageContainer.style.display = 'block';
+                
+                const backToLoginBtn = document.getElementById('back-to-login-btn');
+                if (backToLoginBtn) {
+                    backToLoginBtn.addEventListener('click', () => {
+                        if (successMessageContainer) successMessageContainer.style.display = 'none';
+                        loginForm.style.display = 'block';
+                    });
                 }
 
-                // ==================================================
-                // KROK 2: TWORZENIE UŻYTKOWNIKA (AUTH)
-                // ==================================================
-                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                const user = userCredential.user;
-
-                // ==================================================
-                // KROK 3: ZAPIS DO FIRESTORE
-                // ==================================================
-                try {
-                    const batch = writeBatch(db);
-                    const userRef = doc(usersRef, user.uid); // Referencja do dokumentu użytkownika
-
-                    if (action === 'join') {
-                        // === NOWA LOGIKA: UŻYTKOWNIK DOŁĄCZA (CZEKA NA AKCEPTACJĘ) ===
-                        
-                        // 1. Stwórz dokument Użytkownika ze statusem "pending"
-                        batch.set(userRef, {
-                            uid: user.uid,
-                            email: user.email,
-                            name: name,
-                            status: "pending_approval", // <- NOWY STATUS
-                            pendingGroupId: targetGroupId, // <- ID grupy na którą czeka
-                            avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-                            // Puste pola przynależności
-                            groupIds: [],
-                            groupInfo: {},
-                            lastActiveGroupId: null,
-                            favorites: [],
-                            layouts: {
-                                dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'],
-                                allProjects: []
-                            }
-                        });
-                        
-                        // 2. Stwórz dokument Prośby o Dołączenie
-                        const newRequestRef = doc(requestsRef);
-                        batch.set(newRequestRef, {
-                            groupId: targetGroupId,
-                            groupName: targetGroupName,
-                            userId: user.uid,
-                            userName: name,
-                            userEmail: email,
-                            status: "pending",
-                            type: "request",
-                            createdAt: Date.now()
-                        });
-
-                        // 3. Nie tworzymy Inboksa - użytkownik nie ma jeszcze grupy
-
-                    } else { 
-                        // === LOGIKA TWORZENIA GRUPY (SOLO LUB ZESPÓŁ) - Jak poprzednio ===
-                        
-                        // 1. Stwórz nową Grupę
-                        const newGroupRef = doc(groupsRef);
-                        const finalGroupId = newGroupRef.id;
-                        const finalGroupName = targetGroupName; // <-- ZMIANA TUTAJ (dodano const)
-                        
-                        batch.set(newGroupRef, {
-                            name: finalGroupName,
-                            ownerId: user.uid,
-                            memberIds: [user.uid],
-                            subgroups: []
-                        });
-                        
-                        // 2. Stwórz dokument Użytkownika (już aktywny)
-                        batch.set(userRef, {
-                            uid: user.uid,
-                            email: user.email,
-                            name: name,
-                            status: "active", // <-- Użytkownik jest aktywny
-                            pendingGroupId: null,
-                            groupIds: [finalGroupId],
-                            groupInfo: {
-                                [finalGroupId]: {
-                                    name: finalGroupName,
-                                    role: targetRole,
-                                    subgroup: null
-                                }
-                            },
-                            lastActiveGroupId: finalGroupId,
-                            avatarColor: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
-                            favorites: [],
-                            layouts: {
-                                dashboard: ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'],
-                                allProjects: []
-                            }
-                        });
-
-                        // 3. Stwórz Skrzynkę Zadań (Inbox)
-                        const inboxProject = {
-                            name: "Skrzynka zadań",
-                            ownerId: user.uid,
-                            members: [user.uid],
-                            tasks: [],
-                            isInbox: true,
-                            createdAt: Date.now(),
-                            groupId: finalGroupId
-                        };
-                        const inboxRef = doc(collection(db, `artifacts/${appId}/public/data/projects`));
-                        batch.set(inboxRef, inboxProject);
-                    }
-
-                    // Wykonaj wszystkie operacje
-                    await batch.commit();
-
-                    // === KROK 4: Weryfikacja i Sukces ===
-                    await sendEmailVerification(user);
-                    await signOut(auth);
-                    
-                    loginForm.style.display = 'none';
-                    registerForm.style.display = 'none';
-                    document.getElementById('password-reset-form').style.display = 'none';
-                    
-                    const successMessageContainer = document.getElementById('register-success-message');
-                    const emailDisplay = document.getElementById('success-email-display');
-                    
-                    if (emailDisplay) emailDisplay.textContent = email;
-
-                    // === ZMIANA: Inny komunikat dla oczekujących ===
-                    if (action === 'join') {
-                        const successP = successMessageContainer.querySelector('p');
-                        if (successP) {
-                            successP.innerHTML = `Wysłaliśmy link aktywacyjny na Twój adres e-mail: <strong id="success-email-display">${email}</strong>.<br>
-                            Po weryfikacji e-maila, właściciel grupy <strong>${targetGroupName}</strong> będzie musiał zaakceptować Twoją prośbę.`;
-                        }
-                    }
-                    // === KONIEC ZMIANY ===
-                    
-                    if (successMessageContainer) successMessageContainer.style.display = 'block';
-                    
-                    const backToLoginBtn = document.getElementById('back-to-login-btn');
-                    if (backToLoginBtn) {
-                        backToLoginBtn.addEventListener('click', () => {
-                            if (successMessageContainer) successMessageContainer.style.display = 'none';
-                            loginForm.style.display = 'block';
-                        });
-                    }
-
-                } catch (firestoreError) {
-                    console.error("Błąd zapisu do Firestore:", firestoreError);
-                    if (auth.currentUser) {
-                        await auth.currentUser.delete();
-                        console.log("Usunięto użytkownika Auth z powodu błędu Firestore.");
-                    }
-                    throw firestoreError;
-                }
-
-            } catch (validationOrAuthError) {
-                console.error("Błąd podczas procesu rejestracji:", validationOrAuthError);
-                authErrorRegister.textContent = validationOrAuthError.message; // Uproszczona obsługa błędów
-            
+            } catch (error) {
+                // Obsłuż błędy z Cloud Function (np. "already-exists", "not-found")
+                console.error("Błąd podczas procesu rejestracji:", error);
+                authErrorRegister.textContent = error.message;
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Zarejestruj się';
@@ -17599,6 +17473,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
