@@ -6154,13 +6154,34 @@ let state = {
             kanbanBoardEl.className = 'my-day-view';
             kanbanBoardEl.removeAttribute('style');
 
+            kanbanBoardEl.removeAttribute('style');
+
             const myTasks = getAllMyTasks();
             const selectedDateStartOfDay = new Date(state.ui.myDayDate);
             selectedDateStartOfDay.setHours(0, 0, 0, 0);
+            
+            // === POCZĄTEK ZMIANY (KROK 1) ===
+            // Obliczamy koniec dnia dla precyzyjnego filtrowania
+            const selectedDateEndOfDay = new Date(selectedDateStartOfDay);
+            selectedDateEndOfDay.setDate(selectedDateEndOfDay.getDate() + 1);
 
+            // Opóźnione: termin minął przed dzisiejszym początkiem dnia
             const overdueTasks = myTasks.filter(task => task.dueDate && task.status !== 'done' && new Date(task.dueDate) < selectedDateStartOfDay);
-            const activeTasksForDate = myTasks.filter(task => task.dueDate && task.status !== 'done' && task.dueDate.startsWith(state.ui.myDayDate));
-            const completedTasksForDate = myTasks.filter(task => task.dueDate && task.status === 'done' && task.dueDate.startsWith(state.ui.myDayDate));
+            
+            // Aktywne na dany dzień: termin przypada między początkiem dnia a końcem dnia
+            const activeTasksForDate = myTasks.filter(task => {
+                if (!task.dueDate || task.status === 'done') return false;
+                const dueDate = new Date(task.dueDate);
+                return dueDate >= selectedDateStartOfDay && dueDate < selectedDateEndOfDay;
+            });
+            
+            // Ukończone na dany dzień: status DONE ORAZ termin przypada między początkiem dnia a końcem dnia
+            const completedTasksForDate = myTasks.filter(task => {
+                if (task.status !== 'done' || !task.dueDate) return false;
+                const dueDate = new Date(task.dueDate);
+                return dueDate >= selectedDateStartOfDay && dueDate < selectedDateEndOfDay;
+            });
+            // === KONIEC ZMIANY (KROK 1) ===
 
             overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
             activeTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
@@ -6324,8 +6345,7 @@ let state = {
          */
         function findTask(taskId) {
             // Logika: Domyślnie szukamy w LOKALNYCH projektach (aktywna grupa)
-            // Jeśli jednak jesteśmy w widoku 'Mój dzień', szukamy GLOBALNIE, 
-            // a następnie re-mapujemy projekt na LOKALNY dla akcji (np. przenoszenie).
+            // Jeśli jednak jesteśmy w widoku 'Mój dzień', szukamy GLOBALNIE.
             
             let allProjectsToSearch;
             const isMyDayView = state.ui.currentView === 'my-day';
@@ -6341,19 +6361,24 @@ let state = {
             for (const project of allProjectsToSearch) {
                 const task = (project.tasks || []).find(t => t.id === taskId);
                 if (task) {
+                    // === POCZĄTEK ZMIANY (KROK 3) ===
                     let projectForAction = project;
                     
-                    // Jeśli znaleźliśmy zadanie w globalnej liście, musimy upewnić się,
-                    // że operacje (np. zapis/usunięcie) będą działać na LOKALNYM obiekcie projektu.
-                    // Najlepiej jest po prostu znaleźć projekt w lokalnej liście.
+                    // Jeśli znaleziono w globalnej liście, musimy pobrać *lokalny* obiekt referencyjny 
+                    // TYLKO jeśli ten projekt jest również w aktywnej grupie, aby operacje zapisu zadziałały.
+                    // Jeśli go nie ma, używamy globalnego obiektu (dla trybu VIEW, a nie SAVE).
                     if (isMyDayView) {
-                         projectForAction = findProject(project.id) || findCompletedProject(project.id) || project;
+                         const localRef = findProject(project.id) || findCompletedProject(project.id);
+                         if (localRef) {
+                            projectForAction = localRef; // Użyj lokalnego referencyjnego obiektu
+                         }
                     }
                     
                     return {
                         task: migrateTask(task),
                         project: projectForAction
                     };
+                    // === KONIEC ZMIANY (KROK 3) ===
                 }
             }
             return {
@@ -9317,8 +9342,19 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 taskModal.saveBtn.style.display = 'none';
                 taskModal.okBtn.style.display = 'block'; // Twoja zmiana
                 const isCreator = !task.createdBy || (task.createdBy && task.createdBy === state.currentUser.uid);
-                taskModal.deleteBtn.style.display = isCreator ? 'block' : 'none';
-                taskModal.editBtn.style.display = isCreator ? 'block' : 'none';
+                
+                // === POCZĄTEK ZMIANY (KROK 4) ===
+                // Nowa flaga: Czy projekt jest w AKTYWNEJ grupie
+                const isProjectInActiveGroup = project.groupId === state.ui.activeGroupId;
+                
+                // Zablokuj edycję i usuwanie, jeśli projekt nie jest w aktywnej grupie, aby uniknąć błędów Firestore.
+                const canModify = isProjectInActiveGroup && isCreator;
+
+                // Używamy canModify zamiast isCreator
+                taskModal.deleteBtn.style.display = canModify ? 'block' : 'none';
+                taskModal.editBtn.style.display = canModify ? 'block' : 'none';
+                taskModal.moveBtn.disabled = !isProjectInActiveGroup; // Zablokuj przenoszenie z nieaktywnej grupy
+                // === KONIEC ZMIANY ===
 
                 // === PRZYWRÓCONE WYPEŁNIANIE STATUSU UKOŃCZENIA ===
                 if (task.type === 'multi') {
@@ -11159,16 +11195,39 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             };
             // === KONIEC ZMIANY ===
 
+            /**
+         * Uruchamia słuchacze Firestore dla WSZYSTKICH projektów użytkownika (widok Mój Dzień).
+         * @param {string} userId - ID zalogowanego użytkownika.
+         */
+        function setupGlobalListeners(userId) {
+            if (!userId) {
+                console.error("Błąd krytyczny: setupGlobalListeners wywołane bez userId.");
+                return;
+            }
+
+            // === POCZĄTEK ZMIANY (KROK 2) - Uproszczona logika gotowości ===
+            // Użyjemy prostej flagi, która będzie ustawiana po 2 wywołaniach
+            let globalDataLoaded = 0; 
+            const totalListeners = 2; // Liczba słuchaczy do załadowania
+
+            const checkGlobalReady = () => {
+                 globalDataLoaded++;
+                 if (globalDataLoaded === totalListeners) {
+                      // Po załadowaniu obu list, wymuś renderowanie.
+                      // Jest to konieczne, aby załadowany widok (np. 'my-day') nie był pusty.
+                      console.log("[Listener Global] Globalne dane są gotowe. Wymuszam render.");
+                      render();
+                 }
+            };
+            // === KONIEC ZMIANY ===
+
             // --- 1. Słuchacz WSZYSTKICH Aktywnych Projektów (dla widoku Mój Dzień) ---
             // Używamy "array-contains" na polu "members", aby pobrać projekty niezależnie od groupId
             const allProjectsQuery = query(projectsRef, where("members", "array-contains", userId));
             state.ui.unsubscribeAllGroupsProjects = onSnapshot(allProjectsQuery, (snapshot) => {
                 state.allGroupsProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 console.log(`[Listener Global Projects] Załadowano ${state.allGroupsProjects.length} aktywnych projektów ze wszystkich grup.`);
-                // === POCZĄTEK ZMIANY (KROK 2) ===
-                globalProjectsLoaded = true; // Ustaw flagę
-                checkGlobalReady();          // Sprawdź gotowość
-                // === KONIEC ZMIANY ===
+                checkGlobalReady(); 
             }, (error) => console.error(`Błąd odczytu globalnych projektów:`, error));
 
             // --- 2. Słuchacz WSZYSTKICH Zakończonych Projektów (dla widoku Mój Dzień) ---
@@ -11176,10 +11235,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             state.ui.unsubscribeAllGroupsCompleted = onSnapshot(allCompletedQuery, (snapshot) => {
                 state.allGroupsCompletedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 console.log(`[Listener Global Completed] Załadowano ${state.allGroupsCompletedProjects.length} zakończonych projektów ze wszystkich grup.`);
-                // === POCZĄTEK ZMIANY (KROK 2) ===
-                 globalCompletedLoaded = true; // Ustaw flagę
-                 checkGlobalReady();           // Sprawdź gotowość
-                // === KONIEC ZMIANY ===
+                checkGlobalReady(); 
             }, (error) => console.error(`Błąd odczytu globalnych zakończonych projektów:`, error));
         }
 
@@ -17662,6 +17718,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
