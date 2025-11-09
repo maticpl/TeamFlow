@@ -4356,6 +4356,7 @@
                 <hr>
                 <button class="group-menu-action" id="join-group-btn">Dołącz do grupy</button> <button class="group-menu-action" id="create-group-btn">+ Stwórz nową grupę</button>
                 <button class="group-menu-action" id="manage-groups-btn" style="display: none; border-top: 1px solid var(--border-color); margin-top: 4px; padding-top: 8px;">Zarządzaj aktywną grupą</button>
+                <button class="group-menu-action btn-danger" id="leave-group-btn" style="display: none; border-top: 1px solid var(--border-color); margin-top: 4px; padding-top: 8px; color: var(--danger-primary);">Opuść aktywną grupę</button>
         
         </div>
         </div>
@@ -7107,9 +7108,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // 1. Ustaw nazwę aktywnej grupy
                 groupSwitcher.activeName.textContent = state.ui.activeGroupInfo.name;
                 
-                // 2. Sprawdź, czy użytkownik jest właścicielem AKTYWNEJ grupy
+               // 2. Sprawdź, czy użytkownik jest właścicielem AKTYWNEJ grupy
                 const amIOwner = state.ui.activeGroupInfo.role === 'owner';
                 groupSwitcher.manageBtn.style.display = amIOwner ? 'block' : 'none';
+                groupSwitcher.leaveBtn.style.display = amIOwner ? 'none' : 'block'; // <-- DODANA TA LINIA
 
                 // 3. Zbuduj listę grup do przełączenia
                 const groupIds = state.currentUser.groupIds || [];
@@ -16624,7 +16626,8 @@ function addAiChatMessage(text, type, id = null) {
             list: document.getElementById('group-switcher-list'),
             activeName: document.getElementById('active-group-name'),
             manageBtn: document.getElementById('manage-groups-btn'),
-            createBtn: document.getElementById('create-group-btn')
+            createBtn: document.getElementById('create-group-btn'),
+            leaveBtn: document.getElementById('leave-group-btn') // <-- DODANA TA LINIA
         };
 
         createFirstGroupModal.form.addEventListener('submit', async (e) => {
@@ -16753,12 +16756,43 @@ function addAiChatMessage(text, type, id = null) {
             const groupItem = e.target.closest('.group-menu-item');
             const createBtn = e.target.closest('#create-group-btn');
             const manageBtn = e.target.closest('#manage-groups-btn');
-            const joinBtn = e.target.closest('#join-group-btn'); // <-- DODANA LINIA
+            const joinBtn = e.target.closest('#join-group-btn');
+            const leaveBtn = e.target.closest('#leave-group-btn'); // <-- DODANA TA LINIA
 
             if (groupItem) {
                 const newGroupId = groupItem.dataset.groupId;
                 handleGroupSwitch(newGroupId); 
             }
+            // === POCZĄTEK NOWEGO BLOKU ===
+            else if (leaveBtn) {
+                const groupToLeave = state.ui.activeGroupInfo;
+                if (!groupToLeave) return;
+
+                showConfirmation(
+                    `Opuść grupę "${groupToLeave.name}"`,
+                    "Czy na pewno chcesz opuścić tę grupę? Utracisz dostęp do wszystkich jej projektów i zadań. Ta akcja jest nieodwracalna.",
+                    async (confirmed) => {
+                        if (confirmed) {
+                            loadingOverlay.style.display = 'flex'; // Pokaż ekran ładowania
+                            try {
+                                const leaveGroup = httpsCallable(functions, 'leaveGroup');
+                                await leaveGroup({ groupId: state.ui.activeGroupId });
+                                
+                                // Sukces - przeładuj aplikację, aby onAuthStateChanged
+                                // znalazło nową aktywną grupę (lub pokazało modal tworzenia)
+                                window.location.reload();
+
+                            } catch (error) {
+                                console.error("Błąd podczas opuszczania grupy:", error);
+                                showNotification(error.message, "Błąd");
+                                loadingOverlay.style.display = 'none'; // Ukryj ładowanie w razie błędu
+                            }
+                        }
+                    },
+                    true // true = przycisk potwierdzenia jest czerwony
+                );
+            }
+            // === KONIEC NOWEGO BLOKU ===
             else if (createBtn) {
                 openModal(createNewGroupModal.overlay);
                 createNewGroupModal.input.focus();
@@ -17557,6 +17591,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
