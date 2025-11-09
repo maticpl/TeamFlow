@@ -8500,7 +8500,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
     
             // Inicjalizacja stanu przełącznika dla tego projektu (domyślnie 'tasks')
-            const defaultMode = (project.estimationType === 'hours' || project.estimationType === 'points') ? project.estimationType : 'tasks';
+            // Inicjalizacja stanu przełącznika dla tego projektu
+            const defaultMode = (project.estimationType === 'hours' || project.estimationType === 'points') 
+                               ? project.estimationType // Domyślnie na punkty/godziny, jeśli jest ustawione
+                               : 'tasks'; // W przeciwnym razie na zadania
+                               
             project.workloadDisplayMode = project.workloadDisplayMode || defaultMode; 
             
             projectDetailsModal.title.textContent = `Szczegóły: ${project.name}`;
@@ -8541,19 +8545,37 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
              const estimationType = project.estimationType || 'none';
              let buttonsHTML = '';
              let modes = [];
-             
-             // Tryb Obciążenie Zadaniami (zawsze dostępny)
-             modes.push({ id: 'tasks', label: 'Zadania', isActive: project.workloadDisplayMode === 'tasks' });
 
-             // Tryb Obciążenie Godzinowe (dostępny, jeśli projekt ma ustawione godziny)
+             // 1. Dodaj tryb estymacji (hours/points) TYLKO jeśli jest ustawiony
              if (estimationType === 'hours') {
                  modes.push({ id: 'hours', label: 'Godziny', isActive: project.workloadDisplayMode === 'hours' });
-             }
-             
-             // Tryb Obciążenie Punktowe (dostępny, jeśli projekt ma ustawione punkty)
-             if (estimationType === 'points') {
+             } else if (estimationType === 'points') {
                  modes.push({ id: 'points', label: 'Punkty', isActive: project.workloadDisplayMode === 'points' });
              }
+             
+             // 2. Dodaj tryb Obciążenie Zadaniami, ale tylko jeśli jest inny tryb estymacji
+             // LUB jeśli jest to jedyny tryb (dla projektów z estimationType: 'none')
+             if (modes.length > 0 || estimationType === 'none') {
+                 // Domyślny tryb 'tasks' to skumulowana liczba zadań
+                 modes.unshift({ id: 'tasks', label: 'Zadania', isActive: project.workloadDisplayMode === 'tasks' });
+             }
+
+             // Wyczyść ewentualne duplikaty, które powstały, gdy defaultMode był 'tasks'
+             // Ponowne filtrowanie po id jest zbędne, ale dla bezpieczeństwa można użyć Set.
+             
+             // Poprawiamy status aktywności na podstawie trybu domyślnego
+             modes = modes.map(mode => ({
+                 ...mode,
+                 isActive: mode.id === project.workloadDisplayMode
+             }));
+             
+             // Upewniamy się, że co najmniej jeden tryb jest aktywny
+             if (!modes.some(mode => mode.isActive)) {
+                  // Jeśli nie ma aktywnego trybu (np. domyślnie 'tasks'), ustaw pierwszy jako aktywny
+                  modes[0].isActive = true;
+                  project.workloadDisplayMode = modes[0].id;
+             }
+
              
              if (modes.length > 1) {
                  buttonsHTML = modes.map(mode => `
@@ -17756,6 +17778,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
