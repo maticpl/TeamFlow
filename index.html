@@ -6229,12 +6229,14 @@ let state = {
   } else if (e.target.closest('a[data-project-id]')) {
       handleProjectLinkClick(e);
       return;
-  } else if (e.target.closest('button[data-action="toggle-notify-on-complete"]')) {
-      const bellBtn = e.target.closest('button[data-action="toggle-notify-on-complete"]');
-      const taskId = taskItem.dataset.taskId;
-      toggleNotifyOnComplete(taskId, bellBtn);
-      return;
-  } else {
+ } else if (e.target.closest('button[data-action="toggle-notify-on-complete"]')) {
+                const bellBtn = e.target.closest('button[data-action="toggle-notify-on-complete"]');
+                const taskId = taskItem.dataset.taskId;
+                // <<< ZMIANA: POBIERAMY PROJECT ID Z taskItem dataset (z renderMyDayView)
+                const projectId = taskItem.querySelector('a[data-project-id]').dataset.projectId;
+                toggleNotifyOnComplete(taskId, projectId, bellBtn); // <<< DODANO projectId
+                return;
+            } else {
       openTaskModal(taskItem.dataset.taskId);
   }
 }
@@ -7398,10 +7400,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // === NOWA LOGIKA: Obsługa dzwonka ===
             const bellButton = e.target.closest('button[data-action="toggle-notify-on-complete"]');
             if (bellButton) {
-                 e.stopPropagation(); 
-                 const taskId = bellButton.closest('[data-task-id]').dataset.taskId;
-                 if (taskId) {
-                     toggleNotifyOnComplete(taskId, bellButton);
+                 e.stopPropagation(); // ZATRZYMAJ propagację do karty zadania!
+                 const taskCard = bellButton.closest('.task-card');
+                 const taskId = taskCard.dataset.taskId;
+                 // <<< ZMIANA: POBIERAMY PROJECT ID DLA PROJEKTU Z KANBANA/DASHBOARDU
+                 const projectId = state.currentProjectId || taskCard.querySelector('.task-project-name')?.dataset.projectId; // W dashboardzie id jest w nazwie projektu, a w projekcie w state.currentProjectId
+                 
+                 if (taskId && projectId) {
+                     toggleNotifyOnComplete(taskId, projectId, bellButton); // <<< DODANO projectId
                  }
                  return;
             }
@@ -10879,14 +10885,19 @@ const attachmentsListNewTask = document.getElementById('new-task-attachments-lis
        /**
          * Wywołuje Cloud Function, aby włączyć/wyłączyć powiadomienia o ukończeniu zadania.
          */
-        async function toggleNotifyOnComplete(taskId, buttonElement) {
+        async function toggleNotifyOnComplete(taskId, projectId, buttonElement) { // <<< ZMIANA 1: DODANO projectId
              if (!state.currentUser) return;
 
              buttonElement.disabled = true;
 
              try {
                 const toggleNotification = httpsCallable(functions, 'toggleTaskCompletionNotification');
-                const result = await toggleNotification({ taskId: taskId });
+                // <<< ZMIANA 2: PRZEKAŻ projectId i groupId do funkcji chmurowej
+                const result = await toggleNotification({ 
+                    taskId: taskId, 
+                    projectId: projectId,
+                    groupId: state.ui.activeGroupId // Używamy aktywnej grupy
+                });
 
                 const isSubscribed = result.data.isSubscribed;
 
@@ -14231,15 +14242,18 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // === NOWA LOGIKA: Obsługa kliknięcia dzwonka ===
             const bellButton = e.target.closest('button[data-action="toggle-notify-on-complete"]');
             if (bellButton) {
-                 e.stopPropagation(); // ZATRZYMAJ propagację do karty zadania!
-                 const taskId = bellButton.closest('.task-card').dataset.taskId;
-                 if (taskId) {
-                     toggleNotifyOnComplete(taskId, bellButton);
+                 e.stopPropagation(); 
+                 const taskCard = bellButton.closest('[data-task-id]');
+                 const taskId = taskCard.dataset.taskId;
+                 // <<< ZMIANA: W modalu Dashboard Details ID projektu jest osadzone w nazwie projektu na karcie
+                 const projectId = taskCard.querySelector('.task-project-name')?.dataset.projectId;
+                 
+                 if (taskId && projectId) {
+                     toggleNotifyOnComplete(taskId, projectId, bellButton); // <<< DODANO projectId
                  }
                  return;
             }
             // === KONIEC NOWEJ LOGIKI ===
-
 
             // 3. Sprawdź kliknięcie na GŁÓWNY checkbox zadania
             if (e.target.matches('.task-card-checkbox')) {
@@ -17686,6 +17700,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
