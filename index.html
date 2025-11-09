@@ -11764,7 +11764,7 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                         // 1. Stwórz nową Grupę
                         const newGroupRef = doc(groupsRef);
                         const finalGroupId = newGroupRef.id;
-                        finalGroupName = targetGroupName;
+                        const finalGroupName = targetGroupName; // <-- ZMIANA TUTAJ (dodano const)
                         
                         batch.set(newGroupRef, {
                             name: finalGroupName,
@@ -15303,7 +15303,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 // Listener do usuwania podgrupy, członków ORAZ akceptacji/odrzucenia próśb
         manageGroupModal.overlay.addEventListener('click', async (e) => {
             
-            // === POCZĄTEK ZMIANY: Dodana logika akceptacji/odrzucenia ===
+            // === NOWA LOGIKA: Akceptacja/Odrzucenie ===
             const approveBtn = e.target.closest('.js-approve-request');
             if (approveBtn) {
                 const requestId = approveBtn.dataset.id;
@@ -15317,7 +15317,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 handleProcessRequest(requestId, 'reject', rejectBtn);
                 return;
             }
-            // === KONIEC ZMIANY ===
+            // === KONIEC NOWEJ LOGIKI ===
 
             // Obsługa usuwania podgrupy
             if (e.target.classList.contains('js-delete-subgroup')) {
@@ -15335,7 +15335,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                                 const subgroups = groupSnap.data().subgroups || [];
                                 const updatedSubgroups = subgroups.filter(name => name !== nameToDelete);
                                 await updateDoc(groupRef, { subgroups: updatedSubgroups });
-                                openManageGroupBtn.click();
+                                openManageGroupBtn.click(); // Odśwież widok modala
                             }
                         } catch (error) {
                             console.error("Błąd usuwania podgrupy:", error);
@@ -15352,18 +15352,28 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
                 showConfirmation(
                     "Potwierdź usunięcie członka", 
-                    `Czy na pewno chcesz usunąć "${userToRemove.name || userToRemove.email}" z grupy? Użytkownik straci dostęp do przyszłych projektów, ale jego konto nie zostanie usunięte.`, 
+                    `Czy na pewno chcesz usunąć "${userToRemove.name || userToRemove.email}" z grupy? Użytkownik straci dostęp do projektów.`, 
                     async (confirmed) => {
                         if (confirmed) {
                             try {
                                 const userToRemoveRef = doc(usersRef, userIdToRemove);
-                                // TODO: W przyszłości ta logika powinna usuwać ID grupy z tablicy groupIds użytkownika
-                                // Poniższa logika jest przestarzała, ale zostawiam ją na razie
+                                
+                                // === POCZĄTEK ZMIANY: Poprawna logika usuwania członka ===
+                                // Usuwamy ID grupy z jego listy groupIds
+                                // Usuwamy dane grupy z jego mapy groupInfo
                                 await updateDoc(userToRemoveRef, {
-                                    groupId: userIdToRemove, 
-                                    groupName: null,
-                                    subgroupName: null 
+                                    [`groupInfo.${state.ui.activeGroupId}`]: deleteField(),
+                                    groupIds: arrayRemove(state.ui.activeGroupId)
                                 });
+
+                                // Usuwamy ID użytkownika z listy memberIds w grupie
+                                const groupRef = doc(groupsRef, state.ui.activeGroupId);
+                                await updateDoc(groupRef, {
+                                    memberIds: arrayRemove(userIdToRemove)
+                                });
+                                // TODO: W przyszłości usuń użytkownika z `members` we wszystkich projektach w tej grupie
+                                // === KONIEC ZMIANY ===
+
                                 showNotification("Użytkownik został usunięty z grupy.", "Sukces");
                                 openManageGroupBtn.click(); // Odśwież widok modala
                             } catch (error) {
@@ -15379,7 +15389,6 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
         /**
          * Funkcja pomocnicza wywołująca Cloud Function do przetworzenia prośby.
-         * (Przeniesiona tutaj dla lepszej czytelności)
          */
         async function handleProcessRequest(requestId, action, buttonElement) {
             // Zablokuj oba przyciski w tym wierszu
@@ -15417,21 +15426,26 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 buttonElement.textContent = (action === 'approve') ? 'Akceptuj' : 'Odrzuć';
             }
         }
-// Otwieranie okien podrzędnych z głównego menu ustawień
-settingsModal.openUploadBtn.addEventListener('click', () => photoUploadInput.click());
 
-settingsModal.openUsernameBtn.addEventListener('click', () => {
-    changeUsernameModal.input.value = state.currentUser.name || ''; // Wypełnia pole aktualną nazwą
-    openModal(changeUsernameModal.overlay); // Otwiera modal zmiany nazwy
-    closeModal(settingsModal.overlay); // Zamyka główne menu ustawień
-});
+        // === USUNIĘTO BŁĘDNE LISTENERY, KTÓRE POWODOWAŁY BŁĘDY ===
+        // (Brak `document.getElementById('pending-requests-list').addEventListener(...)`)
+        // (Brak `document.addEventListener('click', ... groupSwitcher ...)` w tym miejscu)
 
-settingsModal.openPasswordBtn.addEventListener('click', () => {
-    openModal(changePasswordModal.overlay); // Otwiera modal zmiany hasła
-    closeModal(settingsModal.overlay); // Zamyka główne menu ustawień
-});
+        // Otwieranie okien podrzędnych z głównego menu ustawień
+        settingsModal.openUploadBtn.addEventListener('click', () => photoUploadInput.click());
 
-// --- CZĘŚĆ 2: Logika wysyłania zdjęcia (z kadrowaniem) ---
+        settingsModal.openUsernameBtn.addEventListener('click', () => {
+            changeUsernameModal.input.value = state.currentUser.name || ''; // Wypełnia pole aktualną nazwą
+            openModal(changeUsernameModal.overlay); // Otwiera modal zmiany nazwy
+            closeModal(settingsModal.overlay); // Zamyka główne menu ustawień
+        });
+
+        settingsModal.openPasswordBtn.addEventListener('click', () => {
+            openModal(changePasswordModal.overlay); // Otwiera modal zmiany hasła
+            closeModal(settingsModal.overlay); // Zamyka główne menu ustawień
+        });
+
+        // --- CZĘŚĆ 2: Logika wysyłania zdjęcia (z kadrowaniem) ---
 
         // Pobieramy referencje do nowego modala i jego elementów
         const cropPhotoModal = {
@@ -15512,30 +15526,28 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
 
                 showNotification("Zdjęcie profilowe zostało zaktualizowane.", "Sukces");
             
-            } catch (error) { // <--- NAPRAWIONA STRUKTURA: 'catch' jest teraz bezpośrednio po 'try'
+            } catch (error) { 
                 console.error("Błąd podczas wysyłania zdjęcia:", error);
                 showNotification("Wystąpił błąd podczas zmiany zdjęcia.", "Błąd");
-            } finally { // <--- NAPRAWIONA STRUKTURA: 'finally' jest teraz po 'catch'
+            } finally { 
                 // Niezależnie od wyniku, przywracamy przycisk i zamykamy modal
                 cropPhotoModal.saveBtn.disabled = false;
                 cropPhotoModal.saveBtn.textContent = 'Zapisz';
                 closeModal(cropPhotoModal.overlay);
                 photoUploadInput.value = ''; // Czyści input
             }
-        }); // <--- TUTAJ POPRAWNIE KOŃCZY SIĘ 'cropPhotoModal.saveBtn.addEventListener'
+        }); 
 
         // --- CZĘŚĆ 3: Logika zmiany nazwy użytkownika ---
         
-        // Ten listener reaguje na wysłanie formularza zmiany nazwy.
-        changeUsernameModal.form.addEventListener('submit', async (e) => { // <--- PRZENIESIONY BLOK
-            e.preventDefault(); // Zapobiega przeładowaniu strony
+        changeUsernameModal.form.addEventListener('submit', async (e) => { 
+            e.preventDefault(); 
             const newName = changeUsernameModal.input.value.trim();
             const user = state.currentUser;
             if (!newName || !user) return;
 
             try {
                 const userDocRef = doc(usersRef, user.uid);
-                // Aktualizuje pole 'name' w dokumencie użytkownika w Firestore
                 await updateDoc(userDocRef, { name: newName });
                 
                 closeModal(changeUsernameModal.overlay);
@@ -15548,8 +15560,7 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
 
         // --- CZĘŚĆ 4: Logika zmiany hasła (przeniesiona i dostosowana) ---
 
-        // Ten listener obsługuje formularz zmiany hasła z nowego okna.
-        changePasswordModal.form.addEventListener('submit', async (e) => { // <--- PRZENIESIONY BLOK
+        changePasswordModal.form.addEventListener('submit', async (e) => { 
             e.preventDefault();
             const currentPassword = changePasswordModal.currentPassword.value;
             const newPassword = changePasswordModal.newPassword.value;
@@ -15597,7 +15608,7 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                 submitBtn.textContent = 'Zmień hasło';
             }
         });
-   // ▼▼▼ DODAJ NOWY LISTENER DLA PRZYCISKÓW "COFNIJ" ▼▼▼
+
         const handleBackButtonClick = (e) => {
             e.preventDefault();
             if (state.ui.previousView) {
@@ -15611,13 +15622,8 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
 
         backToProjectsBtn.addEventListener('click', handleBackButtonClick);
         backToProjectsBtnMobile.addEventListener('click', handleBackButtonClick);
-        // ▲▲▲ KONIEC NOWEGO LISTNERA ▲▲▲
         
-          // --- LOGIKA EDYCJI UKŁADU DASHBOARDU ---
-        
-
         editDashboardLayoutBtn.addEventListener('click', async () => {
-            // Sprawdzamy, czy jesteśmy w trybie edycji. Jeśli tak, to znaczy, że kliknięto "Zapisz układ".
             if (state.ui.dashboardEditMode) {
                 if (sortableDashboard) {
                     const newOrder = sortableDashboard.toArray();
@@ -15631,24 +15637,18 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                         showNotification("Nie udało się zapisać układu.", "Błąd");
                     }
                 }
-                // Wyłączamy tryb edycji
                 state.ui.dashboardEditMode = false;
                 editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
             } else {
-                // Jeśli nie jesteśmy w trybie edycji, włączamy go
                 state.ui.dashboardEditMode = true;
                 editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
             }
-            
-            // Na koniec zawsze odświeżamy widok, aby zastosować zmiany
             render();
         });
-        // DODANY BRAKUJĄCY LISTENER DLA PROJEKTÓW
+
          editProjectsLayoutBtn.addEventListener('click', async () => {
-            // Sprawdzamy, czy jesteśmy w trybie edycji. Jeśli tak, to znaczy, że kliknięto "Zapisz układ".
             if (state.ui.allProjectsEditMode) {
                 if (sortableProjects) {
-                    // Sortablejs przechowuje kolejność ID projektów
                     const newOrder = sortableProjects.toArray();
                     state.currentUser.layouts.allProjects = newOrder;
                     try {
@@ -15660,29 +15660,25 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                         showNotification("Nie udało się zapisać układu.", "Błąd");
                     }
                 }
-                // Wyłączamy tryb edycji
                 state.ui.allProjectsEditMode = false;
                 editProjectsLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
             } else {
-                // Jeśli nie jesteśmy w trybie edycji, włączamy go
                 state.ui.allProjectsEditMode = true;
                 editProjectsLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
             }
-            // Na koniec zawsze odświeżamy widok, aby zastosować zmiany
             render();
         });
     
-       // NOWY LISTENER: Otwieranie modala zmiany podgrupy
-        openChangeSubgroupBtn.addEventListener('click', async () => {
+       openChangeSubgroupBtn.addEventListener('click', async () => {
             const user = state.currentUser;
-            // Sprawdzamy, czy użytkownik jest w grupie "wieloosobowej"
-            if (!user || !user.groupId || user.groupId === user.uid) {
+            // === ZMIANA: Używamy activeGroupInfo ===
+            if (!user || !state.ui.activeGroupInfo) {
                 showNotification("Ta opcja jest dostępna tylko dla członków grupy.", "Informacja");
                 return;
             }
 
             try {
-                const groupRef = doc(groupsRef, user.groupId);
+                const groupRef = doc(groupsRef, state.ui.activeGroupId); // Używamy aktywnej grupy
                 const groupSnap = await getDoc(groupRef);
 
                 if (groupSnap.exists()) {
@@ -15691,10 +15687,11 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                         showNotification("Twoja grupa nie ma zdefiniowanych żadnych podgrup (działów).", "Informacja");
                         return;
                     }
-
-                    // Wypełnij listę select i zaznacz obecny dział użytkownika
+                    
+                    // Używamy 'activeGroupInfo' do znalezienia aktualnej podgrupy
+                    const currentSubgroup = state.ui.activeGroupInfo.subgroup; 
                     changeSubgroupModal.select.innerHTML = subgroups.map(name => 
-                        `<option value="${name}" ${user.subgroupName === name ? 'selected' : ''}>${name}</option>`
+                        `<option value="${name}" ${currentSubgroup === name ? 'selected' : ''}>${name}</option>`
                     ).join('');
                     
                     closeModal(settingsModal.overlay);
@@ -15705,16 +15702,15 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                 showNotification("Wystąpił błąd podczas wczytywania działów.", "Błąd");
             }
         });
-       // === NOWY LISTENER: Otwieranie modala zaproszenia ===
+
         openInviteModalBtn.addEventListener('click', () => {
-            inviteMemberModal.form.reset(); // Wyczyść pole email
-            inviteMemberModal.error.textContent = ''; // Wyczyść błędy
-            closeModal(settingsModal.overlay); // Zamknij modal ustawień
-            openModal(inviteMemberModal.overlay); // Otwórz modal zaproszenia
+            inviteMemberModal.form.reset(); 
+            inviteMemberModal.error.textContent = ''; 
+            closeModal(settingsModal.overlay); 
+            openModal(inviteMemberModal.overlay); 
             inviteMemberModal.emailInput.focus();
         });
 
-        // === NOWY LISTENER: Obsługa formularza zaproszenia ===
         inviteMemberModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const emailToInvite = inviteMemberModal.emailInput.value.trim();
@@ -15725,23 +15721,15 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
             inviteMemberModal.error.textContent = '';
 
             try {
-                // Definiujemy wywołanie funkcji chmurowej
                 const sendGroupInvite = httpsCallable(functions, 'sendGroupInvite');
-                
-                // === POCZĄTEK ZMIANY ===
-                // Wywołujemy funkcję, przekazując e-mail ORAZ ID aktywnej grupy
                 const result = await sendGroupInvite({ 
                     email: emailToInvite,
-                    groupId: state.ui.activeGroupId // <-- DODANA LINIA
+                    groupId: state.ui.activeGroupId 
                 });
-                // === KONIEC ZMIANY ===
-
                 closeModal(inviteMemberModal.overlay);
                 showNotification(`Zaproszenie zostało wysłane na adres ${emailToInvite}.`, "Sukces");
-
             } catch (error) {
                 console.error("Błąd podczas wysyłania zaproszenia:", error);
-                // Wyświetlamy błąd użytkownikowi w modalu
                 inviteMemberModal.error.textContent = error.message || "Wystąpił nieznany błąd.";
             } finally {
                 inviteMemberModal.submitBtn.disabled = false;
@@ -15749,7 +15737,6 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
             }
         });
 
-        // NOWY LISTENER: Zapisywanie zmiany podgrupy
         changeSubgroupModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const newSubgroup = changeSubgroupModal.select.value;
@@ -15760,9 +15747,14 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
 
             try {
                 const userRef = doc(usersRef, state.currentUser.uid);
+                // === ZMIANA: Aktualizujemy mapę 'groupInfo' ===
                 await updateDoc(userRef, {
-                    subgroupName: newSubgroup
+                    [`groupInfo.${state.ui.activeGroupId}.subgroup`]: newSubgroup
                 });
+                // Zaktualizuj stan lokalny
+                state.currentUser.groupInfo[state.ui.activeGroupId].subgroup = newSubgroup;
+                state.ui.activeGroupInfo.subgroup = newSubgroup;
+                // === KONIEC ZMIANY ===
 
                 closeModal(changeSubgroupModal.overlay);
                 showNotification("Dział został pomyślnie zaktualizowany.", "Sukces");
@@ -15771,7 +15763,7 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                 showNotification("Wystąpił błąd podczas zapisywania zmiany.", "Błąd");
             }
         });
-       // === POCZĄTEK: NOWY LISTENER DLA PRZENOSZENIA ZADANIA ===
+
         moveTaskModal.confirmBtn.addEventListener('click', async () => {
             const taskId = moveTaskModal.overlay.dataset.taskId;
             const sourceProjectId = moveTaskModal.overlay.dataset.sourceProjectId;
@@ -15788,12 +15780,10 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                 return;
             }
 
-            // Wyłącz przycisk na czas operacji
             moveTaskModal.confirmBtn.disabled = true;
             moveTaskModal.confirmBtn.textContent = 'Przenoszenie...';
 
             try {
-                // Znajdź projekt źródłowy (może być aktywny lub zakończony)
                 const sourceProjectRef = findProject(sourceProjectId)
                     ? doc(projectsRef, sourceProjectId)
                     : doc(completedProjectsRef, sourceProjectId);
@@ -15810,61 +15800,58 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                     throw new Error("Nie znaleziono zadania do przeniesienia w projekcie źródłowym.");
                 }
 
-                // Przygotuj batch
                 const batch = writeBatch(db);
 
                 // 1. Usuń zadanie z projektu źródłowego
                 const updatedSourceTasks = (sourceProjectData.tasks || []).filter(t => t.id !== taskId);
-                batch.update(sourceProjectRef, { tasks: updatedSourceTasks });
+                const sourceBudgetSummary = calculateProjectBudgetSummary(updatedSourceTasks); // Przelicz budżet źródła
+                batch.update(sourceProjectRef, { 
+                    tasks: updatedSourceTasks,
+                    budgetSummary: sourceBudgetSummary // Zapisz nowy budżet źródła
+                });
 
-                // 2. Dodaj zadanie do projektu docelowego (zakładamy, że zawsze przenosimy do aktywnego projektu)
+                // 2. Dodaj zadanie do projektu docelowego
                 const destinationProjectRef = doc(projectsRef, destinationProjectId);
-                const destinationProjectSnap = await getDoc(destinationProjectRef); // Pobierz aktualny stan projektu docelowego
+                const destinationProjectSnap = await getDoc(destinationProjectRef); 
 
                 if (!destinationProjectSnap.exists()) {
                      throw new Error("Nie znaleziono projektu docelowego.");
                 }
                 const destinationProjectData = destinationProjectSnap.data();
                 const updatedDestinationTasks = [...(destinationProjectData.tasks || []), taskToMove];
-                batch.update(destinationProjectRef, { tasks: updatedDestinationTasks });
+                const destBudgetSummary = calculateProjectBudgetSummary(updatedDestinationTasks); // Przelicz budżet celu
+                batch.update(destinationProjectRef, { 
+                    tasks: updatedDestinationTasks,
+                    budgetSummary: destBudgetSummary // Zapisz nowy budżet celu
+                });
 
-                // Wykonaj operacje
                 await batch.commit();
 
-                // Zamknij modale
                 closeModal(moveTaskModal.overlay);
-                closeModal(taskModal.overlay); // Zamknij też modal szczegółów zadania
+                closeModal(taskModal.overlay); 
 
-                // Poinformuj użytkownika i przełącz widok
                 showNotification("Zadanie zostało pomyślnie przeniesione.", "Sukces");
                 state.currentProjectId = destinationProjectId;
                 state.ui.currentView = 'projects';
                 saveUiState();
-                render(); // Odśwież widok
+                render(); 
 
             } catch (error) {
                 console.error("Błąd podczas przenoszenia zadania:", error);
                 showNotification(`Wystąpił błąd podczas przenoszenia zadania: ${error.message}`, "Błąd");
             } finally {
-                // Włącz przycisk z powrotem
                 moveTaskModal.confirmBtn.disabled = false;
                 moveTaskModal.confirmBtn.textContent = 'Przenieś';
             }
         });
-       // === KONIEC: NOWY LISTENER DLA PRZENOSZENIA ZADANIA ===
-        // === KONIEC: NOWY LISTENER DLA PRZENOSZENIA ZADANIA ===
 
-
-        // === POCZĄTEK: NOWY LISTENER DLA AKORDEONU SUBZADAŃ (Wersja 2) ===
         const subtasksToggleBtn = document.getElementById('subtasks-toggle-btn');
         const subtasksCollapsibleArea = document.getElementById('subtasks-collapsible-area');
         if (subtasksToggleBtn && subtasksCollapsibleArea) {
             subtasksToggleBtn.addEventListener('click', () => {
-                // Przełącz klasy CSS
                 subtasksToggleBtn.classList.toggle('collapsed');
                 subtasksCollapsibleArea.classList.toggle('collapsed');
                 
-                // Zaktualizuj tekst
                 const toggleText = subtasksToggleBtn.querySelector('.toggle-text');
                 if (toggleText) {
                     if (subtasksToggleBtn.classList.contains('collapsed')) {
@@ -15875,12 +15862,7 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                 }
             });
         }
-        // === KONIEC: NOWY LISTENER DLA AKORDEONU SUBZADAŃ ===
 
-        // === NOWA LOGIKA SUBZADAŃ (Wersja 2.1 - Przycisk + Modal) ===
-        // =========================================================
-
-        // --- Listener dla klikania pigułek w modalu subzadania ---
         subtaskModal.assigneesList.addEventListener('click', (e) => {
             const pill = e.target.closest('.member-pill:not(.disabled)');
             if (pill) {
@@ -15888,94 +15870,26 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
             }
         });
 
-        // --- Otwieranie modala dodawania/edycji subzadania ---
-        function openSubtaskModal(mainTaskId, subtaskId = null) {
-            const { task: mainTask, project } = findTask(mainTaskId);
-            if (!mainTask || !project) return;
-
-            // Resetuj formularz
-            subtaskModal.form.reset();
-            subtaskModal.subtaskIdInput.value = subtaskId || ''; // Ustaw ID, jeśli edytujemy
-            subtaskModal.assigneesList.innerHTML = '';
-
-            let subtaskToEdit = null;
-            if (subtaskId) {
-                subtaskToEdit = (mainTask.subtasks || []).find(s => s.id === subtaskId);
-                if (subtaskToEdit) {
-                    subtaskModal.modalTitle.textContent = 'Edytuj podzadanie';
-                    subtaskModal.titleInput.value = subtaskToEdit.title;
-                } else {
-                    console.error("Nie znaleziono subzadania do edycji");
-                    return; // Nie otwieraj modala, jeśli nie znaleziono subzadania
-                }
-            } else {
-                subtaskModal.modalTitle.textContent = 'Dodaj podzadanie';
-            }
-
-            // Określ, kto może być przypisany do subzadania
-            let assignableUsers = [];
-            if (mainTask.type === 'multi') {
-                // W zadaniu wieloosobowym, TYLKO osoby z zadania głównego
-                assignableUsers = mainTask.assignees.map(findUser).filter(Boolean);
-            } else {
-                // W zadaniu jednoosobowym, TYLKO ta jedna osoba
-                assignableUsers = mainTask.assignees.map(findUser).filter(Boolean);
-            }
-
-            // Wypełnij pigułki
-            assignableUsers.forEach(user => {
-                let isSelected = false;
-                if (subtaskToEdit) {
-                    // Przy edycji zaznacz tych, którzy byli przypisani
-                    isSelected = subtaskToEdit.assignees.includes(user.id);
-                } else if (mainTask.type === 'single' && mainTask.assignees.length > 0) {
-                     // Przy dodawaniu w zadaniu jednoosobowym, zaznacz jedynego wykonawcę
-                     isSelected = mainTask.assignees.includes(user.id);
-                } else {
-                    // Przy dodawaniu w zadaniu wieloosobowym, domyślnie zaznacz siebie, jeśli jesteś na liście
-                    isSelected = (user.id === state.currentUser.uid && assignableUsers.some(u => u.id === user.id));
-                }
-
-                // Dla zadań jednoosobowych, pigułka jest zablokowana
-                const isDisabled = (mainTask.type === 'single');
-
-                const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
-                subtaskModal.assigneesList.innerHTML += `
-                    <div class="member-pill ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}" data-user-id="${user.id}" title="${user.name || user.email}">
-                        ${avatarHTML}
-                        <span>${user.name || user.email}</span>
-                    </div>
-                `;
-            });
-
-            // Zapisz ID głównego zadania w atrybucie modala dla łatwiejszego dostępu przy zapisie
-            subtaskModal.overlay.dataset.mainTaskId = mainTaskId;
-
-            openModal(subtaskModal.overlay);
-        }
-
-        // --- Listener dla przycisku "Dodaj podzadanie" w głównym modalu ---
         addSubtaskBtnMain.addEventListener('click', () => {
              const mainTaskId = taskModal.overlay.dataset.taskId;
-             if (mainTaskId) { // Dodano sprawdzenie, czy ID istnieje
+             if (mainTaskId) { 
                 openSubtaskModal(mainTaskId);
              } else {
                  console.error("Brak ID zadania głównego w modalu taskModal");
              }
         });
 
-        // --- Listener dla kliknięć wewnątrz listy subzadań (delegacja) ---
         subtasksListMain.addEventListener('click', (e) => {
              const checkbox = e.target.closest('.subtask-checkbox');
              const deleteBtn = e.target.closest('.subtask-action-btn.delete');
              const editBtn = e.target.closest('.subtask-action-btn.edit');
              const titleSpan = e.target.closest('.subtask-item-title');
 
-             const subtaskItem = e.target.closest('li[data-subtask-id]'); // Używamy atrybutu li
+             const subtaskItem = e.target.closest('li[data-subtask-id]'); 
              if (!subtaskItem) return;
 
              const subtaskId = subtaskItem.dataset.subtaskId;
-             const mainTaskId = taskModal.overlay.dataset.taskId; // Pobieramy ID głównego zadania
+             const mainTaskId = taskModal.overlay.dataset.taskId; 
 
              if (!mainTaskId) {
                  console.error("Brak ID zadania głównego przy obsłudze listy subzadań");
@@ -15983,19 +15897,18 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
              }
 
              if (checkbox && subtaskId) {
-                 handleSubtaskToggle(checkbox, mainTaskId); // Przekazujemy ID głównego zadania
+                 handleSubtaskToggle(checkbox, mainTaskId); 
              } else if (deleteBtn && subtaskId) {
-                 handleSubtaskDelete(subtaskId, mainTaskId); // Przekazujemy oba ID
-             } else if ((editBtn || titleSpan) && subtaskId) { // Kliknięcie tytułu też edytuje
+                 handleSubtaskDelete(subtaskId, mainTaskId); 
+             } else if ((editBtn || titleSpan) && subtaskId) { 
                  openSubtaskModal(mainTaskId, subtaskId);
              }
         });
 
-        // --- Listener dla zapisu subzadania (z nowego modala) ---
         subtaskModal.form.addEventListener('submit', async (e) => {
              e.preventDefault();
              const mainTaskId = subtaskModal.overlay.dataset.mainTaskId;
-             const subtaskId = subtaskModal.subtaskIdInput.value; // Może być puste (dodawanie) lub zawierać ID (edycja)
+             const subtaskId = subtaskModal.subtaskIdInput.value; 
              const title = subtaskModal.titleInput.value.trim();
 
              if (!mainTaskId) {
@@ -16024,14 +15937,13 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
              let subtaskData;
              let isEditing = !!subtaskId;
 
-             if (isEditing) { // Edycja istniejącego
+             if (isEditing) { 
                  let existingSubtask = updatedSubtasks.find(s => s.id === subtaskId);
                  if (!existingSubtask) {
                      console.error("Nie znaleziono subzadania do edycji w stanie zadania głównego.");
                      return;
                  }
 
-                 // Przelicz completedBy - zachowaj tylko tych, którzy nadal są przypisani
                  const currentCompletedBy = (existingSubtask.completedBy || []).filter(id => selectedAssignees.includes(id));
                  const isNowCompleted = (selectedAssignees.length > 0) && (selectedAssignees.every(id => currentCompletedBy.includes(id)));
 
@@ -16043,9 +15955,9 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                      isCompleted: isNowCompleted
                  } : s);
 
-             } else { // Dodawanie nowego
+             } else { 
                  subtaskData = {
-                     id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, // Bardziej unikalne ID
+                     id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, 
                      title: title,
                      assignees: selectedAssignees,
                      isCompleted: false,
@@ -16064,13 +15976,7 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
              try {
                  await updateDoc(projectDocRef, { tasks: updatedTasks });
                  closeModal(subtaskModal.overlay);
-                 // === MODYFIKACJA: Odświeżamy tylko listę, zamiast całego modala ===
-                 // Używamy obiektu 'updatedTask', który właśnie przygotowaliśmy,
-                 // zamiast pobierać potencjalnie nieaktualne dane z 'findTask'.
-                 // To jest poprawna implementacja Kroku 3 z poprzedniej odpowiedzi.
                  renderSubtaskListInMainModal(updatedTask);
-                 // === KONIEC MODYFIKACJI ===
-                 // Sprawdź, czy zmiana subzadania wpłynęła na status zadania głównego
                  await checkAndCompleteMainTask(mainTaskId);
              } catch (error) {
                  console.error("Błąd zapisu subzadania:", error);
@@ -16081,81 +15987,24 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
              }
         });
 
-        // --- Funkcja renderująca listę subzadań w głównym modalu ---
-        function renderSubtaskListInMainModal(task) {
-             // ▼▼▼ NOWA LOGIKA AKTUALIZACJI LICZNIKA I STANU AKORDEONU (Wersja 3 - Zwinięte) ▼▼▼
-             const subtaskCount = (task.subtasks || []).length;
-             const subtasksToggleBtn = document.getElementById('subtasks-toggle-btn');
-             const subtasksCollapsibleArea = document.getElementById('subtasks-collapsible-area');
-             const subtasksCounter = document.getElementById('subtasks-counter');
-             const toggleText = subtasksToggleBtn.querySelector('.toggle-text');
-
-             if (subtasksCounter) {
-                subtasksCounter.textContent = subtaskCount > 0 ? `(${subtaskCount})` : '(0)';
-             }
-             
-             // ▲▲▲ KONIEC NOWEJ LOGIKI ▲▲▲
-
-             subtasksListMain.innerHTML = ''; // Wyczyść listę
-             if (subtaskCount === 0) { // Używamy nowej zmiennej
-                 subtasksListMain.innerHTML = '<li style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak podzadań.</li>';
-                 return;
-             }
-
-             task.subtasks.forEach(subtask => {
-                 const assigneesHTML = (subtask.assignees || [])
-                     .map(findUser)
-                     .filter(Boolean)
-                     .map(user => renderAvatarHTML(user))
-                     .join('');
-
-                 const isCompletedByAll = subtask.isCompleted;
-                 const isCompletedByMe = (subtask.completedBy || []).includes(state.currentUser.uid);
-                 const canIComplete = (subtask.assignees || []).includes(state.currentUser.uid);
-
-                 const li = document.createElement('li');
-                 li.className = `subtask-item ${isCompletedByAll ? 'completed' : ''}`;
-                 li.dataset.subtaskId = subtask.id; // Dodajemy ID do li
-
-                 li.innerHTML = `
-                     <input type="checkbox" class="subtask-checkbox" data-subtask-id="${subtask.id}"
-                         ${isCompletedByMe ? 'checked' : ''}
-                         ${!canIComplete ? 'disabled' : ''}
-                         title="${canIComplete ? 'Oznacz swoją część' : 'Nie jesteś przypisany/a'}">
-                     <span class="subtask-item-title">${subtask.title}</span>
-                     <div class="subtask-assignees">${assigneesHTML}</div>
-                     <div class="subtask-actions">
-                         <button class="subtask-action-btn edit" title="Edytuj podzadanie">
-                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>
-                         </button>
-                         <button class="subtask-action-btn delete" title="Usuń podzadanie">
-                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                         </button>
-                     </div>
-                 `;
-                 subtasksListMain.appendChild(li);
-             });
-        }
-
-        // --- Handler przełączania checkboxa subzadania (w głównym modalu) ---
         async function handleSubtaskToggle(checkbox, mainTaskId) {
              const subtaskId = checkbox.dataset.subtaskId;
              const { task: mainTask, project } = findTask(mainTaskId);
              if (!mainTask || !project) {
                  console.error("Nie znaleziono zadania głównego lub projektu dla subzadania");
-                 return; // Wyjdź, jeśli nie ma danych
+                 return; 
              }
 
 
              let updatedTask = { ...mainTask };
-             const oldStatus = updatedTask.status; // Status zadania głównego
+             const oldStatus = updatedTask.status; 
              const currentUserId = state.currentUser.uid;
 
-             let changedSubtask = null; // Zmienna do przechowania zmienionego subzadania
+             let changedSubtask = null; 
 
              updatedTask.subtasks = updatedTask.subtasks.map(s => {
                  if (s.id === subtaskId) {
-                     let newCompletedBy = [...(s.completedBy || [])]; // Upewnij się, że tablica istnieje
+                     let newCompletedBy = [...(s.completedBy || [])]; 
                      if (checkbox.checked) {
                          if (!newCompletedBy.includes(currentUserId)) {
                              newCompletedBy.push(currentUserId);
@@ -16163,7 +16012,6 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                      } else {
                          newCompletedBy = newCompletedBy.filter(id => id !== currentUserId);
                      }
-                     // Przelicz isCompleted dla TEGO subzadania
                      const isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
                      changedSubtask = { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
                      return changedSubtask;
@@ -16171,7 +16019,6 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                  return s;
              });
 
-             // Jeśli nie znaleziono subzadania do zmiany, przerwij
              if (!changedSubtask) {
                  console.error("Nie znaleziono subzadania o ID:", subtaskId, "w zadaniu:", mainTaskId);
                  return;
@@ -16182,32 +16029,22 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
 
              try {
                  await updateDoc(projectDocRef, { tasks: updatedTasks });
-                 // === MODYFIKACJA: Odświeżamy tylko listę, zamiast całego modala ===
-                 // Pobieramy najświeższą wersję zadania (która właśnie została zaktualizowana przez onSnapshot)
                  const { task: refreshedMainTask } = findTask(mainTaskId);
                  if (refreshedMainTask) {
-                    // Wywołujemy funkcję, która tylko odświeży listę i licznik,
-                    // nie ruszając stanu akordeonu (zgodnie z Krokiem 2).
                     renderSubtaskListInMainModal(refreshedMainTask);
                  } else {
-                    // Fallback, gdyby coś poszło nie tak
                     await openTaskModal(mainTaskId);
                  }
-                 // === KONIEC MODYFIKACJI ===
-                 // Sprawdź, czy ukończenie tego subzadania powinno zakończyć zadanie główne
                  await checkAndCompleteMainTask(mainTaskId);
              } catch (error) {
                  console.error("Błąd zapisu stanu subzadania:", error);
                  showNotification("Wystąpił błąd podczas aktualizacji podzadania.", "Błąd");
-                 // Przywróć stan checkboxa w razie błędu
                  checkbox.checked = !checkbox.checked;
-                 // Można też spróbować odświeżyć stan z bazy danych
                  const { task: freshTask } = findTask(mainTaskId);
                  if(freshTask) renderSubtaskListInMainModal(freshTask);
              }
         }
 
-        // --- Handler usuwania subzadania (z głównego modala) ---
         async function handleSubtaskDelete(subtaskId, mainTaskId) {
              const { task: mainTask, project } = findTask(mainTaskId);
              if (!mainTask || !project) return;
@@ -16215,7 +16052,6 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
              const subtaskToDelete = (mainTask.subtasks || []).find(s => s.id === subtaskId);
              if (!subtaskToDelete) return;
 
-             // Sprawdzenie uprawnień: tylko twórca zadania, właściciel projektu lub przypisany do subzadania
              const canDelete = mainTask.createdBy === state.currentUser.uid ||
                                project.ownerId === state.currentUser.uid ||
                                (subtaskToDelete.assignees || []).includes(state.currentUser.uid);
@@ -16238,7 +16074,6 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                      try {
                          await updateDoc(projectDocRef, { tasks: updatedTasks });
                          renderSubtaskListInMainModal(updatedTask); // Odśwież listę
-                         // Sprawdź, czy usunięcie tego subzadania wpłynęło na status zadania głównego
                          await checkAndCompleteMainTask(mainTaskId);
                      } catch (error) {
                          console.error("Błąd usuwania subzadania:", error);
@@ -16248,87 +16083,49 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
              }, true);
         }
 
-        // --- Funkcja sprawdzająca i auto-kończąca zadanie główne ---
-        // --- Funkcja sprawdzająca i auto-kończąca zadanie główne ---
         async function checkAndCompleteMainTask(mainTaskId) {
-            // Pobierz NAJŚWIEŻSZĄ wersję zadania z lokalnego stanu
              const { task: mainTask, project } = findTask(mainTaskId);
-             // Dodatkowe zabezpieczenie
              if (!mainTask || !project) {
                  console.warn(`checkAndCompleteMainTask: Nie znaleziono zadania ${mainTaskId} po operacji na subzadaniu.`);
                  return;
              }
-             // Nie rób nic, jeśli zadanie główne jest już zakończone
              if (mainTask.status === 'done') return;
 
-             // Sprawdź, czy WSZYSTKIE subzadania są ukończone
              const allSubtasksDone = mainTask.subtasks && mainTask.subtasks.length > 0 && mainTask.subtasks.every(s => s.isCompleted);
 
-             // --- POCZĄTEK ZMIANY ---
-             // Auto-ukończ zadanie główne TYLKO jeśli jest typu 'single'
              if (allSubtasksDone && mainTask.type === 'single') {
-             // --- KONIEC ZMIANY ---
                   const oldStatus = mainTask.status;
                   let updatedTask = { ...mainTask };
 
-                  // Auto-ukończ zadanie główne
                   updatedTask.status = 'done';
 
-                  // W zadaniu 'single' nie musimy modyfikować completedBy
-
-                  // Dodaj wpis do logu aktywności zadania głównego
                   updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES.done);
 
                   try {
-                        // Zapisz zmiany w zadaniu głównym, używając handleTaskCompletion dla logiki cykliczności
-                        // Przekazujemy 'subtask_auto' jako źródło, aby poprawnie obsługiwać cykliczność
                         await handleTaskCompletion(updatedTask, project, 'subtask_auto');
                         showConfetti();
 
-                        // Odśwież główny modal
                         setTimeout(() => openTaskModal(mainTaskId), 100);
 
                   } catch (error) {
                        console.error("Błąd podczas automatycznego kończenia zadania głównego (single):", error);
                   }
              }
-             // Jeśli zadanie jest 'multi', to ukończenie podzadań NIE wpływa na jego status 'done'.
-             // Status 'done' dla 'multi' jest ustawiany tylko przez kliknięcie przycisków
-             // "Oznacz jako wykonane" przez wszystkich przypisanych.
         }
 
-        // =========================================================
-        // === KONIEC NOWEJ LOGIKI SUBZADAŃ (Wersja 2.1) ===
-        // =========================================================
-    // === NOWE FUNKCJE DLA SZABLONÓW ===
         async function loadAndRenderTemplates() {
-            // Sprawdza, czy użytkownik jest zalogowany
             if (!state.currentUser) return;
-            // Wyświetla "Ładowanie..." w liście szablonów
             templatesModal.list.innerHTML = '<li>Ładowanie...</li>';
 
             try {
-                // Tworzy zapytanie do Firestore:
-                // - szuka w kolekcji 'templatesRef' (czyli 'projectTemplates')
-                // - dokumentów, gdzie pole 'ownerId' jest równe ID zalogowanego użytkownika
-                // - sortuje wyniki alfabetycznie po polu 'name'
                 const q = query(templatesRef, where("ownerId", "==", state.currentUser.uid), orderBy("name"));
-                // Wykonuje zapytanie i czeka na wyniki
                 const snapshot = await getDocs(q);
-                // Przetwarza wyniki: dla każdego dokumentu tworzy obiekt { id: ..., ...dane }
-                // i zapisuje całą tablicę tych obiektów w stanie aplikacji
                 state.projectTemplates = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                // Wywołuje funkcję, która wygeneruje HTML dla listy szablonów
                 renderTemplatesList();
 
-                // Sprawdza, czy jakiś szablon był wcześniej wybrany (state.selectedTemplateId)
-                // i czy ten szablon nadal istnieje na pobranej liście
                 if (state.selectedTemplateId && state.projectTemplates.some(t => t.id === state.selectedTemplateId)) {
-                    // Jeśli tak, wyświetla szczegóły tego szablonu
                     renderTemplateDetails(state.selectedTemplateId);
                 } else {
-                    // Jeśli nie (np. żaden nie był wybrany lub został usunięty),
-                    // resetuje widok szczegółów do stanu początkowego
                     state.selectedTemplateId = null;
                     templatesModal.detailsTitle.textContent = 'Wybierz szablon';
                     templatesModal.detailsContent.innerHTML = '<p style="color: var(--text-secondary); text-align: center; margin-top: 40px;">Wybierz szablon z listy po lewej, aby zobaczyć szczegóły lub utworzyć nowy.</p>';
@@ -16337,7 +16134,6 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                     templatesModal.createProjectBtn.disabled = true;
                 }
             } catch (error) {
-                // W razie błędu podczas pobierania danych
                 console.error("Błąd ładowania szablonów:", error);
                 templatesModal.list.innerHTML = '<li>Błąd ładowania szablonów.</li>';
                 showNotification("Nie udało się wczytać listy szablonów.", "Błąd");
@@ -16345,59 +16141,44 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
         }
 
        function renderTemplatesList() {
-            // Sprawdza, czy są jakieś szablony do wyświetlenia
             if (state.projectTemplates.length === 0) {
                 templatesModal.list.innerHTML = '<li><em style="color: var(--text-secondary);">Brak zapisanych szablonów.</em></li>';
                 return;
             }
-            // Generuje HTML dla każdego szablonu w tablicy state.projectTemplates
             templatesModal.list.innerHTML = state.projectTemplates.map(template => `
                 <li class="nav-item">
                     <a href="#" data-template-id="${template.id}" class="${template.id === state.selectedTemplateId ? 'active' : ''}">
                          <span>${template.name}</span> 
                     </a>
                 </li>
-            `).join(''); // Łączy wszystkie wygenerowane <li> w jeden string HTML
+            `).join(''); 
         }
 
         function renderTemplateDetails(templateId) {
-            // Znajduje w stanie aplikacji obiekt szablonu o podanym ID
             const template = state.projectTemplates.find(t => t.id === templateId);
 
-            // Jeśli szablon o danym ID nie został znaleziony (np. usunięto go w międzyczasie)
             if (!template) {
-                 // Resetuje stan: usuwa ID wybranego szablonu
                  state.selectedTemplateId = null;
-                 // Odświeża listę szablonów (usunie podświetlenie)
                  renderTemplatesList();
-                 // Resetuje widok szczegółów do stanu początkowego z informacją o błędzie
                  templatesModal.detailsTitle.textContent = 'Wybierz szablon';
                  templatesModal.detailsContent.innerHTML = '<p style="color: var(--text-secondary); text-align: center; margin-top: 40px;">Wybrany szablon nie istnieje.</p>';
                  templatesModal.editBtn.style.display = 'none';
                  templatesModal.deleteBtn.style.display = 'none';
                  templatesModal.createProjectBtn.disabled = true;
-                 return; // Kończy działanie funkcji
+                 return; 
             }
 
-            // Jeśli szablon znaleziono:
-            // Zapisuje jego ID jako aktualnie wybrany
             state.selectedTemplateId = templateId;
-            // Odświeża listę szablonów, aby podświetlić nowo wybrany element
             renderTemplatesList();
 
-            // Ustawia tytuł w prawej kolumnie na nazwę szablonu
             templatesModal.detailsTitle.textContent = template.name;
-            // Zaczyna budować HTML dla zawartości prawej kolumny
             let detailsHTML = '';
-            // Dodaje sekcję opisu (jeśli istnieje)
             if (template.description) {
                 detailsHTML += `<h4>Opis</h4><p style="white-space: pre-wrap; margin-bottom: 20px;">${template.description}</p>`;
             } else {
                  detailsHTML += `<p style="color: var(--text-secondary); margin-bottom: 20px;"><em>Brak opisu.</em></p>`;
             }
-            // Dodaje nagłówek sekcji zadań z liczbą zadań
             detailsHTML += `<h4>Zadania (${(template.tasks || []).length})</h4>`;
-            // Dodaje listę zadań (jeśli istnieją)
             if (template.tasks && template.tasks.length > 0) {
                 detailsHTML += `<ul style="list-style: disc; padding-left: 20px; max-height: 300px; overflow-y: auto;">`;
                 template.tasks.forEach(taskTitle => {
@@ -16408,85 +16189,65 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                 detailsHTML += `<p style="color: var(--text-secondary);"><em>Brak zadań w szablonie.</em></p>`;
             }
 
-            // Wstawia wygenerowany HTML do prawej kolumny
             templatesModal.detailsContent.innerHTML = detailsHTML;
-            // Pokazuje przyciski "Edytuj" i "Usuń"
             templatesModal.editBtn.style.display = 'block';
             templatesModal.deleteBtn.style.display = 'block';
-            // Odblokowuje przycisk "Stwórz projekt z szablonu"
             templatesModal.createProjectBtn.disabled = false;
         }
    
-       // NOWA LOGIKA: Obsługa wysuwanego menu "Zasoby i Narzędzia"
-        const resourcesMenu = document.getElementById('resources-menu');
+       const resourcesMenu = document.getElementById('resources-menu');
         const openTemplatesBtnMenu = document.getElementById('open-templates-btn-menu');
         const openArchiveBtnMenu = document.getElementById('open-archive-btn-menu');
 
-        // 1. Listener dla głównego przycisku "Zasoby i Narzędzia"
         resourcesBtn.addEventListener('click', () => {
             resourcesBtn.classList.toggle('open');
             resourcesMenu.classList.toggle('open');
         });
 
-        // 2. Listener dla przycisku "Szablony Projektów" (wewnątrz menu)
         openTemplatesBtnMenu.addEventListener('click', async () => {
-            // Otwórz modal szablonów (stara logika)
             openModal(templatesModal.overlay);
             await loadAndRenderTemplates();
-            // Zamknij menu
             resourcesBtn.classList.remove('open');
             resourcesMenu.classList.remove('open');
         });
 
-        // 3. Listener dla przycisku "Archiwum Projektów" (wewnątrz menu)
         openArchiveBtnMenu.addEventListener('click', () => {
-            // Ustaw nowy stan widoku
             state.currentProjectId = null;
-            state.ui.previousView = state.ui.currentView; // Zapamiętaj, skąd przyszliśmy
-            state.ui.currentView = 'archive'; // Ustaw nowy widok
+            state.ui.previousView = state.ui.currentView; 
+            state.ui.currentView = 'archive'; 
             state.ui.isCalendarView = false;
             saveUiState();
-            render(); // Przerenderuj aplikację
+            render(); 
             
-            // Zamknij menu
             resourcesBtn.classList.remove('open');
             resourcesMenu.classList.remove('open');
 
-            // Jeśli jesteśmy na mobilce, zamknij sidebar
             if (window.innerWidth <= 768) {
                 sidebar.classList.remove('open');
                 sidebarOverlay.classList.remove('visible');
             }
         });
-       // === NOWY LISTENER: Klikanie na liście szablonów (delegacja zdarzeń) ===
-        templatesModal.list.addEventListener('click', (e) => {
-             e.preventDefault(); // Zapobiegaj domyślnej akcji linku (przewinięciu)
-             // Szuka najbliższego rodzica klikniętego elementu, który jest linkiem <a> i ma atrybut data-template-id
+       templatesModal.list.addEventListener('click', (e) => {
+             e.preventDefault(); 
              const link = e.target.closest('a[data-template-id]');
-             // Jeśli taki link został znaleziony (kliknięto na link szablonu lub wewnątrz niego)
              if (link) {
-                 // Pobierz wartość atrybutu data-template-id (czyli ID klikniętego szablonu)
                  const templateId = link.dataset.templateId;
-                 // Wywołaj funkcję, która wyświetli szczegóły tego szablonu w prawej kolumnie
                  renderTemplateDetails(templateId);
              }
         });
 
         templatesModal.addNewBtn.addEventListener('click', () => {
-             // Otwórz modal edycji w trybie tworzenia nowego
              templateEditModal.form.reset();
              templateEditModal.title.textContent = 'Nowy Szablon Projektu';
-             templateEditModal.idInput.value = ''; // Wyczyść ID
-             templateEditModal.tasksList.innerHTML = '<li class="template-task-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak zadań.</li>'; // Pusta lista zadań
+             templateEditModal.idInput.value = ''; 
+             templateEditModal.tasksList.innerHTML = '<li class="template-task-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak zadań.</li>'; 
              openModal(templateEditModal.overlay);
-             // Nie zamykaj głównego modala szablonów, może działać w tle
         });
 
         templateEditModal.addTaskBtn.addEventListener('click', () => {
-            // Logika dodawania pola na nowe zadanie do listy template-edit-tasks-list
             const taskTitle = prompt("Wpisz tytuł nowego zadania:");
             if (taskTitle && taskTitle.trim()) {
-                 const taskId = `temp_task_${Date.now()}`; // Tymczasowe ID dla edycji
+                 const taskId = `temp_task_${Date.now()}`; 
                  const li = document.createElement('li');
                  li.dataset.taskId = taskId;
                  li.innerHTML = `
@@ -16494,7 +16255,6 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                      <button type="button" class="delete-template-task-btn" style="background: none; border: none; color: var(--danger-primary); cursor: pointer; float: right;">&times;</button>
                  `;
                  
-                 // Usuń komunikat "Brak zadań", jeśli istnieje
                  const emptyMsg = templateEditModal.tasksList.querySelector('.template-task-item-empty');
                  if (emptyMsg) {
                      emptyMsg.remove();
@@ -16504,11 +16264,9 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
             }
         });
 
-        // Listener do usuwania zadań z listy w modalu edycji (delegacja)
         templateEditModal.tasksList.addEventListener('click', (e) => {
             if (e.target.classList.contains('delete-template-task-btn')) {
                 e.target.closest('li').remove();
-                // Jeśli lista jest pusta, dodaj komunikat
                  if (templateEditModal.tasksList.children.length === 0) {
                      templateEditModal.tasksList.innerHTML = '<li class="template-task-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak zadań.</li>';
                  }
@@ -16516,10 +16274,9 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
         });
     
 
-   // === NOWY LISTENER: Zapis szablonu ===
-        templateEditModal.form.addEventListener('submit', async (e) => {
+   templateEditModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const templateId = templateEditModal.idInput.value; // ID (jeśli edycja) lub puste (nowy)
+            const templateId = templateEditModal.idInput.value; 
             const name = templateEditModal.nameInput.value.trim();
             const description = templateEditModal.descriptionTextarea.value.trim();
 
@@ -16528,16 +16285,15 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                 return;
             }
 
-            // Zbierz zadania z pól input
             const tasks = Array.from(templateEditModal.tasksList.querySelectorAll('li:not(.template-task-item-empty)'))
                 .map(li => li.querySelector('.template-task-input').value.trim())
-                .filter(Boolean); // Usuń puste
+                .filter(Boolean); 
 
             const templateData = {
                 name: name,
                 description: description,
                 tasks: tasks,
-                ownerId: state.currentUser.uid // Zapisz właściciela
+                ownerId: state.currentUser.uid 
             };
 
             templateEditModal.saveBtn.disabled = true;
@@ -16545,19 +16301,16 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
 
             try {
                 if (templateId) {
-                    // Edycja istniejącego szablonu
                     const templateRef = doc(templatesRef, templateId);
                     await updateDoc(templateRef, templateData);
                     showNotification("Szablon został zaktualizowany.", "Sukces");
-                    state.selectedTemplateId = templateId; // Upewnij się, że edytowany szablon pozostaje wybrany
+                    state.selectedTemplateId = templateId; 
                 } else {
-                    // Dodawanie nowego szablonu
                     const docRef = await addDoc(templatesRef, templateData);
                     showNotification("Nowy szablon został zapisany.", "Sukces");
-                    state.selectedTemplateId = docRef.id; // Zaznacz nowo dodany szablon
+                    state.selectedTemplateId = docRef.id; 
                 }
                 closeModal(templateEditModal.overlay);
-                // Odśwież listę i widok szczegółów w głównym modalu szablonów
                 await loadAndRenderTemplates();
             } catch (error) {
                 console.error("Błąd zapisu szablonu:", error);
@@ -16569,23 +16322,20 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
         });
 
 
-    // === NOWY LISTENER: Edycja szablonu ===
-        templatesModal.editBtn.addEventListener('click', () => {
+    templatesModal.editBtn.addEventListener('click', () => {
             if (!state.selectedTemplateId) return;
             const template = state.projectTemplates.find(t => t.id === state.selectedTemplateId);
             if (!template) return;
 
-            // Wypełnij modal edycji danymi wybranego szablonu
             templateEditModal.form.reset();
             templateEditModal.title.textContent = 'Edytuj Szablon Projektu';
             templateEditModal.idInput.value = template.id;
             templateEditModal.nameInput.value = template.name;
             templateEditModal.descriptionTextarea.value = template.description || '';
 
-            // Wypełnij listę zadań
             if (template.tasks && template.tasks.length > 0) {
                  templateEditModal.tasksList.innerHTML = template.tasks.map(taskTitle => {
-                     const taskId = `temp_task_${Date.now()}_${Math.random()}`; // Tymczasowe ID
+                     const taskId = `temp_task_${Date.now()}_${Math.random()}`; 
                      return `<li data-task-id="${taskId}">
                                 <input type="text" value="${taskTitle}" class="template-task-input" style="width: calc(100% - 30px); border: none; background: transparent; padding: 4px; font-size: 14px;">
                                 <button type="button" class="delete-template-task-btn" style="background: none; border: none; color: var(--danger-primary); cursor: pointer; float: right;">&times;</button>
@@ -16598,7 +16348,6 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
             openModal(templateEditModal.overlay);
         });
 
-        // === NOWY LISTENER: Usuwanie szablonu ===
         templatesModal.deleteBtn.addEventListener('click', () => {
             if (!state.selectedTemplateId) return;
             const template = state.projectTemplates.find(t => t.id === state.selectedTemplateId);
@@ -16613,110 +16362,77 @@ settingsModal.openPasswordBtn.addEventListener('click', () => {
                             const templateRef = doc(templatesRef, template.id);
                             await deleteDoc(templateRef);
                             showNotification("Szablon został usunięty.", "Sukces");
-                            state.selectedTemplateId = null; // Zresetuj wybór
-                            await loadAndRenderTemplates(); // Odśwież widok
+                            state.selectedTemplateId = null; 
+                            await loadAndRenderTemplates(); 
                         } catch (error) {
                             console.error("Błąd usuwania szablonu:", error);
                             showNotification("Wystąpił błąd podczas usuwania szablonu.", "Błąd");
                         }
                     }
                 },
-                true // Użyj czerwonego przycisku
+                true 
             );
         });
         
-        // === NOWY LISTENER: Tworzenie projektu z szablonu ===
         templatesModal.createProjectBtn.addEventListener('click', () => {
             if (!state.selectedTemplateId) return;
             const template = state.projectTemplates.find(t => t.id === state.selectedTemplateId);
             if (!template) return;
 
-            // Zamknij modal szablonów
             closeModal(templatesModal.overlay);
 
-            // Otwórz modal tworzenia nowego projektu
             newProjectModal.form.reset();
-            // Wypełnij opis z szablonu
             newProjectModal.descriptionTextarea.value = template.description || '';
-            // Wypełnij domyślnych członków (tylko bieżący użytkownik)
             buildTeamMembersAccordion(newProjectModal.membersContainer, [state.currentUser.uid]);
 
-            // Zapisz zadania z szablonu w atrybucie data formularza, aby użyć ich po zapisie projektu
             newProjectModal.form.dataset.templateTasks = JSON.stringify(template.tasks || []);
-            // Zapisz też nazwę szablonu, aby użyć jej jako domyślnej nazwy projektu
             newProjectModal.nameInput.value = template.name;
 
             openModal(newProjectModal.overlay);
         });
-       // =========================================================
-// === NOWA LOGIKA DLA ASYSTENTA AI (WYWOŁUJĄCA GEMINI) ===
-// =========================================================
-
-// --- Listener otwierający modal AI ---
 aiHelpModal.openBtn.addEventListener('click', () => {
     openModal(aiHelpModal.overlay);
     aiHelpModal.input.focus();
 });
 
-// --- Listener dla wysyłania pytania ---
 aiHelpModal.form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const question = aiHelpModal.input.value.trim();
     if (!question) return;
 
-    // Zablokuj formularz i wyczyść input
     aiHelpModal.input.value = '';
     aiHelpModal.input.disabled = true;
     aiHelpModal.sendBtn.disabled = true;
 
-    // 1. Dodaj dymek użytkownika
     addAiChatMessage(question, 'user');
 
-    // 2. Dodaj dymek ładowania
     const loadingMessageId = `msg_${Date.now()}`;
     addAiChatMessage("Myślę...", 'loading', loadingMessageId);
 
     try {
-        // === TO JEST NOWA LOGIKA ===
-
-        // 3. Przygotuj wywołanie funkcji "askGemini"
         const askGemini = httpsCallable(functions, 'askGemini');
 
-        // 4. Wyślij pytanie do funkcji i czekaj na odpowiedź
-        //    (Firebase automatycznie zajmie się uwierzytelnianiem)
         const result = await askGemini({ question: question });
 
-        // 5. Pobierz tekst odpowiedzi z obiektu result
         const response = result.data.response;
 
-        // === KONIEC NOWEJ LOGIKI ===
-
-        // 6. Usuń dymek ładowania
         const loadingBubble = document.getElementById(loadingMessageId);
         if (loadingBubble) loadingBubble.remove();
 
-        // 7. Dodaj odpowiedź bota
         addAiChatMessage(response, 'bot');
 
     } catch (error) {
         console.error("Błąd wywołania Cloud Function 'askGemini':", error);
-        // 6. Usuń dymek ładowania
         const loadingBubble = document.getElementById(loadingMessageId);
         if (loadingBubble) loadingBubble.remove();
-        // 7. Pokaż błąd użytkownikowi
         addAiChatMessage(`Przepraszam, wystąpił błąd serwera: ${error.message}. Spróbuj ponownie.`, 'bot');
     } finally {
-        // 8. Odblokuj formularz
         aiHelpModal.input.disabled = false;
         aiHelpModal.sendBtn.disabled = false;
         aiHelpModal.input.focus();
     }
 });
 
-/**
- * Dodaje nową wiadomość do okna czatu AI
- * (Ta funkcja jest taka sama jak poprzednio, ale musi tu być)
- */
 function addAiChatMessage(text, type, id = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `ai-chat-message ${type}`;
@@ -16726,8 +16442,6 @@ function addAiChatMessage(text, type, id = null) {
     if (type === 'loading') {
         bubbleContent = `<div class="ai-spinner"></div> <span>${text}</span>`;
     } else {
-        // Zamieniamy znaki nowej linii (\n) na tagi <br>
-        // aby odpowiedzi Gemini formatowały się poprawnie
         bubbleContent = text.replace(/\n/g, '<br>');
     }
 
@@ -16735,17 +16449,8 @@ function addAiChatMessage(text, type, id = null) {
 
     aiHelpModal.container.appendChild(messageDiv);
 
-    // Automatycznie przewiń na dół
     aiHelpModal.container.scrollTop = aiHelpModal.container.scrollHeight;
 }
-
-// =========================================================
-// === KONIEC LOGIKI ASYSTENTA AI ===
-// =========================================================
-
-    // === POCZĄTEK ZMIANY: Nowe listenery dla Grup ===
-
-        // === POCZĄTEK ZMIANY: Nowe listenery dla Grup ===
 
         const createFirstGroupModal = {
             overlay: document.getElementById('create-first-group-modal'),
@@ -16754,14 +16459,12 @@ function addAiChatMessage(text, type, id = null) {
             logoutBtn: document.getElementById('logout-from-first-group-modal')
         };
         
-        // --- NOWA REFERENCJA ---
         const createNewGroupModal = {
             overlay: document.getElementById('create-new-group-modal'),
             form: document.getElementById('create-new-group-form'),
             input: document.getElementById('new-group-name')
         };
-        // --- KONIEC NOWEJ REFERENCJI ---
-
+        
         const groupSwitcher = {
             toggle: document.getElementById('group-switcher-toggle'),
             menu: document.getElementById('group-switcher-menu'),
@@ -16771,7 +16474,6 @@ function addAiChatMessage(text, type, id = null) {
             createBtn: document.getElementById('create-group-btn')
         };
 
-        // --- Listener dla modala "Stwórz Pierwszą Grupę" ---
         createFirstGroupModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const groupName = createFirstGroupModal.input.value.trim();
@@ -16790,20 +16492,16 @@ function addAiChatMessage(text, type, id = null) {
             try {
                 const batch = writeBatch(db);
                 
-                // 1. Stwórz nowy dokument Grupy
-                const newGroupRef = doc(groupsRef); // Firestore sam wygeneruje ID
+                const newGroupRef = doc(groupsRef); 
                 const newGroupId = newGroupRef.id;
                 batch.set(newGroupRef, {
                     name: groupName,
                     ownerId: user.uid,
-                    memberIds: [user.uid], // Właściciel jest pierwszym członkiem
+                    memberIds: [user.uid], 
                     subgroups: []
                 });
 
-                // 2. Zaktualizuj dokument Użytkownika
                 const userRef = doc(usersRef, user.uid);
-                // Używamy `set` z `merge: true` zamiast `update`, bo dokument może być tworzony po raz pierwszy
-                // (chociaż logika w onAuthStateChanged powinna już go utworzyć - to jest bezpieczniejsze)
                 batch.set(userRef, {
                     groupIds: [newGroupId],
                     groupInfo: {
@@ -16814,9 +16512,8 @@ function addAiChatMessage(text, type, id = null) {
                         }
                     },
                     lastActiveGroupId: newGroupId
-                }, { merge: true }); // Użyj merge, aby nie nadpisać pól `name`, `email` itd.
+                }, { merge: true }); 
                 
-                // 3. Stwórz skrzynkę dla tej grupy
                 const inboxProject = {
                     name: "Skrzynka zadań",
                     ownerId: user.uid,
@@ -16824,19 +16521,16 @@ function addAiChatMessage(text, type, id = null) {
                     tasks: [],
                     isInbox: true,
                     createdAt: Date.now(),
-                    groupId: newGroupId // Powiąż skrzynkę z nową grupą
+                    groupId: newGroupId 
                 };
-                const newProjectRef = doc(projectsRef); // Użyj doc() dla batcha
+                const newProjectRef = doc(projectsRef); 
                 batch.set(newProjectRef, inboxProject);
 
-                // 4. Wykonaj operację
                 await batch.commit();
                 
                 console.log(`Stworzono pierwszą grupę: ${groupName} (${newGroupId}) dla użytkownika ${user.uid}`);
                 
-                // 5. Zamknij modal i przeładuj aplikację
                 closeModal(createFirstGroupModal.overlay);
-                // Wymuszamy odświeżenie strony. onAuthStateChanged teraz znajdzie grupę.
                 window.location.reload(); 
 
             } catch (error) {
@@ -16847,13 +16541,11 @@ function addAiChatMessage(text, type, id = null) {
             }
         });
         
-        // Listener wylogowania z modala "Stwórz Pierwszą Grupę"
         createFirstGroupModal.logoutBtn.addEventListener('click', (e) => {
             e.preventDefault();
             signOut(auth);
         });
 
-        // --- NOWY LISTENER: Listener dla modala "Stwórz KOLEJNĄ Grupę" ---
         createNewGroupModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const groupName = createNewGroupModal.input.value.trim();
@@ -16870,7 +16562,6 @@ function addAiChatMessage(text, type, id = null) {
             submitBtn.textContent = 'Tworzenie...';
 
             try {
-                // Walidacja: Sprawdź, czy grupa o tej nazwie już istnieje (globalnie)
                 const qCheck = query(groupsRef, where("name", "==", groupName));
                 const checkSnapshot = await getDocs(qCheck);
                 if (!checkSnapshot.empty) {
@@ -16879,7 +16570,6 @@ function addAiChatMessage(text, type, id = null) {
 
                 const batch = writeBatch(db);
 
-                // 1. Stwórz nowy dokument Grupy
                 const newGroupRef = doc(groupsRef);
                 const newGroupId = newGroupRef.id;
                 batch.set(newGroupRef, {
@@ -16889,19 +16579,17 @@ function addAiChatMessage(text, type, id = null) {
                     subgroups: []
                 });
 
-                // 2. Zaktualizuj dokument Użytkownika (DODAJ nową grupę)
                 const userRef = doc(usersRef, user.uid);
                 batch.update(userRef, {
-                    groupIds: arrayUnion(newGroupId), // <-- ZMIANA TUTAJ
-                    [`groupInfo.${newGroupId}`]: { // Używamy notacji kropkowej do aktualizacji mapy
+                    groupIds: arrayUnion(newGroupId), 
+                    [`groupInfo.${newGroupId}`]: { 
                         name: groupName,
                         role: "owner",
                         subgroup: null
                     },
-                    lastActiveGroupId: newGroupId // Automatycznie ustaw jako aktywną
+                    lastActiveGroupId: newGroupId 
                 });
 
-                // 3. Stwórz Skrzynkę Zadań (Inbox) dla nowej grupy
                 const inboxProject = {
                     name: "Skrzynka zadań",
                     ownerId: user.uid,
@@ -16914,18 +16602,15 @@ function addAiChatMessage(text, type, id = null) {
                 const inboxRef = doc(collection(db, `artifacts/${appId}/public/data/projects`));
                 batch.set(inboxRef, inboxProject);
 
-                // 4. Wykonaj operację
                 await batch.commit();
                 
                 console.log(`Stworzono nową grupę: ${groupName} (${newGroupId})`);
 
-                // 5. Zaktualizuj stan lokalny (ważne!)
                 state.currentUser.groupIds.push(newGroupId);
                 state.currentUser.groupInfo[newGroupId] = { name: groupName, role: "owner", subgroup: null };
 
-                // 6. Zamknij modal i płynnie przełącz na nową grupę
                 closeModal(createNewGroupModal.overlay);
-                handleGroupSwitch(newGroupId); // Płynne przełączenie
+                handleGroupSwitch(newGroupId); 
 
             } catch (error) {
                 console.error("Błąd podczas tworzenia nowej grupy:", error);
@@ -16933,53 +16618,46 @@ function addAiChatMessage(text, type, id = null) {
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Stwórz grupę';
-                createNewGroupModal.form.reset(); // Wyczyść pole po operacji
+                createNewGroupModal.form.reset(); 
             }
         });
-        // --- KONIEC NOWEGO LISTENERA ---
-
-
-        // --- Listenery dla przełącznika grup (Group Switcher) ---
+        
         groupSwitcher.toggle.addEventListener('click', (e) => {
             e.stopPropagation();
             groupSwitcher.toggle.classList.toggle('open');
             groupSwitcher.menu.classList.toggle('open');
         });
         
-        
-       // Listener do obsługi kliknięć wewnątrz menu
-        groupSwitcher.menu.addEventListener('click', (e) => {
+       groupSwitcher.menu.addEventListener('click', (e) => {
             const groupItem = e.target.closest('.group-menu-item');
             const createBtn = e.target.closest('#create-group-btn');
             const manageBtn = e.target.closest('#manage-groups-btn');
-            
-            // 1. Kliknięto na przełączenie grupy
+            const joinBtn = e.target.closest('#join-group-btn'); // <-- DODANA LINIA
+
             if (groupItem) {
                 const newGroupId = groupItem.dataset.groupId;
-                handleGroupSwitch(newGroupId); // Wywołaj główną funkcję przełączającą
+                handleGroupSwitch(newGroupId); 
             }
-            // 2. Kliknięto "Stwórz grupę"
             else if (createBtn) {
-                // === ZMIANA: Otwieramy nowy modal ===
                 openModal(createNewGroupModal.overlay);
                 createNewGroupModal.input.focus();
             }
-            // 3. Kliknięto "Zarządzaj grupą"
+            // === NOWA LINIA: Obsługa przycisku "Dołącz do grupy" ===
+            else if (joinBtn) {
+                joinGroupModal.form.reset();
+                joinGroupModal.error.textContent = '';
+                openModal(joinGroupModal.overlay);
+                joinGroupModal.input.focus();
+            }
+            // === KONIEC NOWEJ LINII ===
             else if (manageBtn) {
-                 // === POCZĄTEK ZMIANY: Bezpośrednie wywołanie nowej funkcji ===
                  openManageGroupModal();
-                 // === KONIEC ZMIANY ===
             }
             
-            // Zawsze zamykaj menu po kliknięciu
             groupSwitcher.toggle.classList.remove('open');
             groupSwitcher.menu.classList.remove('open');
         });
         
-        // === KONIEC ZMIANY ===
-        // === POCZĄTEK ZMIANY: Listenery dla nowych modali (Dołączanie i Poczekalnia) ===
-        
-        // Referencje do nowych modali
         const joinGroupModal = {
             overlay: document.getElementById('join-group-modal'),
             form: document.getElementById('join-group-form'),
@@ -16993,15 +16671,6 @@ function addAiChatMessage(text, type, id = null) {
             logoutBtn: document.getElementById('logout-from-waiting-room')
         };
         
-        // Listener otwierający modal dołączania do grupy (dla zalogowanych)
-        document.getElementById('join-group-btn').addEventListener('click', () => {
-            joinGroupModal.form.reset();
-            joinGroupModal.error.textContent = '';
-            openModal(joinGroupModal.overlay);
-            joinGroupModal.input.focus();
-        });
-
-        // Listener wysyłający prośbę o dołączenie (dla zalogowanych)
         joinGroupModal.form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const groupName = joinGroupModal.input.value.trim();
@@ -17012,11 +16681,9 @@ function addAiChatMessage(text, type, id = null) {
             joinGroupModal.submitBtn.textContent = 'Wysyłanie...';
             joinGroupModal.error.textContent = '';
 
-            // Nowa kolekcja dla próśb
             const requestsRef = collection(db, `artifacts/${appId}/public/data/groupRequests`);
 
             try {
-                // 1. Sprawdź, czy grupa istnieje
                 const q = query(groupsRef, where("name", "==", groupName));
                 const querySnapshot = await getDocs(q);
                 if (querySnapshot.empty) {
@@ -17026,12 +16693,10 @@ function addAiChatMessage(text, type, id = null) {
                 const targetGroupId = groupDoc.id;
                 const targetGroupName = groupDoc.data().name;
 
-                // 2. Sprawdź, czy użytkownik już jest członkiem
                 if (user.groupIds.includes(targetGroupId)) {
                     throw new Error("Jesteś już członkiem tej grupy.");
                 }
 
-                // 3. Sprawdź, czy prośba już nie została wysłana
                 const qCheckRequest = query(requestsRef, 
                     where("groupId", "==", targetGroupId), 
                     where("userId", "==", user.uid),
@@ -17042,7 +16707,6 @@ function addAiChatMessage(text, type, id = null) {
                     throw new Error("Już wysłałeś prośbę o dołączenie do tej grupy.");
                 }
 
-                // 4. Stwórz dokument Prośby o Dołączenie
                 await addDoc(requestsRef, {
                     groupId: targetGroupId,
                     groupName: targetGroupName,
@@ -17065,14 +16729,12 @@ function addAiChatMessage(text, type, id = null) {
             }
         });
 
-        // Listener wylogowania z Poczekalni
         waitingRoom.logoutBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            unsubscribeAllListeners(); // Zatrzymaj słuchanie statusu
+            unsubscribeAllListeners(); 
             signOut(auth);
         });
 
-        // Listener dla zakładek w modalu Zarządzania Grupą
         manageGroupModal.overlay.addEventListener('click', (e) => {
             const tabBtn = e.target.closest('.modal-tab-btn');
             if (!tabBtn) return;
@@ -17080,17 +16742,13 @@ function addAiChatMessage(text, type, id = null) {
             const tabContainer = tabBtn.closest('.modal-tabs');
             const contentContainer = tabBtn.closest('.modal').querySelector('.form-modal-content');
             
-            // Deaktywuj wszystkie
             tabContainer.querySelectorAll('.modal-tab-btn').forEach(btn => btn.classList.remove('active'));
             contentContainer.querySelectorAll('.modal-tab-content').forEach(content => content.classList.remove('active'));
             
-            // Aktywuj kliknięty
             tabBtn.classList.add('active');
             const tabId = tabBtn.dataset.tab;
             contentContainer.querySelector(`#${tabId}`).classList.add('active');
-        });
-        
-        // === KONIEC ZMIANY ===  
+        }); 
         
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
@@ -17801,6 +17459,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
