@@ -16621,28 +16621,8 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 isSubscribing = true;
             }
 
-            // Natychmiastowa wizualna informacja zwrotna (animacja "glow")
-            if (isSubscribing) {
-                bellElement.classList.add('subscribed');
-                
-                // === DODANE LINIE ===
-                // Dodaj klasę animacji i usuń ją po 700ms (0.6s animacji + 0.1s buforu)
-                bellElement.classList.add('animate-ring');
-                setTimeout(() => {
-                    // Sprawdź, czy element nadal istnieje, zanim usuniesz klasę
-                    if (bellElement) {
-                         bellElement.classList.remove('animate-ring');
-                    }
-                }, 700);
-                // === KONIEC DODANYCH LINII ===
-
-            } else {
-                bellElement.classList.remove('subscribed');
-                // === DODANA LINIA ===
-                // Upewnij się, że klasa animacji jest usuwana przy wypisywaniu
-                bellElement.classList.remove('animate-ring');
-                // === KONIEC DODANEJ LINII ===
-            }
+            // === USUNIĘTO: Natychmiastowa wizualna informacja zwrotna ===
+            // (onSnapshot zajmie się zmianą koloru)
 
             try {
                 // Zaktualizuj zadanie w bazie danych
@@ -16655,19 +16635,39 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                     : doc(completedProjectsRef, project.id);
                 
                 await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+                // === NOWA LOGIKA DODANA PO AWAIT ===
+                if (isSubscribing) {
+                    // Czekamy krótki moment (np. 100ms), aby dać czas onSnapshot
+                    // na przerysowanie interfejsu (render()).
+                    setTimeout(() => {
+                        // Znajdź w DOM dzwonek, który został właśnie przerysowany
+                        const newBellElement = document.querySelector(`.task-subscription-bell[data-task-id="${taskId}"]`);
+                        
+                        if (newBellElement) {
+                            // Dodaj klasę animacji do NOWEGO elementu
+                            newBellElement.classList.add('animate-ring');
+                            
+                            // Ustaw usunięcie klasy animacji po jej zakończeniu
+                            setTimeout(() => {
+                                if (newBellElement) {
+                                     newBellElement.classList.remove('animate-ring');
+                                }
+                            }, 700); // Czas trwania animacji + bufor
+                        }
+                    }, 100); // Bufor na re-render
+                }
+                // === KONIEC NOWEJ LOGIKI ===
                 
             } catch (error) {
                 console.error("Błąd podczas aktualizacji subskrypcji zadania:", error);
                 showNotification("Błąd zapisu subskrypcji.", "Błąd");
-                // Cofnij zmianę wizualną w razie błędu
-                bellElement.classList.toggle('subscribed', !isSubscribing);
-                // === DODANA LINIA (W BLOKU CATCH) ===
-                bellElement.classList.remove('animate-ring');
-                // === KONIEC DODANEJ LINII ===
+                // Błąd: Musimy odświeżyć widok, aby cofnąć zmianę, jeśli onSnapshot nie zadziała
+                render(); 
             }
             
-            // Uwaga: Nie wywołujemy render(), ponieważ onSnapshot sam zaktualizuje widok.
-            // Natychmiastowa zmiana klasy (powyżej) zapewnia płynne odczucie.
+            // Już nie potrzebujemy lokalnej manipulacji klasami,
+            // onSnapshot zajmie się zmianą koloru, a logika powyżej animacją.
         }
        /**
          * NOWA FUNKCJA
@@ -18309,6 +18309,7 @@ function addAiChatMessage(text, type, id = null) {
         </svg>
 </body>
 </html>
+
 
 
 
