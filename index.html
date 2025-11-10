@@ -6399,53 +6399,6 @@ let state = {
             ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
         }
 
-        /**
-         * Oblicza obciążenie godzinowe dla członków danego projektu.
-         * Oblicza tylko dla zadań w statusie 'todo' i 'inprogress' z estymacją w godzinach/punktach.
-         * Obciążenie jest dzielone równo między przypisane osoby.
-         * @param {object} project - Obiekt projektu.
-         * @returns {Array<object>} Lista { userId, hours, name }.
-         */
-        function calculateProjectWorkloadHours(project) {
-            const workloadHours = {}; // { userId: hours }
-            const members = project.members || [];
-
-            // 1. Inicjalizuj wszystkich członków projektem z 0 godzinami
-            members.forEach(userId => {
-                const user = findUser(userId);
-                workloadHours[userId] = {
-                    hours: 0,
-                    name: user ? (user.name || user.email) : 'Nieznany',
-                    userId: userId
-                };
-            });
-
-            // 2. Agreguj godziny z zadań
-            (project.tasks || []).map(migrateTask).forEach(task => {
-                const taskHours = parseFloat(task.estimation) || 0;
-                const assignees = task.assignees || [];
-                const numberOfAssignees = assignees.length;
-                
-                // Zliczaj tylko zadania aktywne z estymacją > 0
-                if (taskHours > 0 && ['todo', 'inprogress'].includes(task.status) && numberOfAssignees > 0) {
-                    const hoursPerUser = taskHours / numberOfAssignees;
-
-                    assignees.forEach(assigneeId => {
-                        // Sprawdź, czy użytkownik jest faktycznie członkiem projektu i jest w mapie
-                        if (workloadHours[assigneeId]) {
-                            workloadHours[assigneeId].hours += hoursPerUser;
-                        }
-                    });
-                }
-            });
-
-            // 3. Konwertuj na tablicę i sortuj malejąco
-            return Object.values(workloadHours)
-                .filter(w => w.hours > 0) // Usuń osoby z 0 godzinami
-                .sort((a, b) => b.hours - a.hours)
-                .map(w => ({ ...w, hours: parseFloat(w.hours.toFixed(2)) })); // Zaokrągl do 2 miejsc
-        }
-
         function getTeamOverdueCount() {
              const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
              // 1. Zbierz wszystkie zadania z MOICH projektów
@@ -7953,7 +7906,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
     }
 
         // --- ZMODYFIKOWANA FUNKCJA: Renderowanie wykresu obciążenia (Chart.js) ---
-        // --- ZMODYFIKOWANA FUNKCJA: Renderowanie wykresu obciążenia (Chart.js) ---
         function renderProjectWorkloadChart(project, container, placeholder) {
             placeholder.style.display = 'none'; // Ukryj placeholder
             container.innerHTML = ''; // Wyczyść poprzednią zawartość (np. stary canvas)
@@ -7968,110 +7920,57 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 return;
             }
 
+            const projectTasks = (project.tasks || []).map(migrateTask); // Pobierz zadania projektu
+
+            // Przygotuj dane dla wykresu
+            const labels = members.map(member => member.name || member.email); // Etykiety osi X (nazwy członków)
+            const todoData = members.map(member =>
+                projectTasks.filter(task => task.status === 'todo' && task.assignees.includes(member.id)).length
+            );
+            const inProgressData = members.map(member =>
+                projectTasks.filter(task => task.status === 'inprogress' && task.assignees.includes(member.id)).length
+            );
+
+            // Stwórz element canvas dla wykresu
+            const canvas = document.createElement('canvas');
+            container.appendChild(canvas);
+            const ctx = canvas.getContext('2d');
+
             // Zniszcz poprzednią instancję wykresu, jeśli istnieje
             if (workloadChartInstance) {
                 workloadChartInstance.destroy();
-                workloadChartInstance = null;
             }
-            
-            // --- KLUCZOWA ZMIANA: Pobranie trybu wyświetlania z obiektu projektu ---
-            const displayMode = project.workloadDisplayMode || 'tasks'; 
-            const estimationType = project.estimationType || 'none'; 
 
-            let chartData = null;
-            let chartOptions = {};
-            let chartType = 'bar';
-            
-            // --- LOGIKA: Obsługa trybów 'hours' i 'points' (Obciążenie estymacyjne) ---
-            if (displayMode === 'hours' || displayMode === 'points') {
-                const hoursData = calculateProjectWorkloadHours(project);
-                
-                if (hoursData.length === 0) {
-                    placeholder.textContent = `Brak aktywnych zadań z estymacją ${displayMode === 'hours' ? 'godzinową' : 'punktową'}.`;
-                    placeholder.style.display = 'block';
-                    return;
-                }
-                
-                const unit = displayMode === 'hours' ? 'h' : ' pkt';
-                const label = displayMode === 'hours' ? 'Obciążenie (godziny)' : 'Obciążenie (punkty)';
-
-                chartData = {
-                    labels: hoursData.map(d => d.name),
+            // Utwórz nową instancję wykresu Chart.js
+            workloadChartInstance = new Chart(ctx, {
+                type: 'bar', // Typ wykresu: słupkowy
+                data: {
+                    labels: labels, // Etykiety (członkowie)
                     datasets: [{
-                        label: label,
-                        data: hoursData.map(d => d.hours),
-                        backgroundColor: displayMode === 'hours' ? 'rgba(245, 158, 11, 0.7)' : 'rgba(79, 70, 229, 0.7)',
-                        borderColor: displayMode === 'hours' ? 'rgba(245, 158, 11, 1)' : 'rgba(79, 70, 229, 1)',
-                        borderWidth: 1
-                    }]
-                };
-                
-                chartOptions = {
-                    scales: {
-                        x: { stacked: false, grid: { display: false } },
-                        y: {
-                            stacked: false,
-                            beginAtZero: true,
-                            title: { display: true, text: displayMode === 'hours' ? 'Godziny' : 'Punkty' },
-                            ticks: { stepSize: 1 }
-                        }
-                    },
-                    plugins: {
-                        legend: { position: 'bottom' },
-                        tooltip: {
-                             callbacks: {
-                                 label: function(context) {
-                                     let label = context.dataset.label || '';
-                                     if (label) label += ': ';
-                                     if (context.parsed.y !== null) label += context.parsed.y + unit;
-                                     return label;
-                                 }
-                             }
-                        }
-                    }
-                };
-                
-            } else {
-                // Obciążenie zadaniami (dla 'tasks' i 'none')
-                const projectTasks = (project.tasks || []).map(migrateTask); 
-                const todoData = members.map(member =>
-                    projectTasks.filter(task => task.status === 'todo' && task.assignees.includes(member.id)).length
-                );
-                const inProgressData = members.map(member =>
-                    projectTasks.filter(task => task.status === 'inprogress' && task.assignees.includes(member.id)).length
-                );
-                
-                if (todoData.every(c => c === 0) && inProgressData.every(c => c === 0)) {
-                    placeholder.textContent = 'Brak aktywnych zadań do wyświetlenia.';
-                    placeholder.style.display = 'block';
-                    return;
-                }
-                
-                chartData = {
-                    labels: members.map(member => member.name || member.email),
-                    datasets: [{
-                        label: 'Do realizacji',
-                        data: todoData,
-                        backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                        label: 'Do realizacji', // Legenda dla zadań 'todo'
+                        data: todoData,        // Dane (liczba zadań 'todo')
+                        backgroundColor: 'rgba(239, 68, 68, 0.7)', // Kolor słupków 'todo' (czerwony z przezroczystością)
                         borderColor: 'rgba(239, 68, 68, 1)',
                         borderWidth: 1
                     }, {
-                        label: 'W trakcie',
-                        data: inProgressData,
-                        backgroundColor: 'rgba(79, 70, 229, 0.7)',
+                        label: 'W trakcie', // Legenda dla zadań 'inprogress'
+                        data: inProgressData, // Dane (liczba zadań 'inprogress')
+                        backgroundColor: 'rgba(79, 70, 229, 0.7)', // Kolor słupków 'inprogress' (fioletowy z przezroczystością)
                         borderColor: 'rgba(79, 70, 229, 1)',
                         borderWidth: 1
                     }]
-                };
-                
-                chartOptions = {
-                    scales: {
-                        x: { stacked: true, grid: { display: false } },
-                        y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } }
-                    },
-                     plugins: {
-                        legend: { position: 'bottom' },
-                        tooltip: { 
+                },
+                options: {
+                    maintainAspectRatio: false, // Wyłącz zachowanie proporcji, aby dopasować do kontenera
+                    responsive: true,          // Włącz responsywność
+                    plugins: {
+                        title: {
+                            display: false, // Wyłącz domyślny tytuł Chart.js
+                        },
+                        legend: {
+                            position: 'bottom', // Umieść legendę na dole
+                        },
+                        tooltip: { // Konfiguracja podpowiedzi po najechaniu
                              callbacks: {
                                  label: function(context) {
                                      let label = context.dataset.label || '';
@@ -8085,29 +7984,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                                  }
                              }
                         }
-                    }
-                };
-                
-            }
-            
-            // --- KONIEC NOWEJ LOGIKI ---
-
-            // Stwórz element canvas dla wykresu
-            const canvas = document.createElement('canvas');
-            container.appendChild(canvas);
-            const ctx = canvas.getContext('2d');
-
-            // Utwórz nową instancję wykresu Chart.js
-            workloadChartInstance = new Chart(ctx, {
-                type: chartType, 
-                data: chartData,
-                options: {
-                    maintainAspectRatio: false,
-                    responsive: true,
-                    ...chartOptions, 
-                    plugins: {
-                        title: { display: false },
-                        ...chartOptions.plugins 
+                    },
+                    scales: {
+                        x: {
+                            stacked: true, // Włącz skumulowanie słupków na osi X
+                            grid: {
+                                display: false // Ukryj siatkę pionową
+                            }
+                        },
+                        y: {
+                            stacked: true, // Włącz skumulowanie słupków na osi Y
+                            beginAtZero: true, // Zacznij oś Y od zera
+                            ticks: {
+                                stepSize: 1 // Krok osi Y co 1 (liczba zadań)
+                            }
+                        }
                     }
                 }
             });
@@ -8498,12 +8389,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 showNotification("Nie można załadować szczegółów projektu.", "Błąd");
                 return;
             }
-    
-            // Inicjalizacja stanu przełącznika dla tego projektu (domyślnie 'tasks')
-            // Inicjalizacja stanu przełącznika dla tego projektu. Ustawiamy 'tasks' jako absolutny domyślny tryb,
-            // jeśli nie jest zdefiniowany.
-            project.workloadDisplayMode = project.workloadDisplayMode || 'tasks'; 
-            
+
             projectDetailsModal.title.textContent = `Szczegóły: ${project.name}`;
             projectDetailsModal.projectName.textContent = project.name;
 
@@ -8531,96 +8417,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             renderProjectBudgetTasksTable(project, 'details-budget-tasks-table-container');
 
             openModal(projectDetailsModal.overlay);
-        }
-       /**
-         * Renderuje przyciski przełącznika widoku obciążenia.
-         */
-        function renderWorkloadSwitcher(project) {
-             const switcherEl = document.getElementById('workload-chart-switcher');
-             if (!switcherEl) return;
-
-             const estimationType = project.estimationType || 'none';
-             let buttonsHTML = '';
-             let modes = [];
-             
-             // 1. Tryb Obciążenie Zadaniami (zawsze dostępny, bo liczy zadania 'todo'/'inprogress')
-             modes.push({ id: 'tasks', label: 'Zadania', estimationType: 'none' });
-
-             // 2. Tryb Obciążenie Godzinowe (dodajemy, jeśli projekt ma ustawione godziny)
-             if (estimationType === 'hours') {
-                 modes.push({ id: 'hours', label: 'Godziny', estimationType: 'hours' });
-             }
-             
-             // 3. Tryb Obciążenie Punktowe (dodajemy, jeśli projekt ma ustawione punkty)
-             if (estimationType === 'points') {
-                 modes.push({ id: 'points', label: 'Punkty', estimationType: 'points' });
-             }
-             
-             // Ustawienie statusu aktywnego
-             modes = modes.map(mode => ({
-                 ...mode,
-                 isActive: mode.id === project.workloadDisplayMode
-             }));
-
-             // Jeśli żaden tryb nie jest aktywny, aktywuj domyślny ('tasks')
-             if (!modes.some(mode => mode.isActive)) {
-                 const defaultMode = modes.find(m => m.id === project.workloadDisplayMode) || modes[0];
-                 defaultMode.isActive = true;
-                 project.workloadDisplayMode = defaultMode.id;
-             }
-
-             
-             // Warunek wyświetlenia: przełącznik pokazujemy tylko, gdy są co najmniej 2 tryby
-             if (modes.length > 1) {
-                 buttonsHTML = modes.map(mode => `
-                    <button class="btn btn-secondary btn-sm js-workload-mode-btn ${mode.isActive ? 'active' : ''}" 
-                            data-mode="${mode.id}"
-                            style="padding: 4px 8px; font-size: 12px; font-weight: 500; ${mode.isActive ? 'background-color: var(--accent-primary) !important; color: var(--text-on-accent) !important; border-color: var(--accent-primary) !important;' : ''}">
-                         ${mode.label}
-                    </button>
-                 `).join('');
-                 switcherEl.style.display = 'flex';
-                 switcherEl.innerHTML = buttonsHTML;
-             } else {
-                  switcherEl.style.display = 'none';
-             }
-             
-             // Dodanie listenera dla przełącznika (musi być dodany po renderowaniu)
-             switcherEl.onclick = (e) => {
-                 const btn = e.target.closest('.js-workload-mode-btn');
-                 if (!btn) return;
-                 
-                 const newMode = btn.dataset.mode;
-                 
-                 if (newMode !== project.workloadDisplayMode) {
-                     project.workloadDisplayMode = newMode;
-                     
-                     // Zaktualizuj UI przełącznika
-                     switcherEl.querySelectorAll('.js-workload-mode-btn').forEach(b => {
-                          const isBtnActive = b.dataset.mode === newMode;
-                          b.classList.toggle('active', isBtnActive);
-                          b.style.backgroundColor = isBtnActive ? 'var(--accent-primary) !important' : '';
-                          b.style.color = isBtnActive ? 'var(--text-on-accent) !important' : '';
-                          b.style.borderColor = isBtnActive ? 'var(--accent-primary) !important' : '';
-                     });
-                     
-                     // Przerenderuj tylko wykres
-                     renderProjectWorkloadChart(project, projectDetailsModal.workloadChartContainer, projectDetailsModal.workloadChartPlaceholder);
-                     
-                     // Wymuś przerysowanie po rozszerzeniu, jeśli jest otwarte
-                     const container = document.getElementById('details-workload-chart-container');
-                     // Po ponownym renderowaniu workLoadChartInstance jest już nową instancją
-                     if (!container.classList.contains('collapsed')) { 
-                         // Dajemy czas na render, a następnie wywołujemy resize,
-                         // co jest bezpieczniejsze po pełnym przerenderowaniu canvas
-                         setTimeout(() => {
-                             if (workloadChartInstance) {
-                                  workloadChartInstance.resize();
-                             }
-                         }, 50);
-                     }
-                 }
-             };
         }
          function renderMyDashboardView() {
             // NOWA LINIA: Resetowanie klasy kontenera do domyślnej klasy Kanban
@@ -17527,10 +17323,7 @@ function addAiChatMessage(text, type, id = null) {
                     
                     <div class="workload-chart-section">
                         <div class="collapsible-header collapsed" data-target="#details-workload-chart-container">
-                            <div id="workload-header-content" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                                <h3>Obciążenie Zespołu</h3>
-                                <div id="workload-chart-switcher" style="display: none; gap: 8px;"></div>
-                            </div>
+                            <h3>Obciążenie Zespołu</h3>
                              <div class="collapsible-controls"> <span class="toggle-text">Rozwiń</span> <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /> </svg>
                             </div>
@@ -17779,10 +17572,6 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
-
-
-
-
 
 
 
