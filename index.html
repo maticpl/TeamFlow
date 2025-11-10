@@ -5873,6 +5873,12 @@
         let sortableProjects = null;
 
         let stagedFiles = [];
+       // === NOWE ZMIENNE STANU DLA GESTU SWIPE ===
+        let chatTouchStartX = 0;
+        let chatTouchCurrentX = 0;
+        let chatTouchStartY = 0; // Do wykrywania scrolla
+        let isChatSwiping = false;
+        // === KONIEC NOWYCH ZMIENNYCH ===
         // === NOWE REFERENCJE DLA PANELU CZATU ===
         const projectChatPanel = document.getElementById('project-chat-panel');
         const toggleChatBtn = document.getElementById('toggle-chat-btn');
@@ -15562,6 +15568,15 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 chatMessageInput.style.height = (chatMessageInput.scrollHeight) + 'px'; // Ustaw nową wysokość
             });
         }
+       // === NOWE LISTENERY DLA ZAMYKANIA GESTEM (MOBILE) ===
+        if (projectChatPanel) {
+            // Używamy { passive: false } aby móc wywołać e.preventDefault() w 'touchmove'
+            projectChatPanel.addEventListener('touchstart', handleChatTouchStart, { passive: false });
+            projectChatPanel.addEventListener('touchmove', handleChatTouchMove, { passive: false });
+            projectChatPanel.addEventListener('touchend', handleChatTouchEnd);
+            projectChatPanel.addEventListener('touchcancel', handleChatTouchEnd); // Na wypadek przerwania gestu
+        }
+        // === KONIEC NOWYCH LISTENERÓW ===
         // === KONIEC NOWEJ LOGIKI WYSYŁANIA ===
         /**
          * NOWA FUNKCJA
@@ -15591,6 +15606,88 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 }
             });
         }
+           // === NOWE FUNKCJE OBSŁUGI GESTU ZAMYKANIA CZATU ===
+        
+        /**
+         * Rozpoczyna śledzenie gestu przesunięcia na panelu czatu.
+         */
+        function handleChatTouchStart(e) {
+            // Interesuje nas tylko pierwszy palec
+            const touch = e.touches[0];
+            chatTouchStartX = touch.clientX;
+            chatTouchStartY = touch.clientY;
+            chatTouchCurrentX = touch.clientX; // Resetuj pozycję bieżącą
+            isChatSwiping = true; // Rozpocznij śledzenie
+            
+            // Usuwamy tymczasowo transition, aby panel podążał za palcem płynnie
+            projectChatPanel.style.transition = 'none';
+        }
+
+        /**
+         * Obsługuje przesuwanie palca po panelu czatu.
+         */
+        function handleChatTouchMove(e) {
+            if (!isChatSwiping) return;
+
+            const touch = e.touches[0];
+            chatTouchCurrentX = touch.clientX;
+            
+            const deltaX = chatTouchCurrentX - chatTouchStartX;
+            const deltaY = touch.clientY - chatTouchStartY;
+
+            // WARUNEK 1: Sprawdź, czy użytkownik nie scrolluje w pionie
+            // Jeśli ruch pionowy jest większy niż poziomy (z buforem 10px), anuluj gest swipe
+            if (Math.abs(deltaY) > (Math.abs(deltaX) + 10)) {
+                isChatSwiping = false;
+                // Przywróć panel na miejsce, jeśli już się ruszył
+                projectChatPanel.style.transform = ''; 
+                return;
+            }
+            
+            // WARUNEK 2: Pozwól tylko na ruch W PRAWO (zamykanie)
+            if (deltaX < 0) {
+                isChatSwiping = false;
+                projectChatPanel.style.transform = '';
+                return;
+            }
+
+            // Zapobiegaj domyślnej akcji przeglądarki (np. scrollowaniu strony)
+            // podczas gdy my aktywnie przesuwamy panel
+            e.preventDefault();
+            
+            // Aktualizuj pozycję panelu, aby podążał za palcem
+            projectChatPanel.style.transform = `translateX(${deltaX}px)`;
+        }
+
+        /**
+         * Kończy gest przesunięcia i decyduje, czy zamknąć panel.
+         */
+        function handleChatTouchEnd(e) {
+            if (!isChatSwiping) return;
+            isChatSwiping = false;
+
+            const deltaX = chatTouchCurrentX - chatTouchStartX;
+            const panelWidth = projectChatPanel.offsetWidth;
+            
+            // Ustaw próg: 30% szerokości panelu lub minimum 100px
+            const threshold = Math.max(panelWidth * 0.3, 100);
+
+            // Przywróć animację CSS
+            projectChatPanel.style.transition = 'transform 0.3s ease-in-out';
+
+            if (deltaX > threshold) {
+                // Przesunięto wystarczająco daleko -> ZAMKNIJ
+                // Wywołujemy istniejącą funkcję zamykającą, która usunie klasę .open
+                toggleChatPanel(); 
+            } else {
+                // Niewystarczające przesunięcie -> WRÓĆ
+                // Resetujemy transform, klasa .open (która wciąż tam jest) przywróci go na miejsce
+                projectChatPanel.style.transform = '';
+            }
+        }
+        // === KONIEC NOWYCH FUNKCJI ===
+
+        // === KONIEC NOWYCH FUNKCJI CZATU ===
         // ZMODYFIKOWANY LISTENER: Przycisk "Nowy sondaż" (zielony) wewnątrz menu
         fabActionNewPoll.addEventListener('click', () => {
             // Wywołuje nową funkcję otwierającą modal sondażu
@@ -19394,6 +19491,7 @@ function addAiChatMessage(text, type, id = null) {
         </div>
 </body>
 </html>
+
 
 
 
