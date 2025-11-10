@@ -15978,12 +15978,63 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     `Czy na pewno chcesz usunąć ${count} zaznaczone zadania? Tej operacji nie można cofnąć.`,
                     async (confirmed) => {
                         if (confirmed) {
-                            // (Logika usuwania wsadowego zostanie dodana w przyszłości)
-                            // Na razie tylko symulujemy sukces
-                            console.log("Usuwanie zadań:", state.ui.selectedTaskIds);
-                            showNotification(`Usunięto ${count} zadań. (Logika w trakcie implementacji)`, "Sukces");
-                            // Wyjdź z trybu zaznaczania po akcji
-                            toggleSelectMode();
+                            // === NOWA LOGIKA USUWANIA WSADOWEGO ===
+                            bulkDeleteBtn.disabled = true;
+                            bulkDeleteBtn.textContent = 'Usuwanie...';
+
+                            try {
+                                const batch = writeBatch(db);
+                                // 1. Pogrupuj zadania do usunięcia według ich projektu nadrzędnego
+                                const tasksByProject = new Map();
+                                
+                                for (const taskId of state.ui.selectedTaskIds) {
+                                    const { task, project } = findTask(taskId);
+                                    if (task && project) {
+                                        // Znajdź projekt w *aktywnym* stanie (state.projects), a nie w globalnym
+                                        const activeProject = state.projects.find(p => p.id === project.id);
+                                        if (activeProject) {
+                                            if (!tasksByProject.has(activeProject.id)) {
+                                                tasksByProject.set(activeProject.id, { project: activeProject, taskIds: [] });
+                                            }
+                                            tasksByProject.get(activeProject.id).taskIds.push(taskId);
+                                        }
+                                        // Ignorujemy zadania z 'completedProjects' lub 'globalProjects',
+                                        // ponieważ tryb zaznaczania jest dostępny tylko w aktywnym projekcie.
+                                    }
+                                }
+
+                                // 2. Dla każdego projektu przygotuj operację 'update' w batchu
+                                tasksByProject.forEach(({ project, taskIds }, projectId) => {
+                                    const projectRef = doc(projectsRef, projectId);
+                                    
+                                    // Filtruj listę zadań, usuwając te zaznaczone
+                                    const updatedTasks = (project.tasks || []).filter(t => !taskIds.includes(t.id));
+                                    
+                                    // Przelicz budżet dla nowej (odchudzonej) listy zadań
+                                    const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
+
+                                    // Dodaj aktualizację do batcha
+                                    batch.update(projectRef, {
+                                        tasks: updatedTasks,
+                                        budgetSummary: newBudgetSummary
+                                    });
+                                });
+
+                                // 3. Wykonaj operację wsadową
+                                await batch.commit();
+
+                                showNotification(`Pomyślnie usunięto ${count} zadań.`, "Sukces");
+                                // Wyjdź z trybu zaznaczania (co automatycznie odświeży widok)
+                                toggleSelectMode();
+
+                            } catch (error) {
+                                console.error("Błąd podczas wsadowego usuwania zadań:", error);
+                                showNotification("Wystąpił błąd podczas usuwania zadań.", "Błąd");
+                            } finally {
+                                bulkDeleteBtn.disabled = false;
+                                bulkDeleteBtn.textContent = 'Usuń zaznaczone';
+                            }
+                            // === KONIEC LOGIKI USUWANIA WSADOWEGO ===
                         }
                     },
                     true // Użyj czerwonego przycisku
@@ -18661,6 +18712,7 @@ function addAiChatMessage(text, type, id = null) {
         </svg>
 </body>
 </html>
+
 
 
 
