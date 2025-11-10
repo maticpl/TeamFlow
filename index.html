@@ -4290,6 +4290,14 @@
             box-shadow: 0 0 0 3px var(--accent-primary), var(--shadow-md);
             transform: scale(1.02); /* Lekkie powiększenie */
         }
+        /* 7. Styl dla przycisków na pasku akcji masowych */
+        #bulk-action-bar .btn-primary:hover {
+            background-color: var(--accent-hover);
+        }
+        #bulk-action-bar .btn-danger:hover {
+            background-color: var(--danger-hover);
+        }
+
         /* === KONIEC NOWYCH STYLI === */
     </style>
 
@@ -4809,8 +4817,9 @@
             <div id="bulk-action-bar" style="display: none;">
                 <span id="bulk-action-count">Zaznaczono: 0</span>
                 <div class="bulk-action-buttons">
+                    <button id="bulk-assign-btn" class="btn btn-primary" style="padding: 6px 12px; font-size: 13px;">Zmień przypisanego</button>
                     <button id="bulk-delete-btn" class="btn btn-danger" style="padding: 6px 12px; font-size: 13px;">Usuń zaznaczone</button>
-                    </div>
+                </div>
             </div>
             <section class="kanban-board" id="kanban-board">
             </section>
@@ -6006,12 +6015,20 @@ let state = {
             submitBtn: document.querySelector('#transfer-ownership-form button[type="submit"]')
         };
         // === KONIEC NOWEJ REFERENCJI ===
-       // === NOWE REFERENCJE DLA TRYBU ZAZNACZANIA ===
+      // === NOWE REFERENCJE DLA TRYBU ZAZNACZANIA ===
         const selectModeToggleBtn = document.getElementById('select-mode-toggle-btn');
         const bulkActionBar = document.getElementById('bulk-action-bar');
         const bulkActionCount = document.getElementById('bulk-action-count');
         const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+        const bulkAssignBtn = document.getElementById('bulk-assign-btn'); // <-- NOWA LINIA
         const mainContentEl = document.querySelector('.main-content'); // Potrzebne do dodania klasy globalnej
+        
+        const bulkAssignModal = { // <-- NOWY OBIEKT
+            overlay: document.getElementById('bulk-assign-modal'),
+            form: document.getElementById('bulk-assign-form'),
+            membersList: document.getElementById('bulk-assign-members-list'),
+            saveBtn: document.getElementById('bulk-assign-save-btn')
+        };
         // === KONIEC ===
 
         // === NOWE REFERENCJE DLA MODALI SZABLONÓW ===
@@ -16042,6 +16059,128 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             });
         }
         // === KONIEC NOWEJ LOGIKI ===
+       /**
+         * Otwiera modal do masowej zmiany przypisanych osób.
+         */
+        function openBulkAssignModal() {
+            const projectId = state.currentProjectId;
+            const project = findProject(projectId);
+            
+            if (!project) {
+                showNotification("Błąd: Nie można znaleźć bieżącego projektu.", "Błąd");
+                return;
+            }
+
+            // Czyścimy listę
+            bulkAssignModal.membersList.innerHTML = '';
+            
+            // Używamy funkcji 'buildSubtaskAssigneePills' (stworzonej dla podzadań),
+            // ponieważ renderuje ona prostą listę pigułek bez akordeonu,
+            // co jest idealne w tym miejscu.
+            // Przekazujemy członków projektu i pustą listę zaznaczonych.
+            buildSubtaskAssigneePills(bulkAssignModal.membersList, project.members, []);
+            
+            // Obsługa klikania pigułek w tym modalu
+            // (Musimy dodać ten listener, bo `buildSubtaskAssigneePills` go nie dodaje)
+            bulkAssignModal.membersList.addEventListener('click', (e) => {
+                const pill = e.target.closest('.member-pill:not(.disabled)');
+                if (pill) {
+                    pill.classList.toggle('selected');
+                }
+            });
+
+            openModal(bulkAssignModal.overlay);
+        }
+
+        // Listener dla przycisku "Zmień przypisanego" na pasku akcji
+        if (bulkAssignBtn) {
+            bulkAssignBtn.addEventListener('click', openBulkAssignModal);
+        }
+
+        // Listener dla przycisku "Zapisz zmiany" w nowym modalu
+        if (bulkAssignModal.saveBtn) {
+            bulkAssignModal.saveBtn.addEventListener('click', async () => {
+                const selectedIds = Array.from(bulkAssignModal.membersList.querySelectorAll('.member-pill.selected'))
+                                       .map(pill => pill.dataset.userId);
+
+                if (selectedIds.length === 0) {
+                    showNotification("Musisz wybrać co najmniej jedną osobę.", "Błąd");
+                    return;
+                }
+
+                bulkAssignModal.saveBtn.disabled = true;
+                bulkAssignModal.saveBtn.textContent = 'Zapisywanie...';
+
+                try {
+                    const batch = writeBatch(db);
+                    const newAssigneeIds = selectedIds;
+                    const newType = newAssigneeIds.length > 1 ? 'multi' : 'single';
+                    const taskIdsToUpdate = state.ui.selectedTaskIds;
+
+                    // 1. Pogrupuj zadania (tak jak przy usuwaniu)
+                    const tasksByProject = new Map();
+                    for (const taskId of taskIdsToUpdate) {
+                        const { project } = findTask(taskId); // Potrzebujemy tylko projektu
+                        if (project && state.projects.find(p => p.id === project.id)) { // Upewnij się, że to aktywny projekt
+                            if (!tasksByProject.has(project.id)) {
+                                tasksByProject.set(project.id, { projectData: project, taskIds: [] });
+                            }
+                            tasksByProject.get(project.id).taskIds.push(taskId);
+                        }
+                    }
+                    
+                    // 2. Przygotuj batch
+                    tasksByProject.forEach(({ projectData, taskIds }, projectId) => {
+                        const projectRef = doc(projectsRef, projectId);
+                        
+                        // Mapuj zadania, aktualizując te, które trzeba
+                        const updatedTasks = projectData.tasks.map(task => {
+                            // Jeśli ID zadania nie ma na liście, zwróć je bez zmian
+                            if (!taskIds.includes(task.id)) {
+                                return task;
+                            }
+                            
+                            // To jest zadanie do aktualizacji
+                            const oldStatus = task.status;
+                            // Jeśli zadanie było 'done', zresetuj je do 'todo'
+                            const newStatus = (oldStatus === 'done') ? 'todo' : oldStatus;
+
+                            return {
+                                ...task,
+                                assignees: newAssigneeIds,
+                                type: newType,
+                                status: newStatus,
+                                completedBy: [] // Zawsze resetuj 'completedBy'
+                            };
+                        });
+
+                        // 3. Przelicz budżet (ważne, jeśli zadania 'done' wróciły do 'todo')
+                        const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
+
+                        // 4. Dodaj do batcha
+                        batch.update(projectRef, {
+                            tasks: updatedTasks,
+                            budgetSummary: newBudgetSummary
+                        });
+                    });
+
+                    // 5. Wykonaj batch
+                    await batch.commit();
+
+                    showNotification(`Pomyślnie zmieniono przypisanych dla ${taskIdsToUpdate.length} zadań.`, "Sukces");
+                    closeModal(bulkAssignModal.overlay);
+                    toggleSelectMode(); // Wyjdź z trybu zaznaczania
+
+                } catch (error) {
+                    console.error("Błąd podczas masowej zmiany przypisanych:", error);
+                    showNotification("Wystąpił błąd podczas zapisu zmian.", "Błąd");
+                } finally {
+                    bulkAssignModal.saveBtn.disabled = false;
+                    bulkAssignModal.saveBtn.textContent = 'Zapisz zmiany';
+                }
+            });
+        }
+        // === KONIEC NOWEJ LOGIKI ===
         // --- CZĘŚĆ 1: Logika otwierania okienek ---
 
 // Ten listener "nasłuchuje" na kliknięcie ikony zębatki w stopce.
@@ -18710,8 +18849,34 @@ function addAiChatMessage(text, type, id = null) {
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
         </symbol>
         </svg>
+    <div class="modal-overlay" id="bulk-assign-modal">
+        <div class="modal" style="max-width: 500px; height: auto; max-height: 70vh;">
+            <form id="bulk-assign-form">
+                <div class="modal-header">
+                    <h2>Zmień przypisanych</h2>
+                    <button type="button" class="modal-close-btn">&times;</button>
+                </div>
+                <div class="form-modal-content">
+                    <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                        Wybierz jedną lub więcej osób, które mają zostać przypisane do zaznaczonych zadań. Poprzednie przypisania zostaną nadpisane.
+                    </p>
+                    <div class="form-group">
+                        <label>Wybierz członków projektu</label>
+                        <div id="bulk-assign-members-list" class="members-selection-pills">
+                            <p>Ładowanie członków...</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                    <button type="button" id="bulk-assign-save-btn" class="btn btn-primary">Zapisz zmiany</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </body>
 </html>
+
 
 
 
