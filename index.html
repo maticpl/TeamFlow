@@ -4761,15 +4761,16 @@
                 <button type="button" class="modal-close-btn">&times;</button>
             </div>
             <div class="task-modal-content">
-                <div class="task-modal-main">
-                    <div class="task-modal-title">
-                        <input type="checkbox" id="modal-task-completed">
-                        <h3 id="modal-task-title"></h3>
-                        <input type="text" id="modal-task-title-input" class="form-group" style="font-size: 22px; font-weight: 600; flex-grow: 1; display: none;">
-                    </div>
-
-                    <div class="subtasks-section">
-                        <div class="subtasks-header" id="subtasks-toggle-btn" title="Pokaż/Ukryj podzadania">
+               <div class="task-modal-main">
+                <div class="task-modal-title">
+                    <input type="checkbox" id="modal-task-completed">
+                    <h3 id="modal-task-title"></h3>
+                    <input type="text" id="modal-task-title-input" class="form-group" style="font-size: 22px; font-weight: 600; flex-grow: 1; display: none;">
+                </div>
+                
+                <p id="modal-task-dependency-link" style="font-size: 13px; color: var(--text-secondary); margin-top: -12px; margin-bottom: 12px; margin-left: 48px; display: none;"></p>
+                <div class="subtasks-section">
+                    <div class="subtasks-header" id="subtasks-toggle-btn" title="Pokaż/Ukryj podzadania">
                             <h4>Podzadania <span id="subtasks-counter"></span></h4>
                             <div class="subtasks-toggle-controls">
                                 <span class="toggle-text">Zwiń</span>
@@ -6483,7 +6484,30 @@ let state = {
             }
             // === KONIEC NOWEJ LOGIKI ===
             // NOWA LINIA: Inicjalizacja zależności
-            if (task.blockingTaskId === undefined) task.blockingTaskId = null;
+            if (task.blockingTaskId && typeof task.blockingTaskId === 'string') {
+                // Format 1: Stary string -> migruj do obiektu 'dependency'
+                // Przypisz własność starego powiązania do twórcy zadania (najlepsze co możemy zrobić)
+                task.dependency = {
+                    blockingTaskId: task.blockingTaskId,
+                    setByUserId: task.createdBy // Przypisujemy "własność" linku twórcy zadania
+                };
+                delete task.blockingTaskId; // Usuń stare pole
+            
+            } else if (task.blockingTaskId && typeof task.blockingTaskId === 'object') {
+                // Format 2: Stary obiekt (z poprzedniej próby, np. {id: '...', setBy: '...'}) -> migruj
+                 task.dependency = {
+                    blockingTaskId: task.blockingTaskId.id,
+                    setByUserId: task.blockingTaskId.setBy
+                };
+                delete task.blockingTaskId; // Usuń stare pole
+
+            } else if (!task.dependency) {
+                // Format 3: Brak 'dependency' i brak 'blockingTaskId' -> ustaw 'dependency' na null
+                task.dependency = null;
+            }
+            // Jeśli 'task.dependency' już istnieje jako poprawny obiekt, nic nie robimy.
+            // === KONIEC NOWEJ LOGIKI ===
+
             return task;
         }
 
@@ -6520,7 +6544,9 @@ let state = {
          * @returns {object} - { blocked: boolean, taskName: string | null }
          */
         function isTaskBlocked(task) {
-            const blockingTaskId = task.blockingTaskId;
+            // === ZMIANA: Czytamy teraz z obiektu dependency ===
+            const blockingTaskId = task.dependency ? task.dependency.blockingTaskId : null;
+            // === KONIEC ZMIANY ===
 
             // 1. Nie jest zablokowane, jeśli nie ma ID blokującego
             if (!blockingTaskId) {
@@ -9092,52 +9118,74 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 return '';
             }
 
-            const blockingTaskId = task.blockingTaskId;
+            // === NOWA LOGIKA: Czytamy obiekt dependency ===
+            const dependency = task.dependency; // np. { blockingTaskId: '...', setByUserId: '...' } lub null
             
-            if (blockingTaskId) {
+            if (dependency) {
                 // Zadanie JEST powiązane
-                const { task: blockingTask } = findTask(blockingTaskId);
+                const { task: blockingTask } = findTask(dependency.blockingTaskId);
+                
+                // Sprawdź, czy bieżący użytkownik może usunąć ten link
+                const canUnlink = state.currentUser.uid === dependency.setByUserId;
+                
+                // Ustaw odpowiedni styl i akcję w zależności od uprawnień
+                const actionAttribute = canUnlink ? `data-action="unlink-task"` : '';
+                const styleAttribute = canUnlink ? '' : 'style="cursor: not-allowed; opacity: 0.7;"';
                 
                 if (blockingTask) {
                     // Znaleziono zadanie blokujące
                     if (blockingTask.status === 'done') {
-                        // Blokujące zadanie jest ukończone, ale powiązanie wciąż istnieje
-                        // Pokaż niebieską ikonę, ale z innym tooltipem
+                        // Blokujące zadanie jest ukończone
+                        const title = canUnlink 
+                            ? `Zadanie odblokowane (wykonano: '${blockingTask.title}'). Kliknij, aby usunąć powiązanie.`
+                            : `Zadanie odblokowane (wykonano: '${blockingTask.title}').`;
+                        
                         return `
                             <button 
                                 class="task-link-btn linked" 
-                                data-action="unlink-task" 
+                                ${actionAttribute} 
+                                ${styleAttribute}
                                 data-task-id="${task.id}" 
-                                title="Zadanie odblokowane (wykonano: '${blockingTask.title}'). Kliknij, aby usunąć powiązanie.">
+                                title="${title}">
                                 <svg><use href="#icon-link"></use></svg>
                             </button>
                         `;
                     } else {
                         // Zadanie blokujące jest AKTYWNE
+                        const title = canUnlink 
+                            ? `Zablokowane przez: '${blockingTask.title}'. Kliknij, aby usunąć powiązanie.`
+                            : `Zablokowane przez: '${blockingTask.title}'.`;
+                            
                         return `
                             <button 
                                 class="task-link-btn linked" 
-                                data-action="unlink-task" 
+                                ${actionAttribute} 
+                                ${styleAttribute}
                                 data-task-id="${task.id}" 
-                                title="Zablokowane przez: '${blockingTask.title}'. Kliknij, aby usunąć powiązanie.">
+                                title="${title}">
                                 <svg><use href="#icon-link"></use></svg>
                             </button>
                         `;
                     }
                 } else {
                     // Powiązanie "osierocone" (nie znaleziono zadania blokującego)
+                     const title = canUnlink
+                        ? `Błąd: Powiązane zadanie nie zostało znalezione. Kliknij, aby usunąć powiązanie.`
+                        : `Błąd: Powiązane zadanie nie zostało znalezione.`;
+
                     return `
                         <button 
                             class="task-link-btn broken" 
-                            data-action="unlink-task" 
+                            ${actionAttribute} 
+                            ${styleAttribute}
                             data-task-id="${task.id}" 
-                            title="Błąd: Powiązane zadanie nie zostało znalezione. Kliknij, aby usunąć powiązanie.">
+                            title="${title}">
                             <svg><use href="#icon-link"></use></svg>
                         </button>
                     `;
                 }
             } else {
-                // Zadanie NIE JEST powiązane
+                // Zadanie NIE JEST powiązane (ten blok się nie zmienia)
                 return `
                     <button 
                         class="task-link-btn" 
@@ -9148,8 +9196,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     </button>
                 `;
             }
-
-            // USUNIĘTO: Opakowanie w <div> i zmienną buttonHTML
         }
             function createTaskCardHTML(task, isInteractive) {
             const isCompleted = task.status === 'done';
@@ -9516,6 +9562,29 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 taskModal.title.textContent = task.title;
                 taskModal.title.style.display = 'block';
                 taskModal.titleInput.style.display = 'none';
+                // === DODANY FRAGMENT KODU: Wyświetlanie linku zależności ===
+                const dependencyLinkEl = document.getElementById('modal-task-dependency-link');
+                if (dependencyLinkEl) {
+                    if (task.dependency && task.dependency.blockingTaskId) {
+                        // Mamy powiązanie, spróbuj znaleźć nazwę zadania
+                        const { task: blockingTask } = findTask(task.dependency.blockingTaskId);
+                        
+                        if (blockingTask) {
+                            // Użyłem "Zależne od:" (Depends on:) - jest bardziej precyzyjne
+                            dependencyLinkEl.innerHTML = `Zależne od: <strong style="color: var(--text-primary); cursor: pointer;" data-linked-task-id="${blockingTask.id}" title="Kliknij, aby otworzyć">${blockingTask.title}</strong>`;
+                            dependencyLinkEl.style.display = 'block';
+                        } else {
+                            // Powiązanie osierocone, ale nadal je pokażemy
+                            dependencyLinkEl.textContent = 'Zależne od: (Nie znaleziono zadania)';
+                            dependencyLinkEl.style.display = 'block';
+                        }
+                    } else {
+                        // Brak powiązania, ukryj element
+                        dependencyLinkEl.style.display = 'none';
+                        dependencyLinkEl.textContent = '';
+                    }
+                }
+                // === KONIEC DODANEGO FRAGMENTU KODU ===
                 taskModal.completed.checked = task.status === 'done';
                 const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
                 taskModal.completed.disabled = shouldBeDisabled;
@@ -15303,6 +15372,21 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
 
         taskModal.overlay.addEventListener('click', async (e) => {
+            // === DODANY FRAGMENT KODU: Obsługa kliknięcia linku zależności ===
+                const dependencyLink = e.target.closest('[data-linked-task-id]');
+                if (dependencyLink) {
+                    const taskIdToOpen = dependencyLink.dataset.linkedTaskId;
+                    if (taskIdToOpen) {
+                        // Mamy ID, otwórz to zadanie
+                        closeModal(taskModal.overlay);
+                        // Użyj opóźnienia dla płynnego przejścia
+                        setTimeout(() => {
+                            openTaskModal(taskIdToOpen);
+                        }, 150);
+                    }
+                    return; // Zakończ obsługę kliknięcia
+                }
+                // === KONIEC DODANEGO FRAGMENTU KODU ===
                 // --- POCZĄTEK POPRAWKI LOGICZNEJ ---
                 
                 // 1. Sprawdzamy, czy celem kliknięcia był przycisk do ukończenia części zadania
@@ -17494,13 +17578,22 @@ function addAiChatMessage(text, type, id = null) {
             const { task, project } = findTask(dependentTaskId);
             if (!task || !project) return;
 
+            // === DODANA WERYFIKACJA UPRAWNIEŃ ===
+            if (!task.dependency || state.currentUser.uid !== task.dependency.setByUserId) {
+                showNotification("Nie masz uprawnień do usunięcia tego powiązania. Może to zrobić tylko osoba, która je utworzyła.", "Błąd");
+                return;
+            }
+            // === KONIEC WERYFIKACJI ===
+
             showConfirmation(
                 "Usuń powiązanie",
                 "Czy na pewno chcesz usunąć zależność tego zadania? Będzie można je ukończyć w dowolnym momencie.",
                 async (confirmed) => {
                     if (confirmed) {
                         try {
-                            const updatedTask = { ...task, blockingTaskId: null };
+                            // === ZMIANA: Ustawiamy 'dependency' na null ===
+                            const updatedTask = { ...task, dependency: null };
+                            // === KONIEC ZMIANY ===
                             const updatedTasks = project.tasks.map(t => t.id === dependentTaskId ? updatedTask : t);
                             
                             const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
@@ -17554,7 +17647,14 @@ function addAiChatMessage(text, type, id = null) {
                 confirmBtn.textContent = 'Zapisywanie...';
 
                 try {
-                    const updatedTask = { ...task, blockingTaskId: blockingTaskId };
+                    // === ZMIANA: Tworzymy nowy obiekt dependency ===
+                    const newDependency = {
+                        blockingTaskId: blockingTaskId,
+                        setByUserId: state.currentUser.uid // Zapisujemy, kto utworzył link
+                    };
+                    const updatedTask = { ...task, dependency: newDependency }; // Zapisujemy obiekt, a nie string
+                    // === KONIEC ZMIANY ===
+
                     const updatedTasks = project.tasks.map(t => t.id === dependentTaskId ? updatedTask : t);
                     
                     const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
@@ -18309,6 +18409,7 @@ function addAiChatMessage(text, type, id = null) {
         </svg>
 </body>
 </html>
+
 
 
 
