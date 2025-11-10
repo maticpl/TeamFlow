@@ -4064,6 +4064,111 @@
             color: var(--text-secondary);
         }
         /* === KONIEC: NOWE STYLE DLA PODZADAŃ NA KANBANIE === */
+        Świetny pomysł. To wartościowa funkcja, która zwiększy zaangażowanie użytkowników w zadania, które ich interesują, nawet jeśli nie są do nich bezpośrednio przypisani.
+
+Aby to zaimplementować, musimy:
+
+Zmodyfikować strukturę danych zadania w Firestore, dodając tablicę subscribers (lista ID użytkowników).
+
+Zaktualizować funkcję migrateTask, aby zawsze zapewniała istnienie tej tablicy.
+
+Dodać ikonę dzwonka (SVG) do pliku HTML (w nowym, dedykowanym div dla ikon SVG, aby uniknąć zaśmiecania kodu JS).
+
+Dodać style CSS dla dzwonka (stan domyślny, aktywny) oraz animację "rozbłysku" (@keyframes).
+
+Zmodyfikować funkcję createTaskCardHTML, aby renderowała dzwonek obok daty i nadawała mu klasę .subscribed, jeśli użytkownik jest na liście.
+
+Zaktualizować główny listener kanbanBoardEl, aby przechwytywał kliknięcia na dzwonek.
+
+Stworzyć nową funkcję handleTaskSubscription(taskId, projectId), która będzie dodawać lub usuwać ID użytkownika z tablicy task.subscribers w Firestore.
+
+Zmodyfikować funkcję handleTaskCompletion, aby po ukończeniu zadania sprawdzała listę subscribers i wywoływała nową funkcję wysyłającą powiadomienia.
+
+Stworzyć nową funkcję sendCompletionNotifications(task, project), która wyśle powiadomienia do wszystkich subskrybentów.
+
+Zaktualizować getNotificationIcon, aby obsługiwała nowy typ powiadomienia task_completed.
+
+Zacznijmy od modyfikacji HTML, aby dodać definicję SVG i stylów CSS.
+
+KROK 1: Modyfikacja HTML (Dodanie SVG dzwonka i stylów CSS)
+Kod PRZED Zmianą
+Lokalizacja: Index.html (linie ok. 3201-3207, wewnątrz tagu <style>)
+
+HTML
+
+        /* === KONIEC: NOWE STYLE DLA PODZADAŃ NA KANBANIE === */
+    </style>
+</head>
+<body>
+    <div id="loading-overlay" style="display: none;">
+Kod PO Zmianie
+HTML
+
+        /* === KONIEC: NOWE STYLE DLA PODZADAŃ NA KANBANIE === */
+
+        /* === POCZĄTEK: NOWE STYLE DLA DZWONKA POWIADOMIEŃ O ZADANIU === */
+        
+        /* 1. Styl przycisku (wrapperka) dla dzwonka */
+        .task-subscription-bell {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 2px 4px 0px 4px; /* Dopasowanie pionowe obok daty */
+            border-radius: 4px;
+            display: inline-flex; /* Aby wyśrodkować SVG wewnątrz */
+            align-items: center;
+            justify-content: center;
+            margin-left: 4px; /* Odstęp od daty */
+            opacity: 0.6; /* Domyślnie lekko wygaszony */
+            transition: opacity 0.2s, transform 0.2s;
+        }
+
+        /* 2. Styl samego SVG (domyślnie szary) */
+        .task-subscription-bell svg {
+            width: 16px;
+            height: 16px;
+            color: var(--text-secondary); /* Domyślny kolor (szary) */
+            fill: none;
+            stroke-width: 2px;
+            transition: all 0.2s ease-out;
+        }
+        
+        /* 3. Efekt hover na dzwonku (zwiększamy widoczność) */
+        .task-card:hover .task-subscription-bell {
+             opacity: 1;
+        }
+        .task-subscription-bell:hover svg {
+            transform: scale(1.1);
+        }
+
+        /* 4. Styl dla AKTYWNEGO dzwonka (niebieski) */
+        .task-subscription-bell.subscribed {
+            opacity: 1; /* Zawsze w pełni widoczny, jeśli aktywny */
+        }
+        
+        .task-subscription-bell.subscribed svg {
+            color: var(--accent-primary); /* Niebieska ramka */
+            fill: var(--accent-primary);   /* Niebieskie wypełnienie */
+            /* Uruchom animację "rozbłysku", gdy klasa .subscribed jest DODAWANA */
+            animation: bell-glow 0.5s ease-out;
+        }
+
+        /* 5. Animacja "rozbłysku" (Keyframes) */
+        @keyframes bell-glow {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.5) rotate(15deg);
+                opacity: 0.7;
+            }
+            100% {
+                transform: scale(1) rotate(0deg);
+                opacity: 1;
+            }
+        }
+        /* === KONIEC NOWYCH STYLI === */
     </style>
 </head>
 <body>
@@ -6318,6 +6423,9 @@ let state = {
             }
             if (!task.assignees) task.assignees = [];
             if (!task.completedBy) task.completedBy = [];
+            // === NOWA LINIA ===
+            if (!task.subscribers) task.subscribers = [];
+            // === KONIEC NOWEJ LINII ===
             if (!task.comments) task.comments = [];
             if (!task.activityLog) task.activityLog = [];
             if (task.recurrence === undefined) task.recurrence = null;
@@ -7498,6 +7606,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             switch (type) {
                 case 'task_assigned':
                     return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
+                // === NOWA IKONA ===
+                case 'task_completed':
+                    return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--success-primary)"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`;
+                // === KONIEC NOWEJ IKONY ===
                 case 'mention':
                     return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>`;
                 case 'project_invite':
@@ -8891,7 +9003,32 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </li>
             `;
         }
-
+            /**
+         * NOWA FUNKCJA POMOCNICZA
+         * Tworzy HTML dla ikony dzwonka subskrypcji zadania.
+         * @param {object} task - Obiekt zadania.
+         * @returns {string} - Kod HTML dla przycisku dzwonka.
+         */
+        function createSubscriptionBellHTML(task) {
+            // Nie pokazuj dzwonka dla zadań już ukończonych
+            if (task.status === 'done') {
+                return '';
+            }
+            
+            // Sprawdź, czy bieżący użytkownik subskrybuje
+            const isSubscribed = (task.subscribers || []).includes(state.currentUser.uid);
+            
+            return `
+                <button 
+                    class="task-subscription-bell ${isSubscribed ? 'subscribed' : ''}" 
+                    data-action="toggle-subscription" 
+                    data-task-id="${task.id}" 
+                    title="${isSubscribed ? 'Anuluj powiadomienie o ukończeniu' : 'Powiadom mnie o ukończeniu'}">
+                    
+                    <svg><use href="#icon-bell"></use></svg>
+                </button>
+            `;
+        }
             function createTaskCardHTML(task, isInteractive) {
             const isCompleted = task.status === 'done';
             const priorityClass = task.priority === 'high' ? 'priority-high' : '';
@@ -8942,7 +9079,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             const isOverdue = task.dueDate && new Date(task.dueDate).getTime() < Date.now() && task.status !== 'done';
             const overdueClass = isOverdue ? 'overdue' : '';
-
+            // === NOWA LINIA: Wywołanie funkcji pomocniczej ===
+            const bellIconHTML = createSubscriptionBellHTML(task);
+            // === KONIEC NOWEJ LINII ===
             const dueDateHTML = task.dueDate ? `
                     <div class="task-detail ${overdueClass}">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
@@ -14032,6 +14171,14 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             tasks.push(nextTask);
         }
 
+        // === NOWA LOGIKA: Wywołanie powiadomień ===
+        // Sprawdź, czy zadanie JEST oznaczane jako 'done' i ma subskrybentów
+        if (task.status === 'done' && task.subscribers && task.subscribers.length > 0) {
+            // Wywołaj nową funkcję asynchronicznie (nie musimy na nią czekać)
+            sendCompletionNotifications(task, project);
+        }
+        // === KONIEC NOWEJ LOGIKI ===
+
         // Przelicz budżet na podstawie ZAKTUALIZOWANEJ listy zadań (tasks)
         const newBudgetSummary = calculateProjectBudgetSummary(tasks);
 
@@ -14184,6 +14331,13 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         }
 
 
+         Oczywiście. Oto pełny fragment kodu dla KROKU 5.
+
+KROK 2: Kod PRZED Zmianą
+Lokalizacja: Index.html (linie ok. 6423-6477)
+
+JavaScript
+
          kanbanBoardEl.addEventListener('click', (e) => {
             // NOWY WARUNEK: Jeśli kliknięcie pochodzi z listy "Mój dzień", ignoruj je,
             // ponieważ ma ono swój własny, dedykowany listener.
@@ -14248,6 +14402,100 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
             
             // 6. Pozostałe kliknięcia (dodawanie zadania, nawigacja)
+            if (e.target.closest('.add-task-icon-btn')) {
+                // === POPRAWKA TUTAJ ===
+                // Zmieniono wywołanie z 'openNewTaskModal(false)' na 'openNewTaskModal({})'
+                openNewTaskModal({});
+                // === KONIEC POPRAWKI ===
+            } else if (e.target.closest('.js-project-title')) {
+                const projectId = e.target.closest('.project-tile').dataset.id;
+                state.currentProjectId = projectId;
+                state.ui.previousView = state.ui.currentView;
+                state.ui.currentView = 'projects';
+                saveUiState();
+                render();
+            }
+        });
+KROK 3: Kod PO Zmianie (Nowy Kod)
+JavaScript
+
+         kanbanBoardEl.addEventListener('click', (e) => {
+            // NOWY WARUNEK: Jeśli kliknięcie pochodzi z listy "Mój dzień", ignoruj je,
+            // ponieważ ma ono swój własny, dedykowany listener.
+            if (e.target.closest('.my-day-list')) {
+                return;
+            }
+
+            // === NOWA LOGIKA: Sprawdzenie triggerów podzadań ===
+            
+            // 1. Sprawdź kliknięcie na IKONĘ rozwijania podzadań
+            const subtaskToggleBtn = e.target.closest('.js-toggle-subtasks');
+            if (subtaskToggleBtn) {
+                e.preventDefault(); // Zapobiegaj bąbelkowaniu
+                e.stopPropagation();
+                const taskCard = subtaskToggleBtn.closest('.task-card');
+                if (taskCard) {
+                    const subtaskContainer = taskCard.querySelector('.kanban-subtask-list-container');
+                    if (subtaskContainer) {
+                        subtaskContainer.classList.toggle('collapsed');
+                    }
+                }
+                return; // Zakończ
+            }
+
+            // 2. Sprawdź kliknięcie na CHECKBOX podzadania (wewnątrz rozwiniętej listy)
+            const subtaskCheckbox = e.target.closest('.kanban-subtask-checkbox');
+            if (subtaskCheckbox) {
+                e.stopPropagation(); // Tylko zatrzymaj bąbelkowanie
+                const mainTaskId = subtaskCheckbox.closest('.task-card').dataset.taskId;
+                if (mainTaskId) {
+                    // Używamy funkcji zaimplementowanej w poprzednim kroku
+                    // Przekazujemy sam element checkboxa i ID zadania-rodzica
+                    handleSubtaskToggle(subtaskCheckbox, mainTaskId);
+                }
+                return; // Zakończ
+            }
+            
+            // === KONIEC NOWEJ LOGIKI ===
+            
+            // === NOWA LOGIKA DLA DZWONKA ===
+            // 3. Sprawdź kliknięcie na DZWONEK subskrypcji
+            const bellBtn = e.target.closest('.task-subscription-bell');
+            if (bellBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const taskId = bellBtn.dataset.taskId;
+                const projectId = bellBtn.closest('.task-card').dataset.projectId || state.currentProjectId;
+                handleTaskSubscription(taskId, projectId, bellBtn); // Przekazujemy element przycisku
+                return; // Zakończ
+            }
+            // === KONIEC NOWEJ LOGIKI ===
+
+
+            // 4. Sprawdź kliknięcie na GŁÓWNY checkbox zadania
+            if (e.target.matches('.task-card-checkbox')) {
+                handleTaskCheckboxClick(e.target, e);
+                return;
+            }
+            
+            // 5. Sprawdź kliknięcie na kafelek Sondażu
+            const pollCard = e.target.closest('.poll-card');
+            if (pollCard) {
+                const pollId = pollCard.dataset.pollId;
+                if (pollId) {
+                    openPollDetailsModal(pollId); 
+                }
+                return; 
+            }
+
+            // 6. Sprawdź kliknięcie na kafelek Zadania (aby otworzyć modal)
+            const taskItem = e.target.closest('.task-card'); // .task-card (bez .poll-card)
+            if (taskItem) {
+                openTaskModal(taskItem.dataset.taskId);
+                return;
+            }
+            
+            // 7. Pozostałe kliknięcia (dodawanie zadania, nawigacja)
             if (e.target.closest('.add-task-icon-btn')) {
                 // === POPRAWKA TUTAJ ===
                 // Zmieniono wywołanie z 'openNewTaskModal(false)' na 'openNewTaskModal({})'
@@ -16244,6 +16492,113 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  }
              }, true);
         }
+       /**
+         * NOWA FUNKCJA
+         * Obsługuje włączanie/wyłączanie subskrypcji powiadomień o ukończeniu zadania.
+         * @param {string} taskId - ID zadania
+         * @param {string} projectId - ID projektu nadrzędnego
+         * @param {HTMLElement} bellElement - Kliknięty element dzwonka (dla animacji)
+         */
+        async function handleTaskSubscription(taskId, projectId, bellElement) {
+            const { task, project } = findTask(taskId);
+            if (!task || !project) {
+                console.error("Nie znaleziono zadania lub projektu do subskrypcji.");
+                return;
+            }
+            
+            const currentUserId = state.currentUser.uid;
+            const subscribers = task.subscribers || [];
+            let updatedSubscribers;
+            let isSubscribing = false; // Czy użytkownik włącza dzwonek?
+
+            if (subscribers.includes(currentUserId)) {
+                // Użytkownik już subskrybuje -> Anuluj subskrypcję
+                updatedSubscribers = subscribers.filter(id => id !== currentUserId);
+            } else {
+                // Użytkownik nie subskrybuje -> Dodaj subskrypcję
+                updatedSubscribers = [...subscribers, currentUserId];
+                isSubscribing = true;
+            }
+
+            // Natychmiastowa wizualna informacja zwrotna (animacja "glow")
+            if (isSubscribing) {
+                bellElement.classList.add('subscribed'); // CSS zajmie się animacją
+            } else {
+                bellElement.classList.remove('subscribed');
+            }
+
+            try {
+                // Zaktualizuj zadanie w bazie danych
+                const updatedTask = { ...task, subscribers: updatedSubscribers };
+                const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+
+                // Określ, w której kolekcji jest projekt
+                const projectDocRef = findProject(project.id) 
+                    ? doc(projectsRef, project.id) 
+                    : doc(completedProjectsRef, project.id);
+                
+                await updateDoc(projectDocRef, { tasks: updatedTasks });
+                
+            } catch (error) {
+                console.error("Błąd podczas aktualizacji subskrypcji zadania:", error);
+                showNotification("Błąd zapisu subskrypcji.", "Błąd");
+                // Cofnij zmianę wizualną w razie błędu
+                bellElement.classList.toggle('subscribed', !isSubscribing);
+            }
+            
+            // Uwaga: Nie wywołujemy render(), ponieważ onSnapshot sam zaktualizuje widok.
+            // Natychmiastowa zmiana klasy (powyżej) zapewnia płynne odczucie.
+        }
+       /**
+         * NOWA FUNKCJA
+         * Wysyła powiadomienia do wszystkich subskrybentów danego zadania.
+         * @param {object} task - Obiekt ukończonego zadania.
+         * @param {object} project - Obiekt projektu nadrzędnego.
+         */
+        async function sendCompletionNotifications(task, project) {
+            if (!task.subscribers || task.subscribers.length === 0) {
+                return; // Brak subskrybentów, zakończ
+            }
+
+            const completerUser = findUser(state.currentUser.uid); // Kto ukończył zadanie
+            const completerName = completerUser ? (completerUser.name || completerUser.email) : 'Ktoś';
+
+            // Filtruj listę subskrybentów:
+            // 1. Usuń osobę, która właśnie ukończyła zadanie (żeby nie dostała powiadomienia od samej siebie)
+            const subscribersToNotify = task.subscribers.filter(id => id !== state.currentUser.uid);
+
+            if (subscribersToNotify.length === 0) {
+                return; // Nikt do powiadomienia
+            }
+
+            console.log(`Wysyłanie ${subscribersToNotify.length} powiadomień o ukończeniu zadania: ${task.title}`);
+
+            try {
+                const batch = writeBatch(db);
+                const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+                
+                subscribersToNotify.forEach(userId => {
+                    const notification = {
+                        userId: userId, // ID odbiorcy
+                        creatorId: state.currentUser.uid, // ID osoby, która ukończyła zadanie
+                        type: 'task_completed', // NOWY TYP
+                        message: `Zadanie "<strong>${task.title}</strong>", które obserwujesz, zostało ukończone przez <strong>${completerName}</strong>.`,
+                        isRead: false,
+                        timestamp: Date.now(),
+                        groupId: project.groupId, // ID grupy z projektu
+                        link: { type: 'task', projectId: project.id, taskId: task.id }
+                    };
+                    const newNotifRef = doc(notificationsRef);
+                    batch.set(newNotifRef, notification);
+                });
+                
+                await batch.commit();
+
+            } catch (error) {
+                console.error("Błąd podczas wysyłania powiadomień o ukończeniu zadania:", error);
+                // Nie pokazujemy błędu użytkownikowi, tylko logujemy w konsoli
+            }
+        }
         /**
          * NOWA FUNKCJA: Sprawdza, czy wszystkie podzadania użytkownika są ukończone 
          * i jeśli tak, automatycznie oznacza jego część jako 'done' w zadaniu głównym.
@@ -17669,6 +18024,7 @@ function addAiChatMessage(text, type, id = null) {
     </div>
 </body>
 </html>
+
 
 
 
