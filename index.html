@@ -661,7 +661,11 @@
             position: relative;
         }
         .header-btn.has-notifications {
-            color: #f59e0b; /* Żółty kolor dla dzwonka */
+            color: var(--accent-primary) !important; /* Wymuś niebieski kolor ikony */
+        }
+        /* === NOWA REGUŁA: Kolor ikony czatu z nowymi wiadomościami === */
+        .header-btn.has-unread {
+            color: var(--accent-primary) !important; /* Wymuś niebieski kolor ikony */
         }
         .notification-badge {
             position: absolute;
@@ -4854,6 +4858,7 @@
                     <circle cx="12" cy="11" r="0.9" fill="currentColor"/>
                     <circle cx="15" cy="11" r="0.9" fill="currentColor"/>
                 </svg>
+                <span class="notification-badge" style="display: none;"></span>
             </button>
             <button id="mobile-project-actions-toggle" class="header-btn" title="Akcje projektu" style="display: none;">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 24px; height: 24px;">
@@ -4973,6 +4978,7 @@
                             <circle cx="12" cy="11" r="0.9" fill="currentColor"/>
                             <circle cx="15" cy="11" r="0.9" fill="currentColor"/>
                         </svg>
+                        <span class="notification-badge" style="display: none;"></span>
                     </button>
                     <div class="theme-switcher" id="desktop-theme-switcher">
                         <button id="theme-light" title="Tryb Jasny">
@@ -7819,7 +7825,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             if (fabMenuToggle) fabMenuToggle.style.display = shouldShowFabs ? 'block' : 'none'; // <-- POPRAWKA TUTAJ
             if (fabAddSpecialTask) fabAddSpecialTask.style.display = shouldShowFabs ? 'block' : 'none'; // <-- TA LINIA POZOSTAJE BEZ ZMIAN
 
-            / === NOWA LOGIKA WIDOCZNOŚCI IKON CZATU ===
+            // === NOWA LOGIKA WIDOCZNOŚCI IKON CZATU ===
             // Sprawdź, czy bieżący projekt to "Skrzynka zadań" (Inbox)
             let currentProject = null;
             if (isProjectView) {
@@ -9772,6 +9778,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             if (!projectId) {
                 console.log("Chat Listener: Brak ID projektu, czyszczenie.");
                 renderChatMessages([]); // Wyczyść okno czatu
+                updateChatBadge(0); // Upewnij się, że badge jest wyczyszczony
                 return;
             }
 
@@ -9788,10 +9795,29 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             state.ui.unsubscribeChatMessages = onSnapshot(q, (snapshot) => {
                 // Odwracamy tablicę, aby najnowsze były na dole (dla column-reverse)
                 const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).reverse();
+                
+                // 1. Zawsze renderuj wiadomości w (potencjalnie ukrytym) panelu
                 renderChatMessages(messages);
+
+                // 2. Pobierz czas ostatniego odczytu dla tego czatu
+                // Używamy state.currentUser, który jest aktualizowany przez własny listener
+                const lastViewed = (state.currentUser.chatLastViewed && state.currentUser.chatLastViewed[projectId]) 
+                                   ? state.currentUser.chatLastViewed[projectId] 
+                                   : 0;
+
+                // 3. Policz nieprzeczytane wiadomości (nowsze niż 'lastViewed' i nie moje)
+                const unreadCount = messages.filter(m => 
+                    m.timestamp > lastViewed && 
+                    m.senderId !== state.currentUser.uid // Nie licz moich własnych wiadomości
+                ).length;
+
+                // 4. Zaktualizuj UI (badge i kolor ikony)
+                updateChatBadge(unreadCount);
+
             }, (error) => {
                 console.error(`Błąd listenera czatu dla projektu ${projectId}:`, error);
                 renderChatMessages([]); // Wyczyść w razie błędu
+                updateChatBadge(0); // Wyczyść badge w razie błędu
             });
         }
         // === KONIEC NOWYCH FUNKCJI CZATU ===
@@ -12286,6 +12312,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             }
         });
         
+        
         // --- NOWA LOGIKA: Ustawienie `state.currentUser` ---
         state.currentUser = {
             id: user.uid,
@@ -12303,7 +12330,9 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             layouts: { 
                 dashboard: userDashboardLayout,
                 allProjects: userData.layouts?.allProjects || []
-            }
+            },
+            // === NOWE POLE: Mapa czasów ostatniego odczytu czatu ===
+            chatLastViewed: userData.chatLastViewed || {}
         };
         
         // --- NOWA LOGIKA: Ustalenie aktywnej grupy ---
@@ -12324,6 +12353,25 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         state.currentProjectId = null;
         
         userEmailDisplay.textContent = state.currentUser.email;
+        // === NOWY LISTENER: Stałe nasłuchiwanie na DOKUMENT UŻYTKOWNIKA ===
+        // To jest kluczowe, aby zmiany w 'chatLastViewed' odświeżały stan.
+        if (state.ui.unsubscribeUserDoc) state.ui.unsubscribeUserDoc(); // Wyczyść stary, jeśli istnieje
+        state.ui.unsubscribeUserDoc = onSnapshot(userDocRef, (doc) => {
+            const updatedData = doc.data();
+            if (updatedData) {
+                console.log("[Listener Użytkownika] Wykryto zmiany w dokumencie użytkownika.");
+                // Aktualizuj tylko te pola w stanie, które mogły się zmienić dynamicznie
+                state.currentUser.chatLastViewed = updatedData.chatLastViewed || {};
+                state.currentUser.favorites = updatedData.favorites || [];
+                state.currentUser.layouts = updatedData.layouts || state.currentUser.layouts;
+                state.currentUser.name = updatedData.name;
+                state.currentUser.photoURL = updatedData.photoURL;
+                
+                // Przerenderuj aplikację, aby odświeżyć UI (np. badge czatu)
+                render(); 
+            }
+        });
+        // === KONIEC NOWEGO LISTENERA ===
         
         // Listener ZALEŻNY OD GRUPY (bez zmian)
         setupFirestoreListeners(user.uid, state.ui.activeGroupId); 
@@ -15373,6 +15421,42 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         // === NOWE LISTENERY DLA PANELU CZATU ===
         const toggleChatPanel = () => {
             if (projectChatPanel) {
+                
+                // === NOWA LOGIKA: OZNACZANIA JAKO PRZECZYTANE ===
+                const panelWillOpen = !projectChatPanel.classList.contains('open');
+                const projectId = state.currentProjectId;
+                const user = state.currentUser;
+
+                // Jeśli panel jest OTWIERANY i mamy ID projektu i użytkownika
+                if (panelWillOpen && projectId && user) {
+                    const lastViewed = (user.chatLastViewed && user.chatLastViewed[projectId]) || 0;
+                    const now = Date.now();
+
+                    // Aktualizuj timestamp tylko jeśli faktycznie są nowe wiadomości
+                    // lub jeśli ostatni odczyt był dawno (np. > 10 sekund temu), 
+                    // aby uniknąć wielu zapisów do bazy przy szybkim klikaniu.
+                    if (now - lastViewed > 10000) { 
+                        
+                        // 1. Aktualizacja optymistyczna (natychmiastowe UI)
+                        if (state.currentUser.chatLastViewed) {
+                            state.currentUser.chatLastViewed[projectId] = now;
+                        } else {
+                            state.currentUser.chatLastViewed = { [projectId]: now };
+                        }
+                        updateChatBadge(0); // Natychmiast ukryj badge
+
+                        // 2. Zapis w tle do Firestore
+                        const userRef = doc(usersRef, user.uid);
+                        // Używamy notacji kropkowej do aktualizacji pola w mapie
+                        updateDoc(userRef, {
+                            [`chatLastViewed.${projectId}`]: now
+                        }).catch(err => {
+                            console.error("Błąd zapisu 'chatLastViewed':", err);
+                        });
+                    }
+                }
+                // === KONIEC NOWEJ LOGIKI ===
+                
                 projectChatPanel.classList.toggle('open');
             }
         };
@@ -15467,7 +15551,34 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             });
         }
         // === KONIEC NOWEJ LOGIKI WYSYŁANIA ===
+        /**
+         * NOWA FUNKCJA
+         * Aktualizuje wygląd ikon czatu (desktop i mobile) na podstawie liczby nieprzeczytanych wiadomości.
+         * @param {number} count - Liczba nieprzeczytanych wiadomości.
+         */
+        function updateChatBadge(count) {
+            // Znajdź oba przyciski czatu
+            const buttons = [
+                document.getElementById('toggle-chat-btn'),
+                document.getElementById('toggle-chat-btn-mobile')
+            ];
 
+            buttons.forEach(btn => {
+                if (!btn) return;
+                
+                const badge = btn.querySelector('.notification-badge');
+                if (!badge) return;
+
+                if (count > 0) {
+                    badge.textContent = count > 9 ? '9+' : count;
+                    badge.style.display = 'flex';
+                    btn.classList.add('has-unread'); // Dodaje klasę do pokolorowania ikony
+                } else {
+                    badge.style.display = 'none';
+                    btn.classList.remove('has-unread'); // Usuwa kolor
+                }
+            });
+        }
         // ZMODYFIKOWANY LISTENER: Przycisk "Nowy sondaż" (zielony) wewnątrz menu
         fabActionNewPoll.addEventListener('click', () => {
             // Wywołuje nową funkcję otwierającą modal sondażu
@@ -19271,6 +19382,7 @@ function addAiChatMessage(text, type, id = null) {
         </div>
 </body>
 </html>
+
 
 
 
