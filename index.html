@@ -6431,7 +6431,7 @@ let state = {
                 events: [],
                 editable: false,
                 eventClick: function(info) {
-                    openTaskModal(info.event.id);
+                    checkAndOpenTaskModal(info.event.id);
                 },
                 // ================== NOWY HOOK ==================
                 eventDidMount: function(info) {
@@ -6687,7 +6687,7 @@ let state = {
   } else if (e.target.closest('a[data-project-id]')) {
       handleProjectLinkClick(e);
   } else {
-      openTaskModal(taskItem.dataset.taskId);
+      checkAndOpenTaskModal(taskItem.dataset.taskId);
   }
 }
         function showConfirmation(title, message, callback, danger = false) {
@@ -6893,6 +6893,61 @@ let state = {
             // 4. Nie jest zablokowane, jeśli zadanie blokujące jest 'done'
             // LUB jeśli zadanie blokujące nie zostało znalezione (traktujemy jako "osierocone" powiązanie)
             return { blocked: false, taskName: null };
+        }
+       /**
+         * NOWA FUNKCJA POMOCNICZA: Sprawdza uprawnienia do wyświetlenia szczegółów zadania.
+         * @param {object} task - Obiekt zadania.
+         * @param {object} project - Obiekt projektu.
+         * @param {string} userId - ID bieżącego użytkownika.
+         * @returns {boolean} - True, jeśli użytkownik może zobaczyć szczegóły.
+         */
+        function canUserViewTaskDetails(task, project, userId) {
+            if (!task || !project || !userId) {
+                console.warn("canUserViewTaskDetails: Brak zadania, projektu lub userId.");
+                return false; // Domyślnie zablokuj, jeśli brakuje danych
+            }
+
+            // 1. Właściciel projektu może zobaczyć wszystko
+            if (project.ownerId === userId) {
+                return true;
+            }
+
+            // 2. Użytkownik jest przypisany (pojedynczo lub w multi)
+            if (task.assignees && task.assignees.includes(userId)) {
+                return true;
+            }
+
+            // 3. Użytkownik jest twórcą zadania
+            if (task.createdBy === userId) {
+                return true;
+            }
+
+            // 4. W pozostałych przypadkach - zablokuj
+            return false;
+        }
+       /**
+         * NOWA FUNKCJA - BRAMKA KONTROLI DOSTĘPU
+         * Sprawdza uprawnienia przed otwarciem modala zadania.
+         */
+        function checkAndOpenTaskModal(taskId) {
+            const { task, project } = findTask(taskId);
+            
+            if (!task || !project) {
+                console.error(`checkAndOpenTaskModal: Nie znaleziono zadania lub projektu dla ID: ${taskId}`);
+                return; // Nie otwieraj, jeśli nie znaleziono
+            }
+
+            // Wywołaj nową funkcję sprawdzającą
+            if (canUserViewTaskDetails(task, project, state.currentUser.uid)) {
+                // Uprawnienia przyznane: otwórz modal
+                openTaskModal(taskId);
+            } else {
+                // Brak uprawnień: pokaż powiadomienie
+                showNotification(
+                    "To zadanie jest przypisane do innego użytkownika. Nie możesz zobaczyć jego szczegółów.",
+                    "Dostęp Zablokowany"
+                );
+            }
         }
         function getAllMyTasks() {
             const allProjects = [...state.projects, ...state.completedProjects];
@@ -8006,7 +8061,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     closeModal(dashboardDetailsModal.overlay);
                     // Otwórz modal zadania z opóźnieniem dla płynności przejścia
                     setTimeout(() => {
-                        openTaskModal(taskId);
+                        checkAndOpenTaskModal(taskId);
                     }, 150); // Małe opóźnienie
                 }
             // +++ POCZĄTEK DODANEGO KODU (Krok 7) +++
@@ -14490,7 +14545,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // Otwórz modal klikniętego zadania
             // Używamy setTimeout, aby uniknąć "przeskoku" tła modala
             setTimeout(() => {
-                openTaskModal(taskId);
+                checkAndOpenTaskModal(taskId);
             }, 150); // Małe opóźnienie dla płynnego przejścia
         }
     });
@@ -15165,7 +15220,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // 7. Sprawdź kliknięcie na kafelek Zadania (aby otworzyć modal)
             const taskItem = e.target.closest('.task-card'); // .task-card (bez .poll-card)
             if (taskItem) {
-                openTaskModal(taskItem.dataset.taskId);
+                checkAndOpenTaskModal(taskItem.dataset.taskId);
                 return;
             }
             
@@ -15394,7 +15449,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             if (e.target.closest('.overdue-item-title')) {
                 const item = e.target.closest('.overdue-item');
                 if (item && item.dataset.taskId) {
-                    openTaskModal(item.dataset.taskId);
+                    checkAndOpenTaskModal(item.dataset.taskId);
                 }
             } 
             */
@@ -15406,7 +15461,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                      // Zamykamy modal i otwieramy zadanie
                      closeModal(dashboardDetailsModal.overlay);
                      setTimeout(() => {
-                         openTaskModal(item.dataset.taskId);
+                         checkAndOpenTaskModal(taskIdToOpen);
                      }, 150);
                 }
             }
@@ -16182,7 +16237,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 saveUiState();
                 render();
                 closeModal(searchModal.overlay);
-                openTaskModal(item.dataset.taskId);
+                checkAndOpenTaskModal(item.dataset.taskId);
             }
         });
 
@@ -16403,7 +16458,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         document.getElementById('mobile-calendar-task-list')?.addEventListener('click', (e) => {
             const taskItem = e.target.closest('.mobile-calendar-task-item');
             if (taskItem && taskItem.dataset.taskId) {
-                openTaskModal(taskItem.dataset.taskId);
+                checkAndOpenTaskModal(taskItem.dataset.taskId);
             }
         });
        /**
@@ -19386,6 +19441,7 @@ function addAiChatMessage(text, type, id = null) {
         </div>
 </body>
 </html>
+
 
 
 
