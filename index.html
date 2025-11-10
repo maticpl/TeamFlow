@@ -4194,6 +4194,103 @@
         }
         
         /* === KONIEC NOWYCH STYLI === */
+        /* === NOWE STYLE: TRYB ZAZNACZANIA WIELOKROTNEGO === */
+
+        /* 1. Przycisk "Zaznacz" (używa stylów .sort-btn) */
+        #select-mode-toggle-btn {
+            /* Domyślnie używa stylów .sort-btn (szara ramka) */
+        }
+
+        /* 2. Przycisk w stanie aktywnym ("Anuluj") */
+        #select-mode-toggle-btn.active {
+            border-color: var(--accent-primary);
+            background-color: var(--accent-primary);
+            color: var(--text-on-accent);
+        }
+
+        /* 3. Pasek akcji masowych */
+        #bulk-action-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 24px;
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow-md);
+            margin-bottom: 16px; /* Odstęp od tablicy kanban */
+            z-index: 10; /* Na wierzchu */
+
+            /* Animacja pojawiania się */
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+        }
+        #bulk-action-bar.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        #bulk-action-count {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .bulk-action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* 4. Stan "Wyszarzenia" (karta nie do zaznaczenia) */
+        .main-content.select-mode-active .task-card.non-selectable {
+            opacity: 0.5;
+            pointer-events: none; /* Blokuje hover i click */
+        }
+
+        /* 5. Stan "Mgły" (karta do zaznaczenia, po najechaniu) */
+        .main-content.select-mode-active .task-card.selectable:not(.selected) {
+            cursor: pointer;
+            transition: transform 0.15s ease-out;
+        }
+        .main-content.select-mode-active .task-card.selectable:not(.selected):hover {
+            transform: translateY(-2px); /* Lekkie uniesienie */
+        }
+
+        /* Pseudo-element "Mgła" */
+        .main-content.select-mode-active .task-card.selectable:hover::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.4);
+            border-radius: var(--border-radius);
+            z-index: 4;
+            transition: opacity 0.15s;
+        }
+        
+        /* Pseudo-element "Napis Zaznacz" */
+        .main-content.select-mode-active .task-card.selectable:hover::after {
+            content: 'Zaznacz';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-weight: 600;
+            font-size: 16px;
+            z-index: 5;
+            pointer-events: none; /* Napis nie blokuje kliknięcia */
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+
+        /* 6. Stan "Zaznaczenia" (grafika/animacja po kliknięciu) */
+        .main-content.select-mode-active .task-card.selected {
+            /* Używamy mocnego cienia akcentującego jako obramowania */
+            box-shadow: 0 0 0 3px var(--accent-primary), var(--shadow-md);
+            transform: scale(1.02); /* Lekkie powiększenie */
+        }
+        /* === KONIEC NOWYCH STYLI === */
     </style>
 
 </head>
@@ -4666,6 +4763,12 @@
                             </svg>
                             <span>Edytuj układ</span>
                         </button>
+                        <button class="sort-btn" id="select-mode-toggle-btn" style="display: none;" title="Zaznacz wiele zadań">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                            </svg>
+                            <span>Zaznacz</span>
+                        </button>
                          <button class="sort-btn" id="filter-btn" style="display: none;" title="Filtrowanie zadań">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M3 4h18L13 12v6l-2 1v-7L3 4z"/>
@@ -4703,7 +4806,12 @@
                     </div>
                 </div>
             </header>
-
+            <div id="bulk-action-bar" style="display: none;">
+                <span id="bulk-action-count">Zaznaczono: 0</span>
+                <div class="bulk-action-buttons">
+                    <button id="bulk-delete-btn" class="btn btn-danger" style="padding: 6px 12px; font-size: 13px;">Usuń zaznaczone</button>
+                    </div>
+            </div>
             <section class="kanban-board" id="kanban-board">
             </section>
 
@@ -5620,6 +5728,10 @@ let state = {
                     budgetStatus: '',
                     showPolls: true 
                 },
+                // === NOWE ZMIENNE STANU DLA ZAZNACZANIA ===
+                isSelectModeActive: false,
+                selectedTaskIds: [],
+                // === KONIEC ===
                 // === ZMIANA: Słuchacze pozostają, ale będą dynamicznie zarządzane ===
                 unsubscribeProjects: null,
                 unsubscribeCompleted: null,
@@ -5894,6 +6006,13 @@ let state = {
             submitBtn: document.querySelector('#transfer-ownership-form button[type="submit"]')
         };
         // === KONIEC NOWEJ REFERENCJI ===
+       // === NOWE REFERENCJE DLA TRYBU ZAZNACZANIA ===
+        const selectModeToggleBtn = document.getElementById('select-mode-toggle-btn');
+        const bulkActionBar = document.getElementById('bulk-action-bar');
+        const bulkActionCount = document.getElementById('bulk-action-count');
+        const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+        const mainContentEl = document.querySelector('.main-content'); // Potrzebne do dodania klasy globalnej
+        // === KONIEC ===
 
         // === NOWE REFERENCJE DLA MODALI SZABLONÓW ===
         // ZMIANA: Usunięto referencję do 'openTemplatesBtn'.
@@ -9348,7 +9467,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // 3. MODYFIKACJA: Dodajemy kontener na podzadania na końcu <li>
             // ORAZ ZMIENIONY return dla okładki
-            return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass} ${coverImageClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}">
+            return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass} ${coverImageClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}">
                 ${coverImageHTML}
                 <div class="task-card-icons">${iconsHTML}</div>
                 <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isInteractive ? '' : 'disabled'} ${shouldBeDisabled ? 'disabled' : ''} ${tooltipText}>
@@ -14561,6 +14680,39 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
 
          kanbanBoardEl.addEventListener('click', (e) => {
+            // === NOWA LOGIKA: PRZECHWYCENIE KLIKNIĘĆ W TRYBIE ZAZNACZANIA ===
+            if (state.ui.isSelectModeActive) {
+                const selectableCard = e.target.closest('.task-card.selectable');
+                
+                // Jeśli kliknięto gdziekolwiek na karcie, którą można zaznaczyć
+                if (selectableCard) {
+                    e.preventDefault(); // Zatrzymaj domyślną akcję (np. otwarcie modala)
+                    e.stopPropagation(); // Zatrzymaj bąbelkowanie
+                    
+                    const taskId = selectableCard.dataset.taskId;
+                    if (!taskId) return;
+
+                    // Przełącz zaznaczenie
+                    selectableCard.classList.toggle('selected');
+                    
+                    // Zaktualizuj tablicę stanów
+                    if (state.ui.selectedTaskIds.includes(taskId)) {
+                        state.ui.selectedTaskIds = state.ui.selectedTaskIds.filter(id => id !== taskId);
+                    } else {
+                        state.ui.selectedTaskIds.push(taskId);
+                    }
+                    
+                    // Zaktualizuj pasek akcji
+                    updateBulkActionBar();
+                }
+                
+                // Niezależnie od tego, co kliknięto (nawet tło), zatrzymaj dalsze
+                // wykonywanie tego listenera, gdy jesteśmy w trybie zaznaczania.
+                return; 
+            }
+            // === KONIEC NOWEJ LOGIKI ===
+
+
             // NOWY WARUNEK: Jeśli kliknięcie pochodzi z listy "Mój dzień", ignoruj je,
             // ponieważ ma ono swój własny, dedykowany listener.
             if (e.target.closest('.my-day-list')) {
@@ -15739,6 +15891,99 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 openTaskModal(taskItem.dataset.taskId);
             }
         });
+       /**
+         * Aktualizuje widoczność i zawartość Paska Akcji Masowych.
+         */
+        function updateBulkActionBar() {
+            const count = state.ui.selectedTaskIds.length;
+            
+            if (count > 0) {
+                bulkActionCount.textContent = `Zaznaczono: ${count}`;
+                bulkActionBar.style.display = 'flex'; // Pokaż pasek
+                // Używamy opóźnienia, aby animacja CSS zadziałała po ustawieniu display
+                setTimeout(() => bulkActionBar.classList.add('visible'), 10); 
+            } else {
+                bulkActionBar.classList.remove('visible');
+                // Ukryj pasek po zakończeniu animacji
+                setTimeout(() => bulkActionBar.style.display = 'none', 200); 
+            }
+        }
+
+        /**
+         * Włącza lub wyłącza "Tryb Zaznaczania".
+         */
+        function toggleSelectMode() {
+            state.ui.isSelectModeActive = !state.ui.isSelectModeActive;
+            const isActive = state.ui.isSelectModeActive;
+
+            if (isActive) {
+                // --- Wchodzimy w tryb zaznaczania ---
+                selectModeToggleBtn.classList.add('active');
+                selectModeToggleBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                    <span>Anuluj</span>`;
+                mainContentEl.classList.add('select-mode-active');
+
+                const currentUserId = state.currentUser.uid;
+                
+                // Iterujemy po wszystkich kartach na widoku (Kanban, Mój Dzień itp.)
+                document.querySelectorAll('.task-card').forEach(card => {
+                    if (card.dataset.creatorId === currentUserId) {
+                        card.classList.add('selectable');
+                    } else {
+                        card.classList.add('non-selectable');
+                    }
+                });
+
+            } else {
+                // --- Wychodzimy z trybu zaznaczania ---
+                selectModeToggleBtn.classList.remove('active');
+                selectModeToggleBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                    <span>Zaznacz</span>`;
+                mainContentEl.classList.remove('select-mode-active');
+
+                // Wyczyść stan
+                state.ui.selectedTaskIds = [];
+                
+                // Wyczyść wszystkie klasy pomocnicze z kart
+                document.querySelectorAll('.task-card').forEach(card => {
+                    card.classList.remove('selectable', 'non-selectable', 'selected');
+                });
+                
+                updateBulkActionBar(); // Ukryje pasek
+            }
+        }
+
+        // Listener dla głównego przycisku "Zaznacz"
+        if (selectModeToggleBtn) {
+            selectModeToggleBtn.addEventListener('click', toggleSelectMode);
+        }
+
+        // Listener dla przycisku "Usuń zaznaczone" na pasku akcji
+        if (bulkDeleteBtn) {
+            bulkDeleteBtn.addEventListener('click', () => {
+                const count = state.ui.selectedTaskIds.length;
+                if (count === 0) return;
+
+                showConfirmation(
+                    `Potwierdź usunięcie`,
+                    `Czy na pewno chcesz usunąć ${count} zaznaczone zadania? Tej operacji nie można cofnąć.`,
+                    async (confirmed) => {
+                        if (confirmed) {
+                            // (Logika usuwania wsadowego zostanie dodana w przyszłości)
+                            // Na razie tylko symulujemy sukces
+                            console.log("Usuwanie zadań:", state.ui.selectedTaskIds);
+                            showNotification(`Usunięto ${count} zadań. (Logika w trakcie implementacji)`, "Sukces");
+                            // Wyjdź z trybu zaznaczania po akcji
+                            toggleSelectMode();
+                        }
+                    },
+                    true // Użyj czerwonego przycisku
+                );
+            });
+        }
+        // === KONIEC NOWEJ LOGIKI ===
         // --- CZĘŚĆ 1: Logika otwierania okienek ---
 
 // Ten listener "nasłuchuje" na kliknięcie ikony zębatki w stopce.
@@ -18409,6 +18654,7 @@ function addAiChatMessage(text, type, id = null) {
         </svg>
 </body>
 </html>
+
 
 
 
