@@ -4141,6 +4141,55 @@
             }
         }
         /* === KONIEC NOWYCH STYLI === */
+        /* === POCZĄTEK: NOWE STYLE DLA IKONY POWIĄZANIA (ŁAŃCUCH) === */
+        
+        /* 1. Styl przycisku (wrapperka) dla łańcucha */
+        .task-link-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 2px 4px 0px 4px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: 4px;
+            opacity: 0.6; /* Domyślnie lekko wygaszony */
+            transition: opacity 0.2s, transform 0.2s, color 0.2s;
+        }
+
+        /* 2. Styl samego SVG (domyślnie szary) */
+        .task-link-btn svg {
+            width: 16px;
+            height: 16px;
+            color: var(--text-secondary); /* Domyślny kolor (szary) */
+            transition: all 0.2s ease-out;
+        }
+        
+        /* 3. Efekt hover na przycisku (zwiększamy widoczność) */
+        .task-card:hover .task-link-btn {
+             opacity: 1;
+        }
+        .task-link-btn:hover svg {
+            transform: scale(1.1);
+        }
+
+        /* 4. Styl dla AKTYWNEGO powiązania (niebieski) */
+        .task-link-btn.linked {
+            opacity: 1; /* Zawsze w pełni widoczny, jeśli aktywny */
+        }
+        
+        .task-link-btn.linked svg {
+            color: var(--accent-primary); /* Niebieska ramka */
+        }
+        
+        /* 5. Styl dla zepsutego powiązania (jeśli zadanie blokujące nie istnieje) */
+        .task-link-btn.broken svg {
+            color: var(--danger-primary); /* Czerwony */
+            opacity: 0.8;
+        }
+        
+        /* === KONIEC NOWYCH STYLI === */
     </style>
 
 </head>
@@ -6429,7 +6478,8 @@ let state = {
                 });
             }
             // === KONIEC NOWEJ LOGIKI ===
-
+            // NOWA LINIA: Inicjalizacja zależności
+            if (task.blockingTaskId === undefined) task.blockingTaskId = null;
             return task;
         }
 
@@ -6460,7 +6510,31 @@ let state = {
                 project: null
             };
         };
+        /**
+         * NOWA FUNKCJA: Sprawdza, czy zadanie jest zablokowane przez inne.
+         * @param {object} task - Obiekt zadania do sprawdzenia.
+         * @returns {object} - { blocked: boolean, taskName: string | null }
+         */
+        function isTaskBlocked(task) {
+            const blockingTaskId = task.blockingTaskId;
 
+            // 1. Nie jest zablokowane, jeśli nie ma ID blokującego
+            if (!blockingTaskId) {
+                return { blocked: false, taskName: null };
+            }
+
+            // 2. Znajdź zadanie blokujące
+            const { task: blockingTask } = findTask(blockingTaskId);
+
+            // 3. Zablokowane, jeśli zadanie blokujące istnieje I NIE jest 'done'
+            if (blockingTask && blockingTask.status !== 'done') {
+                return { blocked: true, taskName: blockingTask.title };
+            }
+
+            // 4. Nie jest zablokowane, jeśli zadanie blokujące jest 'done'
+            // LUB jeśli zadanie blokujące nie zostało znalezione (traktujemy jako "osierocone" powiązanie)
+            return { blocked: false, taskName: null };
+        }
         function getAllMyTasks() {
             const allProjects = [...state.projects, ...state.completedProjects];
             return allProjects.flatMap(p =>
@@ -9002,6 +9076,76 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </button>
             `;
         }
+            /**
+         * NOWA FUNKCJA POMOCNICZA
+         * Tworzy HTML dla ikony powiązania zadania (łańcucha).
+         * @param {object} task - Obiekt zadania.
+         * @returns {string} - Kod HTML dla przycisku łańcucha.
+         */
+        function createTaskLinkHTML(task) {
+            // Nie pokazuj ikony dla zadań już ukończonych
+            if (task.status === 'done') {
+                return '';
+            }
+
+            const blockingTaskId = task.blockingTaskId;
+            
+            if (blockingTaskId) {
+                // Zadanie JEST powiązane
+                const { task: blockingTask } = findTask(blockingTaskId);
+                
+                if (blockingTask) {
+                    // Znaleziono zadanie blokujące
+                    if (blockingTask.status === 'done') {
+                        // Blokujące zadanie jest ukończone, ale powiązanie wciąż istnieje
+                        // Pokaż niebieską ikonę, ale z innym tooltipem
+                        return `
+                            <button 
+                                class="task-link-btn linked" 
+                                data-action="unlink-task" 
+                                data-task-id="${task.id}" 
+                                title="Zadanie odblokowane (wykonano: '${blockingTask.title}'). Kliknij, aby usunąć powiązanie.">
+                                <svg><use href="#icon-link"></use></svg>
+                            </button>
+                        `;
+                    } else {
+                        // Zadanie blokujące jest AKTYWNE
+                        return `
+                            <button 
+                                class="task-link-btn linked" 
+                                data-action="unlink-task" 
+                                data-task-id="${task.id}" 
+                                title="Zablokowane przez: '${blockingTask.title}'. Kliknij, aby usunąć powiązanie.">
+                                <svg><use href="#icon-link"></use></svg>
+                            </button>
+                        `;
+                    }
+                } else {
+                    // Powiązanie "osierocone" (nie znaleziono zadania blokującego)
+                    return `
+                        <button 
+                            class="task-link-btn broken" 
+                            data-action="unlink-task" 
+                            data-task-id="${task.id}" 
+                            title="Błąd: Powiązane zadanie nie zostało znalezione. Kliknij, aby usunąć powiązanie.">
+                            <svg><use href="#icon-link"></use></svg>
+                        </button>
+                    `;
+                }
+            } else {
+                // Zadanie NIE JEST powiązane
+                return `
+                    <button 
+                        class="task-link-btn" 
+                        data-action="link-task" 
+                        data-task-id="${task.id}" 
+                        title="Utwórz powiązanie (zależność)">
+                        <svg><use href="#icon-link"></use></svg>
+                    </button>
+                `;
+            }
+        }
+
             function createTaskCardHTML(task, isInteractive) {
             const isCompleted = task.status === 'done';
             const priorityClass = task.priority === 'high' ? 'priority-high' : '';
@@ -9054,12 +9198,13 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const overdueClass = isOverdue ? 'overdue' : '';
             // === NOWA LINIA: Wywołanie funkcji pomocniczej ===
             const bellIconHTML = createSubscriptionBellHTML(task);
+            // === NOWA LINIA: Wywołanie funkcji pomocniczej łańcucha ===
+            const linkIconHTML = createTaskLinkHTML(task);
             // === KONIEC NOWEJ LINII ===
-           const dueDateHTML = task.dueDate ? `
+            const dueDateHTML = task.dueDate ? `
                     <div class="task-detail ${overdueClass}">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18" /></svg>
                         <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${new Date(task.dueDate).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
-                        ${bellIconHTML}
                     </div>` : '';
 
             const multiUserIcon = task.type === 'multi' ? `
@@ -9146,7 +9291,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // Składanie ikon (multiUserIcon, recurringIcon, subtaskIcon zdefiniowane wcześniej)
             // KROK 11.2: DODANIE 'effortIcon' DO LISTY
-            const iconsHTML = `${effortIcon}${multiUserIcon}${recurringIcon}${subtaskIcon}${budgetIcon}`;
+            const iconsHTML = `${effortIcon}${multiUserIcon}${recurringIcon}${subtaskIcon}${budgetIcon}${bellIconHTML}${linkIconHTML}`;
 
             // 3. MODYFIKACJA: Dodajemy kontener na podzadania na końcu <li>
             // ORAZ ZMIENIONY return dla okładki
@@ -9609,6 +9754,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 
                  if (taskModal.completed.disabled) return;
 
+                 // === NOWA BLOKADA POWIĄZANIA ===
+                 if (taskModal.completed.checked) { // Sprawdzamy tylko, jeśli użytkownik próbuje OZNACZYĆ jako 'done'
+                    const block = isTaskBlocked(currentTask);
+                    if (block.blocked) {
+                        showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
+                        taskModal.completed.checked = false; // Cofnij zmianę
+                        return; // Przerwij
+                    }
+                 }
+                 // === KONIEC NOWEJ BLOKADY ===
+
                  let updatedTask = { ...currentTask };
                  const oldStatus = updatedTask.status;
                  updatedTask.status = taskModal.completed.checked ? 'done' : 'todo';
@@ -9957,6 +10113,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const newPriority = taskModal.priority.value;
             const newEstimationValue = parseFloat(taskModal.effortInput.value);
             const newEstimation = (newEstimationValue > 0) ? newEstimationValue : null;
+
+            // === NOWA BLOKADA POWIĄZANIA ===
+            if (newStatus === 'done' && oldStatus !== 'done') { // Sprawdzamy, czy status jest ZMIENIANY na 'done'
+                const block = isTaskBlocked(task);
+                if (block.blocked) {
+                    showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
+                    taskModal.status.value = oldStatus; // Przywróć stary status w dropdownie
+                    return; // Przerwij zapis
+                }
+            }
+            // === KONIEC NOWEJ BLOKADY ===
+
             if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < newAssignees.length) {
                 showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
                 taskModal.status.value = oldStatus;
@@ -14175,6 +14343,17 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
           const { task, project } = findTask(taskId);
           if (!task || !project) return;
 
+            // === NOWA BLOKADA POWIĄZANIA ===
+            if (checkbox.checked) { // Sprawdzamy tylko, jeśli użytkownik próbuje OZNACZYĆ jako 'done'
+                const block = isTaskBlocked(task);
+                if (block.blocked) {
+                    showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
+                    checkbox.checked = false; // Cofnij zmianę
+                    return; // Przerwij
+                }
+            }
+            // === KONIEC NOWEJ BLOKADY ===
+
           let updatedTask = { ...task };
           const oldStatus = updatedTask.status;
 
@@ -14357,14 +14536,32 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
             // === KONIEC NOWEJ LOGIKI ===
 
+            // === NOWA LOGIKA DLA POWIĄZANIA (ŁAŃCUCH) ===
+            // 4. Sprawdź kliknięcie na ŁAŃCUCH powiązania
+            const linkBtn = e.target.closest('.task-link-btn');
+            if (linkBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const action = linkBtn.dataset.action;
+                const taskId = linkBtn.closest('.task-card').dataset.taskId;
 
-            // 4. Sprawdź kliknięcie na GŁÓWNY checkbox zadania
+                if (action === 'link-task') {
+                    openTaskDependencyModal(taskId);
+                } else if (action === 'unlink-task') {
+                    handleTaskUnlink(taskId);
+                }
+                return; // Zakończ
+            }
+            // === KONIEC NOWEJ LOGIKI ===
+
+
+            // 5. Sprawdź kliknięcie na GŁÓWNY checkbox zadania
             if (e.target.matches('.task-card-checkbox')) {
                 handleTaskCheckboxClick(e.target, e);
                 return;
             }
             
-            // 5. Sprawdź kliknięcie na kafelek Sondażu
+            // 6. Sprawdź kliknięcie na kafelek Sondażu
             const pollCard = e.target.closest('.poll-card');
             if (pollCard) {
                 const pollId = pollCard.dataset.pollId;
@@ -14374,14 +14571,14 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return; 
             }
 
-            // 6. Sprawdź kliknięcie na kafelek Zadania (aby otworzyć modal)
+            // 7. Sprawdź kliknięcie na kafelek Zadania (aby otworzyć modal)
             const taskItem = e.target.closest('.task-card'); // .task-card (bez .poll-card)
             if (taskItem) {
                 openTaskModal(taskItem.dataset.taskId);
                 return;
             }
             
-            // 7. Pozostałe kliknięcia (dodawanie zadania, nawigacja)
+            // 8. Pozostałe kliknięcia (dodawanie zadania, nawigacja)
             if (e.target.closest('.add-task-icon-btn')) {
                 // === POPRAWKA TUTAJ ===
                 // Zmieniono wywołanie z 'openNewTaskModal(false)' na 'openNewTaskModal({})'
@@ -14396,7 +14593,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 render();
             }
         });
-
         function renderDashboardDetailsModal(type) {
             const allMyTasks = getAllMyTasks();
             let title = '';
@@ -15288,6 +15484,18 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 render(); // Odświeża widok, cofając kartę na miejsce
                 return; // Przerywa operację
             }
+
+            // === NOWA BLOKADA POWIĄZANIA ===
+            if (task && newStatus === 'done') {
+                const block = isTaskBlocked(task);
+                if (block.blocked) {
+                    showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
+                    render(); // Odśwież widok, aby cofnąć kartę
+                    draggedTaskId = null; // Zresetuj ID
+                    return; // Przerwij
+                }
+            }
+            // === KONIEC NOWEJ BLOKADY ===
 
             // --- POCZĄTEK NOWEJ ZMIANY ---
             // Sprawdź, czy próbujesz przenieść zadanie (dowolnego typu) do 'done', a ma ono nieukończone podzadania
@@ -17203,6 +17411,144 @@ function addAiChatMessage(text, type, id = null) {
             const tabId = tabBtn.dataset.tab;
             contentContainer.querySelector(`#${tabId}`).classList.add('active');
         }); 
+       // === POCZĄTEK: NOWE FUNKCJE I LISTENERY DLA ZALEŻNOŚCI ===
+
+        /**
+         * Otwiera modal wyboru zadania blokującego.
+         */
+        function openTaskDependencyModal(dependentTaskId) {
+            const { task, project } = findTask(dependentTaskId);
+            if (!task || !project) return;
+
+            const modal = document.getElementById('task-dependency-modal');
+            const title = modal.querySelector('#task-dependency-title');
+            const intro = modal.querySelector('#task-dependency-intro');
+            const listContainer = modal.querySelector('#dependency-task-list');
+            const confirmBtn = modal.querySelector('#confirm-dependency-btn');
+
+            title.textContent = `Powiąż zadanie`;
+            intro.innerHTML = `Wybierz zadanie, które musi zostać ukończone, zanim będzie można ukończyć zadanie: "<strong>${task.title}</strong>".`;
+            
+            // Filtruj listę:
+            // 1. Musi być w tym samym projekcie
+            // 2. Nie może być samym sobą (dependentTaskId)
+            // 3. Nie może być już ukończone ('done')
+            // 4. Nie może być zadaniem, które JUŻ jest blokowane przez 'task' (aby uniknąć cyklicznych zależności)
+            const availableTasks = (project.tasks || []).filter(t => 
+                t.id !== dependentTaskId && 
+                t.status !== 'done' &&
+                t.blockingTaskId !== dependentTaskId 
+            );
+
+            if (availableTasks.length === 0) {
+                listContainer.innerHTML = '<p style="color: var(--text-secondary); padding: 10px;">Brak dostępnych zadań do powiązania w tym projekcie.</p>';
+                confirmBtn.disabled = true;
+            } else {
+                listContainer.innerHTML = availableTasks.map(t => {
+                    return `
+                        <div class="project-selection-item">
+                            <label>
+                                <input type="radio" name="blocking-task" value="${t.id}">
+                                ${t.title}
+                            </label>
+                        </div>
+                    `;
+                }).join('');
+                confirmBtn.disabled = true; // Pozostaje wyłączony, dopóki użytkownik czegoś nie wybierze
+            }
+            
+            modal.dataset.dependentTaskId = dependentTaskId; // Zapisz ID zadania, które edytujemy
+            openModal(modal);
+        }
+
+        /**
+         * Obsługuje usunięcie powiązania.
+         */
+        function handleTaskUnlink(dependentTaskId) {
+            const { task, project } = findTask(dependentTaskId);
+            if (!task || !project) return;
+
+            showConfirmation(
+                "Usuń powiązanie",
+                "Czy na pewno chcesz usunąć zależność tego zadania? Będzie można je ukończyć w dowolnym momencie.",
+                async (confirmed) => {
+                    if (confirmed) {
+                        try {
+                            const updatedTask = { ...task, blockingTaskId: null };
+                            const updatedTasks = project.tasks.map(t => t.id === dependentTaskId ? updatedTask : t);
+                            
+                            const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                            await updateDoc(projectDocRef, { tasks: updatedTasks });
+                            
+                            // Nie trzeba render(), onSnapshot to zrobi
+                            showNotification("Powiązanie zostało usunięte.", "Sukces");
+
+                        } catch (error) {
+                            console.error("Błąd podczas usuwania powiązania:", error);
+                            showNotification("Wystąpił błąd.", "Błąd");
+                        }
+                    }
+                },
+                true // Czerwony przycisk
+            );
+        }
+
+        // Listener dla modala zależności (wybór + przycisk)
+        document.getElementById('task-dependency-modal').addEventListener('click', async (e) => {
+            const confirmBtn = e.target.closest('#confirm-dependency-btn');
+            const radio = e.target.closest('input[name="blocking-task"]');
+            
+            const modal = document.getElementById('task-dependency-modal');
+            const modalConfirmBtn = modal.querySelector('#confirm-dependency-btn');
+
+            if (radio) {
+                // Użytkownik wybrał radio, włącz przycisk zapisu
+                modalConfirmBtn.disabled = false;
+            }
+            
+            if (confirmBtn && !confirmBtn.disabled) {
+                // Użytkownik kliknął "Utwórz powiązanie"
+                const dependentTaskId = modal.dataset.dependentTaskId;
+                const selectedRadio = modal.querySelector('input[name="blocking-task"]:checked');
+                
+                if (!dependentTaskId || !selectedRadio) {
+                    showNotification("Proszę wybrać zadanie z listy.", "Błąd");
+                    return;
+                }
+                
+                const blockingTaskId = selectedRadio.value;
+                
+                const { task, project } = findTask(dependentTaskId);
+                if (!task || !project) {
+                    showNotification("Błąd: Nie znaleziono zadania źródłowego.", "Błąd");
+                    return;
+                }
+                
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = 'Zapisywanie...';
+
+                try {
+                    const updatedTask = { ...task, blockingTaskId: blockingTaskId };
+                    const updatedTasks = project.tasks.map(t => t.id === dependentTaskId ? updatedTask : t);
+                    
+                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                    await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+                    closeModal(modal);
+                    showNotification("Powiązanie zostało utworzone.", "Sukces");
+                    // onSnapshot sam odświeży widok (render())
+                    
+                } catch (error) {
+                    console.error("Błąd podczas tworzenia powiązania:", error);
+                    showNotification("Wystąpił błąd.", "Błąd");
+                } finally {
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = 'Utwórz powiązanie';
+                }
+            }
+        });
+
+        // === KONIEC: NOWE FUNKCJE I LISTENERY DLA ZALEŻNOŚCI ===
         
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
@@ -17908,6 +18254,23 @@ function addAiChatMessage(text, type, id = null) {
             <button id="logout-from-waiting-room" class="btn btn-secondary" style="margin-top: 24px;">Wyloguj się</button>
         </div>
     </div>
+    <div class="modal-overlay" id="task-dependency-modal">
+        <div class="modal" style="max-width: 500px; height: 70vh;">
+            <div class="modal-header">
+                <h2 id="task-dependency-title">Powiąż zadanie</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <p id="task-dependency-intro" style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">Wybierz zadanie, które musi zostać ukończone przed tym.</p>
+                <div id="dependency-task-list" class="form-group" style="max-height: 400px; overflow-y: auto;">
+                    </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="button" id="confirm-dependency-btn" class="btn btn-primary" disabled>Utwórz powiązanie</button>
+            </div>
+        </div>
+    </div>
     <svg width="0" height="0" style="position:absolute; display: none;">
         <symbol id="icon-bell" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
@@ -17916,6 +18279,7 @@ function addAiChatMessage(text, type, id = null) {
     </svg>
 </body>
 </html>
+
 
 
 
