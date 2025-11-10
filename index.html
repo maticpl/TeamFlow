@@ -6431,7 +6431,7 @@ let state = {
                 events: [],
                 editable: false,
                 eventClick: function(info) {
-                    checkAndOpenTaskModal(info.event.id);
+                    openTaskModal(info.event.id);
                 },
                 // ================== NOWY HOOK ==================
                 eventDidMount: function(info) {
@@ -6687,7 +6687,7 @@ let state = {
   } else if (e.target.closest('a[data-project-id]')) {
       handleProjectLinkClick(e);
   } else {
-      checkAndOpenTaskModal(taskItem.dataset.taskId);
+      openTaskModal(taskItem.dataset.taskId);
   }
 }
         function showConfirmation(title, message, callback, danger = false) {
@@ -6893,61 +6893,6 @@ let state = {
             // 4. Nie jest zablokowane, jeśli zadanie blokujące jest 'done'
             // LUB jeśli zadanie blokujące nie zostało znalezione (traktujemy jako "osierocone" powiązanie)
             return { blocked: false, taskName: null };
-        }
-       /**
-         * NOWA FUNKCJA POMOCNICZA: Sprawdza uprawnienia do wyświetlenia szczegółów zadania.
-         * @param {object} task - Obiekt zadania.
-         * @param {object} project - Obiekt projektu.
-         * @param {string} userId - ID bieżącego użytkownika.
-         * @returns {boolean} - True, jeśli użytkownik może zobaczyć szczegóły.
-         */
-        function canUserViewTaskDetails(task, project, userId) {
-            if (!task || !project || !userId) {
-                console.warn("canUserViewTaskDetails: Brak zadania, projektu lub userId.");
-                return false; // Domyślnie zablokuj, jeśli brakuje danych
-            }
-
-            // 1. Właściciel projektu może zobaczyć wszystko
-            if (project.ownerId === userId) {
-                return true;
-            }
-
-            // 2. Użytkownik jest przypisany (pojedynczo lub w multi)
-            if (task.assignees && task.assignees.includes(userId)) {
-                return true;
-            }
-
-            // 3. Użytkownik jest twórcą zadania
-            if (task.createdBy === userId) {
-                return true;
-            }
-
-            // 4. W pozostałych przypadkach - zablokuj
-            return false;
-        }
-       /**
-         * NOWA FUNKCJA - BRAMKA KONTROLI DOSTĘPU
-         * Sprawdza uprawnienia przed otwarciem modala zadania.
-         */
-        function checkAndOpenTaskModal(taskId) {
-            const { task, project } = findTask(taskId);
-            
-            if (!task || !project) {
-                console.error(`checkAndOpenTaskModal: Nie znaleziono zadania lub projektu dla ID: ${taskId}`);
-                return; // Nie otwieraj, jeśli nie znaleziono
-            }
-
-            // Wywołaj nową funkcję sprawdzającą
-            if (canUserViewTaskDetails(task, project, state.currentUser.uid)) {
-                // Uprawnienia przyznane: otwórz modal
-                checkAndOpenTaskModal(taskId);
-            } else {
-                // Brak uprawnień: pokaż powiadomienie
-                showNotification(
-                    "To zadanie jest przypisane do innego użytkownika. Nie możesz zobaczyć jego szczegółów.",
-                    "Dostęp Zablokowany"
-                );
-            }
         }
         function getAllMyTasks() {
             const allProjects = [...state.projects, ...state.completedProjects];
@@ -8061,7 +8006,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     closeModal(dashboardDetailsModal.overlay);
                     // Otwórz modal zadania z opóźnieniem dla płynności przejścia
                     setTimeout(() => {
-                        checkAndOpenTaskModal(taskId);
+                        openTaskModal(taskId);
                     }, 150); // Małe opóźnienie
                 }
             // +++ POCZĄTEK DODANEGO KODU (Krok 7) +++
@@ -8162,7 +8107,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         state.ui.currentView = 'projects';
                         saveUiState();
                         render();
-                        checkAndOpenTaskModal(notification.link.taskId);
+                        openTaskModal(notification.link.taskId);
                     }
                     // Można dodać obsługę linków do projektów w przyszłości
                 }
@@ -8222,7 +8167,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             await updateDoc(projectDocRef, {
                                 tasks: updatedTasks
                             });
-                            checkAndOpenTaskModal(taskId);
+                            openTaskModal(taskId);
                             showNotification("Komentarz został usunięty.", "Sukces");
                         } catch (error) {
                             console.error("Błąd podczas usuwania komentarza:", error);
@@ -10371,12 +10316,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                      updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
                      if (updatedTask.status === 'done') showConfetti();
                      await handleTaskCompletion(updatedTask, currentProject, 'manual');
-                     checkAndOpenTaskModal(taskId); 
+                     openTaskModal(taskId); 
                  } else {
                      const projectDocRef = findProject(currentProject.id) ? doc(projectsRef, currentProject.id) : doc(completedProjectsRef, currentProject.id);
                      const tasks = currentProject.tasks.map(t => (t.id === taskId ? updatedTask : t));
                      await updateDoc(projectDocRef, { tasks: tasks });
-                    checkAndOpenTaskModal(taskId); 
+                     openTaskModal(taskId); 
                  }
              };
 
@@ -13234,7 +13179,7 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                     renderAttachments(finalUpdatedTask);
                 } else {
                     // W razie problemu, fallback do pełnego odświeżenia
-                    checkAndOpenTaskModal(taskId);
+                    openTaskModal(taskId);
                 }
 
             } catch (error) {
@@ -13298,7 +13243,7 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                             });
 
                             showNotification("Załącznik został usunięty.", "Sukces");
-                            checkAndOpenTaskModal(taskId); // Odśwież modal
+                            openTaskModal(taskId); // Odśwież modal
                         } catch (error) {
                             console.error("Błąd usuwania załącznika:", error);
                             showNotification("Wystąpił błąd podczas usuwania załącznika.", "Błąd");
@@ -13675,7 +13620,7 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                 
                 // Odśwież odpowiedni modal
                 if (!isNewTask) {
-                    checkAndOpenTaskModal(contextTaskId); // Odśwież modal EDYCJI
+                    openTaskModal(contextTaskId); // Odśwież modal EDYCJI
                 }
                 // Jeśli jest to nowe zadanie, nie robimy nic - modal nowego zadania pozostaje otwarty
             }
@@ -13757,7 +13702,7 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                                 await updateDoc(projectDocRef, { tasks: updatedTasks });
 
                                 showNotification("Okładka została usunięta.", "Sukces");
-                               checkAndOpenTaskModal(contextTaskId); // Odśwież modal
+                                openTaskModal(contextTaskId); // Odśwież modal
 
                             } catch (error) {
                                 console.error("Błąd podczas usuwania okładki:", error);
@@ -14545,7 +14490,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // Otwórz modal klikniętego zadania
             // Używamy setTimeout, aby uniknąć "przeskoku" tła modala
             setTimeout(() => {
-                checkAndOpenTaskModal(taskId);
+                openTaskModal(taskId);
             }, 150); // Małe opóźnienie dla płynnego przejścia
         }
     });
@@ -15220,7 +15165,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // 7. Sprawdź kliknięcie na kafelek Zadania (aby otworzyć modal)
             const taskItem = e.target.closest('.task-card'); // .task-card (bez .poll-card)
             if (taskItem) {
-                checkAndOpenTaskModal(taskItem.dataset.taskId);
+                openTaskModal(taskItem.dataset.taskId);
                 return;
             }
             
@@ -15449,7 +15394,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             if (e.target.closest('.overdue-item-title')) {
                 const item = e.target.closest('.overdue-item');
                 if (item && item.dataset.taskId) {
-                    checkAndOpenTaskModal(item.dataset.taskId);
+                    openTaskModal(item.dataset.taskId);
                 }
             } 
             */
@@ -15461,7 +15406,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                      // Zamykamy modal i otwieramy zadanie
                      closeModal(dashboardDetailsModal.overlay);
                      setTimeout(() => {
-                         checkAndOpenTaskModal(taskIdToOpen);
+                         openTaskModal(item.dataset.taskId);
                      }, 150);
                 }
             }
@@ -16103,7 +16048,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                         closeModal(taskModal.overlay);
                         // Użyj opóźnienia dla płynnego przejścia
                         setTimeout(() => {
-                            checkAndOpenTaskModal(taskIdToOpen);
+                            openTaskModal(taskIdToOpen);
                         }, 150);
                     }
                     return; // Zakończ obsługę kliknięcia
@@ -16178,7 +16123,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
                 // Zapisz zmiany, przekaż 'manual' dla obsługi cykliczności
                 await handleTaskCompletion(updatedTask, project, 'manual'); // DODANO 'manual'
-                checkAndOpenTaskModal(taskId); // Odśwież modal
+                openTaskModal(taskId); // Odśwież modal
 
             }); 
 
@@ -16237,7 +16182,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 saveUiState();
                 render();
                 closeModal(searchModal.overlay);
-                checkAndOpenTaskModal(item.dataset.taskId);
+                openTaskModal(item.dataset.taskId);
             }
         });
 
@@ -16458,7 +16403,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         document.getElementById('mobile-calendar-task-list')?.addEventListener('click', (e) => {
             const taskItem = e.target.closest('.mobile-calendar-task-item');
             if (taskItem && taskItem.dataset.taskId) {
-                checkAndOpenTaskModal(taskItem.dataset.taskId);
+                openTaskModal(taskItem.dataset.taskId);
             }
         });
        /**
@@ -17614,7 +17559,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  if (refreshedMainTask) {
                     renderSubtaskListInMainModal(refreshedMainTask);
                  } else {
-                await checkAndOpenTaskModal(mainTaskId);
+                await openTaskModal(mainTaskId);
              }
              await checkAndCompleteMainTask(mainTaskId);
              // === DODANA LINIA: Sprawdzamy, czy wszystkie subzadania użytkownika są ukończone ===
@@ -17850,7 +17795,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 
                 // 5. Odśwież modal, jeśli jest otwarty
                 if (taskModal.overlay.dataset.taskId === mainTaskId && taskModal.overlay.classList.contains('visible')) {
-                    checkAndOpenTaskModal(mainTaskId);
+                    openTaskModal(mainTaskId);
                 }
             }
         }
@@ -17876,7 +17821,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                         await handleTaskCompletion(updatedTask, project, 'subtask_auto');
                         showConfetti();
 
-                        setTimeout(() => checkAndOpenTaskModal(mainTaskId), 100);
+                        setTimeout(() => openTaskModal(mainTaskId), 100);
 
                   } catch (error) {
                        console.error("Błąd podczas automatycznego kończenia zadania głównego (single):", error);
@@ -19441,8 +19386,6 @@ function addAiChatMessage(text, type, id = null) {
         </div>
 </body>
 </html>
-
-
 
 
 
