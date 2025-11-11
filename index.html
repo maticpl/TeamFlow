@@ -4578,6 +4578,14 @@
         }
         
         /* === KONIEC: NOWE STYLE DLA PANELU BOCZNEGO AI === */
+        /* === POCZĄTEK ZMIANY: STYL DLA STOPKI MODALA POWITALNEGO === */
+        .welcome-modal-footer-prefs label {
+            /* Nadpisujemy domyślny font-weight: normal */
+            font-weight: 500 !important;
+            font-size: 13px !important;
+            color: var(--text-secondary);
+        }
+        /* === KONIEC ZMIANY === */
     </style>
 
 </head>
@@ -6493,6 +6501,13 @@ let state = {
         openPasswordBtn: document.getElementById('open-change-password-btn'),
         openChangeGroupBtn: document.getElementById('open-change-group-btn'),
      };
+       // === POCZĄTEK ZMIANY: Referencje do modala powitalnego ===
+       const welcomeModal = {
+            overlay: document.getElementById('welcome-modal'),
+            okBtn: document.getElementById('welcome-modal-ok-btn'),
+            dontShowCheckbox: document.getElementById('welcome-modal-dont-show-again')
+       };
+       // === KONIEC ZMIANY ===
        // --- Definicje ikon ---
         const SVG_BUDGET_ICON = `
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="24" height="24" role="img" aria-labelledby="titleDesc">
@@ -12565,6 +12580,9 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             },
             // === NOWE POLE: Mapa czasów ostatniego odczytu czatu ===
             chatLastViewed: userData.chatLastViewed || {}
+            // === POCZĄTEK ZMIANY: Dodanie flagi modala powitalnego ===
+            showWelcomeModal: userData.showWelcomeModal 
+            // === KONIEC ZMIANY ===
         };
         
         // --- NOWA LOGIKA: Ustalenie aktywnej grupy ---
@@ -12575,6 +12593,13 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
 
         state.ui.activeGroupId = groupIdToLoad;
         state.ui.activeGroupInfo = state.currentUser.groupInfo[groupIdToLoad];
+             // === POCZĄTEK ZMIANY: Wywołanie modala powitalnego ===
+        // Sprawdzamy, czy flaga showWelcomeModal jest inna niż false
+        // (obejmuje to 'true' oraz 'undefined', czyli nowych użytkowników)
+        if (userData.showWelcomeModal !== false) {
+            openWelcomeModal();
+        }
+        // === KONIEC ZMIANY ===
         
         // Ustawiamy domyślny widok
         if (window.innerWidth <= 768) {
@@ -18598,6 +18623,38 @@ function addAiChatMessage(text, type, id = null) {
 
     aiHelpModal.container.scrollTop = aiHelpModal.container.scrollHeight;
 }
+       // === POCZĄTEK ZMIANY: Logika Modala Powitalnego ===
+
+/**
+ * Otwiera modal powitalny.
+ */
+function openWelcomeModal() {
+    openModal(welcomeModal.overlay);
+}
+
+// Listener dla przycisku "OK" w modalu powitalnym
+welcomeModal.okBtn.addEventListener('click', async () => {
+    // Sprawdź, czy checkbox "Nie pokazuj więcej" jest zaznaczony
+    if (welcomeModal.dontShowCheckbox.checked) {
+        // Jeśli tak, zaktualizuj preferencje użytkownika w Firestore
+        try {
+            const userRef = doc(usersRef, state.currentUser.uid);
+            await updateDoc(userRef, {
+                showWelcomeModal: false // Ustaw flagę na false
+            });
+            // Zaktualizuj również stan lokalny
+            state.currentUser.showWelcomeModal = false;
+        } catch (error) {
+            console.error("Błąd podczas zapisywania preferencji 'showWelcomeModal':", error);
+            // Nie blokujemy użytkownika, po prostu zamykamy modal
+        }
+    }
+    
+    // Zamknij modal
+    closeModal(welcomeModal.overlay);
+});
+
+// === KONIEC ZMIANY ===
 
         const createFirstGroupModal = {
             overlay: document.getElementById('create-first-group-modal'),
@@ -19789,8 +19846,42 @@ function addAiChatMessage(text, type, id = null) {
                 </form>
             </div>
         </div>
+    <div class="modal-overlay" id="welcome-modal" data-backdrop-static="true">
+        <div class="modal" style="max-width: 500px; height: auto;">
+            <div class="modal-header">
+                <h2>Witaj w TeamFlow!</h2>
+                <button type="button" class="modal-close-btn" style="display: none;">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <p style="font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
+                    Cieszymy się, że tu jesteś. TeamFlow to Twoje centrum dowodzenia do zarządzania projektami i organizowania dnia pracy.
+                </p>
+                <p style="font-size: 15px; line-height: 1.6;">
+                    Odkryj moc naszego <strong>Asystenta AI</strong>, dostępnego w menu w lewym dolnym rogu (ikona 
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px; vertical-align: text-bottom; color: var(--accent-primary);">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+                    </svg>
+                    ). Asystent nie tylko wyjaśni Ci funkcje aplikacji, ale przede wszystkim pomoże w aktywnej analizie Twoich danych.
+                </p>
+                <p style="font-size: 13px; line-height: 1.6; color: var(--text-secondary); margin-top: 16px; padding-left: 12px; border-left: 3px solid var(--border-color);">
+                    Zapytaj go na przykład: <br>
+                    <em>"Które projekty mają opóźnienia?"</em><br>
+                    <em>"Kto w zespole ma najwięcej aktywnych zadań?"</em><br>
+                    <em>"Jaki jest status budżetu w projekcie X?"</em>
+                </p>
+            </div>
+            <div class="modal-footer" style="justify-content: space-between; align-items: center;">
+                <div class="form-group-checkbox welcome-modal-footer-prefs" style="margin: 0;">
+                    <input type="checkbox" id="welcome-modal-dont-show-again">
+                    <label for="welcome-modal-dont-show-again" style="font-weight: 500; font-size: 13px;">Nie pokazuj więcej</label>
+                </div>
+                <button type="button" id="welcome-modal-ok-btn" class="btn btn-primary">Rozumiem</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
+
 
 
 
