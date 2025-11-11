@@ -18405,33 +18405,61 @@ aiHelpModal.openBtn.addEventListener('click', () => {
 });
 
 aiHelpModal.form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const question = aiHelpModal.input.value.trim();
-    if (!question) return;
+        e.preventDefault();
+        const question = aiHelpModal.input.value.trim();
+        if (!question) return;
 
-    aiHelpModal.input.value = '';
-    aiHelpModal.input.disabled = true;
-    aiHelpModal.sendBtn.disabled = true;
+        aiHelpModal.input.value = '';
+        aiHelpModal.input.disabled = true;
+        aiHelpModal.sendBtn.disabled = true;
 
-    addAiChatMessage(question, 'user');
+        addAiChatMessage(question, 'user');
 
-    // KROK 1.3: Dodanie pytania użytkownika do historii
-    aiChatHistory.push({ role: 'user', text: question });
+        // KROK 1.3: Dodanie pytania użytkownika do historii
+        aiChatHistory.push({ role: 'user', text: question });
 
-    const loadingMessageId = `msg_${Date.now()}`;
-    addAiChatMessage("Myślę...", 'loading', loadingMessageId);
+        // === POCZĄTEK ZMIANY: Ustalanie kontekstu projektu i roli ===
+        let contextProjectId = null;
+        let userProjectRole = null; // 'owner', 'admin', 'member', lub null
 
-    try {
-        const askGemini = httpsCallable(functions, 'askGemini');
+        // Sprawdzamy, czy jesteśmy aktualnie w widoku konkretnego projektu
+        if (state.currentProjectId && state.ui.currentView === 'projects') {
+            const project = findProject(state.currentProjectId);
+            if (project) {
+                contextProjectId = project.id;
+                
+                // Sprawdzamy rolę (Właściciel ma najwyższy priorytet, potem Admin)
+                if (project.ownerId === state.currentUser.uid) {
+                    userProjectRole = 'owner';
+                } else if ((project.admins || []).includes(state.currentUser.uid)) {
+                    userProjectRole = 'admin';
+                } else if (project.members.includes(state.currentUser.uid)) {
+                    userProjectRole = 'member';
+                }
+                // Jeśli użytkownik nie jest członkiem (teoretycznie niemożliwe), rola pozostanie null
+            }
+        }
+        // === KONIEC ZMIANY ===
 
-        // KROK 1.4: Wysłanie historii (ostatnie 4 wiadomości) do funkcji
-        const result = await askGemini({ 
-            question: question, // Nadal wysyłamy samo pytanie
-            history: aiChatHistory.slice(-5, -1), // Wyślij 4 wiadomości PRZED ostatnim pytaniem
-            groupId: state.ui.activeGroupId
-        });
+        const loadingMessageId = `msg_${Date.now()}`;
+        addAiChatMessage("Myślę...", 'loading', loadingMessageId);
 
-        const response = result.data.response;
+        try {
+            const askGemini = httpsCallable(functions, 'askGemini');
+
+            // KROK 1.4: Wysłanie historii (ostatnie 4 wiadomości) do funkcji
+            const result = await askGemini({ 
+                question: question, // Nadal wysyłamy samo pytanie
+                history: aiChatHistory.slice(-5, -1), // Wyślij 4 wiadomości PRZED ostatnim pytaniem
+                groupId: state.ui.activeGroupId,
+
+                // === POCZĄTEK ZMIANY: Przekazanie nowego kontekstu do Cloud Function ===
+                projectId: contextProjectId,
+                userRole: userProjectRole
+                // === KONIEC ZMIANY ===
+            });
+
+            const response = result.data.response;
 
         // KROK 1.5: Dodanie odpowiedzi bota do historii
         aiChatHistory.push({ role: 'bot', text: response });
@@ -19695,6 +19723,7 @@ function addAiChatMessage(text, type, id = null) {
         </div>
 </body>
 </html>
+
 
 
 
