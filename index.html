@@ -5871,6 +5871,7 @@
    document.addEventListener('DOMContentLoaded', () => {
         let sortableDashboard = null;
         let sortableProjects = null;
+        let aiChatHistory = [];
 
         let stagedFiles = [];
        // === NOWE ZMIENNE STANU DLA GESTU SWIPE ===
@@ -18229,6 +18230,18 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             openModal(newProjectModal.overlay);
         });
 aiHelpModal.openBtn.addEventListener('click', () => {
+    // KROK 1.2: Czyszczenie historii przy otwarciu modala
+    aiChatHistory = [];
+    // Wyczyść okno czatu z poprzedniej rozmowy
+    aiHelpModal.container.innerHTML = '';
+    
+    // Dodaj pierwszą wiadomość (powitanie bota)
+    const firstBotMessage = "Cześć! Jestem Twoim asystentem. Jak mogę Ci pomóc w obsłudze aplikacji TeamFlow lub w analizie Twoich danych?";
+    addAiChatMessage(firstBotMessage, 'bot');
+    
+    // Dodaj powitanie do historii, aby AI wiedziało, jak zaczęło rozmowę
+    aiChatHistory.push({ role: 'bot', text: firstBotMessage });
+    
     openModal(aiHelpModal.overlay);
     aiHelpModal.input.focus();
 });
@@ -18244,18 +18257,31 @@ aiHelpModal.form.addEventListener('submit', async (e) => {
 
     addAiChatMessage(question, 'user');
 
+    // KROK 1.3: Dodanie pytania użytkownika do historii
+    aiChatHistory.push({ role: 'user', text: question });
+
     const loadingMessageId = `msg_${Date.now()}`;
     addAiChatMessage("Myślę...", 'loading', loadingMessageId);
 
     try {
         const askGemini = httpsCallable(functions, 'askGemini');
 
+        // KROK 1.4: Wysłanie historii (ostatnie 4 wiadomości) do funkcji
         const result = await askGemini({ 
-            question: question,
-            groupId: state.ui.activeGroupId // <-- DODANA TA LINIA
+            question: question, // Nadal wysyłamy samo pytanie
+            history: aiChatHistory.slice(-5, -1), // Wyślij 4 wiadomości PRZED ostatnim pytaniem
+            groupId: state.ui.activeGroupId
         });
 
         const response = result.data.response;
+
+        // KROK 1.5: Dodanie odpowiedzi bota do historii
+        aiChatHistory.push({ role: 'bot', text: response });
+        
+        // Opcjonalnie: Utrzymuj historię w rozsądnym rozmiarze (np. 10 ostatnich wiadomości)
+        if (aiChatHistory.length > 10) {
+            aiChatHistory = aiChatHistory.slice(-10);
+        }
 
         const loadingBubble = document.getElementById(loadingMessageId);
         if (loadingBubble) loadingBubble.remove();
@@ -19511,6 +19537,7 @@ function addAiChatMessage(text, type, id = null) {
         </div>
 </body>
 </html>
+
 
 
 
