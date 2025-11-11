@@ -6062,6 +6062,12 @@
         let chatTouchStartY = 0; // Do wykrywania scrolla
         let isChatSwiping = false;
         // === KONIEC NOWYCH ZMIENNYCH ===
+       // === POCZĄTEK ZMIANY: Zmienne stanu dla gestu AI ===
+        let aiChatTouchStartX = 0;
+        let aiChatTouchCurrentX = 0;
+        let aiChatTouchStartY = 0;
+        let isAiChatSwiping = false;
+        // === KONIEC ZMIANY ===
         // === NOWE REFERENCJE DLA PANELU CZATU ===
         const projectChatPanel = document.getElementById('project-chat-panel');
         const toggleChatBtn = document.getElementById('toggle-chat-btn');
@@ -15880,6 +15886,16 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             projectChatPanel.addEventListener('touchend', handleChatTouchEnd);
             projectChatPanel.addEventListener('touchcancel', handleChatTouchEnd); // Na wypadek przerwania gestu
         }
+
+        // === POCZĄTEK ZMIANY: Dodanie listenerów gestów dla panelu AI ===
+        if (aiHelpModal.sidebar) {
+            aiHelpModal.sidebar.addEventListener('touchstart', handleAiChatTouchStart, { passive: false });
+            aiHelpModal.sidebar.addEventListener('touchmove', handleAiChatTouchMove, { passive: false });
+            aiHelpModal.sidebar.addEventListener('touchend', handleAiChatTouchEnd);
+            aiHelpModal.sidebar.addEventListener('touchcancel', handleAiChatTouchEnd);
+        }
+        // === KONIEC ZMIANY ===
+
         // === KONIEC NOWYCH LISTENERÓW ===
         // === KONIEC NOWEJ LOGIKI WYSYŁANIA ===
         /**
@@ -16010,6 +16026,79 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         }
 
         // === KONIEC NOWYCH FUNKCJI CZATU ===
+       // === POCZĄTEK ZMIANY: Funkcje obsługi gestu przesuwania dla panelu AI ===
+        
+        /**
+         * Rozpoczyna śledzenie gestu przesunięcia na panelu AI.
+         */
+        function handleAiChatTouchStart(e) {
+            const touch = e.touches[0];
+            aiChatTouchStartX = touch.clientX;
+            aiChatTouchStartY = touch.clientY;
+            aiChatTouchCurrentX = touch.clientX;
+            isAiChatSwiping = true;
+            aiHelpModal.sidebar.style.transition = 'none';
+        }
+
+        /**
+         * Obsługuje przesuwanie palca po panelu AI.
+         */
+        function handleAiChatTouchMove(e) {
+            if (!isAiChatSwiping) return;
+
+            const touch = e.touches[0];
+            aiChatTouchCurrentX = touch.clientX;
+            
+            const deltaX = aiChatTouchCurrentX - aiChatTouchStartX;
+            const deltaY = touch.clientY - aiChatTouchStartY;
+
+            if (Math.abs(deltaY) > (Math.abs(deltaX) + 10)) {
+                isAiChatSwiping = false;
+                aiHelpModal.sidebar.style.transform = ''; 
+                return;
+            }
+            
+            if (deltaX < 0) {
+                isAiChatSwiping = false;
+                aiHelpModal.sidebar.style.transform = '';
+                return;
+            }
+
+            e.preventDefault();
+            aiHelpModal.sidebar.style.transform = `translateX(${deltaX}px)`;
+        }
+
+        /**
+         * Kończy gest przesunięcia i decyduje, czy zamknąć panel AI.
+         */
+        function handleAiChatTouchEnd(e) {
+            if (!isAiChatSwiping) return;
+            isAiChatSwiping = false;
+
+            const deltaX = aiChatTouchCurrentX - aiChatTouchStartX;
+            const panelWidth = aiHelpModal.sidebar.offsetWidth;
+            const threshold = Math.max(panelWidth * 0.3, 100);
+
+            aiHelpModal.sidebar.style.transition = 'transform 0.3s ease-in-out, visibility 0.3s';
+
+            if (deltaX > threshold) {
+                // Przesunięto wystarczająco daleko -> ZAMKNIJ
+                toggleAiChatPanel(); // Używamy nowej funkcji
+                aiHelpModal.sidebar.style.transform = ''; 
+            } else {
+                // Niewystarczające przesunięcie -> WRÓĆ
+                aiHelpModal.sidebar.style.transform = '';
+            }
+
+            // Reset :hover
+            if (aiHelpModal.sidebar) {
+                aiHelpModal.sidebar.blur();
+            }
+            if (aiHelpModal.openBtn) {
+                aiHelpModal.openBtn.blur();
+            }
+        }
+        // === KONIEC ZMIANY ===
         // ZMODYFIKOWANY LISTENER: Przycisk "Nowy sondaż" (zielony) wewnątrz menu
         fabActionNewPoll.addEventListener('click', () => {
             // Wywołuje nową funkcję otwierającą modal sondażu
@@ -18533,38 +18622,38 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
             openModal(newProjectModal.overlay);
         });
+       // === POCZĄTEK ZMIANY: Nowa funkcja przełączająca panel AI ===
+        function toggleAiChatPanel() {
+            const isOpen = aiHelpModal.sidebar.classList.contains('open');
+
+            if (isOpen) {
+                // Zamykanie panelu
+                aiHelpModal.sidebar.classList.remove('open');
+            } else {
+                // Otwieranie panelu
+                aiChatHistory = [];
+                aiHelpModal.container.innerHTML = '';
+                
+                const firstBotMessage = "Cześć! Jestem Twoim asystentem. Jak mogę Ci pomóc w obsłudze aplikacji TeamFlow lub w analizie Twoich danych?";
+                addAiChatMessage(firstBotMessage, 'bot');
+                
+                aiChatHistory.push({ role: 'bot', text: firstBotMessage });
+                
+                aiHelpModal.sidebar.classList.add('open');
+                aiHelpModal.input.focus();
+            }
+        }
+        // === KONIEC ZMIANY ===
 aiHelpModal.openBtn.addEventListener('click', () => {
-    // === POCZĄTEK ZMIANY: Logika przełączania panelu ===
-    const isOpen = aiHelpModal.sidebar.classList.contains('open');
+   // === POCZĄTEK ZMIANY: Użycie nowej funkcji ===
+        aiHelpModal.openBtn.addEventListener('click', toggleAiChatPanel);
+        // === KONIEC ZMIANY ===
 
-    // Jeśli panel jest już otwarty, zamknij go
-    if (isOpen) {
-        aiHelpModal.sidebar.classList.remove('open');
-        return;
-    }
-
-    // Jeśli jest zamknięty, otwórz go i wyczyść
-    aiChatHistory = [];
-    aiHelpModal.container.innerHTML = '';
-    
-    const firstBotMessage = "Cześć! Jestem Twoim asystentem. Jak mogę Ci pomóc w obsłudze aplikacji TeamFlow lub w analizie Twoich danych?";
-    addAiChatMessage(firstBotMessage, 'bot');
-    
-    aiChatHistory.push({ role: 'bot', text: firstBotMessage });
-    
-    // Zamiast openModal, przełącz klasę
-    aiHelpModal.sidebar.classList.add('open');
-    aiHelpModal.input.focus();
-    // === KONIEC ZMIANY ===
-});
-
-// === DODANO NOWY LISTENER: Zamykanie panelu AI ===
-aiHelpModal.closeBtn.addEventListener('click', () => {
-    aiHelpModal.sidebar.classList.remove('open');
-});
-// === KONIEC NOWEGO LISTENERA ===
-
-aiHelpModal.form.addEventListener('submit', async (e) => {
+        // === POCZĄTEK ZMIANY: Użycie nowej funkcji ===
+        aiHelpModal.closeBtn.addEventListener('click', toggleAiChatPanel);
+        // === KONIEC ZMIANY ===
+        
+        aiHelpModal.form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const question = aiHelpModal.input.value.trim();
         if (!question) return;
@@ -19945,6 +20034,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
