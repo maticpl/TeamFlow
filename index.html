@@ -8071,20 +8071,26 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     if (isMobile) {
                         const project = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
                         if (project) {
-                            mobileProjectActionsToggle.style.display = 'flex'; // Pokaż przycisk menu akcji
+                        mobileProjectActionsToggle.style.display = 'flex'; // Pokaż przycisk menu akcji
 
-                            // Dynamiczne wypełnianie i pokazywanie/ukrywanie opcji w menu
-                            const menuUl = mobileProjectActionsMenu.querySelector('ul');
-                            if (menuUl) {
-                                const isCompleted = !!findCompletedProject(state.currentProjectId);
-                                const isOwner = project.ownerId === state.currentUser.uid;
+                        // Dynamiczne wypełnianie i pokazywanie/ukrywanie opcji w menu
+                        const menuUl = mobileProjectActionsMenu.querySelector('ul');
+                        if (menuUl) {
+                            const isCompleted = !!findCompletedProject(state.currentProjectId);
+                            // === POCZĄTEK ZMIANY: Rozbudowana logika uprawnień (mobilna) ===
+                            const isOwner = project.ownerId === state.currentUser.uid;
+                            const isAdmin = (project.admins || []).includes(state.currentUser.uid);
+            
+                            const canEditProject = (isOwner || isAdmin) && !project.isInbox;
+                            const canDeleteOrComplete = isOwner && !project.isInbox;
 
-                                menuUl.querySelector('a[data-action="details"]').parentElement.style.display = 'block'; // Szczegóły zawsze widoczne
-                                menuUl.querySelector('a[data-action="edit"]').parentElement.style.display = (isOwner && !project.isInbox) ? 'block' : 'none'; // Edycja dla właściciela (poza inboxem)
-                                menuUl.querySelector('a[data-action="complete"]').parentElement.style.display = (isOwner && !isCompleted && !project.isInbox) ? 'block' : 'none'; // Zakończ dla właściciela aktywnego projektu (poza inboxem)
-                                menuUl.querySelector('a[data-action="delete"]').parentElement.style.display = (isOwner && !project.isInbox) ? 'block' : 'none'; // Usuń dla właściciela (poza inboxem)
-                            }
+                            menuUl.querySelector('a[data-action="details"]').parentElement.style.display = 'block'; // Szczegóły zawsze widoczne
+                            menuUl.querySelector('a[data-action="edit"]').parentElement.style.display = canEditProject ? 'block' : 'none'; // Edycja dla Właściciela LUB Admina
+                            menuUl.querySelector('a[data-action="complete"]').parentElement.style.display = (canDeleteOrComplete && !isCompleted) ? 'block' : 'none'; // Zakończ tylko dla Właściciela
+                            menuUl.querySelector('a[data-action="delete"]').parentElement.style.display = canDeleteOrComplete ? 'block' : 'none'; // Usuń tylko dla Właściciela
+                            // === KONIEC ZMIANY ===
                         }
+                    }
                     }
                     // === KONIEC NOWEJ LOGIKI DLA MENU MOBILNEGO ===
                 } else if (isDashboardView) {
@@ -8367,20 +8373,34 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
             const project = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
             const isCompleted = !!findCompletedProject(state.currentProjectId);
+
+            // === POCZĄTEK ZMIANY: Rozbudowana logika uprawnień ===
             const isOwner = project && (project.ownerId === state.currentUser.uid);
+            // Sprawdzamy, czy użytkownik jest na liście adminów
+            const isAdmin = project && (project.admins || []).includes(state.currentUser.uid);
+            
+            // Definiujemy, kto może edytować (Właściciel LUB Admin)
+            const canEditProject = project && (isOwner || isAdmin) && !project.isInbox;
+            // Definiujemy, kto może wykonywać niebezpieczne akcje (Tylko Właściciel)
+            const canDeleteOrComplete = project && isOwner && !project.isInbox;
 
-            const canShowActions = project && isOwner && !project.isInbox;
-            projectActionsEl.style.display = canShowActions ? 'flex' : 'none';
+            // Pokaż kontener akcji, jeśli projekt istnieje (zawsze widoczny dla członków)
+            projectActionsEl.style.display = project ? 'flex' : 'none';
 
-            if (canShowActions) {
-                editProjectBtn.style.display = 'inline-block';
-                deleteProjectBtn.style.display = 'inline-block';
-                completeProjectBtn.style.display = isCompleted ? 'none' : 'inline-block';
-            } else {
-                editProjectBtn.style.display = 'none';
-                completeProjectBtn.style.display = 'none';
-                deleteProjectBtn.style.display = 'none';
-            }
+            // Logika widoczności dla każdego przycisku z osobna:
+            
+            // 1. Przycisk "Szczegóły" - widoczny dla wszystkich członków
+            projectDetailsBtn.style.display = 'inline-block';
+            
+            // 2. Przycisk "Edytuj" - widoczny dla Właściciela LUB Admina
+            editProjectBtn.style.display = canEditProject ? 'inline-block' : 'none';
+            
+            // 3. Przycisk "Usuń" - widoczny tylko dla Właściciela
+            deleteProjectBtn.style.display = canDeleteOrComplete ? 'inline-block' : 'none';
+            
+            // 4. Przycisk "Zakończ" - widoczny tylko dla Właściciela (i jeśli projekt nie jest zakończony)
+            completeProjectBtn.style.display = (canDeleteOrComplete && !isCompleted) ? 'inline-block' : 'none';
+            // === KONIEC ZMIANY ===
 
             if (!project) {
                 projectNameHeaderEl.textContent = 'Wybierz projekt';
@@ -19675,6 +19695,7 @@ function addAiChatMessage(text, type, id = null) {
         </div>
 </body>
 </html>
+
 
 
 
