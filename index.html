@@ -18698,22 +18698,17 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
             // KROK 1.4: Wysłanie historii (ostatnie 4 wiadomości) do funkcji
             const result = await askGemini({ 
-                question: question, // Nadal wysyłamy samo pytanie
+                question: question, 
+                groupId: state.ui.activeGroupId, 
                 history: aiChatHistory.slice(-5, -1), // Wyślij 4 wiadomości PRZED ostatnim pytaniem
-                groupId: state.ui.activeGroupId,
-
-                // === POCZĄTEK ZMIANY: Przekazanie nowego kontekstu do Cloud Function ===
                 projectId: contextProjectId,
                 userRole: userProjectRole
-                // === KONIEC ZMIANY ===
             });
-
+            
             const response = result.data.response;
 
         // KROK 1.5: Dodanie odpowiedzi bota do historii
         aiChatHistory.push({ role: 'bot', text: response });
-        
-        // Opcjonalnie: Utrzymuj historię w rozsądnym rozmiarze (np. 10 ostatnich wiadomości)
         if (aiChatHistory.length > 10) {
             aiChatHistory = aiChatHistory.slice(-10);
         }
@@ -18722,12 +18717,17 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
         if (loadingBubble) loadingBubble.remove();
 
         addAiChatMessage(response, 'bot');
+        speakText(response); // <-- DODANA TA LINIA
 
     } catch (error) {
         console.error("Błąd wywołania Cloud Function 'askGemini':", error);
         const loadingBubble = document.getElementById(loadingMessageId);
         if (loadingBubble) loadingBubble.remove();
-        addAiChatMessage(`Przepraszam, wystąpił błąd serwera: ${error.message}. Spróbuj ponownie.`, 'bot');
+        // === POCZĄTEK ZMIANY: Odczytywanie błędu ===
+        const errorMessage = `Przepraszam, wystąpił błąd serwera: ${error.message}. Spróbuj ponownie.`;
+        addAiChatMessage(errorMessage, 'bot');
+        speakText(errorMessage); // <-- DODANA TA LINIA
+        // === KONIEC ZMIANY ===
     } finally {
         aiHelpModal.input.disabled = false;
         aiHelpModal.sendBtn.disabled = false;
@@ -18771,6 +18771,253 @@ function addAiChatMessage(text, type, id = null) {
     // Auto-scroll
     aiHelpModal.container.scrollTop = aiHelpModal.container.scrollHeight;
 }
+       // === POCZĄTEK NOWEJ LOGIKI (TTS + STT W PĘTLI) v4 - Bezpieczna Inicjalizacja ===
+
+        // --- Zmienne globalne dla mowy ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition = null;
+        let isRecording = false;
+        let isConversationMode = false;
+        let recognitionTimer = null;
+        const isMedianApp = !!(window.median && window.median.speech);
+
+        // --- Referencje DOM (Pobierane teraz w bezpieczny sposób) ---
+        const micButton = document.getElementById('ai-chat-mic-btn');
+        const micIconIdle = document.getElementById('ai-chat-mic-icon-idle');
+        const micIconRecording = document.getElementById('ai-chat-mic-icon-recording');
+        
+        // Używamy referencji, które JUŻ ISTNIEJĄ w obiekcie aiHelpModal
+        const aiChatInput = aiHelpModal.input; 
+        const aiChatForm = aiHelpModal.form;
+
+        /**
+         * Funkcja odczytywania (TTS)
+         */
+        function speakText(text) {
+            window.speechSynthesis.cancel();
+            const cleanedText = text.replace(/```(json)?\n?|```/g, "").trim();
+            if (cleanedText.startsWith('[ACTION:')) {
+                speakText("Otrzymałem odpowiedź, ale wystąpił błąd formatowania.");
+                return;
+            }
+            const utterance = new SpeechSynthesisUtterance(cleanedText);
+            const voices = window.speechSynthesis.getVoices();
+            const plVoice = voices.find(voice => voice.lang.startsWith('pl'));
+            utterance.voice = plVoice || voices[0];
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+
+            utterance.onend = () => {
+                if (isConversationMode) {
+                    console.log("AI skończyło mówić, automatycznie włączam nasłuch...");
+                    startListening(); // Wywołanie nowej funkcji
+                }
+            };
+            window.speechSynthesis.speak(utterance);
+        }
+
+        if (window.speechSynthesis.onvoiceschanged !== undefined) {
+            window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+        }
+
+        /**
+         * Funkcja zatrzymująca całą konwersację (teraz sprawdza, czy micButton istnieje)
+         */
+        function stopConversation() {
+            isConversationMode = false;
+            if (recognitionTimer) clearTimeout(recognitionTimer);
+
+            if (isRecording) {
+                if (isMedianApp) {
+                    isRecording = false;
+                    if(micIconIdle) micIconIdle.style.display = 'block';
+                    if(micIconRecording) micIconRecording.style.display = 'none';
+                } else if (recognition) {
+                    recognition.stop(); // To wywoła 'onend' dla Web API
+                }
+            } else {
+                if(micIconIdle) micIconIdle.style.display = 'block';
+                if(micIconRecording) micIconRecording.style.display = 'none';
+            }
+            
+            if(micButton) micButton.title = "Rozpocznij tryb rozmowy";
+            if(aiChatInput) aiChatInput.placeholder = "Wpisz swoje pytanie...";
+            window.speechSynthesis.cancel();
+            console.log("Tryb rozmowy ZATRZYMANY.");
+        }
+
+        /**
+         * NOWA Funkcja pomocnicza do uruchamiania nasłuchu
+         */
+        function startListening() {
+            if (isRecording) {
+                console.log("Nagrywanie jest już w toku.");
+                return;
+            }
+            
+            if (!micIconIdle || !micIconRecording || !aiChatInput) {
+                console.error("Brak elementów UI mikrofonu. Zatrzymuję rozmowę.");
+                stopConversation();
+                return;
+            }
+
+            window.speechSynthesis.cancel();
+            isRecording = true;
+            micIconIdle.style.display = 'none';
+            micIconRecording.style.display = 'block';
+            aiChatInput.placeholder = "Słucham...";
+            console.log("Mikrofon włączony: Słucham...");
+            
+            if (recognitionTimer) clearTimeout(recognitionTimer);
+
+            if (isMedianApp) {
+                // --- LOGIKA DLA MEDIAN.CO ---
+                console.log("Używam natywnego API Median.co do rozpoznawania mowy...");
+                window.median.speech.start({
+                    language: 'pl-PL',
+                    callback: (result) => {
+                        isRecording = false; 
+                        if (micIconIdle) micIconIdle.style.display = 'block';
+                        if (micIconRecording) micIconRecording.style.display = 'none';
+                        
+                        if (result.transcript) {
+                            handleRecognitionResult(result.transcript);
+                        } else if (result.error) {
+                            handleRecognitionError(result.error);
+                        }
+                    }
+                });
+
+            } else if (recognition) {
+                // --- LOGIKA DLA STANDARDOWEJ PRZEGLĄDARKI ---
+                try {
+                    recognition.start();
+                    recognitionTimer = setTimeout(() => {
+                        if (isRecording) {
+                            console.log("Przekroczono limit czasu ciszy, zatrzymuję nagrywanie.");
+                            recognition.stop(); 
+                        }
+                    }, 15000);
+                } catch (e) {
+                    console.error("Błąd startu Web Speech API:", e.message);
+                    isRecording = false;
+                }
+            }
+        }
+        
+        /**
+         * NOWA Funkcja pomocnicza do obsługi błędu (wspólna)
+         */
+        function handleRecognitionError(errorMsg) {
+            console.error("Błąd rozpoznawania mowy:", errorMsg);
+            isRecording = false;
+            // Poprawka błędu: 'not-allowed' lub 'service-not-allowed' lub 'permission'
+            if (String(errorMsg).includes('not-allowed') || String(errorMsg).includes('service-not-allowed') || String(errorMsg).includes('permission')) {
+                addAiChatMessage("Nie udzieliłeś pozwolenia na użycie mikrofonu. Aby mówić do AI, musisz zezwolić na dostęp w ustawieniach aplikacji.", 'bot');
+                stopConversation();
+            } else if (String(errorMsg).includes('no-speech') && isConversationMode) {
+                console.log("Nie usłyszano mowy, ponawiam nasłuch...");
+                setTimeout(() => {
+                    if (isConversationMode) startListening();
+                }, 250);
+            }
+        }
+        
+        /**
+         * NOWA Funkcja pomocnicza do obsługi wyniku (wspólna)
+         */
+        function handleRecognitionResult(transcript) {
+            transcript = transcript.trim();
+            if (transcript.length === 0) {
+                console.log("Otrzymano pusty wynik, wznawiam nasłuch.");
+                if (isConversationMode) startListening();
+                return;
+            }
+            
+            console.log("Rozpoznano mowę:", transcript);
+            if (aiChatInput) aiChatInput.value = transcript;
+            
+            if (aiChatForm) {
+                aiChatForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            }
+        }
+
+        // === POCZĄTEK KRYTYCZNEJ POPRAWKI: Defensywna Inicjalizacja ===
+
+        // Sprawdź, czy w ogóle mamy przycisk i pole tekstowe.
+        // Jeśli nie, cała logika głosowa jest pomijana i aplikacja się nie zawiesi.
+        if (micButton && aiChatInput && aiChatForm) {
+            
+            // Sprawdź, czy API (Web lub Median) jest dostępne
+            if (!SpeechRecognition && !isMedianApp) {
+                console.warn("Web Speech API oraz Median API są niedostępne.");
+                micButton.style.display = 'none'; // Ukryj przycisk, bo i tak nie zadziała
+            
+            } else {
+                // Przynajmniej jedno API jest dostępne, inicjalizuj
+                
+                // Inicjalizacja Web API (jeśli nie jesteśmy w Median)
+                if (!isMedianApp && SpeechRecognition) {
+                    recognition = new SpeechRecognition();
+                    recognition.continuous = false;
+                    recognition.lang = 'pl-PL';
+                    recognition.interimResults = false;
+                    recognition.maxAlternatives = 1;
+
+                    // Listenery tylko dla Web API
+                    recognition.onend = () => {
+                        console.log("Mikrofon Web API wyłączony.");
+                        isRecording = false;
+                        if (recognitionTimer) clearTimeout(recognitionTimer);
+                        if (!isConversationMode && micIconIdle && micIconRecording) {
+                            micIconIdle.style.display = 'block';
+                            micIconRecording.style.display = 'none';
+                            if(micButton) micButton.title = "Rozpocznij tryb rozmowy";
+                            if(aiChatInput) aiChatInput.placeholder = "Wpisz swoje pytanie...";
+                        }
+                    };
+                    recognition.onerror = (event) => {
+                        handleRecognitionError(event.error);
+                    };
+                    recognition.onresult = (event) => {
+                        if (recognitionTimer) clearTimeout(recognitionTimer);
+                        handleRecognitionResult(event.results[0][0].transcript);
+                    };
+                }
+
+                // Główny przełącznik trybu rozmowy
+                micButton.addEventListener('click', () => {
+                    if (isConversationMode) {
+                        stopConversation();
+                    } else {
+                        isConversationMode = true;
+                        micButton.title = "Zakończ tryb rozmowy";
+                        startListening(); // Rozpocznij pętlę
+                    }
+                });
+
+                // Przerwanie trybu rozmowy, gdy użytkownik zacznie pisać
+                aiChatInput.addEventListener('input', () => {
+                    if (isConversationMode) {
+                        console.log("Wykryto pisanie ręczne, zatrzymuję tryb rozmowy.");
+                        stopConversation();
+                    }
+                });
+            }
+
+        } else {
+            // Jeśli kluczowe elementy (micButton, aiChatInput) nie zostały znalezione,
+            // wyloguj błąd, ale NIE PRZERYWAJ wykonywania skryptu.
+            console.error("Nie można zainicjować funkcji głosowych AI: Brakuje elementów 'ai-chat-mic-btn' lub 'ai-chat-input' w DOM.");
+            
+            // Jeśli sam przycisk mikrofonu istnieje, ukryj go, bo logika nie zadziała.
+            if (micButton) {
+                micButton.style.display = 'none';
+            }
+        }
+        // === KONIEC KRYTYCZNEJ POPRAWKI ===
+        
+        // === KONIEC NOWEJ LOGIKI (TTS + STT W PĘTLI) v4 ===
        // === POCZĄTEK ZMIANY: Logika Modala Powitalnego ===
 
 /**
@@ -20034,6 +20281,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
