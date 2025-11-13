@@ -6008,7 +6008,7 @@
     const { RRule } = rrule;
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy, arrayRemove, arrayUnion, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy, arrayRemove, arrayUnion, limit, disablePersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
     import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
     import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
@@ -12507,6 +12507,21 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
          onAuthStateChanged(auth, async (user) => {
     // === POCZĄTEK ZMIANY: Nowa logika `onAuthStateChanged` ===
     if (user) {
+
+        // === POCZĄTEK KRYTYCZNEJ POPRAWKI DLA MEDIAN (WebView) ===
+        try {
+            // Wyłączamy IndexedDB, które zawiesza WebViews.
+            // Musi to być `await`, aby zakończyło się PRZED pierwszą próbą odczytu.
+            await disablePersistence(db);
+            console.log("Pamięć podręczna Firestore (IndexedDB) została wyłączona.");
+        } catch (err) {
+            if (err.code === 'failed-precondition') {
+                console.warn("Nie można wyłączyć pamięci podręcznej (być może już zainicjowana). Kontynuuję...");
+            } else {
+                console.error("Błąd podczas wyłączania pamięci podręcznej Firestore:", err);
+            }
+        }
+        // === KONIEC KRYTYCZNEJ POPRAWKI DLA MEDIAN ===
         
         // === USUNIĘTO: Logika linku zaproszeniowego (przeniesiona do Fazy 5) ===
 
@@ -18784,27 +18799,29 @@ function addAiChatMessage(text, type, id = null) {
     // Auto-scroll
     aiHelpModal.container.scrollTop = aiHelpModal.container.scrollHeight;
 }
-      // === POCZĄTEK NOWEJ LOGIKI (TTS + STT W PĘTLI) v2 - Kompatybilność z Median ===
+      // === POCZĄTEK NOWEJ LOGIKI (TTS + STT W PĘTLI) v3 - Poprawka Błędów Ładowania ===
 
         // --- Zmienne globalne dla mowy ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let recognition = null;
         let isRecording = false;
-        let isConversationMode = false;
-        let recognitionTimer = null;
+        let isConversationMode = false; // NOWA ZMIENNA STANU
+        let recognitionTimer = null; // Timer do automatycznego zatrzymania nasłuchu
         
         // NOWA ZMIENNA: Wykrywanie Median
         const isMedianApp = !!(window.median && window.median.speech);
 
-        // --- Referencje DOM (bez zmian) ---
+        // --- Referencje DOM (Pobierane teraz w bezpieczny sposób) ---
         const micButton = document.getElementById('ai-chat-mic-btn');
         const micIconIdle = document.getElementById('ai-chat-mic-icon-idle');
         const micIconRecording = document.getElementById('ai-chat-mic-icon-recording');
-        const aiChatInput = aiHelpModal.input;
+        
+        // Używamy referencji, które JUŻ ISTNIEJĄ w obiekcie aiHelpModal
+        const aiChatInput = aiHelpModal.input; 
         const aiChatForm = aiHelpModal.form;
 
         /**
-         * Funkcja odczytywania (TTS) - (Bez zmian, TTS zazwyczaj działa w Median)
+         * Funkcja odczytywania (TTS) - (Bez zmian, jest bezpieczna)
          */
         function speakText(text) {
             window.speechSynthesis.cancel();
@@ -18823,18 +18840,19 @@ function addAiChatMessage(text, type, id = null) {
             utterance.onend = () => {
                 if (isConversationMode) {
                     console.log("AI skończyło mówić, automatycznie włączam nasłuch...");
-                    startListening(); // <--- ZMIANA: Wywołanie nowej funkcji
+                    startListening(); // Wywołanie nowej funkcji
                 }
             };
             window.speechSynthesis.speak(utterance);
         }
 
+        // Ładowanie głosów (bez zmian)
         if (window.speechSynthesis.onvoiceschanged !== undefined) {
             window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
         }
 
         /**
-         * Funkcja zatrzymująca całą konwersację (teraz obsługuje Median)
+         * Funkcja zatrzymująca całą konwersację (teraz sprawdza, czy micButton istnieje)
          */
         function stopConversation() {
             isConversationMode = false;
@@ -18842,21 +18860,20 @@ function addAiChatMessage(text, type, id = null) {
 
             if (isRecording) {
                 if (isMedianApp) {
-                    // Median nie ma publicznej metody .stop(), resetujemy UI
                     isRecording = false;
-                    micIconIdle.style.display = 'block';
-                    micIconRecording.style.display = 'none';
+                    if(micIconIdle) micIconIdle.style.display = 'block';
+                    if(micIconRecording) micIconRecording.style.display = 'none';
                 } else if (recognition) {
                     recognition.stop(); // To wywoła 'onend' dla Web API
                 }
             } else {
                 // Ręczny reset UI
-                micIconIdle.style.display = 'block';
-                micIconRecording.style.display = 'none';
+                if(micIconIdle) micIconIdle.style.display = 'block';
+                if(micIconRecording) micIconRecording.style.display = 'none';
             }
             
-            micButton.title = "Rozpocznij tryb rozmowy";
-            aiChatInput.placeholder = "Wpisz swoje pytanie...";
+            if(micButton) micButton.title = "Rozpocznij tryb rozmowy";
+            if(aiChatInput) aiChatInput.placeholder = "Wpisz swoje pytanie...";
             window.speechSynthesis.cancel();
             console.log("Tryb rozmowy ZATRZYMANY.");
         }
@@ -18869,29 +18886,32 @@ function addAiChatMessage(text, type, id = null) {
                 console.log("Nagrywanie jest już w toku.");
                 return;
             }
+            
+            // Sprawdzenie, czy elementy UI istnieją
+            if (!micIconIdle || !micIconRecording || !aiChatInput) {
+                console.error("Brak elementów UI mikrofonu. Zatrzymuję rozmowę.");
+                stopConversation();
+                return;
+            }
 
-            // Zatrzymaj mowę AI na wszelki wypadek
             window.speechSynthesis.cancel();
-
-            // Oznacz stan jako nagrywanie (UI)
             isRecording = true;
             micIconIdle.style.display = 'none';
             micIconRecording.style.display = 'block';
             aiChatInput.placeholder = "Słucham...";
             console.log("Mikrofon włączony: Słucham...");
             
-            // Wyczyść timer ciszy
             if (recognitionTimer) clearTimeout(recognitionTimer);
 
             if (isMedianApp) {
                 // --- LOGIKA DLA MEDIAN.CO ---
                 console.log("Używam natywnego API Median.co do rozpoznawania mowy...");
                 window.median.speech.start({
-                    language: 'pl-PL', // Ustaw język polski
+                    language: 'pl-PL',
                     callback: (result) => {
-                        isRecording = false; // Median sam kończy po rezultacie
-                        micIconIdle.style.display = 'block';
-                        micIconRecording.style.display = 'none';
+                        isRecording = false; 
+                        if (micIconIdle) micIconIdle.style.display = 'block';
+                        if (micIconRecording) micIconRecording.style.display = 'none';
                         
                         if (result.transcript) {
                             handleRecognitionResult(result.transcript);
@@ -18905,7 +18925,6 @@ function addAiChatMessage(text, type, id = null) {
                 // --- LOGIKA DLA STANDARDOWEJ PRZEGLĄDARKI ---
                 try {
                     recognition.start();
-                    // Timer ciszy (tylko dla Web API, Median obsługuje to sam)
                     recognitionTimer = setTimeout(() => {
                         if (isRecording) {
                             console.log("Przekroczono limit czasu ciszy, zatrzymuję nagrywanie.");
@@ -18948,70 +18967,89 @@ function addAiChatMessage(text, type, id = null) {
             }
             
             console.log("Rozpoznano mowę:", transcript);
-            aiChatInput.value = transcript;
+            if (aiChatInput) aiChatInput.value = transcript;
             
-            // Automatycznie wyślij formularz
-            aiChatForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-            // Pętla zostanie zamknięta przez speakText().onend
+            if (aiChatForm) {
+                aiChatForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            }
         }
 
-        // Inicjalizacja Głównego Przycisku
-        if (!SpeechRecognition && !isMedianApp) {
-            console.warn("Web Speech API oraz Median API są niedostępne.");
-            if(micButton) micButton.style.display = 'none';
-        } else {
-            // Inicjalizacja Web API (jeśli nie jesteśmy w Median)
-            if (!isMedianApp && SpeechRecognition) {
-                recognition = new SpeechRecognition();
-                recognition.continuous = false;
-                recognition.lang = 'pl-PL';
-                recognition.interimResults = false;
-                recognition.maxAlternatives = 1;
+        // === POCZĄTEK KRYTYCZNEJ POPRAWKI: Defensywna Inicjalizacja ===
 
-                // Listenery tylko dla Web API
-                recognition.onstart = () => {
-                    // (Logika jest teraz w startListening())
-                };
-                recognition.onend = () => {
-                    console.log("Mikrofon Web API wyłączony.");
-                    isRecording = false;
-                    if (recognitionTimer) clearTimeout(recognitionTimer);
-                    if (!isConversationMode) {
-                        micIconIdle.style.display = 'block';
-                        micIconRecording.style.display = 'none';
-                        micButton.title = "Rozpocznij tryb rozmowy";
-                        aiChatInput.placeholder = "Wpisz swoje pytanie...";
-                    }
-                };
-                recognition.onerror = (event) => {
-                    handleRecognitionError(event.error);
-                };
-                recognition.onresult = (event) => {
-                    if (recognitionTimer) clearTimeout(recognitionTimer);
-                    handleRecognitionResult(event.results[0][0].transcript);
-                };
-            }
+        // Sprawdź, czy w ogóle mamy przycisk i pole tekstowe.
+        // Jeśli nie, cała logika głosowa jest pomijana i aplikacja się nie zawiesi.
+        if (micButton && aiChatInput && aiChatForm) {
+            
+            // Sprawdź, czy API (Web lub Median) jest dostępne
+            if (!SpeechRecognition && !isMedianApp) {
+                console.warn("Web Speech API oraz Median API są niedostępne.");
+                micButton.style.display = 'none'; // Ukryj przycisk, bo i tak nie zadziała
+            
+            } else {
+                // Przynajmniej jedno API jest dostępne, inicjalizuj
+                
+                // Inicjalizacja Web API (jeśli nie jesteśmy w Median)
+                if (!isMedianApp && SpeechRecognition) {
+                    recognition = new SpeechRecognition();
+                    recognition.continuous = false;
+                    recognition.lang = 'pl-PL';
+                    recognition.interimResults = false;
+                    recognition.maxAlternatives = 1;
 
-            // Główny przełącznik trybu rozmowy
-            micButton.addEventListener('click', () => {
-                if (isConversationMode) {
-                    stopConversation();
-                } else {
-                    isConversationMode = true;
-                    micButton.title = "Zakończ tryb rozmowy";
-                    startListening(); // Rozpocznij pętlę
+                    // Listenery tylko dla Web API
+                    recognition.onend = () => {
+                        console.log("Mikrofon Web API wyłączony.");
+                        isRecording = false;
+                        if (recognitionTimer) clearTimeout(recognitionTimer);
+                        if (!isConversationMode && micIconIdle && micIconRecording) {
+                            micIconIdle.style.display = 'block';
+                            micIconRecording.style.display = 'none';
+                            micButton.title = "Rozpocznij tryb rozmowy";
+                            if(aiChatInput) aiChatInput.placeholder = "Wpisz swoje pytanie...";
+                        }
+                    };
+                    recognition.onerror = (event) => {
+                        handleRecognitionError(event.error);
+                    };
+                    recognition.onresult = (event) => {
+                        if (recognitionTimer) clearTimeout(recognitionTimer);
+                        handleRecognitionResult(event.results[0][0].transcript);
+                    };
                 }
-            });
-        }
 
-        // Przerwanie trybu rozmowy, gdy użytkownik zacznie pisać (bez zmian)
-        aiChatInput.addEventListener('input', () => {
-            if (isConversationMode) {
-                console.log("Wykryto pisanie ręczne, zatrzymuję tryb rozmowy.");
-                stopConversation();
+                // Główny przełącznik trybu rozmowy
+                micButton.addEventListener('click', () => {
+                    if (isConversationMode) {
+                        stopConversation();
+                    } else {
+                        isConversationMode = true;
+                        micButton.title = "Zakończ tryb rozmowy";
+                        startListening(); // Rozpocznij pętlę
+                    }
+                });
+
+                // Przerwanie trybu rozmowy, gdy użytkownik zacznie pisać
+                aiChatInput.addEventListener('input', () => {
+                    if (isConversationMode) {
+                        console.log("Wykryto pisanie ręczne, zatrzymuję tryb rozmowy.");
+                        stopConversation();
+                    }
+                });
             }
-        });
-        // === KONIEC NOWEJ LOGIKI (TTS + STT W PĘTLI) v2 ===
+
+        } else {
+            // Jeśli kluczowe elementy (micButton, aiChatInput) nie zostały znalezione,
+            // wyloguj błąd, ale NIE PRZERYWAJ wykonywania skryptu.
+            console.error("Nie można zainicjować funkcji głosowych AI: Brakuje elementów 'ai-chat-mic-btn' lub 'ai-chat-input' w DOM.");
+            
+            // Jeśli sam przycisk mikrofonu istnieje, ukryj go, bo logika nie zadziała.
+            if (micButton) {
+                micButton.style.display = 'none';
+            }
+        }
+        // === KONIEC KRYTYCZNEJ POPRAWKI ===
+        
+        // === KONIEC NOWEJ LOGIKI (TTS + STT W PĘTLI) v3 ===
        // === POCZĄTEK ZMIANY: Logika Modala Powitalnego ===
 
 /**
@@ -20275,6 +20313,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
