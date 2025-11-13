@@ -4670,6 +4670,24 @@
             100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
         }
         /* === KONIEC NOWYCH STYLI === */
+        /* === NOWE STYLE: Lista wyboru głosu AI === */
+        #ai-voice-select {
+            margin-left: auto; /* Przesuwa listę na prawo */
+            margin-right: 8px; /* Odstęp od przycisku 'X' */
+            max-width: 150px; /* Ograniczenie szerokości */
+            padding: 4px 6px;
+            font-size: 12px;
+            font-weight: 500;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            cursor: pointer;
+        }
+        #ai-voice-select:hover {
+            background-color: var(--bg-tertiary);
+        }
+        /* === KONIEC NOWYCH STYLI === */
     </style>
 
 </head>
@@ -5268,6 +5286,9 @@
                     <div class="modal-header">
                         <img src="TeamFlowAI.png" alt="AI Icon" style="width: 24px; height: 24px; margin-right: 8px; border-radius: 4px;">
                         <h2>Asystent Pomocy TeamFlow</h2>
+                        
+                        <select id="ai-voice-select" title="Wybierz głos lektora AI" style="display: none;"></select>
+                        
                         <button type="button" class="modal-close-btn" id="ai-chat-close-btn">&times;</button>
                     </div>
                     
@@ -18954,6 +18975,86 @@ function addAiChatMessage(text, type, id = null) {
             speechUtteranceInstance.rate = 1.0;
             speechUtteranceInstance.pitch = 1.0;
 
+            // === NOWA LOGIKA: Dynamiczne ustawianie głosu (LISTA WYBORU) ===
+            const aiVoiceSelect = document.getElementById('ai-voice-select');
+            
+            const populateVoiceList = () => {
+                const voices = speechSynthesisInstance.getVoices();
+                // 1. Wyczyść starą listę
+                aiVoiceSelect.innerHTML = '';
+                
+                // 2. Znajdź tylko polskie głosy
+                const polishVoices = voices.filter(voice => voice.lang === 'pl-PL');
+                
+                if (polishVoices.length === 0) {
+                    console.warn("Nie znaleziono żadnych polskich głosów (pl-PL).");
+                    aiVoiceSelect.style.display = 'none'; // Ukryj listę, jeśli nie ma opcji
+                    return;
+                }
+
+                // 3. Wypełnij listę <select>
+                polishVoices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.name;
+                    // Skróćmy nazwę dla czytelności, usuwając prefiksy Microsoftu
+                    option.textContent = voice.name.replace('Microsoft ', '').replace(' Online (Natural) - Polish (Poland)', '');
+                    aiVoiceSelect.appendChild(option);
+                });
+
+                // 4. Spróbuj załadować zapisany głos
+                const savedVoiceName = localStorage.getItem('teamflow-ai-voice');
+                let selectedVoice = null;
+
+                if (savedVoiceName) {
+                    selectedVoice = polishVoices.find(v => v.name === savedVoiceName);
+                }
+
+                // 5. Jeśli nie ma zapisanego, spróbuj "Paulina"
+                if (!selectedVoice) {
+                    selectedVoice = polishVoices.find(v => v.name.includes('Paulina'));
+                }
+                
+                // 6. Jeśli nadal nic, weź pierwszy z listy (np. Adam)
+                if (!selectedVoice) {
+                    selectedVoice = polishVoices[0];
+                }
+
+                // 7. Ustaw wybrany głos w <select> i w syntezatorze
+                if (selectedVoice) {
+                    aiVoiceSelect.value = selectedVoice.name;
+                    speechUtteranceInstance.voice = selectedVoice;
+                    console.log(`Ustawiono głos: ${selectedVoice.name}`);
+                }
+                
+                // 8. Pokaż listę
+                aiVoiceSelect.style.display = 'block';
+            };
+
+            speechSynthesisInstance.onvoiceschanged = populateVoiceList;
+            if (speechSynthesisInstance.getVoices().length > 0) {
+                populateVoiceList();
+            }
+            
+            // Listener do zmiany głosu przez użytkownika
+            aiVoiceSelect.addEventListener('change', (e) => {
+                const selectedVoiceName = e.target.value;
+                const voices = speechSynthesisInstance.getVoices();
+                const newVoice = voices.find(v => v.name === selectedVoiceName);
+                
+                if (newVoice) {
+                    speechUtteranceInstance.voice = newVoice;
+                    localStorage.setItem('teamflow-ai-voice', newVoice.name);
+                    console.log(`Zmieniono głos na: ${newVoice.name}`);
+                    
+                    // Odtwórz próbkę
+                    speechUtteranceInstance.text = 'Testuję głos.';
+                    speechSynthesisInstance.speak(speechUtteranceInstance);
+                }
+            });
+            // === KONIEC NOWEJ LOGIKI ===
+
+            // --- LISTENERY GŁOSOWE ---
+
             // --- LISTENERY GŁOSOWE ---
 
             // Kliknięcie przycisku Mikrofonu
@@ -20363,6 +20464,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
