@@ -18890,16 +18890,25 @@ function addAiChatMessage(text, type, id = null) {
     // Auto-scroll
     aiHelpModal.container.scrollTop = aiHelpModal.container.scrollHeight;
 }
-    // === NOWE FUNKCJE: ROZMOWA GŁOSOWA AI (Web API) ===
+    // === NOWA LOGIKA GŁOSOWA (Wersja 4.1 - Oparta na sprawdzonej pętli z historii) ===
+
+        // --- Zmienne globalne dla mowy ---
+        let speechRecognitionInstance = null;
+        let isRecording = false;
+        let isConversationModeActive = false; // Główny przełącznik trybu pętli
+        let recognitionTimer = null; // Timer do automatycznego wyłączania po ciszy
+        let userInterruptedSpeech = false; // Flaga przerwania mowy przez użytkownika
+        
+        // --- Funkcja detekcji Median (z poprzedniego kroku) ---
+        function isMedianWebView() {
+            return navigator.userAgent.includes("Median");
+        }
 
         /**
          * Aktualizuje wskaźnik statusu w panelu AI.
-         * @param {string} status 'idle', 'listening', 'processing', 'speaking'
-         * @param {string} [text=null] Opcjonalny tekst do wyświetlenia
          */
         function updateAiChatStatus(status, text = null) {
             if (!aiHelpModal.statusBar) return;
-
             aiHelpModal.statusBar.classList.remove('listening', 'processing', 'speaking');
             
             switch (status) {
@@ -18916,7 +18925,7 @@ function addAiChatMessage(text, type, id = null) {
                     aiHelpModal.statusBar.textContent = text || "Mówię...";
                     break;
                 case 'error':
-                    aiHelpModal.statusBar.classList.add('processing'); // Użyj stylu processing dla błędów
+                    aiHelpModal.statusBar.classList.add('processing');
                     aiHelpModal.statusBar.textContent = text || "Błąd";
                     break;
                 default: // idle
@@ -18925,189 +18934,245 @@ function addAiChatMessage(text, type, id = null) {
         }
 
         /**
-         * Inicjalizuje SpeechRecognition i SpeechSynthesis API.
-         * Wywoływane tylko, jeśli nie wykryto Median.
-         */
-        function initVoiceConversation() {
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            
-            if (!SpeechRecognition || !speechSynthesisInstance) {
-                console.warn("Web Speech API (Recognition lub Synthesis) nie jest wspierane w tej przeglądarce.");
-                aiHelpModal.micBtn.style.display = 'none'; // Ukryj przycisk, jeśli API nie działa
-                aiHelpModal.statusBar.style.display = 'none'; // Ukryj status
-                return;
-            }
-
-            // Inicjalizacja Rozpoznawania Mowy
-            speechRecognitionInstance = new SpeechRecognition();
-            speechRecognitionInstance.lang = 'pl-PL'; // Ustaw język polski
-            speechRecognitionInstance.interimResults = false; // Nie potrzebujemy wyników pośrednich
-            speechRecognitionInstance.continuous = false; // Będziemy restartować ręcznie
-            speechRecognitionInstance.maxAlternatives = 1;
-
-            // Inicjalizacja Syntezy Mowy (głos)
-            speechUtteranceInstance = new SpeechSynthesisUtterance();
-            speechUtteranceInstance.lang = 'pl-PL';
-            speechUtteranceInstance.rate = 1.0;
-            speechUtteranceInstance.pitch = 1.0;
-
-            // --- LISTENERY GŁOSOWE ---
-
-            // Kliknięcie przycisku Mikrofonu
-            aiHelpModal.micBtn.addEventListener('click', () => {
-                isConversationModeActive = !isConversationModeActive; // Przełącz tryb
-                aiHelpModal.micBtn.classList.toggle('active', isConversationModeActive);
-
-                if (isConversationModeActive) {
-                    console.log("Tryb rozmowy: WŁĄCZONY");
-                    userInterruptedSpeech = false;
-                    startListening();
-                } else {
-                    console.log("Tryb rozmowy: WYŁĄCZONY");
-                    stopListening();
-                    speechSynthesisInstance.cancel(); // Przerwij mowę AI
-                    updateAiChatStatus('idle');
-                }
-            });
-
-            // Rozpoczęcie nasłuchu
-            speechRecognitionInstance.onstart = () => {
-                console.log("SpeechRecognition: Start");
-                updateAiChatStatus('listening');
-            };
-
-            // Zakończenie nasłuchu (ważne!)
-            speechRecognitionInstance.onend = () => {
-                console.log("SpeechRecognition: End");
-                
-                // Ten handler jest teraz odpowiedzialny GŁÓWNIE za błędy/ciszę.
-                // Jeśli tryb jest aktywny i AI NIE mówi, to znaczy, że
-                // nasłuch zakończył się np. z powodu ciszy i należy go zrestartować.
-                if (isConversationModeActive && !speechSynthesisInstance.speaking) {
-                    console.log("SpeechRecognition: Nasłuch zakończony (np. cisza/błąd). Restartuję...");
-                    startListening();
-                } else if (isConversationModeActive && speechSynthesisInstance.speaking) {
-                    console.log("SpeechRecognition: Nasłuch zatrzymany celowo (AI mówi).");
-                } else {
-                    console.log("SpeechRecognition: Nasłuch zatrzymany (tryb wyłączony).");
-                    updateAiChatStatus('idle');
-                }
-            };
-
-            // Wykryto mowę
-            speechRecognitionInstance.onresult = (event) => {
-                const transcript = event.results[event.results.length - 1][0].transcript.trim();
-                console.log("SpeechRecognition: Wykryto tekst:", transcript);
-                
-                if (transcript) {
-                    // === KLUCZOWA POPRAWKA: USUNIĘTO STĄD stopListening() ===
-                    
-                    updateAiChatStatus('processing');
-                    
-                    // Wyślij tekst do AI (symulując wysłanie formularza)
-                    aiHelpModal.input.value = transcript;
-                    aiHelpModal.form.dispatchEvent(new Event('submit'));
-                }
-            };
-
-            // Błędy rozpoznawania
-            speechRecognitionInstance.onerror = (event) => {
-                console.warn("SpeechRecognition: Błąd:", event.error);
-                if (event.error === 'no-speech' || event.error === 'audio-capture') {
-                    updateAiChatStatus('error', 'Nie słyszę. Sprawdź mikrofon.');
-                } else if (event.error === 'not-allowed') {
-                    updateAiChatStatus('error', 'Brak uprawnień do mikrofonu.');
-                    // 'onend' się nie wykona po 'not-allowed', więc musimy wyłączyć tryb ręcznie
-                    isConversationModeActive = false; 
-                    aiHelpModal.micBtn.classList.remove('active');
-                    updateAiChatStatus('idle');
-                }
-                // Po błędach 'no-speech' i 'audio-capture' automatycznie wywoła się 'onend',
-                // który zrestartuje nasłuch (jeśli tryb jest aktywny).
-            };
-
-            // Zakończenie mowy AI (syntezy)
-            speechUtteranceInstance.onend = () => {
-                console.log("SpeechSynthesis: Zakończono mówić.");
-                updateAiChatStatus('idle');
-                
-                // Jeśli użytkownik nie przerwał rozmowy (np. klikając mikrofon w trakcie mowy AI)
-                // i tryb ciągły jest aktywny, uruchom nasłuch ponownie.
-                if (isConversationModeActive && !userInterruptedSpeech) {
-                    
-                    // Zachowujemy poprawkę 50ms, która rozwiązuje problem "pozornego słuchania"
-                    setTimeout(() => {
-                        if (isConversationModeActive) {
-                            startListening();
-                        }
-                    }, 50); 
-                    
-                }
-                userInterruptedSpeech = false;
-            };
-        }
-
-        /**
-         * Bezpiecznie uruchamia nasłuch (SpeechRecognition).
-         */
-        function startListening() {
-            if (!speechRecognitionInstance || !isConversationModeActive) return;
-            
-            // Jeśli AI właśnie mówi, nie włączaj nasłuchu (poczekaj na onend syntezy)
-            if (speechSynthesisInstance.speaking) {
-                console.log("SpeechRecognition: Wstrzymano start (AI mówi)");
-                return;
-            }
-
-            try {
-                // Rozpocznij nasłuch
-                speechRecognitionInstance.start();
-            } catch (e) {
-                // Obsługa błędu, jeśli .start() zostanie wywołane, gdy już działa
-                console.warn("SpeechRecognition: Błąd przy próbie start():", e.message);
-            }
-        }
-
-        /**
-         * Bezpiecznie zatrzymuje nasłuch.
-         */
-        function stopListening() {
-            if (!speechRecognitionInstance) return;
-            
-            try {
-                // Zatrzymaj nasłuch
-                speechRecognitionInstance.stop();
-            } catch (e) {
-                // Obsługa błędu (jeśli nie działał)
-                console.warn("SpeechRecognition: Błąd przy próbie stop():", e.message);
-            }
-        }
-
-        /**
-         * Odtwarza odpowiedź tekstową AI za pomocą SpeechSynthesis.
-         * @param {string} textToSpeak Tekst odpowiedzi od AI.
+         * Funkcja odczytywania (TTS) - ze zintegrowaną logiką pętli
          */
         function speakResponse(textToSpeak) {
-            if (!speechSynthesisInstance || !speechUtteranceInstance) return;
-
-            // Jeśli użytkownik wyłączył rozmowę, nie odtwarzaj odpowiedzi
+            // 1. Zawsze zatrzymaj nasłuch, gdy AI zaczyna mówić
+            if (isRecording && speechRecognitionInstance) {
+                try {
+                    console.log("AI zaczyna mówić, zatrzymuję nasłuch.");
+                    speechRecognitionInstance.stop();
+                } catch (e) { console.warn("Próba zatrzymania nasłuchu (gdy AI mówi) nie powiodła się:", e.message); }
+            }
+            
+            // 2. Przerwij poprzednią wypowiedź, jeśli jakaś była
+            window.speechSynthesis.cancel();
+            
+            // 3. Jeśli tryb rozmowy jest wyłączony, nie odtwarzaj odpowiedzi
             if (!isConversationModeActive) return;
 
-            // Zatrzymaj nasłuch na czas mówienia
-            stopListening();
             updateAiChatStatus('speaking');
 
-            // Usuń ewentualne formatowanie Markdown (np. **, ##), które źle brzmi
+            // 4. Czyszczenie tekstu z Markdown (bez zmian)
             const cleanText = textToSpeak
                 .replace(/###|##|#/g, '')
                 .replace(/\*\*(.*?)\*\*/g, '$1')
                 .replace(/\*(.*?)\*/g, '$1');
 
-            speechUtteranceInstance.text = cleanText;
-            speechSynthesisInstance.speak(speechUtteranceInstance);
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            const voices = window.speechSynthesis.getVoices();
+            const plVoice = voices.find(voice => voice.lang.startsWith('pl-PL'));
+            
+            utterance.voice = plVoice || voices.find(v => v.lang.startsWith('pl'));
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+
+            // 5. KROK PĘTLI 1: Co zrobić, gdy AI skończy mówić
+            utterance.onend = () => {
+                console.log("AI skończyło mówić.");
+                updateAiChatStatus('idle'); // Zresetuj status
+                
+                if (isConversationModeActive && !userInterruptedSpeech) {
+                    console.log("Tryb rozmowy aktywny, włączam nasłuch...");
+                    
+                    // Dajemy przeglądarce 50ms na "odblokowanie" mikrofonu (kluczowa poprawka)
+                    setTimeout(() => {
+                        if (isConversationModeActive) {
+                            try {
+                                speechRecognitionInstance.start();
+                            } catch (e) { console.warn("Nie można było automatycznie uruchomić nasłuchu:", e.message); }
+                        }
+                    }, 50);
+                }
+                userInterruptedSpeech = false; // Zresetuj flagę przerwania
+            };
+            
+            window.speechSynthesis.speak(utterance);
         }
 
-        // === KONIEC NOWYCH FUNKCJI ===
+        /**
+         * Funkcja zatrzymująca całą konwersację (z naszej historii)
+         */
+        function stopConversation() {
+            isConversationModeActive = false;
+            if (recognitionTimer) clearTimeout(recognitionTimer); // Anuluj timer ciszy
+            
+            if (isRecording) {
+                try {
+                    speechRecognitionInstance.stop(); // To wywoła 'onend'
+                } catch(e) {}
+            } else {
+                // Jeśli nie nagrywamy, ręcznie zresetuj UI
+                aiHelpModal.micBtn.classList.remove('active');
+                aiHelpModal.input.placeholder = "Wpisz swoje pytanie...";
+            }
+            window.speechSynthesis.cancel(); // Zawsze zatrzymaj mowę AI
+            updateAiChatStatus('idle'); // Zresetuj status
+            console.log("Tryb rozmowy ZATRZYMANY.");
+        }
+
+        /**
+         * Główny inicjalizator logiki mowy
+         */
+        function initVoiceConversation() {
+            // Sprawdź, czy w ogóle jesteśmy w przeglądarce (wg. naszego planu)
+            if (isMedianWebView()) {
+                console.log("Wykryto Median WebView. Funkcje głosowe AI (Speech API) zostaną wyłączone.");
+                return; // Zakończ, nic nie rób
+            }
+            
+            // Kontynuuj, jeśli jesteśmy w przeglądarce web
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            if (!SpeechRecognition || !window.speechSynthesis) {
+                console.warn("Web Speech API (Recognition lub Synthesis) nie jest wspierane.");
+                return; // Zakończ, nic nie rób
+            }
+            
+            // Pokaż przyciski (które są ukryte w HTML)
+            if (aiHelpModal.micBtn) aiHelpModal.micBtn.style.display = 'inline-flex';
+            if (aiHelpModal.statusBar) aiHelpModal.statusBar.style.display = 'block';
+
+            // Ładowanie głosów (musi tu być)
+            if (window.speechSynthesis.onvoiceschanged !== undefined) {
+                window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+            }
+
+            // Inicjalizacja SpeechRecognition (STT)
+            speechRecognitionInstance = new SpeechRecognition();
+            speechRecognitionInstance.continuous = false; // Ważne: false - chcemy wynik po jednej frazie
+            speechRecognitionInstance.lang = 'pl-PL';
+            speechRecognitionInstance.interimResults = false;
+            speechRecognitionInstance.maxAlternatives = 1;
+
+            // Główny przełącznik trybu rozmowy
+            aiHelpModal.micBtn.addEventListener('click', () => {
+                userInterruptedSpeech = false; // Reset flagi
+                if (isConversationModeActive) {
+                    stopConversation();
+                } else {
+                    // Pierwsze uruchomienie pętli
+                    isConversationModeActive = true;
+                    aiHelpModal.micBtn.classList.add('active');
+                    window.speechSynthesis.cancel(); // Przerwij mowę AI, jeśli mówi
+                    try {
+                        speechRecognitionInstance.start(); // Rozpocznij nasłuch
+                    } catch (e) { console.error("Błąd startu:", e.message); }
+                }
+            });
+
+            // Gdy rozpoczyna się nagrywanie
+            speechRecognitionInstance.onstart = () => {
+                console.log("Mikrofon włączony: Słucham...");
+                isRecording = true;
+                aiHelpModal.micBtn.classList.add('active'); // Upewnij się, że jest aktywny
+                updateAiChatStatus('listening');
+                if (recognitionTimer) clearTimeout(recognitionTimer); // Wyczyść stary timer
+                
+                // Timer ciszy (z kodu, który mi podałeś)
+                recognitionTimer = setTimeout(() => {
+                    if (isRecording) {
+                        console.log("Przekroczono limit czasu ciszy, zatrzymuję nagrywanie.");
+                        try { speechRecognitionInstance.stop(); } catch(e) {}
+                    }
+                }, 15000); // 15 sekund
+            };
+
+            // Gdy nagrywanie się kończy (z jakiegokolwiek powodu)
+            speechRecognitionInstance.onend = () => {
+                console.log("Mikrofon wyłączony.");
+                isRecording = false;
+                if (recognitionTimer) clearTimeout(recognitionTimer);
+                
+                // Resetuj UI tylko jeśli NIE jesteśmy w trybie rozmowy
+                if (!isConversationModeActive) {
+                    aiHelpModal.micBtn.classList.remove('active');
+                    updateAiChatStatus('idle');
+                }
+                // Jeśli jesteśmy w trybie rozmowy, ale AI nie mówi, 
+                // oznacza to błąd/ciszę - spróbuj ponownie (obsłużone w onerror/onresult)
+                else if (isConversationModeActive && !window.speechSynthesis.speaking) {
+                    console.log("Nasłuch zakończony (np. błąd sieci), próba restartu...");
+                    setTimeout(() => {
+                         if (isConversationModeActive && !isRecording && !window.speechSynthesis.speaking) {
+                            try { speechRecognitionInstance.start(); } catch(e) {}
+                         }
+                    }, 250);
+                }
+            };
+
+            // Gdy pojawi się błąd
+            speechRecognitionInstance.onerror = (event) => {
+                console.error("Błąd SpeechRecognition:", event.error);
+                
+                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                    addAiChatMessage("Nie udzieliłeś pozwolenia na użycie mikrofonu.", 'bot');
+                    stopConversation(); // Wyłącz tryb rozmowy
+                } else if (event.error === 'no-speech' && isConversationModeActive && !window.speechSynthesis.speaking) {
+                    // Jeśli jest cisza, ale jesteśmy w pętli (i AI nie mówi), spróbuj ponownie
+                    console.log("Nie usłyszano mowy, ponawiam nasłuch...");
+                    // 'onend' zostanie wywołany automatycznie po 'no-speech',
+                    // a nasz 'onend' handler spróbuje zrestartować nasłuch.
+                }
+            };
+
+            // KROK PĘTLI 2: Gdy otrzymamy wynik!
+            speechRecognitionInstance.onresult = (event) => {
+                if (recognitionTimer) clearTimeout(recognitionTimer); // Mamy wynik, resetuj timer
+                const transcript = event.results[0][0].transcript.trim();
+                
+                if (transcript.length === 0) {
+                    console.log("Otrzymano pusty wynik, wznawiam nasłuch.");
+                    if (isConversationModeActive) {
+                        try { speechRecognitionInstance.start(); } catch(e) {}
+                    }
+                    return;
+                }
+                
+                console.log("Rozpoznano mowę:", transcript);
+                aiHelpModal.input.value = transcript; // Wstaw do inputu (dla widoczności)
+                updateAiChatStatus('processing');
+                
+                // Automatycznie wyślij formularz
+                aiHelpModal.form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                
+                // Nie uruchamiamy recognition.start() tutaj.
+                // Uruchomi go event 'utterance.onend' PO tym, jak AI odpowie.
+            };
+        }
+        
+        // Integracja: Przerwanie trybu rozmowy, gdy użytkownik zacznie pisać
+        aiHelpModal.input.addEventListener('input', () => {
+            if (isConversationModeActive) {
+                console.log("Wykryto pisanie ręczne, zatrzymuję tryb rozmowy.");
+                userInterruptedSpeech = true; // Zapobiegnij restartowi mowy
+                stopConversation();
+            }
+        });
+        
+        // Integracja: Zatrzymanie rozmowy przy zamykaniu panelu AI
+        aiHelpModal.closeBtn.addEventListener('click', () => {
+            if (isConversationModeActive) {
+                stopConversation();
+            }
+        });
+
+        // Integracja: Zatrzymanie rozmowy przy wylogowaniu
+        logoutBtn.addEventListener('click', () => {
+            if (isConversationModeActive) {
+                stopConversation();
+            }
+            
+            // Oryginalna logika wylogowania (pozostaje bez zmian)
+            // NAJPIERW zatrzymujemy wszystkie aktywne słuchacze,
+            // póki użytkownik JEST JESZCZE zalogowany i ma uprawnienia.
+            unsubscribeAllListeners();
+            
+            // DOPIERO TERAZ wylogowujemy użytkownika.
+            signOut(auth);
+        });
+        
+        // === KONIEC NOWEJ LOGIKI GŁOSOWEJ ===
        // === POCZĄTEK ZMIANY: Logika Modala Powitalnego ===
 
 /**
@@ -20371,6 +20436,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
