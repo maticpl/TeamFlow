@@ -18803,33 +18803,41 @@ function addAiChatMessage(text, type, id = null) {
          * Funkcja odczytywania (TTS) - teraz ze zintegrowaną logiką pętli
          */
         function speakText(text) {
-            window.speechSynthesis.cancel();
+            // KROK 1: Dodanie blokady dla Median.co WebView
+            // Sprawdzamy, czy aplikacja działa w natywnej otoczce Median.
+            // Zmienna 'isMedianApp' jest już zdefiniowana wyżej w kodzie.
+            if (isMedianApp) {
+                console.log("Wykryto Median.co WebView, pomijam odtwarzanie mowy (TTS).");
+                
+                // WAŻNE: Musimy nadal wywołać 'startListening()' w trybie konwersacji,
+                // tak jakby mowa się zakończyła, aby pętla rozmowy była kontynuowana.
+                if (isConversationMode) {
+                    console.log("Median TTS pominięte, włączam nasłuch (STT)...");
+                    startListening();
+                }
+                return; // Zakończ funkcję, nie odtwarzaj mowy.
+            }
+            // Koniec KROKU 1. Poniższy kod wykona się tylko dla przeglądarek desktopowych/mobilnych.
 
+            window.speechSynthesis.cancel();
             const cleanedText = text.replace(/```(json)?\n?|```/g, "").trim();
             if (cleanedText.startsWith('[ACTION:')) {
-                // Jeśli AI zwróciło błąd (np. JSON), odczytaj go inaczej
                 speakText("Otrzymałem odpowiedź, ale wystąpił błąd formatowania.");
                 return;
             }
-
             const utterance = new SpeechSynthesisUtterance(cleanedText);
             const voices = window.speechSynthesis.getVoices();
             const plVoice = voices.find(voice => voice.lang.startsWith('pl'));
-            
             utterance.voice = plVoice || voices[0];
             utterance.rate = 1.0;
             utterance.pitch = 1.0;
 
-            // KROK PĘTLI 1: Co zrobić, gdy AI skończy mówić
             utterance.onend = () => {
                 if (isConversationMode) {
                     console.log("AI skończyło mówić, automatycznie włączam nasłuch...");
-                    try {
-                        recognition.start();
-                    } catch (e) { console.warn("Nie można było automatycznie uruchomić nasłuchu:", e.message); }
+                    startListening(); // Wywołanie nowej funkcji
                 }
             };
-            
             window.speechSynthesis.speak(utterance);
         }
 
@@ -20227,6 +20235,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
