@@ -6000,7 +6000,19 @@
     const { RRule } = rrule;
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, writeBatch, where, orderBy, arrayRemove, arrayUnion, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    // === POCZĄTEK OSTATECZNEJ POPRAWKI IMPORTÓW (v2) ===
+    // 1. Zostawiamy standardowy import, ale BEZ 'initializeFirestore' i 'inMemoryPersistence'
+    import { 
+        getFirestore, 
+        doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
+        onSnapshot, collection, query, writeBatch, where, orderBy, 
+        arrayRemove, arrayUnion, limit 
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    
+    // 2. Importujemy biblioteki "compat", aby uzyskać dostęp do .disablePersistence()
+    import "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js";
+    import "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js";
+    // === KONIEC OSTATECZNEJ POPRAWKI IMPORTÓW (v2) ===
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
     import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
     import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js";
@@ -6028,10 +6040,22 @@
     const appContainer = document.querySelector('.app-container');
 
     try {
-        app = initializeApp(firebaseConfig); // Przypisujemy zainicjalizowaną aplikację
+        // === POCZĄTEK OSTATECZNEJ POPRAWKI (v2) ===
+        // 1. Inicjalizujemy globalną instancję 'firebase' dla bibliotek "compat"
+        // To naprawi błąd 'Cannot read properties of undefined (reading 'INTERNAL')'
+        firebase.initializeApp(firebaseConfig); 
+        
+        // 2. Inicjalizujemy aplikację modułową (jak wcześniej)
+        app = initializeApp(firebaseConfig); 
+        
+        // 3. Używamy standardowego getFirestore (BEZ inMemoryPersistence)
         db = getFirestore(app);
+        
+        // 4. Reszta inicjalizacji
         auth = getAuth(app);
         storage = getStorage(app);
+        // === KONIEC OSTATECZNEJ POPRAWKI (v2) ===
+        
         functions = getFunctions(app, "europe-west1");
     } catch (error) {
         console.error("Błąd inicjalizacji Firebase:", error);
@@ -12499,7 +12523,16 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
          onAuthStateChanged(auth, async (user) => {
     // === POCZĄTEK ZMIANY: Nowa logika `onAuthStateChanged` ===
     if (user) {
-        
+        try {
+            await firebase.firestore().disablePersistence();
+            console.log("Pamięć podręczna Firestore (IndexedDB) została wyłączona (tryb Compat).");
+        } catch (err) {
+            if (err.code === 'failed-precondition') {
+                console.warn("Nie można wyłączyć pamięci podręcznej (być może już zainicjowana). Kontynuuję...");
+            } else {
+                console.error("Błąd podczas wyłączania pamięci podręcznej Firestore:", err);
+            }
+        }
         // === USUNIĘTO: Logika linku zaproszeniowego (przeniesiona do Fazy 5) ===
 
         let userDocRef = doc(usersRef, user.uid);
@@ -20281,6 +20314,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
