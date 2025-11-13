@@ -19010,7 +19010,10 @@ function addAiChatMessage(text, type, id = null) {
             // Kontynuuj, jeśli jesteśmy w przeglądarce web
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             
+            // === KLUCZOWA POPRAWKA BŁĘDU ===
+            // Zmieniono błędne "!speechSynthesisInstance" na "!window.speechSynthesis"
             if (!SpeechRecognition || !window.speechSynthesis) {
+            // === KONIEC POPRAWKI ===
                 console.warn("Web Speech API (Recognition lub Synthesis) nie jest wspierane.");
                 return; // Zakończ, nic nie rób
             }
@@ -19030,6 +19033,32 @@ function addAiChatMessage(text, type, id = null) {
             speechRecognitionInstance.lang = 'pl-PL';
             speechRecognitionInstance.interimResults = false;
             speechRecognitionInstance.maxAlternatives = 1;
+
+            // Inicjalizacja Syntezy Mowy (głos) - Musimy ją tu zdefiniować dla onend
+            speechUtteranceInstance = new SpeechSynthesisUtterance();
+            speechUtteranceInstance.lang = 'pl-PL';
+            speechUtteranceInstance.rate = 1.0;
+            speechUtteranceInstance.pitch = 1.0;
+
+            // KROK PĘTLI 1: Co zrobić, gdy AI skończy mówić
+            speechUtteranceInstance.onend = () => {
+                console.log("AI skończyło mówić.");
+                updateAiChatStatus('idle'); // Zresetuj status
+                
+                if (isConversationModeActive && !userInterruptedSpeech) {
+                    console.log("Tryb rozmowy aktywny, włączam nasłuch...");
+                    
+                    // Dajemy przeglądarce 50ms na "odblokowanie" mikrofonu (kluczowa poprawka)
+                    setTimeout(() => {
+                        if (isConversationModeActive) {
+                            try {
+                                speechRecognitionInstance.start();
+                            } catch (e) { console.warn("Nie można było automatycznie uruchomić nasłuchu:", e.message); }
+                        }
+                    }, 50);
+                }
+                userInterruptedSpeech = false; // Zresetuj flagę przerwania
+            };
 
             // Główny przełącznik trybu rozmowy
             aiHelpModal.micBtn.addEventListener('click', () => {
@@ -20422,6 +20451,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
