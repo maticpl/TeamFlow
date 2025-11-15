@@ -5371,12 +5371,8 @@
                     </form>
                 </div>
             </aside>
-    <div class="modal-overlay" id="task-modal">
+    div class="modal-overlay" id="task-modal">
         <div class="modal">
-            <div class="modal-header">
-                <h2>Szczegóły zadania</h2>
-                <button type="button" class="modal-close-btn">&times;</button>
-            </div>
             <div class="task-modal-content">
                <div class="task-modal-main">
                 <div class="task-modal-title">
@@ -5386,6 +5382,9 @@
                 </div>
                 
                 <p id="modal-task-dependency-link" style="font-size: 13px; color: var(--text-secondary); margin-top: -12px; margin-bottom: 12px; margin-left: 48px; display: none;"></p>
+                
+                <p id="modal-task-creator-info" style="font-size: 12px; color: var(--text-secondary); margin-top: -8px; margin-bottom: 16px; margin-left: 48px; min-height: 16px;"></p>
+                
                 <div class="subtasks-section">
                     <div class="subtasks-header" id="subtasks-toggle-btn" title="Pokaż/Ukryj podzadania">
                             <h4>Podzadania <span id="subtasks-counter"></span></h4>
@@ -10537,7 +10536,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         const { task: blockingTask } = findTask(task.dependency.blockingTaskId);
                         
                         if (blockingTask) {
-                            // Użyłem "Zależne od:" (Depends on:) - jest bardziej precyzyjne
+                            // Użyłem "Zależne od:" (Depends on:) - jest bardziej precyzyjny
                             dependencyLinkEl.innerHTML = `Zależne od: <strong style="color: var(--text-primary); cursor: pointer;" data-linked-task-id="${blockingTask.id}" title="Kliknij, aby otworzyć">${blockingTask.title}</strong>`;
                             dependencyLinkEl.style.display = 'block';
                         } else {
@@ -10552,6 +10551,35 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     }
                 }
                 // === KONIEC DODANEGO FRAGMENTU KODU ===
+                
+                // === POCZĄTEK NOWEJ ZMIANY: WYŚWIETLANIE TWÓRCY I DATY ===
+                const creatorInfoEl = document.getElementById('modal-task-creator-info');
+                if (creatorInfoEl) {
+                    let creatorInfoText = '';
+                    
+                    // 1. Znajdź twórcę (pole 'createdBy' powinno istnieć)
+                    if (task.createdBy) {
+                        const creator = findUser(task.createdBy);
+                        const creatorName = creator ? (creator.name || creator.email) : 'Nieznany';
+                        creatorInfoText = `Utworzył: ${creatorName}`;
+                    } else {
+                        creatorInfoText = `Utworzył: Nieznany`;
+                    }
+                    
+                    // 2. Znajdź datę utworzenia (pole 'createdAt' będzie istniało dla nowych zadań)
+                    if (task.createdAt) {
+                        const creationDate = new Date(task.createdAt).toLocaleDateString('pl-PL', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric'
+                        });
+                        creatorInfoText += `, Data utworzenia: ${creationDate}`;
+                    }
+                    
+                    creatorInfoEl.textContent = creatorInfoText;
+                }
+                // === KONIEC NOWEJ ZMIANY ===
+                
                 taskModal.completed.checked = task.status === 'done';
                 const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
                 taskModal.completed.disabled = shouldBeDisabled;
@@ -11144,10 +11172,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
 
             const newAssignees = Array.from(taskModal.assigneesEdit.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
-            if (newAssignees.length === 0) {
-                showNotification("Zadanie musi być przypisane do co najmniej jednej osoby.", "Błąd");
-                return;
-            }
+          
 
             const newType = newAssignees.length > 1 ? 'multi' : 'single';
             const oldStatus = task.status;
@@ -15270,10 +15295,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             assignees = Array.from(newTaskModal.assigneeMultiList.querySelectorAll('.member-pill.selected'))
                            .map(pill => pill.dataset.userId);
         }
-        if (assignees.length === 0) {
-             showNotification("Wybierz przynajmniej jedną osobę do zadania.", "Błąd");
-             return;
-        }
+        
         // === NOWA LOGIKA: Łączenie daty i czasu z 3 pól ===
         const date = newTaskModal.dueDateDate.value;
         const hour = newTaskModal.dueDateHour.value;
@@ -15370,6 +15392,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         const newTask = {
                 id: `task${Date.now()}`, title,
                 createdBy: state.currentUser.uid,
+                createdAt: Date.now(), // <-- DODANA LINIA
                 description: newTaskModal.description.value,
                 status: 'todo', 
                 type: taskType,
@@ -20804,6 +20827,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
