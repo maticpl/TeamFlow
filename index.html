@@ -5242,6 +5242,13 @@
                             </svg>
                             <span>Edytuj układ</span>
                         </button>
+                        
+                        <button class="sort-btn" id="manage-columns-btn" style="display: none;" title="Zarządzaj kolumnami Kanban">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
+                            </svg>
+                            <span>Kolumny</span>
+                        </button>
                         <button class="sort-btn" id="select-mode-toggle-btn" style="display: none;" title="Zaznacz wiele zadań">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -6648,6 +6655,18 @@ let state = {
             saveBtn: document.getElementById('bulk-assign-save-btn')
         };
         // === KONIEC ===
+        
+        // === POCZĄTEK NOWEGO KODU: Referencje do Modala Kolumn ===
+        const manageColumnsBtn = document.getElementById('manage-columns-btn');
+        const manageColumnsModal = {
+            overlay: document.getElementById('custom-columns-modal'),
+            list: document.getElementById('custom-columns-list'),
+            addForm: document.getElementById('add-custom-column-form'),
+            addInput: document.getElementById('new-column-name-input'),
+            saveBtn: document.getElementById('save-custom-columns-btn')
+        };
+        let customColumnsSortable = null; // Zmienna dla instancji Sortable.js
+        // === KONIEC NOWEGO KODU ===
 
         // === NOWE REFERENCJE DLA MODALI SZABLONÓW ===
         // ZMIANA: Usunięto referencję do 'openTemplatesBtn'.
@@ -7240,6 +7259,13 @@ let state = {
                 // Jeśli pole nie istnieje, ustaw je domyślnie na wartość estymacji (lub null)
                 task.actualEffort = task.estimation || null;
             }
+            // === KONIEC NOWEGO KODU ===
+            
+            // === POCZĄTEK NOWEGO KODU: Migracja Custom Columns ===
+            if (task.customColumnId === undefined) {
+                task.customColumnId = null; // Domyślnie 'null' (główna kolumna 'W trakcie')
+            }
+            // === KONIEC NOWEGO KODU ===
 
             // === NOWA LOGIKA: Migracja i inicjalizacja subzadań ===
             if (!task.subtasks) {
@@ -8832,6 +8858,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
             // 4. Przycisk "Zakończ" - widoczny tylko dla Właściciela (i jeśli projekt nie jest zakończony)
             completeProjectBtn.style.display = (canDeleteOrComplete && !isCompleted) ? 'inline-block' : 'none';
+            
+            // === POCZĄTEK NOWEGO KODU ===
+            // 5. Przycisk "Zarządzaj kolumnami" (desktop) - widoczny dla Właściciela LUB Admina
+            if (manageColumnsBtn) {
+                manageColumnsBtn.style.display = canEditProject ? 'flex' : 'none';
+            }
+            // === KONIEC NOWEGO KODU ===
+            
             // === KONIEC ZMIANY ===
 
             if (!project) {
@@ -9950,126 +9984,139 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             renderMyTasksKanban(myTasks, myTasksKanbanEl);
         }
-        function renderKanbanBoard(project, isInteractive) { // ZMIANA: tasks -> project
+        function renderKanbanBoard(project, isInteractive) {
             kanbanBoardEl.innerHTML = '';
             
-            // Pobierz zadania z projektu
             const tasks = project.tasks || [];
-
-            // [ZMIANA 1] Pobieramy WSZYSTKIE sondaże dla projektu
-            // Ta linia pozostaje bez zmian, pobieramy wszystkie, bo filtr zastosujemy poniżej
             const allPolls = state.polls.filter(poll => poll.projectId === project.id);
+            const estimationType = project.estimationType || 'none';
+            const unit = (estimationType === 'points') ? 'pkt' : 'g';
 
-            Object.keys(STATUSES).forEach(statusKey => {
+            // === POCZĄTEK NOWEJ LOGIKI: Definiowanie listy kolumn ===
+            
+            // 1. Zacznij od stałej kolumny "Do realizacji"
+            const columnsToRender = [
+                { id: 'todo', title: STATUSES.todo, status: 'todo', isCustom: false }
+            ];
+
+            // 2. Dodaj domyślną kolumnę "W trakcie"
+            columnsToRender.push({ 
+                id: 'inprogress_null', // Użyjemy specjalnego ID dla tej kolumny
+                title: STATUSES.inprogress, 
+                status: 'inprogress', 
+                customColumnId: null, // To jest jej identyfikator
+                isCustom: false 
+            });
+
+            // 3. Dodaj kolumny użytkownika (jeśli istnieją)
+            if (project.customColumns && project.customColumns.length > 0) {
+                // Sortuj na podstawie zapisanego pola 'order'
+                const sortedCustomColumns = [...project.customColumns].sort((a, b) => (a.order || 0) - (b.order || 0));
+                
+                sortedCustomColumns.forEach(col => {
+                    columnsToRender.push({
+                        id: col.id, // np. "col_wstrzymane_123"
+                        title: col.title, // np. "Wstrzymane"
+                        status: 'inprogress', // Status bazowy to 'inprogress'
+                        customColumnId: col.id, // ID łączenia z zadaniem
+                        isCustom: true
+                    });
+                });
+            }
+
+            // 4. Zakończ stałą kolumną "Wykonane"
+            columnsToRender.push({ 
+                id: 'done', title: STATUSES.done, status: 'done', isCustom: false 
+            });
+            
+            // === KONIEC NOWEJ LOGIKI: Definiowanie listy kolumn ===
+
+            // Iteruj po nowej, dynamicznej liście kolumn
+            columnsToRender.forEach(colData => {
                 const column = document.createElement('div');
                 column.className = 'kanban-column';
-                column.dataset.status = statusKey;
                 
-                // === POCZĄTEK ZMIANY: FILTROWANIE KOLUMNY "WYKONANE" ===
-                let tasksInColumn = (tasks || []).filter(t => t.status === statusKey);
-                let completedFilterHTML = ''; // Domyślnie pusty HTML filtra
+                // === NOWE ATRYBUTY DATA ===
+                // `data-status` przechowuje status bazowy (todo, inprogress, done)
+                column.dataset.status = colData.status; 
+                // `data-column-id` przechowuje ID kolumny niestandardowej (lub "null" dla domyślnej "W trakcie")
+                column.dataset.columnId = colData.customColumnId !== undefined ? colData.customColumnId : 'null';
+                // === KONIEC NOWYCH ATRYBUTÓW ===
 
-                if (statusKey === 'done') {
-                    // Pobierz aktualny filtr dla tego projektu (domyślnie '7days')
-                    const filterValue = state.ui.projectCompletedFilters[project.id] || '7days';
+                let tasksInColumn = [];
+                let pollsInColumn = [];
+                let completedFilterHTML = '';
+
+                if (colData.status === 'todo') {
+                    tasksInColumn = tasks.filter(t => t.status === 'todo');
+                    if (state.ui.currentProjectFilters.showPolls) {
+                        pollsInColumn = allPolls.filter(p => p.status === 'open');
+                    }
+                } else if (colData.status === 'done') {
+                    tasksInColumn = tasks.filter(t => t.status === 'done');
+                    if (state.ui.currentProjectFilters.showPolls) {
+                        pollsInColumn = allPolls.filter(p => p.status === 'closed');
+                    }
                     
-                    // Stwórz HTML dla <select>
+                    // Logika filtra "Wykonane" (bez zmian)
+                    const filterValue = state.ui.projectCompletedFilters[project.id] || '7days';
                     completedFilterHTML = `
                         <select class="completed-tasks-filter" data-context="project" data-project-id="${project.id}" style="font-size: 11px; padding: 2px; margin-left: 8px; border-radius: 4px; background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">
                             <option value="7days" ${filterValue === '7days' ? 'selected' : ''}>Ostatnie 7 dni</option>
                             <option value="14days" ${filterValue === '14days' ? 'selected' : ''}>Ostatnie 14 dni</option>
                             <option value="30days" ${filterValue === '30days' ? 'selected' : ''}>Ostatnie 30 dni</option>
                             <option value="all" ${filterValue === 'all' ? 'selected' : ''}>Wszystkie</option>
-                        </select>
-                    `;
-
-                    // Zastosuj filtrowanie, jeśli nie wybrano "Wszystkie"
+                        </select>`;
                     if (filterValue !== 'all') {
                         const now = Date.now();
                         const daysToFilter = parseInt(filterValue.replace('days', ''), 10);
                         const cutoffDate = now - (daysToFilter * 24 * 60 * 60 * 1000);
-
                         tasksInColumn = tasksInColumn.filter(t => 
                             t.completedAt && t.completedAt.toDate().getTime() >= cutoffDate
                         );
                     }
+
+                } else if (colData.status === 'inprogress') {
+                    // To jest kolumna "W trakcie" LUB kolumna niestandardowa
+                    // Musimy filtrować na podstawie `customColumnId`
+                    tasksInColumn = tasks.filter(t => 
+                        t.status === 'inprogress' && 
+                        t.customColumnId === colData.customColumnId // (zadziała dla `null` oraz dla `col_id_123`)
+                    );
                 }
-                // === KONIEC ZMIANY ===
                 
                 const tasksHTML = tasksInColumn.map(task => createTaskCardHTML(task, isInteractive, project)).join('');
+                const pollsHTML = state.ui.currentProjectFilters.showPolls ? pollsInColumn.map(poll => createPollCardHTML(poll)).join('') : '';
+                const totalCount = tasksInColumn.length + pollsInColumn.length;
 
-                // === POCZĄTEK MODYFIKACJI ===
-                // [ZMIANA 2] Logika filtrowania sondaży jest teraz zależna od filtra
-                let pollsInColumn = [];
-                let pollsHTML = '';
-                
-                // SPRAWDŹ FILTR: Renderuj sondaże tylko jeśli filtr jest włączony
-                if (state.ui.currentProjectFilters.showPolls) {
-                    if (statusKey === 'todo') {
-                        // Otwarte sondaże lądują w "Do realizacji"
-                        pollsInColumn = allPolls.filter(p => p.status === 'open');
-                    } else if (statusKey === 'done') {
-                        // Zamknięte sondaże lądują w "Wykonane"
-                        pollsInColumn = allPolls.filter(p => p.status === 'closed');
-                    }
-                    // (Sondaże nigdy nie będą w 'inprogress')
-                    
-                    // Renderuj HTML tylko jeśli są jakieś sondaże
-                    pollsHTML = pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
-                }
-                // Jeśli filtr jest wyłączony, pollsInColumn pozostanie pustą tablicą, a pollsHTML pustym stringiem
-
-                // [ZMIANA 3] Licznik totalCount automatycznie uwzględni 0 sondaży, jeśli są ukryte
-                // MODYFIKACJA: totalCount musi używać już przefiltrowanej listy tasksInColumn
-                const totalCount = tasksInColumn.length + pollsInColumn.length; // Licznik uwzględnia zadania i (widoczne) sondaże
-                // === KONIEC MODYFIKACJI ===
-                // KROK 12.1: OBLICZANIE SUMY ESTYMACJI DLA KOLUMNY
-                // KROK 12.1: OBLICZANIE SUMY ESTYMACJI DLA KOLUMNY
+                // Logika sumowania wysiłku (bez zmian)
                 let estimationSumHTML = '';
-                const estimationType = project.estimationType || 'none';
-                
                 if (estimationType !== 'none') {
-                    
-                    // === POCZĄTEK NOWEGO KODU: Sumowanie obu wartości ===
                     let estimationSum = 0;
                     let actualSum = 0;
-
                     tasksInColumn.forEach(task => {
-                        // KROK 1: Pobierz wartość szacowaną. Jeśli jest null/undefined, użyj 0.
                         const estimatedValue = task.estimation ?? 0;
-                        
-                        // KROK 2: Pobierz wartość rzeczywistą. Jeśli jest null/undefined, UŻYJ WARTOŚCI SZACOWANEJ (estimatedValue).
                         const actualValue = task.actualEffort ?? estimatedValue;
-                        
-                        // KROK 3: Sparsuj obie wartości z fallbackiem na 0 (na wypadek błędnych danych) i dodaj do sum.
                         estimationSum += parseFloat(estimatedValue) || 0;
                         actualSum += parseFloat(actualValue) || 0;
                     });
-                    // === KONIEC NOWEGO KODU ===
-
-                    if (estimationSum > 0 || actualSum > 0) { // Pokaż, jeśli którakolwiek suma jest > 0
-                        const unit = (estimationType === 'points') ? 'pkt' : 'g';
-                        
-                        // Ustal kolor
-                        let color = "var(--text-secondary)"; // Domyślny
-                        if (actualSum > estimationSum) {
-                            color = "var(--danger-primary)"; // Przekroczono
-                        } else if (actualSum > 0 && actualSum < estimationSum) {
-                            color = "var(--success-primary)"; // Poniżej
-                        }
-
+                    if (estimationSum > 0 || actualSum > 0) {
+                        let color = "var(--text-secondary)";
+                        if (actualSum > estimationSum) color = "var(--danger-primary)";
+                        else if (actualSum > 0 && actualSum < estimationSum) color = "var(--success-primary)";
                         estimationSumHTML = `<span class="task-estimation-sum" title="Suma Szacowana / Rzeczywista" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">
                             ${estimationSum}/${actualSum} ${unit}
                         </span>`;
                     }
                 }
-                // === KONIEC OBLICZANIA ===
-                const addTaskBtnHTML = (isInteractive && statusKey === 'todo') ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
                 
-                // Zaktualizowany innerHTML:
+                // Przycisk dodawania zadania (tylko dla 'todo')
+                const addTaskBtnHTML = (isInteractive && colData.status === 'todo') ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
+
+                // Złóż kolumnę
                 column.innerHTML = `
                     <div class="kanban-column-header">
-                        <h3>${STATUSES[statusKey]}</h3>
+                        <h3>${colData.title}</h3>
                         ${completedFilterHTML}
                         <div class="kanban-header-counts" style="display: flex; gap: 6px; margin-left: auto;">
                             <span class="task-count" title="Liczba zadań w kolumnie">${totalCount}</span>
@@ -17544,104 +17591,94 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
         kanbanBoardEl.addEventListener('dragover', (e) => e.preventDefault());
 
+        [Fragment kodu od linii 10188]
         kanbanBoardEl.addEventListener('drop', async (e) => {
             e.preventDefault();
             const column = e.target.closest('.kanban-column');
             if (!column || !draggedTaskId) return;
 
+            // === POCZĄTEK NOWEJ LOGIKI: Odczyt statusu I ID kolumny ===
             const newStatus = column.dataset.status;
-            const {
-                task,
-                project
-            } = findTask(draggedTaskId);
+            const newColumnIdAttr = column.dataset.columnId; // "null" (string) lub "col_id_123"
+            
+            // Konwertuj string "null" na prawdziwy null
+            const newCustomColumnId = newColumnIdAttr === 'null' ? null : newColumnIdAttr; 
+            
+            const { task, project } = findTask(draggedTaskId);
+            // === KONIEC NOWEJ LOGIKI ===
 
             // Zablokuj przenoszenie w widoku zakończonych projektów
             if (state.ui.currentView === 'projects' && findCompletedProject(state.currentProjectId)) return;
 
-            // === POCZĄTEK ZMIANY: Logika Override dla Drag & Drop ===
+            // Walidacja uprawnień (Override)
             const currentUserId = state.currentUser.uid;
             const isOverride = (project && (project.ownerId === currentUserId || (project.admins || []).includes(currentUserId)));
 
+            // === ZMODYFIKOWANA WALIDACJA (Logika Override dla Drag & Drop) ===
             if (task && newStatus === 'done') {
-                // Użytkownik przenosi do "Wykonane"
-
-                // 1. Walidacja Uprawnień
+                // Użytkownik przenosi do "Wykonane" - walidacja pozostaje taka sama
                 if (!canUserCompleteTask(currentUserId, task, project)) {
                     showNotification("Tylko przypisany, admin lub właściciel może ukończyć to zadanie.", "Błąd");
-                    render();
-                    draggedTaskId = null;
-                    return;
+                    render(); draggedTaskId = null; return;
                 }
-
-                // 2. Walidacja Zależności (Blokad)
                 const block = isTaskBlocked(task);
                 if (block.blocked) {
                     showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
-                    render();
-                    draggedTaskId = null;
-                    return;
+                    render(); draggedTaskId = null; return;
                 }
-
-                // 3. Walidacja Podzadań
                 const allSubtasksDone = !task.subtasks || task.subtasks.length === 0 || task.subtasks.every(s => s.isCompleted);
                 if (!allSubtasksDone && !isOverride) {
-                    // Zwykły użytkownik nie może ukończyć, jeśli podzadania nie są gotowe
                     showNotification("Nie można ukończyć zadania, dopóki nie zostaną ukończone wszystkie podzadania.", "Błąd");
-                    render();
-                    draggedTaskId = null;
-                    return;
+                    render(); draggedTaskId = null; return;
                 }
-
-                // 4. Walidacja Zadań Wieloosobowych
                 const allAssigneesDone = task.type === 'single' || task.assignees.every(id => task.completedBy.includes(id));
                 if (!allAssigneesDone && !isOverride) {
-                    // Zwykły użytkownik nie może ukończyć, jeśli inni nie skończyli
                     showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
-                    render();
-                    draggedTaskId = null;
-                    return;
+                    render(); draggedTaskId = null; return;
                 }
             }
-            // === KONIEC ZMIANY ===
+            // === KONIEC WALIDACJI ===
 
+            // Sprawdź, czy cokolwiek się zmieniło
+            const statusChanged = task.status !== newStatus;
+            const columnChanged = task.customColumnId !== newCustomColumnId;
 
-            if (task && task.status !== newStatus) {
+            if (task && (statusChanged || columnChanged)) {
                 const oldStatus = task.status;
-                let updatedTask = { ...task,
-                    status: newStatus
+                let updatedTask = { 
+                    ...task,
+                    status: newStatus,
+                    customColumnId: newCustomColumnId // Zawsze ustawiaj nowe ID kolumny
                 };
 
-                // === POCZĄTEK ZMIANY: Zastosowanie Override w obiekcie zadania ===
+                // === ZMODYFIKOWANA LOGIKA OVERRIDE ===
                 if (newStatus === 'done' && isOverride) {
                     // Admin/Właściciel wymusza ukończenie
-                    
-                    // Wymuś ukończenie podzadań
                     if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
                         updatedTask.subtasks = updatedTask.subtasks.map(s => ({
-                            ...s,
-                            isCompleted: true,
-                            completedBy: [...s.assignees]
+                            ...s, isCompleted: true, completedBy: [...s.assignees]
                         }));
                     }
-                    
-                    // Wymuś ukończenie zadania wieloosobowego
                     if (updatedTask.type === 'multi') {
                         updatedTask.completedBy = [...updatedTask.assignees];
                     }
-                } else if (newStatus !== 'done' && oldStatus === 'done' && isOverride) {
-                    // Admin/Właściciel cofa zadanie z "Wykonane"
-                    updatedTask.completedBy = []; // Resetuj wszystkich
-                    // Resetuj wszystkie podzadania
+                } else if (newStatus !== 'done' && oldStatus === 'done') {
+                    // Ktoś (admin lub zwykły użytkownik, jeśli ma uprawnienia) cofa zadanie z "Wykonane"
+                    updatedTask.completedBy = []; 
                     updatedTask.subtasks = (updatedTask.subtasks || []).map(s => ({
-                        ...s,
-                        isCompleted: false,
-                        completedBy: []
+                        ...s, isCompleted: false, completedBy: []
                     }));
                 }
-                // === KONIEC ZMIANY ===
+                // === KONIEC MODYFIKACJI OVERRIDE ===
 
-                updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+                // Loguj aktywność tylko jeśli zmienił się status główny
+                if (statusChanged) {
+                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+                }
+                
                 if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
+                
+                // handleTaskCompletion zajmie się logiką cykliczności i zapisem
                 await handleTaskCompletion(updatedTask, project);
             }
              // Reset draggedTaskId po zakończeniu operacji drop
@@ -21255,8 +21292,48 @@ welcomeModal.okBtn.addEventListener('click', async () => {
             </div>
         </div>
     </div>
+    
+    <div class="modal-overlay" id="custom-columns-modal">
+        <div class="modal" style="max-width: 500px; height: auto; max-height: 70vh;">
+            <div class="modal-header">
+                <h2>Zarządzaj kolumnami</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                    Dodaj własne etapy dla zadań "W trakcie realizacji". Możesz zmieniać ich kolejność, przeciągając je.
+                </p>
+                <div class="form-group">
+                    <label>Kolejność kolumn (Przeciągnij i upuść)</label>
+                    <ul id="custom-columns-list" class="attachments-list" style="margin-top: 4px; padding: 8px; background-color: var(--bg-primary); min-height: 50px;">
+                        <li class="attachment-item" data-id="inprogress" style="background-color: var(--bg-tertiary); opacity: 0.8; cursor: not-allowed;">
+                            <div class="attachment-info" style="gap: 12px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 16px; height: 16px; color: var(--text-secondary);"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+                                <span>W trakcie realizacji (Domyślna)</span>
+                            </div>
+                        </li>
+                        </ul>
+                </div>
+                
+                <form id="add-custom-column-form" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                    <div class="form-group">
+                        <label for="new-column-name-input">Dodaj nową kolumnę</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" id="new-column-name-input" required placeholder="np. Wstrzymane, Do akceptacji">
+                            <button type="submit" class="btn btn-primary">Dodaj</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="button" id="save-custom-columns-btn" class="btn btn-primary">Zapisz zmiany</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
+
 
 
 
