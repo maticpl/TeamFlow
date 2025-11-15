@@ -917,7 +917,18 @@
         .theme-switcher button { background: none; border: none; padding: 6px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); }
         .theme-switcher button.active { background-color: var(--bg-secondary); color: var(--accent-primary); box-shadow: var(--shadow-sm); }
         .theme-switcher svg { width: 18px; height: 18px; }
-        .kanban-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; height: 100%; overflow-x: auto; }
+        .kanban-board { 
+            display: grid; 
+            /* ZMIANA: Zamiast 3 kolumn, pozwalamy na nieskończoną liczbę kolumn w poziomie */
+            grid-auto-flow: column;
+            /* ZMIANA: Każda kolumna będzie miała stałą szerokość */
+            grid-auto-columns: 320px; 
+            gap: 16px; 
+            height: 100%; 
+            overflow-x: auto; 
+            overflow-y: hidden; /* Wyłączamy pionowe przewijanie na całej tablicy */
+            padding-bottom: 16px; /* Dodajemy padding na pasek przewijania */
+        }
         /* === NOWE STYLE DLA MINI-KANBAN NA DASHBOARDZIE === */
         .kanban-board-mini {
             display: grid;
@@ -951,6 +962,67 @@
         /* === KONIEC NOWEJ REGUŁY === */
         .add-task-icon-btn { background: none; border: none; width: 24px; height: 24px; border-radius: 50%; color: var(--text-secondary); font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s, color 0.2s; }
         .add-task-icon-btn:hover { background-color: var(--border-color); color: var(--text-primary); }
+        /* === POCZĄTEK NOWEGO KODU: Style zwijania kolumn === */
+        .kanban-column {
+            transition: width 0.3s ease-in-out, min-width 0.3s ease-in-out; /* Animacja zwijania */
+            min-width: 320px; /* Szerokość bazowa */
+            width: 320px;
+        }
+        
+        .collapse-column-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            color: var(--text-secondary);
+            margin-left: 8px; /* Odstęp od tytułu */
+            transition: transform 0.3s ease-in-out;
+        }
+        .collapse-column-btn svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Stan zwinięty */
+        .kanban-column.collapsed {
+            min-width: 40px; /* Wąska kolumna */
+            width: 40px;
+            background-color: var(--bg-primary); /* Lepszy kontrast tła */
+        }
+        
+        .kanban-column.collapsed .kanban-column-header {
+            writing-mode: vertical-rl; /* Pionowy tekst */
+            transform: rotate(180deg); /* Obrót tekstu */
+            justify-content: flex-start;
+            padding: 12px 0;
+            height: 100%; /* Nagłówek zajmuje całą wysokość */
+            cursor: pointer; /* Cały nagłówek staje się klikalny */
+        }
+        
+        .kanban-column.collapsed .kanban-column-header h3 {
+            padding-bottom: 16px; /* Odstęp od przycisku */
+            white-space: nowrap;
+        }
+
+        /* Obróć przycisk zwijania */
+        .kanban-column.collapsed .collapse-column-btn {
+            transform: rotate(180deg);
+            margin: 0;
+            padding: 0;
+        }
+        
+        /* Ukryj całą resztę w nagłówku (filtry, liczniki, przycisk +) */
+        .kanban-column.collapsed .completed-tasks-filter,
+        .kanban-column.collapsed .kanban-header-counts,
+        .kanban-column.collapsed .add-task-icon-btn {
+            display: none;
+        }
+
+        /* Ukryj listę zadań */
+        .kanban-column.collapsed .kanban-tasks {
+            display: none;
+        }
+        /* === KONIEC NOWEGO KODU === */
         .kanban-tasks { list-style: none; flex-grow: 1; overflow-y: auto; padding-right: 4px; }
         .kanban-tasks::-webkit-scrollbar { width: 6px; }
         .kanban-tasks::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 3px; }
@@ -6485,6 +6557,7 @@ let state = {
                 currentView: 'my-day', 
                 previousView: null, 
                 sidebarCollapsed: false,
+                collapsedColumns: {},
                 // === POCZĄTEK ZMIANY ===
                 // Nowe pola do zarządzania aktywną grupą
                 activeGroupId: null, // Np. "GROUP_ID_A"
@@ -8040,6 +8113,7 @@ let state = {
                 // === POCZĄTEK ZMIANY: Dodanie domyślnego stanu sidebara ===
                 const defaultUiState = {
                     sidebarCollapsed: false,
+                    collapsedColumns: {}, // === DODANA TA LINIA ===
                     ...defaultCompletedFilters
                 };
                 // === KONIEC ZMIANY ===
@@ -10311,6 +10385,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const column = document.createElement('div');
                 column.className = 'kanban-column';
                 
+                // === POCZĄTEK NOWEGO KODU: Sprawdzenie stanu zwinięcia ===
+                const projectCollapsed = state.ui.collapsedColumns[project.id] || [];
+                // Używamy colData.id (np. "todo", "inprogress_null", "col_123") jako identyfikatora
+                if (projectCollapsed.includes(colData.id)) {
+                    column.classList.add('collapsed');
+                }
+                // === KONIEC NOWEGO KODU ===
+                
                 // === NOWE ATRYBUTY DATA ===
                 // `data-status` przechowuje status bazowy (todo, inprogress, done)
                 column.dataset.status = colData.status; 
@@ -10390,8 +10472,15 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
                 // Złóż kolumnę
                 column.innerHTML = `
+                    column.innerHTML = `
                     <div class="kanban-column-header">
                         <h3>${colData.title}</h3>
+                        
+                        <button class="collapse-column-btn" title="Zwiń/Rozwiń kolumnę">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12h-15m0 0l6.75 6.75M4.5 12l6.75-6.75" />
+                            </svg>
+                        </button>
                         ${completedFilterHTML}
                         <div class="kanban-header-counts" style="display: flex; gap: 6px; margin-left: auto;">
                             <span class="task-count" title="Liczba zadań w kolumnie">${totalCount}</span>
@@ -16573,7 +16662,44 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
             // === KONIEC NOWEJ LOGIKI ===
 
+            // === POCZĄTEK NOWEGO KODU: Obsługa zwijania kolumn ===
+            const collapseBtn = e.target.closest('.collapse-column-btn');
+            const collapsedHeader = e.target.closest('.kanban-column.collapsed .kanban-column-header');
+            
+            if (collapseBtn || collapsedHeader) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const column = (collapseBtn || collapsedHeader).closest('.kanban-column');
+                const columnStatus = column.dataset.status;
+                const columnCustomId = column.dataset.columnId === 'null' ? null : column.dataset.columnId;
+                
+                // Użyj 'id' z definicji kolumny jako unikalnego identyfikatora
+                const columnIdentifier = columnStatus === 'inprogress' ? (columnCustomId || 'inprogress_null') : columnStatus;
+                
+                const projectId = state.currentProjectId;
+                if (!projectId) return;
 
+                // Zainicjuj tablicę dla projektu, jeśli nie istnieje
+                if (!state.ui.collapsedColumns[projectId]) {
+                    state.ui.collapsedColumns[projectId] = [];
+                }
+                
+                const collapsedList = state.ui.collapsedColumns[projectId];
+                
+                if (collapsedList.includes(columnIdentifier)) {
+                    // Rozwiń
+                    state.ui.collapsedColumns[projectId] = collapsedList.filter(id => id !== columnIdentifier);
+                } else {
+                    // Zwiń
+                    collapsedList.push(columnIdentifier);
+                }
+                
+                saveUiState(); // Zapisz stan
+                render(); // Przerenderuj tablicę
+                return; // Zakończ
+            }
+            // === KONIEC NOWEGO KODU ===
             // 5. Sprawdź kliknięcie na GŁÓWNY checkbox zadania
             if (e.target.matches('.task-card-checkbox')) {
                 handleTaskCheckboxClick(e.target, e);
@@ -21723,6 +21849,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
