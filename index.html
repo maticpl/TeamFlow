@@ -10341,9 +10341,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         }
         function renderKanbanBoard(project, isInteractive) {
             kanbanBoardEl.innerHTML = '';
-            // === NOWA LINIA: Resetowanie stylu inline ===
-            // Usuwa 'grid-template-columns' z poprzedniego renderowania.
+            // KROK 1: Resetuj style siatki przy każdym renderowaniu.
+            // To usuwa style (np. "repeat(3, 1fr)") z poprzedniego renderowania.
             kanbanBoardEl.style.gridTemplateColumns = 'unset';
+            kanbanBoardEl.style.gridAutoFlow = 'unset';
+            kanbanBoardEl.style.gridAutoColumns = 'unset';
+            
             const tasks = project.tasks || [];
             const allPolls = state.polls.filter(poll => poll.projectId === project.id);
             const estimationType = project.estimationType || 'none';
@@ -10386,17 +10389,35 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 id: 'done', title: STATUSES.done, status: 'done', isCustom: false 
             });
             
-            // === NOWA SEKCJA: Warunkowe ustawienie stylu siatki ===
-            if (columnsToRender.length <= 3) {
-                // Jeśli mamy 3 kolumny (lub mniej), nadpisujemy domyślne style CSS (grid-auto-columns)
-                // i zmuszamy siatkę, aby rozciągnęła kolumny na całą dostępną szerokość.
-                kanbanBoardEl.style.gridTemplateColumns = `repeat(${columnsToRender.length}, 1fr)`;
-            } 
-            // Jeśli jest więcej niż 3 kolumny, ten styl 'unset' pozwoli domyślnym stylom CSS
-            // (z KROKU 1: grid-auto-flow: column i grid-auto-columns: 360px) przejąć kontrolę,
-            // co automatycznie utworzy suwak.
-            // === KONIEC NOWEJ SEKCJI ===
+            // KROK 2: NOWA LOGIKA - Warunkowe ustawienie stylu siatki.
+            const projectCollapsed = state.ui.collapsedColumns[project.id] || [];
 
+            if (columnsToRender.length <= 3) {
+                // TRYB WYPEŁNIENIA EKRANU (3 kolumny lub mniej)
+                
+                // Budujemy dynamiczny string dla 'grid-template-columns'
+                // np. "1fr 40px 1fr"
+                const tracks = columnsToRender.map(colData => {
+                    // Pobieramy ID kolumny (np. "todo", "inprogress_null", "col_123")
+                    const columnIdentifier = colData.status === 'inprogress' ? (colData.customColumnId || 'inprogress_null') : colData.status;
+                    
+                    if (projectCollapsed.includes(columnIdentifier)) {
+                        return '40px'; // Zwinięta kolumna zajmuje tylko 40px
+                    }
+                    return '1fr'; // Rozwinięta kolumna zajmuje 1 frakcję
+                });
+
+                kanbanBoardEl.style.gridTemplateColumns = tracks.join(' ');
+                kanbanBoardEl.style.gridAutoFlow = 'unset'; // Wyłączamy 'auto-flow: column'
+            } else {
+                // TRYB PRZEWIJANIA (SUWAK) (4 kolumny lub więcej)
+                
+                // Używamy domyślnych stylów z CSS (KROK 1 tej odpowiedzi).
+                // Ustawiamy 'auto-flow', aby aktywować 'grid-auto-columns: 360px'.
+                kanbanBoardEl.style.gridAutoFlow = 'column';
+            }
+            // === KONIEC NOWEJ LOGIKI ===
+            
             // === KONIEC NOWEJ LOGIKI: Definiowanie listy kolumn ===
 
             // Iteruj po nowej, dynamicznej liście kolumn
@@ -21867,6 +21888,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
