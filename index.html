@@ -45,6 +45,7 @@
             --danger-hover: #b91c1c;
             --danger-border: #fca5a5; /* Nowa zmienna dla ostylowania przycisku usuwania */
             --success-primary: #16a34a;
+            --priority-low-border: var(--success-primary); /* <-- NOWA ZMIENNA */
             --priority-high-bg: #fef9c3;
             --priority-high-border: #fde047;
             --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
@@ -815,6 +816,11 @@
        .task-card.priority-high {
             border-top: 4px solid var(--priority-high-border);
             padding-top: 8px; /* Zmniejszamy górny padding, bo ramka zajmuje miejsce */
+        }
+        /* === NOWA REGUŁA DLA NISKIEGO PRIORYTETU === */
+        .task-card.priority-low {
+             border-top: 6px solid var(--priority-low-border);
+             padding-top: 6px; /* Dopasowanie do ramki 6px */
         }
         .task-card:hover { box-shadow: var(--shadow-md); }
         .task-card.dragging { opacity: 0.5; transform: rotate(3deg); }
@@ -5383,7 +5389,7 @@
                 
                 <p id="modal-task-dependency-link" style="font-size: 13px; color: var(--text-secondary); margin-top: -12px; margin-bottom: 12px; margin-left: 48px; display: none;"></p>
                 
-                <p id="modal-task-creator-info" style="font-size: 12px; color: var(--text-secondary); margin-top: -8px; margin-bottom: 16px; margin-left: 48px; min-height: 16px;"></p>
+                <p id="modal-task-creator-info" style="font-size: 12px; color: var(--text-secondary); margin-top: -8px; margin-bottom: 16px; margin-left: 30px; min-height: 16px;"></p>
                 
                 <div class="subtasks-section">
                     <div class="subtasks-header" id="subtasks-toggle-btn" title="Pokaż/Ukryj podzadania">
@@ -7256,6 +7262,46 @@ let state = {
             // 4. Nie jest zablokowane, jeśli zadanie blokujące jest 'done'
             // LUB jeśli zadanie blokujące nie zostało znalezione (traktujemy jako "osierocone" powiązanie)
             return { blocked: false, taskName: null };
+        }
+       /**
+         * NOWA FUNKCJA POMOCNICZA
+         * Sprawdza, czy dany użytkownik ma uprawnienia do ukończenia zadania.
+         * @param {string} userId - ID użytkownika do sprawdzenia.
+         * @param {object} task - Obiekt zadania.
+         * @param {object} project - Obiekt projektu nadrzędnego.
+         * @returns {boolean} - True, jeśli użytkownik może ukończyć zadanie.
+         */
+        function canUserCompleteTask(userId, task, project) {
+            if (!userId || !task || !project) {
+                return false; // Bezpiecznik
+            }
+
+            // 1. Sprawdź, czy jest Właścicielem Projektu
+            if (project.ownerId === userId) {
+                return true;
+            }
+
+            // 2. Sprawdź, czy jest Administratorem Projektu
+            if ((project.admins || []).includes(userId)) {
+                return true;
+            }
+
+            // 3. Sprawdź, czy jest przypisany do zadania (działa dla 'single' i 'multi')
+            if ((task.assignees || []).includes(userId)) {
+                return true;
+            }
+
+            // 4. Jeśli zadanie nie ma nikogo przypisanego (lista pusta)
+            if ((task.assignees || []).length === 0) {
+                // Pozwól Właścicielowi lub Adminowi ukończyć (już sprawdzone powyżej)
+                // ale pozwól też każdemu członkowi projektu "przejąć" i ukończyć nieprzypisane zadanie.
+                if (project.members.includes(userId)) {
+                     return true;
+                }
+            }
+
+            // 5. W przeciwnym razie - brak uprawnień
+            return false;
         }
         function getAllMyTasks() {
             const allProjects = [...state.projects, ...state.completedProjects];
@@ -9471,7 +9517,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             openModal(projectDetailsModal.overlay);
         }
-         function renderMyDashboardView() {
+         ffunction renderMyDashboardView() {
             // NOWA LINIA: Resetowanie klasy kontenera do domyślnej klasy Kanban
             kanbanBoardEl.className = 'dashboard-view'; // <-- ZMIANA: Nadajemy unikalną klasę
             projectNameHeaderEl.textContent = 'Mój Dashboard';
@@ -9762,7 +9808,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // === POCZĄTEK ZMIANY: Modyfikacja renderMyTasksKanban ===
             const renderMyTasksKanban = (tasks, targetElement) => {
                 targetElement.innerHTML = '';
-                // ... (style) ...
+                // targetElement.style.display = 'grid'; // USUNIĘTO
+                // targetElement.style.gridTemplateColumns = 'repeat(3, 1fr)'; // USUNIĘTO
+                // targetElement.style.gap = '16px'; // USUNIĘTO
+                targetElement.style.width = '100%';
+                targetElement.style.overflowX = 'auto';
 
                 Object.keys(STATUSES).forEach(statusKey => {
                     const column = document.createElement('div');
@@ -9860,7 +9910,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
                 // === KONIEC ZMIANY ===
                 
-                const tasksHTML = tasksInColumn.map(task => createTaskCardHTML(task, isInteractive)).join('');
+                const tasksHTML = tasksInColumn.map(task => createTaskCardHTML(task, isInteractive, project)).join('');
 
                 // === POCZĄTEK MODYFIKACJI ===
                 // [ZMIANA 2] Logika filtrowania sondaży jest teraz zależna od filtra
@@ -15601,10 +15651,12 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
               updatedTask = addActivity(updatedTask, 'completion');
             }
          } else { // Zadanie jednoosobowe
-                            if (checkbox.checked && task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
-                                showNotification("Za to zadanie odpowiedzialna jest inna osoba.", "Błąd");
+                            // === POCZĄTEK ZMIANY: Użycie nowej funkcji ===
+                            if (checkbox.checked && !canUserCompleteTask(state.currentUser.uid, task, project)) {
+                                showNotification("Tylko przypisany, admin lub właściciel może ukończyć to zadanie.", "Błąd");
                                 checkbox.checked = false;
                                 return;
+                            }
                             }
 
                             // --- POCZĄTEK ZMIANY ---
@@ -17170,10 +17222,12 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // Zablokuj przenoszenie w widoku zakończonych projektów
             if (state.ui.currentView === 'projects' && findCompletedProject(state.currentProjectId)) return;
 
-            // Sprawdzamy, czy ktoś próbuje przenieść do "Wykonane" zadanie JEDNOOSOBOWE, które nie jest jego.
-            if (task && newStatus === 'done' && task.type === 'single' && task.assignees.length > 0 && !task.assignees.includes(state.currentUser.uid)) {
-                showNotification("Za to zadanie odpowiedzialna jest inna osoba. Nie możesz go przenieść do 'Wykonane'.", "Błąd");
+            // === POCZĄTEK ZMIANY: Użycie nowej funkcji ===
+            // Sprawdzamy, czy ktoś próbuje przenieść zadanie do "Wykonane", ale nie ma do tego uprawnień
+            if (task && newStatus === 'done' && !canUserCompleteTask(state.currentUser.uid, task, project)) {
+                showNotification("Tylko przypisany, admin lub właściciel może ukończyć to zadanie.", "Błąd");
                 render(); // Odświeża widok, cofając kartę na miejsce
+                draggedTaskId = null; // Zresetuj ID
                 return; // Przerywa operację
             }
 
@@ -20827,6 +20881,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
