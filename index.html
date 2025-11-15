@@ -14574,6 +14574,9 @@ if (transferOwnershipModal.form) {
 
          const handleProjectLinkClick = (e) => {
             e.preventDefault();
+            
+            closeChatPanel(); // <-- DODANA LINIA
+
             const link = e.target.closest('a');
             if (link && link.dataset.projectId) {
                 state.currentProjectId = link.dataset.projectId;
@@ -14593,7 +14596,9 @@ if (transferOwnershipModal.form) {
             const link = e.target.closest('a');
             if (!link) return;
 
-            state.ui.previousView = null; 
+            closeChatPanel(); // <-- DODANA LINIA
+
+            state.ui.previousView = null;
 
             if (link.dataset.view) {
                 // NOWY WARUNEK: Resetowanie daty przy wejściu w "Mój dzień"
@@ -15435,7 +15440,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         async function handleTaskCompletion(task, project, completionSource = 'manual') {
         const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
         
-        // === POCZĄTEK ZMIANY: Dodanie logiki completedAt ===
+        // === POCZĄTEK ZMIANY (z KROKU 2 - Filtrowanie): Dodanie logiki completedAt ===
         if (task.status === 'done') {
             // Jeśli zadanie jest oznaczane jako 'done', ustawiamy lub aktualizujemy 'completedAt'
             if (!task.completedAt) { // Ustaw tylko jeśli jeszcze nie ma (zapobiega nadpisaniu przy auto-complete)
@@ -15445,14 +15450,39 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // Jeśli zadanie jest przenoszone z 'done' do 'todo'/'inprogress', czyścimy datę
             task.completedAt = null;
         }
-        // === KONIEC ZMIANY ===
+        // === KONIEC ZMIANY (z KROKU 2 - Filtrowanie) ===
         
         let tasks = project.tasks.map(t => (t.id === task.id ? task : t));
 
         // Twórz cykliczne zadanie, jeśli status to 'done' i ma zdefiniowaną cykliczność
         if (task.status === 'done' && task.recurrence) {
-            // ... (logika cykliczności) ...
-            tasks.push(nextTask);
+            
+            // === POCZĄTEK PRZYWRÓCONEGO KODU ===
+            const nextDueDate = calculateNextDueDate(task.dueDate, task.recurrence);
+
+            // --- POCZĄTEK NOWEJ ZMIANY --- (To było w oryginale)
+            // Przygotuj zresetowane podzadania
+            const resetSubtasks = (task.subtasks || []).map(subtask => ({
+                ...subtask,
+                isCompleted: false, // Resetuj status ukończenia
+                completedBy: []     // Wyczyść listę osób, które ukończyły
+            }));
+            // --- KONIEC NOWEJ ZMIANY --- (To było w oryginale)
+
+            const nextTask = { // <--- PRZYWRÓCONA DEFINICJA ZMIENNEJ
+                ...task,
+                // --- POCZĄTEK NOWEJ ZMIANY --- (To było w oryginale)
+                subtasks: resetSubtasks, // Użyj zresetowanych podzadań
+                // --- KONIEC NOWEJ ZMIANY --- (To było w oryginale)
+                id: `task${Date.now()}`,
+                status: 'todo',
+                dueDate: nextDueDate,
+                completedBy: [],
+                activityLog: [],
+                budgetItems: task.budgetItems
+            };
+            tasks.push(nextTask); // <--- Poprawne użycie
+            // === KONIEC PRZYWRÓCONEGO KODU ===
         }
 
         // === NOWA LOGIKA: Wywołanie powiadomień ===
@@ -16073,6 +16103,31 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             fabMenu.classList.add('hidden');
         });
        // === NOWA FUNKCJA I LISTENERY DO WYSYŁANIA WIADOMOŚCI CZATU ===
+
+        /**
+         * Asynchroniczna funkcja do wysyłania wiadomości czatu.
+         */
+       /**
+         * NOWA FUNKCJA POMOCNICZA
+         * Bezpiecznie zamyka panel czatu, jeśli jest otwarty.
+         */
+        function closeChatPanel() {
+            if (projectChatPanel && projectChatPanel.classList.contains('open')) {
+                // Używamy toggleChatPanel(), ponieważ zawiera ona logikę
+                // aktualizacji 'chatLastViewed', która powinna się wykonać
+                // nawet przy automatycznym zamknięciu.
+                // toggleChatPanel();
+                
+                // POPRAWKA: Użycie toggleChatPanel() jest ryzykowne,
+                // ponieważ może nieoczekiwanie otworzyć panel.
+                // Bezpieczniej jest ręcznie usunąć klasę.
+                projectChatPanel.classList.remove('open');
+                
+                // Zaktualizuj również stan ikony (jeśli istnieje)
+                if (toggleChatBtn) toggleChatBtn.classList.remove('has-unread');
+                if (toggleChatBtnMobile) toggleChatBtnMobile.classList.remove('has-unread');
+            }
+        }
 
         /**
          * Asynchroniczna funkcja do wysyłania wiadomości czatu.
@@ -20717,6 +20772,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
