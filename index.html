@@ -5577,7 +5577,13 @@
                                 <input type="number" id="modal-task-effort-input" min="0" step="1" placeholder="0">
                                 <p id="modal-task-effort-unit" style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;"></p>
                             </div>
-                        </div>
+                            
+                            <div class="form-group" style="margin-top: 20px; border-top: 1px dashed var(--border-color); padding-top: 16px;">
+                                <label id="modal-task-actual-effort-label" for="modal-task-actual-effort-input">Rzeczywisty wysiłek</label>
+                                <input type="number" id="modal-task-actual-effort-input" min="0" step="1" placeholder="0">
+                                <p id="modal-task-actual-effort-unit" style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;"></p>
+                            </div>
+                            </div>
                         <div id="tab-content-budget" class="task-modal-tab-content">
                       <p style="font-size: 14px; color: var(--text-secondary);">Miejsce na dane budżetowe (Kwota, Waluta) - na razie puste.</p>
                   </div>
@@ -6842,7 +6848,14 @@ let state = {
         effortTabButton: document.getElementById('task-tab-effort'),
         effortLabel: document.getElementById('modal-task-effort-label'),
         effortInput: document.getElementById('modal-task-effort-input'),
-        effortUnit: document.getElementById('modal-task-effort-unit')
+        effortUnit: document.getElementById('modal-task-effort-unit'),
+        
+        // === POCZĄTEK NOWEGO KODU ===
+        actualEffortLabel: document.getElementById('modal-task-actual-effort-label'),
+        actualEffortInput: document.getElementById('modal-task-actual-effort-input'),
+        actualEffortUnit: document.getElementById('modal-task-actual-effort-unit')
+        // === KONIEC NOWEGO KODU ===
+        
     }; // <--- KONIEC BLOKU DO WYCIĘCIA
         function initializeCalendar() {
             if (calendarInstance) {
@@ -7221,6 +7234,12 @@ let state = {
             if (!task.comments) task.comments = [];
             if (!task.activityLog) task.activityLog = [];
             if (task.recurrence === undefined) task.recurrence = null;
+            
+            // === POCZĄTEK NOWEGO KODU: Migracja Rzeczywistego Wysiłku ===
+            if (task.actualEffort === undefined) {
+                // Jeśli pole nie istnieje, ustaw je domyślnie na wartość estymacji (lub null)
+                task.actualEffort = task.estimation || null;
+            }
 
             // === NOWA LOGIKA: Migracja i inicjalizacja subzadań ===
             if (!task.subtasks) {
@@ -10637,10 +10656,23 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         if (modalRefs.effortLabel) modalRefs.effortLabel.textContent = 'Story Points';
                         if (modalRefs.effortUnit) modalRefs.effortUnit.textContent = 'Szacowana liczba punktów (np. 5, 8, 13).';
                         if (modalRefs.effortInput) modalRefs.effortInput.placeholder = '0';
+                        
+                        // === POCZĄTEK NOWEGO KODU ===
+                        if (modalRefs.actualEffortLabel) modalRefs.actualEffortLabel.textContent = 'Rzeczywiste Story Points';
+                        if (modalRefs.actualEffortUnit) modalRefs.actualEffortUnit.textContent = 'Rzeczywista (zarejestrowana) liczba punktów.';
+                        if (modalRefs.actualEffortInput) modalRefs.actualEffortInput.placeholder = '0';
+                        // === KONIEC NOWEGO KODU ===
+                        
                     } else if (estimationType === 'hours') {
                         if (modalRefs.effortLabel) modalRefs.effortLabel.textContent = 'Szacowane godziny';
                         if (modalRefs.effortUnit) modalRefs.effortUnit.textContent = 'Szacowana liczba godzin pracy (np. 8).';
                         if (modalRefs.effortInput) modalRefs.effortInput.placeholder = '0';
+                        
+                        // === POCZĄTEK NOWEGO KODU ===
+                        if (modalRefs.actualEffortLabel) modalRefs.actualEffortLabel.textContent = 'Rzeczywiste godziny';
+                        if (modalRefs.actualEffortUnit) modalRefs.actualEffortUnit.textContent = 'Rzeczywista (zarejestrowana) liczba godzin.';
+                        if (modalRefs.actualEffortInput) modalRefs.actualEffortInput.placeholder = '0';
+                        // === KONIEC NOWEGO KODU ===
                     }
                     
                     // Wypełnij input zapisaną wartością
@@ -10685,7 +10717,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const setViewMode = () => {
                 // KROK 9.2: WYWOŁANIE KONFIGURACJI ZAKŁADKI W TRYBIE WIDOKU
                 setupEffortTab(project, task, taskModal);
-
+                // === POCZĄTEK NOWEGO KODU: Ustawienie wartości Actual Effort ===
+                // Pobierz wartość szacowaną jako domyślną
+                const estimationValue = (task.estimation > 0) ? task.estimation : '';
+                // Użyj 'actualEffort' jeśli istnieje (nawet jeśli to 0), w przeciwnym razie użyj 'estimation'
+                // Używamy `??` (nullish coalescing) aby obsłużyć 0, ale nie null/undefined
+                const actualEffortValue = task.actualEffort ?? estimationValue;
+                
+                if (taskModal.actualEffortInput) {
+                    taskModal.actualEffortInput.value = actualEffortValue;
+                    taskModal.actualEffortInput.disabled = true; // Zablokuj w trybie podglądu
+                }
+                // === KONIEC NOWEGO KODU ===
                 taskModal.overlay.dataset.taskId = taskId;
                 taskModal.title.textContent = task.title;
                 taskModal.title.style.display = 'block';
@@ -10852,7 +10895,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // Jawne zablokowanie pola opisu
             taskModal.description.disabled = true;
-
+            // === POCZĄTEK NOWEGO KODU: Zablokowanie pola Effort w trybie podglądu ===
+            if (taskModal.effortInput) {
+                taskModal.effortInput.disabled = true;
+            }
+            // === KONIEC NOWEGO KODU ===
             // Komentarze POZOSTAJĄ odblokowane w trybie widoku
             // taskModal.addCommentBtn.disabled = true; // <<< USUNIĘTE
             // taskModal.newCommentText.disabled = true; // <<< USUNIĘTE
@@ -10972,6 +11019,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // --- FUNKCJA DLA TRYBU EDYCJI (Bez zmian) ---
             const setEditMode = () => {
                 setupEffortTab(project, task, taskModal);
+                // === POCZĄTEK NOWEGO KODU: Ustawienie wartości Actual Effort w trybie edycji ===
+                // Logika jest identyczna jak w setViewMode - wczytujemy zapisaną wartość,
+                // lub jeśli jej nie ma, wczytujemy domyślną estymację.
+                const estimationValue = (task.estimation > 0) ? task.estimation : '';
+                const actualEffortValue = task.actualEffort ?? estimationValue;
+                
+                if (taskModal.actualEffortInput) {
+                    taskModal.actualEffortInput.value = actualEffortValue;
+                    taskModal.actualEffortInput.disabled = false; // Odblokuj w trybie edycji
+                }
+                // === KONIEC NOWEGO KODU ===
                 taskModal.title.style.display = 'none';
                 taskModal.titleInput.value = task.title;
                 taskModal.titleInput.style.display = 'block';
@@ -11389,7 +11447,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const newPriority = taskModal.priority.value;
             const newEstimationValue = parseFloat(taskModal.effortInput.value);
             const newEstimation = (newEstimationValue > 0) ? newEstimationValue : null;
-
+            // === POCZĄTEK NOWEGO KODU: Odczyt Rzeczywistego Wysiłku ===
+            const newActualEffortValue = parseFloat(taskModal.actualEffortInput.value);
+            const newActualEffort = (newActualEffortValue > 0) ? newActualEffortValue : null;
+            // === KONIEC NOWEGO KODU ===
             // === NOWA BLOKADA POWIĄZANIA ===
             if (newStatus === 'done' && oldStatus !== 'done') { // Sprawdzamy, czy status jest ZMIENIANY na 'done'
                 const block = isTaskBlocked(task);
@@ -11427,6 +11488,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                          : null,
                 // === KONIEC ZMIANY ===
                 estimation: newEstimation,
+                
+                // === POCZĄTEK NOWEGO KODU ===
+                actualEffort: newActualEffort,
+                // === KONIEC NOWEGO KODU ===
+                
                 completedAt: (newStatus === 'done') ? Timestamp.now() : null // <<< MODYFIKACJA
             };
             // === NOWA WALIDACJA DAT ===
@@ -15657,6 +15723,11 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 coverImage: newTaskTempBannerData, // Dodaj dane z pamięci tymczasowej
                 // --- KONIEC NOWEJ LINII ---
                 estimation: newEstimation,
+                
+                // === POCZĄTEK NOWEGO KODU: Ustawienie domyślnego Actual Effort ===
+                actualEffort: newEstimation, // Domyślnie actual = estimated
+                // === KONIEC NOWEGO KODU ===
+                
                 attachments: [] // <-- Ważne: dodajemy pustą tablicę na załączniki
             };
 
@@ -21151,6 +21222,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
