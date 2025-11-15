@@ -6273,6 +6273,10 @@ let state = {
                     budgetStatus: '',
                     showPolls: true 
                 },
+                // === NOWE ZMIENNE FILTRA UKOŃCZONYCH ZADAŃ ===
+                projectCompletedFilters: {}, // np. { "project_id_1": "7days", "project_id_2": "all" }
+                dashboardCompletedFilter: '7days', // '7days', '14days', '30days', 'all'
+                // === KONIEC NOWYCH ZMIENNYCH ===
                 // === NOWE ZMIENNE STANU DLA ZAZNACZANIA ===
                 isSelectModeActive: false,
                 selectedTaskIds: [],
@@ -7716,8 +7720,16 @@ let state = {
             const savedUiState = localStorage.getItem(`teamFlowUiState_${appId}`);
             if (savedUiState) {
                 const loadedUi = JSON.parse(savedUiState);
+                
+                // === NOWA LINIA: Przygotowanie domyślnych wartości ===
+                const defaultCompletedFilters = {
+                    projectCompletedFilters: {},
+                    dashboardCompletedFilter: '7days'
+                };
+
                 state.ui = { ...state.ui,
-                    ...loadedUi,
+                    ...defaultCompletedFilters, // <-- DODANE: Ustaw domyślne
+                    ...loadedUi, // <-- Załaduj zapisane (nadpiszą domyślne, jeśli istnieją)
                     unsubscribeProjects: state.ui.unsubscribeProjects,
                     unsubscribeCompleted: state.ui.unsubscribeCompleted,
                     unsubscribeUsers: state.ui.unsubscribeUsers
@@ -9542,7 +9554,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         <div id="workload-chart-container" style="height: 16px; width: 100%; background-color: var(--bg-tertiary); border-radius: 8px; overflow: hidden;">
                             <div style="display: flex; height: 100%;">
                                 <div title="Do realizacji: ${todoCount}" style="width: ${todoPercent}%; background-color: var(--danger-primary);"></div>
-                                <div title="W trakcie: ${inProgressCount}%;" style="width: ${inProgressCount}%; background-color: var(--accent-primary);"></div>
+                                <div title="W trakcie: ${inProgressCount}%;" style="width: ${inProgressPercent}%; background-color: var(--accent-primary);"></div>
                             </div>
                         </div>
                         <p style="font-size: 14px; color: var(--text-secondary); margin-top: 16px;">Kliknij, aby zobaczyć szczegóły</p>
@@ -9747,24 +9759,58 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // 6. Kontynuacja logiki renderowania My Tasks Kanban (bez zmian)
             const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
 
+            // === POCZĄTEK ZMIANY: Modyfikacja renderMyTasksKanban ===
             const renderMyTasksKanban = (tasks, targetElement) => {
                 targetElement.innerHTML = '';
-                // targetElement.style.display = 'grid'; // USUNIĘTO
-                // targetElement.style.gridTemplateColumns = 'repeat(3, 1fr)'; // USUNIĘTO
-                // targetElement.style.gap = '16px'; // USUNIĘTO
-                targetElement.style.width = '100%';
-                targetElement.style.overflowX = 'auto';
+                // ... (style) ...
 
                 Object.keys(STATUSES).forEach(statusKey => {
                     const column = document.createElement('div');
                     column.className = 'kanban-column';
                     column.dataset.status = statusKey;
-                    const tasksInColumn = tasks.filter(t => t.status === statusKey);
+                    
+                    // === POCZĄTEK ZMIANY: FILTROWANIE KOLUMNY "WYKONANE" (Dashboard) ===
+                    let tasksInColumn = tasks.filter(t => t.status === statusKey);
+                    let completedFilterHTML = ''; // Domyślnie pusty HTML filtra
 
-                    column.innerHTML = `<div class="kanban-column-header"><h3>${STATUSES[statusKey]}</h3><span class="task-count">${tasksInColumn.length}</span></div><ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true)).join('')}</ul>`;
+                    if (statusKey === 'done') {
+                        // Pobierz aktualny filtr dla dashboardu (domyślnie '7days')
+                        const filterValue = state.ui.dashboardCompletedFilter || '7days';
+                        
+                        // Stwórz HTML dla <select>
+                        completedFilterHTML = `
+                            <select class="completed-tasks-filter" data-context="dashboard" style="font-size: 11px; padding: 2px; margin-left: 8px; border-radius: 4px; background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">
+                                <option value="7days" ${filterValue === '7days' ? 'selected' : ''}>Ostatnie 7 dni</option>
+                                <option value="14days" ${filterValue === '14days' ? 'selected' : ''}>Ostatnie 14 dni</option>
+                                <option value="30days" ${filterValue === '30days' ? 'selected' : ''}>Ostatnie 30 dni</option>
+                                <option value="all" ${filterValue === 'all' ? 'selected' : ''}>Wszystkie</option>
+                            </select>
+                        `;
+
+                        // Zastosuj filtrowanie, jeśli nie wybrano "Wszystkie"
+                        if (filterValue !== 'all') {
+                            const now = Date.now();
+                            const daysToFilter = parseInt(filterValue.replace('days', ''), 10);
+                            const cutoffDate = now - (daysToFilter * 24 * 60 * 60 * 1000);
+
+                            tasksInColumn = tasksInColumn.filter(t => 
+                                t.completedAt && t.completedAt >= cutoffDate
+                            );
+                        }
+                    }
+                    // === KONIEC ZMIANY ===
+
+                    column.innerHTML = `
+                        <div class="kanban-column-header">
+                            <h3>${STATUSES[statusKey]}</h3>
+                            ${completedFilterHTML}
+                            <span class="task-count" style="margin-left: auto;">${tasksInColumn.length}</span>
+                        </div>
+                        <ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true)).join('')}</ul>`;
                     targetElement.appendChild(column);
                 });
             };
+            // === KONIEC ZMIANY ===
 
             renderMyTasksKanban(myTasks, myTasksKanbanEl);
         }
@@ -9783,8 +9829,37 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 column.className = 'kanban-column';
                 column.dataset.status = statusKey;
                 
-                // Renderowanie zadań (tak jak wcześniej)
-                const tasksInColumn = (tasks || []).filter(t => t.status === statusKey);
+                // === POCZĄTEK ZMIANY: FILTROWANIE KOLUMNY "WYKONANE" ===
+                let tasksInColumn = (tasks || []).filter(t => t.status === statusKey);
+                let completedFilterHTML = ''; // Domyślnie pusty HTML filtra
+
+                if (statusKey === 'done') {
+                    // Pobierz aktualny filtr dla tego projektu (domyślnie '7days')
+                    const filterValue = state.ui.projectCompletedFilters[project.id] || '7days';
+                    
+                    // Stwórz HTML dla <select>
+                    completedFilterHTML = `
+                        <select class="completed-tasks-filter" data-context="project" data-project-id="${project.id}" style="font-size: 11px; padding: 2px; margin-left: 8px; border-radius: 4px; background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">
+                            <option value="7days" ${filterValue === '7days' ? 'selected' : ''}>Ostatnie 7 dni</option>
+                            <option value="14days" ${filterValue === '14days' ? 'selected' : ''}>Ostatnie 14 dni</option>
+                            <option value="30days" ${filterValue === '30days' ? 'selected' : ''}>Ostatnie 30 dni</option>
+                            <option value="all" ${filterValue === 'all' ? 'selected' : ''}>Wszystkie</option>
+                        </select>
+                    `;
+
+                    // Zastosuj filtrowanie, jeśli nie wybrano "Wszystkie"
+                    if (filterValue !== 'all') {
+                        const now = Date.now();
+                        const daysToFilter = parseInt(filterValue.replace('days', ''), 10);
+                        const cutoffDate = now - (daysToFilter * 24 * 60 * 60 * 1000);
+
+                        tasksInColumn = tasksInColumn.filter(t => 
+                            t.completedAt && t.completedAt >= cutoffDate
+                        );
+                    }
+                }
+                // === KONIEC ZMIANY ===
+                
                 const tasksHTML = tasksInColumn.map(task => createTaskCardHTML(task, isInteractive)).join('');
 
                 // === POCZĄTEK MODYFIKACJI ===
@@ -9809,6 +9884,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // Jeśli filtr jest wyłączony, pollsInColumn pozostanie pustą tablicą, a pollsHTML pustym stringiem
 
                 // [ZMIANA 3] Licznik totalCount automatycznie uwzględni 0 sondaży, jeśli są ukryte
+                // MODYFIKACJA: totalCount musi używać już przefiltrowanej listy tasksInColumn
                 const totalCount = tasksInColumn.length + pollsInColumn.length; // Licznik uwzględnia zadania i (widoczne) sondaże
                 // === KONIEC MODYFIKACJI ===
                 // KROK 12.1: OBLICZANIE SUMY ESTYMACJI DLA KOLUMNY
@@ -9829,10 +9905,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // === KONIEC OBLICZANIA ===
                 const addTaskBtnHTML = (isInteractive && statusKey === 'todo') ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
                 
-                // Zaktualizowany innerHTML: (pozostaje bez zmian, bo pollsHTML jest dynamiczne)
+                // Zaktualizowany innerHTML:
                 column.innerHTML = `
                     <div class="kanban-column-header">
                         <h3>${STATUSES[statusKey]}</h3>
+                        ${completedFilterHTML}
                         <div class="kanban-header-counts" style="display: flex; gap: 6px; margin-left: auto;">
                             <span class="task-count">${totalCount}</span>
                             ${estimationSumHTML}
@@ -9845,6 +9922,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 kanbanBoardEl.appendChild(column);
             });
         }
+       
         /**
          * NOWA FUNKCJA POMOCNICZA
          * Tworzy HTML dla pojedynczego podzadania na liście w karcie Kanban.
@@ -11110,7 +11188,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                          ? `${taskModal.dueDateDate.value}T${taskModal.dueDateHour.value}:${taskModal.dueDateMinute.value}`
                          : null,
                 // === KONIEC ZMIANY ===
-                estimation: newEstimation
+                estimation: newEstimation,
+                completedAt: (newStatus === 'done') ? Date.now() : null // <-- DODANA LINIA
             };
 
             if (taskModal.completed.checked && updatedTask.status !== 'done') {
@@ -15355,33 +15434,24 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
         async function handleTaskCompletion(task, project, completionSource = 'manual') {
         const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+        
+        // === POCZĄTEK ZMIANY: Dodanie logiki completedAt ===
+        if (task.status === 'done') {
+            // Jeśli zadanie jest oznaczane jako 'done', ustawiamy lub aktualizujemy 'completedAt'
+            if (!task.completedAt) { // Ustaw tylko jeśli jeszcze nie ma (zapobiega nadpisaniu przy auto-complete)
+                 task.completedAt = Date.now();
+            }
+        } else {
+            // Jeśli zadanie jest przenoszone z 'done' do 'todo'/'inprogress', czyścimy datę
+            task.completedAt = null;
+        }
+        // === KONIEC ZMIANY ===
+        
         let tasks = project.tasks.map(t => (t.id === task.id ? task : t));
 
         // Twórz cykliczne zadanie, jeśli status to 'done' i ma zdefiniowaną cykliczność
         if (task.status === 'done' && task.recurrence) {
-            const nextDueDate = calculateNextDueDate(task.dueDate, task.recurrence);
-
-            // --- POCZĄTEK NOWEJ ZMIANY ---
-            // Przygotuj zresetowane podzadania
-            const resetSubtasks = (task.subtasks || []).map(subtask => ({
-                ...subtask,
-                isCompleted: false, // Resetuj status ukończenia
-                completedBy: []     // Wyczyść listę osób, które ukończyły
-            }));
-            // --- KONIEC NOWEJ ZMIANY ---
-
-            const nextTask = {
-                ...task,
-                // --- POCZĄTEK NOWEJ ZMIANY ---
-                subtasks: resetSubtasks, // Użyj zresetowanych podzadań
-                // --- KONIEC NOWEJ ZMIANY ---
-                id: `task${Date.now()}`,
-                status: 'todo',
-                dueDate: nextDueDate,
-                completedBy: [],
-                activityLog: [],
-                budgetItems: task.budgetItems
-            };
+            // ... (logika cykliczności) ...
             tasks.push(nextTask);
         }
 
@@ -16937,7 +17007,30 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             sidebar.classList.remove('open');
             sidebarOverlay.classList.remove('visible');
         });
+        // === NOWY LISTENER: Obsługa filtrów kolumny "Wykonane" ===
+        // Używamy delegacji zdarzeń na głównym kontenerze kanban
+        kanbanBoardEl.addEventListener('change', (e) => {
+            const select = e.target.closest('select.completed-tasks-filter');
+            if (!select) return; // Zdarzenie 'change' nie pochodzi z naszego filtra
 
+            const newFilterValue = select.value;
+            const context = select.dataset.context;
+
+            if (context === 'project') {
+                const projectId = select.dataset.projectId;
+                if (projectId) {
+                    state.ui.projectCompletedFilters[projectId] = newFilterValue;
+                    console.log(`Filtr projektu ${projectId} zmieniony na: ${newFilterValue}`);
+                }
+            } else if (context === 'dashboard') {
+                state.ui.dashboardCompletedFilter = newFilterValue;
+                console.log(`Filtr dashboardu zmieniony na: ${newFilterValue}`);
+            }
+
+            saveUiState(); // Zapisz nowy stan UI
+            render(); // Przerenderuj widok, aby zastosować filtr
+        });
+        // === KONIEC NOWEGO LISTENERA ===
         let draggedTaskId = null;
         kanbanBoardEl.addEventListener('dragstart', (e) => {
             const taskCard = e.target.closest('.task-card');
@@ -20624,6 +20717,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
