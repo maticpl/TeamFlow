@@ -6177,6 +6177,7 @@
     // 4. GŁÓWNA LOGIKA APLIKACJI (wszystko wewnątrz DOMContentLoaded)
     // ============================
    document.addEventListener('DOMContentLoaded', () => {
+        const MAX_FILE_SIZE = 15 * 1024 * 1024; // <-- DODANA LINIA (15 MB w bajtach)
         let sortableDashboard = null;
         let sortableProjects = null;
         let aiChatHistory = [];
@@ -12247,9 +12248,32 @@ addAttachmentBtnNewTask.addEventListener('click', () => {
 
 // Po wybraniu pliku dodaje go do tablicy 'stagedFiles'
 attachmentInputNewTask.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-        stagedFiles.push(...e.target.files);
-        renderStagedFiles();
+    const files = e.target.files;
+    if (files.length > 0) {
+        // === POCZĄTEK ZMIANY: WALIDACJA KAŻDEGO PLIKU ===
+        let validFiles = [];
+        let invalidFiles = [];
+
+        for (const file of files) {
+            if (file.size > MAX_FILE_SIZE) {
+                invalidFiles.push(file.name);
+            } else {
+                validFiles.push(file);
+            }
+        }
+
+        // Pokaż błąd, jeśli którykolwiek plik był za duży
+        if (invalidFiles.length > 0) {
+            const errorMsg = `Plik(i) "${invalidFiles.join('", "')}" są za duże (max 15 MB) i nie zostały dodane.`;
+            showNotification(errorMsg, "Błąd Pliku");
+        }
+
+        // Dodaj do listy tylko poprawne pliki
+        if (validFiles.length > 0) {
+            stagedFiles.push(...validFiles);
+            renderStagedFiles();
+        }
+        // === KONIEC ZMIANY ===
     }
     // Czyści input, aby można było ponownie wybrać ten sam plik po jego usunięciu
     e.target.value = ''; 
@@ -13708,6 +13732,14 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
         taskModal.attachmentFileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
+
+            // === POCZĄTEK ZMIANY: WALIDACJA ROZMIARU PLIKU ===
+            if (file.size > MAX_FILE_SIZE) {
+                showNotification(`Plik "${file.name}" jest za duży. Maksymalny rozmiar to 15 MB.`, "Błąd Pliku");
+                e.target.value = ''; // Wyczyść input pliku
+                return; // Przerwij dalsze wykonywanie
+            }
+            // === KONIEC ZMIANY ===
 
             const taskId = taskModal.overlay.dataset.taskId;
             const {
@@ -20772,6 +20804,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
