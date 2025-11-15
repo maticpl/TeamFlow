@@ -15744,6 +15744,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 dueDate: nextDueDate,
                 completedBy: [],
                 activityLog: [],
+                completedAt: null, // <-- DODANA LINIA: Resetuj datę ukończenia
                 budgetItems: task.budgetItems
             };
             tasks.push(nextTask); // <--- Poprawne użycie
@@ -18774,16 +18775,17 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              const updatedTasks = project.tasks.map(t => (t.id === mainTaskId ? updatedTask : t));
 
              try {
-                 await updateDoc(projectDocRef, { tasks: updatedTasks });
-                 const { task: refreshedMainTask } = findTask(mainTaskId);
-                 if (refreshedMainTask) {
-                    renderSubtaskListInMainModal(refreshedMainTask);
-                 } else {
-                await openTaskModal(mainTaskId);
-             }
-             await checkAndCompleteMainTask(mainTaskId);
-             // === DODANA LINIA: Sprawdzamy, czy wszystkie subzadania użytkownika są ukończone ===
-             await checkSubtasksAndCompleteMyPart(mainTaskId); 
+                await updateDoc(projectDocRef, { tasks: updatedTasks });
+                 
+                 // Zamiast odświeżać modal, od razu renderujemy zmienioną listę subzadań
+                 renderSubtaskListInMainModal(updatedTask);
+             
+                 // Przekazujemy "updatedTask" (zamiast mainTaskId) do funkcji sprawdzających
+                 await checkAndCompleteMainTask(updatedTask, project);
+                 
+                 // === DODANA LINIA: Sprawdzamy, czy wszystkie subzadania użytkownika są ukończone ===
+                 // Również przekazujemy "updatedTask"
+                 await checkSubtasksAndCompleteMyPart(updatedTask, project); 
          } catch (error) {
              console.error("Błąd zapisu stanu subzadania:", error);
              showNotification("Wystąpił błąd podczas aktualizacji podzadania.", "Błąd");
@@ -18961,8 +18963,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
          * i jeśli tak, automatycznie oznacza jego część jako 'done' w zadaniu głównym.
          * @param {string} mainTaskId - ID zadania głównego.
          */
-        async function checkSubtasksAndCompleteMyPart(mainTaskId) {
-            const { task: mainTask, project } = findTask(mainTaskId);
+        async function checkSubtasksAndCompleteMyPart(mainTask, project) {
             const currentUserId = state.currentUser.uid;
             
             if (!mainTask || !project || mainTask.type !== 'multi' || !mainTask.assignees.includes(currentUserId) || mainTask.status === 'done') {
@@ -19019,10 +19020,9 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 }
             }
         }
-        async function checkAndCompleteMainTask(mainTaskId) {
-             const { task: mainTask, project } = findTask(mainTaskId);
+        async function checkAndCompleteMainTask(mainTask, project) {
              if (!mainTask || !project) {
-                 console.warn(`checkAndCompleteMainTask: Nie znaleziono zadania ${mainTaskId} po operacji na subzadaniu.`);
+                 console.warn(`checkAndCompleteMainTask: Otrzymano nieprawidłowe dane zadania lub projektu.`);
                  return;
              }
              if (mainTask.status === 'done') return;
@@ -21113,6 +21113,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
