@@ -6532,14 +6532,15 @@ let state = {
             assigneesContainer: document.getElementById('new-poll-assignees')
         };
         // === KONIEC NOWYCH REFERENCJI ===
-       // === NOWE REFERENCJE DLA MODALA SZCZEGÓŁÓW SONDARŻU ===
+      // === NOWE REFERENCJE DLA MODALA SZCZEGÓŁÓW SONDARŻU ===
         const pollDetailsModal = {
             overlay: document.getElementById('poll-details-modal'),
             title: document.getElementById('poll-details-title'),
             content: document.getElementById('poll-details-content'),
             footer: document.getElementById('poll-details-footer'),
             closePollBtn: document.getElementById('poll-details-close-btn'),
-            deletePollBtn: document.getElementById('poll-details-delete-btn') // <-- NOWA LINIA
+            deletePollBtn: document.getElementById('poll-details-delete-btn'), // <-- ISTNIEJĄCA LINIA
+            changeVoteBtn: document.getElementById('poll-details-change-vote-btn') // <-- DODANA LINIA
         };
         // === KONIEC NOWYCH REFERENCJI ===
 
@@ -11486,6 +11487,41 @@ newTaskModal.projectGroup.style.display = 'block';
 
             openModal(newPollModal.overlay);
         }
+       /**
+         * NOWA FUNKCJA POMOCNICZA
+         * Renderuje interfejs do głosowania (przyciski) dla danego sondażu.
+         * @param {object} poll - Obiekt sondażu.
+         * @returns {string} - Kod HTML dla sekcji głosowania.
+         */
+        function renderPollVotingUI(poll) {
+            let votingHTML = `<div class="task-modal-section">
+                                <h4 style="color: var(--text-secondary); font-weight: 500;">Wybierz jedną z opcji poniżej klikając na nią</h4>
+                                <div class="poll-options" style="margin-top: 8px;">`;
+                                
+            votingHTML += (poll.options || []).map(opt => {
+                let imageHTML = '';
+                const attachment = opt.attachment;
+                if (attachment && attachment.url) {
+                     imageHTML = `<img src="${attachment.url}" alt="Załącznik do opcji" style="width: 100%; max-height: 250px; object-fit: contain; border-radius: var(--border-radius); margin-top: 8px; border: 1px solid var(--border-color); pointer-events: none;">`;
+                }
+                
+                return `
+                    <div class="poll-option-item">
+                        <button class="poll-vote-btn" data-poll-id="${poll.id}" data-option-id="${opt.id}" style="flex-direction: column; height: auto; padding: 12px;">
+                            <span style="font-weight: 600;">${opt.text}</span>
+                            ${imageHTML}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+            
+            votingHTML += `</div></div>`; // Zamknij .poll-options i .task-modal-section
+            return votingHTML;
+        }
+
+        /**
+         * Otwiera modal szczegółów sondażu i renderuje jego zawartość.
+         */
         // === KONIEC NOWYCH FUNKCJI ===
         /**
          * Otwiera modal szczegółów sondażu i renderuje jego zawartość.
@@ -11599,7 +11635,8 @@ newTaskModal.projectGroup.style.display = 'block';
                             <div class="poll-result-bar-container">
                                 <div class="poll-result-bar-fill" style="width: ${percentage.toFixed(1)}%;"></div>
                             </div>
-                            ${imageHTML} </div>
+                            ${imageHTML}
+                        </div>
                     `;
                 }).join('');
                 
@@ -11607,33 +11644,11 @@ newTaskModal.projectGroup.style.display = 'block';
                 
             } else if (canVote) {
                 // --- Widok GŁOSOWANIA (przyciski) (użytkownik jeszcze nie głosował, ALE MOŻE) ---
-                headerText = 'Wybierz jedną z opcji poniżej klikając na nią';
-
-                contentHTML += `<div class="task-modal-section">
-                                <h4 style="color: var(--text-secondary); font-weight: 500;">${headerText}</h4>
-                                <div class="poll-options" style="margin-top: 8px;">`;
-                                
-                contentHTML += (poll.options || []).map(opt => {
-                    
-                    // [POPRAWKA 2: Błąd obrazków]
-                    let imageHTML = '';
-                    const attachment = opt.attachment;
-                    // Upraszczamy warunek. Jeśli jest URL, ufamy, że jest to obraz.
-                    if (attachment && attachment.url) {
-                         imageHTML = `<img src="${attachment.url}" alt="Załącznik do opcji" style="width: 100%; max-height: 250px; object-fit: contain; border-radius: var(--border-radius); margin-top: 8px; border: 1px solid var(--border-color); pointer-events: none;">`;
-                    }
-                    // === KONIEC POPRAWKI 2 ===
-                    
-                    return `
-                        <div class="poll-option-item">
-                            <button class="poll-vote-btn" data-poll-id="${poll.id}" data-option-id="${opt.id}" style="flex-direction: column; height: auto; padding: 12px;">
-                                <span style="font-weight: 600;">${opt.text}</span>
-                                ${imageHTML} </button>
-                        </div>
-                    `;
-                }).join('');
                 
-                contentHTML += `</div></div>`; // Zamknij .poll-options i .task-modal-section
+                // === POCZĄTEK ZMIANY (KROK 3) ===
+                // Zamiast generować HTML, wywołujemy nową funkcję pomocniczą
+                contentHTML += renderPollVotingUI(poll);
+                // === KONIEC ZMIANY ===
                 
             } else {
                 // --- Widok ZABLOKOWANY (użytkownik nie głosował I NIE MOŻE głosować) ---
@@ -11679,7 +11694,8 @@ newTaskModal.projectGroup.style.display = 'block';
             // --- NOWA LOGIKA: Pokaż/Ukryj przyciski zarządzania ---
             const isCreatorOnLoad = poll.createdBy === state.currentUser.uid;
             
-            // Pokaż "Zakończ sondaż" (tylko dla twórcy, jeśli otwarty)
+            // === POCZĄTEK ZMIANY (KROK 4) ===
+            // Logika dla przycisków "Zakończ" i "Usuń" (bez zmian)
             if (isCreatorOnLoad && poll.status === 'open') {
                 pollDetailsModal.closePollBtn.style.display = 'block';
                 pollDetailsModal.closePollBtn.dataset.pollId = pollId; 
@@ -11689,13 +11705,23 @@ newTaskModal.projectGroup.style.display = 'block';
                 pollDetailsModal.closePollBtn.style.display = 'none';
             }
             
-            // Pokaż "Usuń sondaż" (tylko dla twórcy, zawsze)
             if (isCreatorOnLoad) {
                 pollDetailsModal.deletePollBtn.style.display = 'block';
                 pollDetailsModal.deletePollBtn.dataset.pollId = pollId;
             } else {
                 pollDetailsModal.deletePollBtn.style.display = 'none';
             }
+
+            // NOWA LOGIKA: Pokaż przycisk "Zmień głos"
+            // Pokaż go, jeśli: użytkownik zagłosował ORAZ może głosować (canVote) ORAZ sondaż jest otwarty
+            if (hasVoted && canVote && poll.status === 'open') {
+                pollDetailsModal.changeVoteBtn.style.display = 'block';
+                pollDetailsModal.changeVoteBtn.dataset.pollId = pollId; // Zapisz ID sondażu
+            } else {
+                pollDetailsModal.changeVoteBtn.style.display = 'none';
+            }
+            // === KONIEC ZMIANY (KROK 4) ===
+            
             // --- KONIEC NOWEJ LOGIKI ---
 
             // Otwórz modal
@@ -15480,28 +15506,32 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return;
             }
 
-            // Sprawdzenie, czy użytkownik już nie głosował (zabezpieczenie)
-            const alreadyVoted = poll.options.some(opt => (opt.votes || []).includes(userId));
-            if (alreadyVoted) {
-                console.warn("Użytkownik już głosował w tym sondażu.");
-                render(); // Po prostu odśwież widok (co pokaże wyniki)
-                return;
-            }
+            // === POCZĄTEK ZMIANY: NOWA LOGIKA USUWANIA I DODAWANIA GŁOSU ===
+
+            // Sprawdzenie, czy użytkownik głosuje na tę samą opcję (teoretycznie niemożliwe z nowym UI, ale bezpieczne)
+            // const currentVote = poll.options.find(opt => (opt.votes || []).includes(userId));
+            // if (currentVote && currentVote.id === optionId) {
+            //     console.warn("Użytkownik zagłosował na tę samą opcję.");
+            //     render(); // Po prostu odśwież widok
+            //     return;
+            // }
 
             // Tworzymy głęboką kopię tablicy opcji, aby bezpiecznie ją modyfikować
             const updatedOptions = JSON.parse(JSON.stringify(poll.options));
             
             let foundOption = false;
             for (const opt of updatedOptions) {
+                // KROK 1: Wyczyść poprzedni głos użytkownika (jeśli istnieje)
+                // Używamy .filter(), aby stworzyć nową tablicę bez ID tego użytkownika
+                opt.votes = (opt.votes || []).filter(id => id !== userId);
+                
+                // KROK 2: Dodaj nowy głos, jeśli to jest ta kliknięta opcja
                 if (opt.id === optionId) {
-                    opt.votes = (opt.votes || []); // Upewnij się, że tablica istnieje
-                    if (!opt.votes.includes(userId)) { // Dodatkowe zabezpieczenie
-                        opt.votes.push(userId);
-                    }
+                    opt.votes.push(userId); // Dodaj głos
                     foundOption = true;
                 }
-                // Na razie nie pozwalamy na zmianę głosu, więc nie musimy usuwać starych.
             }
+            // === KONIEC ZMIANY ===
 
             if (!foundOption) {
                 console.error("Nie znaleziono opcji o ID:", optionId);
@@ -15520,7 +15550,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 // Nie musimy wywoływać render() ręcznie, 
                 // ponieważ onSnapshot (z Kroku 13) wykryje tę zmianę 
                 // i automatycznie odświeży interfejs, pokazując wyniki.
-                console.log(`Użytkownik ${userId} zagłosował na opcję ${optionId} w sondażu ${pollId}`);
+                console.log(`Użytkownik ${userId} zagłosował (lub zmienił głos) na opcję ${optionId} w sondażu ${pollId}`);
 
             } catch (error) {
                 console.error("Błąd podczas zapisywania głosu:", error);
@@ -16497,6 +16527,28 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     }
                 }, 1000); // 1 sekunda opóźnienia
             }
+        });
+        // === KONIEC NOWEGO LISTENERA ===
+       // === NOWY LISTENER: Obsługa przycisku "Zmień głos" w modalu ===
+        pollDetailsModal.changeVoteBtn.addEventListener('click', (e) => {
+            const pollId = e.target.dataset.pollId;
+            if (!pollId) {
+                console.error("Brak pollId na przycisku zmiany głosu.");
+                return;
+            }
+            
+            const poll = state.polls.find(p => p.id === pollId);
+            if (!poll) {
+                console.error("Nie znaleziono sondażu do zmiany głosu, ID:", pollId);
+                return;
+            }
+
+            // 1. Ponownie wyrenderuj UI głosowania (przyciski)
+            // Użyj nowej funkcji pomocniczej
+            pollDetailsModal.content.innerHTML = renderPollVotingUI(poll);
+
+            // 2. Ukryj sam przycisk "Zmień głos", ponieważ jesteśmy teraz w trybie głosowania
+            pollDetailsModal.changeVoteBtn.style.display = 'none';
         });
         // === KONIEC NOWEGO LISTENERA ===
         // === KONIEC LISTENERA SONDARŻU ===
@@ -20294,6 +20346,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                 <button type="button" id="poll-details-delete-btn" class="btn btn-danger" style="display: none; margin-right: auto;">Usuń sondaż</button>
                 <button type="button" id="poll-details-close-btn" class="btn btn-secondary" style="display: none; margin-left: 8px;">Zakończ sondaż</button>
                 
+                <button type="button" id="poll-details-change-vote-btn" class="btn btn-primary" style="display: none; margin-right: 8px;">Zmień głos</button>
                 <button type="button" class="btn btn-secondary modal-close-btn">Zamknij</button>
             </div>
         </div>
@@ -20571,6 +20624,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
