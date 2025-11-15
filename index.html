@@ -10143,8 +10143,28 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
             // --- KONIEC NOWEJ LOGIKI OKŁADKI ---
 
-            const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
-            const tooltipText = shouldBeDisabled ? `title="Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części."` : '';
+            // === POCZĄTEK ZMIANY: Logika uprawnień Checkboxa ===
+            const taskProject = project || findProject(task.projectId);
+            const canComplete = canUserCompleteTask(state.currentUser.uid, task, taskProject);
+            const isOverride = (taskProject && (taskProject.ownerId === state.currentUser.uid || (taskProject.admins || []).includes(state.currentUser.uid)));
+            
+            // Logika blokady dla zadań wieloosobowych:
+            // Zablokuj tylko wtedy, gdy to zadanie wieloosobowe, aktywne I użytkownik NIE jest adminem/właścicielem
+            const multiTaskDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress') && !isOverride;
+
+            let isDisabled = !isInteractive || multiTaskDisabled;
+            let tooltipText = '';
+
+            if (multiTaskDisabled) {
+                tooltipText = `title="Jako członek, musisz poczekać, aż wszyscy ukończą swoją część."`;
+            } else if (isInteractive && !canComplete) {
+                // Ta reguła blokuje teraz tylko zwykłych członków, którzy nie są przypisani
+                isDisabled = true;
+                tooltipText = `title="Tylko przypisany, admin lub właściciel może ukończyć to zadanie."`;
+            } else if (isInteractive && isOverride && task.type === 'multi') {
+                tooltipText = `title="Jako admin/właściciel, ukończysz to zadanie za wszystkich przypisanych."`;
+            }
+            // === KONIEC ZMIANY ===
 
             const taskAssignees = (task.assignees || [])
                 .map(assigneeId => findUser(assigneeId))
@@ -10269,7 +10289,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass} ${coverImageClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}">
                 ${coverImageHTML}
                 <div class="task-card-icons">${iconsHTML}</div>
-                <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isInteractive ? '' : 'disabled'} ${shouldBeDisabled ? 'disabled' : ''} ${tooltipText}>
+                <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} ${tooltipText}>
                 ${projectNameHTML}
                 <h4 title="${task.title}">${task.title}</h4>
                 <div class="task-meta">
@@ -15611,7 +15631,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
         async function handleTaskCheckboxClick(checkbox, event) {
           if (event) {
-            // Zatrzymaj bąbelkowanie, ale nie blokuj domyślnej zmiany stanu checkboxa
             event.stopPropagation();
             if (event.stopImmediatePropagation) event.stopImmediatePropagation();
           }
@@ -15620,80 +15639,112 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
           const { task, project } = findTask(taskId);
           if (!task || !project) return;
 
-            // === NOWA BLOKADA POWIĄZANIA ===
-            if (checkbox.checked) { // Sprawdzamy tylko, jeśli użytkownik próbuje OZNACZYĆ jako 'done'
-                const block = isTaskBlocked(task);
-                if (block.blocked) {
-                    showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
-                    checkbox.checked = false; // Cofnij zmianę
-                    return; // Przerwij
-                }
-            }
-            // === KONIEC NOWEJ BLOKADY ===
-
+          // --- Inicjalizacja ---
           let updatedTask = { ...task };
           const oldStatus = updatedTask.status;
+          const currentUserId = state.currentUser.uid;
+          const isOverride = project.ownerId === currentUserId || (project.admins || []).includes(currentUserId);
+          const isChecked = checkbox.checked; // Nowy docelowy stan checkboxa
 
-          if (task.type === 'multi') {
-            const userId = state.currentUser.uid;
-            if (checkbox.checked) {
-              if (!updatedTask.completedBy.includes(userId)) updatedTask.completedBy.push(userId);
-            } else {
-              updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
-            }
-            updatedTask.status =
-              updatedTask.completedBy.length === updatedTask.assignees.length
-                ? 'done'
-                : (oldStatus === 'done' ? 'inprogress' : oldStatus);
-            if (updatedTask.status !== oldStatus) {
+          // --- BLOKADA 1: Podstawowe uprawnienia (Auth) ---
+          if (!canUserCompleteTask(currentUserId, task, project)) {
+              showNotification("Tylko przypisany, admin lub właściciel może modyfikować to zadanie.", "Błąd");
+              checkbox.checked = !isChecked; // Cofnij zmianę
+              return;
+          }
+
+          // --- PRZENIESIONA LOGIKA: Co robimy? ---
+          
+          if (isChecked) {
+              // --- UŻYTKOWNIK CHCE UKOŃCZYĆ ZADANIE ---
+
+              // BLOKADA 2: Zależności
+              const block = isTaskBlocked(task);
+              if (block.blocked) {
+                  showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
+                  checkbox.checked = false; // Cofnij zmianę
+                  return; // Przerwij
+              }
+
+              // BLOKADA 3: Podzadania (tylko dla zwykłych użytkowników)
+              const allSubtasksDone = !updatedTask.subtasks || updatedTask.subtasks.length === 0 || updatedTask.subtasks.every(s => s.isCompleted);
+              if (!allSubtasksDone && !isOverride) {
+                  showNotification("Nie można ukończyć zadania, dopóki nie zostaną ukończone wszystkie podzadania.", "Błąd");
+                  checkbox.checked = false; // Cofnij
+                  return;
+              }
+
+              // AKCJA 1: Admin/Właściciel (Override)
+              if (isOverride) {
+                  updatedTask.status = 'done';
+                  // Wymuś ukończenie wszystkich podzadań
+                  if (!allSubtasksDone) {
+                      updatedTask.subtasks = updatedTask.subtasks.map(s => ({
+                          ...s,
+                          isCompleted: true,
+                          completedBy: [...s.assignees]
+                      }));
+                  }
+                  // Wymuś ukończenie wszystkich w zadaniu wieloosobowym
+                  if (task.type === 'multi') {
+                      updatedTask.completedBy = [...task.assignees];
+                  }
+                  
+              } else {
+                  // AKCJA 2: Zwykły użytkownik
+                  if (task.type === 'multi') {
+                      // Oznacza swoją część
+                      if (!updatedTask.completedBy.includes(currentUserId)) updatedTask.completedBy.push(currentUserId);
+                      
+                      const allAssigneesDone = updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
+                      
+                      if (allAssigneesDone) {
+                          updatedTask.status = 'done';
+                      } else {
+                          updatedTask.status = 'inprogress';
+                          updatedTask = addActivity(updatedTask, 'completion'); // Loguj ukończenie części
+                      }
+                  } else {
+                      // Zadanie jednoosobowe
+                      updatedTask.status = 'done';
+                  }
+              }
+
+          } else {
+              // --- UŻYTKOWNIK CHCE COFNĄĆ UKOŃCZENIE ZADANIA ---
+              
+              if (isOverride) {
+                  // AKCJA 3: Admin/Właściciel cofa
+                  updatedTask.status = 'todo';
+                  updatedTask.completedBy = []; // Resetuj wszystkich
+                  // Resetuj wszystkie podzadania
+                  updatedTask.subtasks = (updatedTask.subtasks || []).map(s => ({
+                      ...s,
+                      isCompleted: false,
+                      completedBy: []
+                  }));
+                  
+              } else {
+                  // AKCJA 4: Zwykły użytkownik cofa
+                  if (task.type === 'multi') {
+                      updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== currentUserId);
+                      updatedTask.status = (oldStatus === 'done' ? 'inprogress' : oldStatus); // Wróć do 'inprogress'
+                  } else {
+                      updatedTask.status = 'todo';
+                      // Resetuj podzadania
+                      updatedTask.subtasks = (updatedTask.subtasks || []).map(s => ({
+                          ...s,
+                          isCompleted: false,
+                          completedBy: []
+                      }));
+                  }
+              }
+          }
+
+          // --- Finalizacja ---
+          if (updatedTask.status !== oldStatus) {
               updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-            } else if (checkbox.checked && updatedTask.status !== 'done' && !updatedTask.activityLog.some(a => a.type === 'completion' && a.userId === state.currentUser.uid)) {
-              updatedTask = addActivity(updatedTask, 'completion');
-            }
-         } else { // Zadanie jednoosobowe
-                            // === POCZĄTEK ZMIANY: Użycie nowej funkcji ===
-                            if (checkbox.checked && !canUserCompleteTask(state.currentUser.uid, task, project)) {
-                                showNotification("Tylko przypisany, admin lub właściciel może ukończyć to zadanie.", "Błąd");
-                                checkbox.checked = false;
-                                return;
-                            }
-                            // === KONIEC ZMIANY (USUNIĘTO BŁĘDNY NAWIAS '}') ===
-
-                            // --- POCZĄTEK ZMIANY ---
-                            // Sprawdź podzadania ZANIM zmienisz status na 'done'
-                            if (checkbox.checked && updatedTask.subtasks && updatedTask.subtasks.length > 0 && updatedTask.subtasks.some(s => !s.isCompleted)) {
-                                showNotification("Nie można ukończyć zadania, dopóki nie zostaną ukończone wszystkie podzadania.", "Błąd");
-                                checkbox.checked = false; // Cofnij zaznaczenie checkboxa
-                                return; // Przerwij dalsze wykonywanie funkcji
-                            }
-                            // --- KONIEC ZMIANY ---
-
-                            updatedTask.status = checkbox.checked ? 'done' : 'todo';
-
-                            // === NOWA LOGIKA: Auto-kompletowanie/reset subzadań ===
-                            if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
-                                if (updatedTask.status === 'done') {
-                                    // Oznacz wszystkie subzadania jako ukończone przez wszystkich przypisanych
-                                    updatedTask.subtasks = updatedTask.subtasks.map(s => ({
-                                        ...s,
-                                        isCompleted: true,
-                                        completedBy: [...s.assignees] // Wypełnij completedBy wszystkimi przypisanymi
-                                    }));
-                                } else {
-                                     // Jeśli odznaczamy zadanie główne, resetujemy wszystkie subzadania
-                                     updatedTask.subtasks = updatedTask.subtasks.map(s => ({
-                                        ...s,
-                                        isCompleted: false,
-                                        completedBy: []
-                                    }));
-                                }
-                            }
-                            // === KONIEC NOWEJ LOGIKI ===
-
-                            if (updatedTask.status !== oldStatus) {
-                                updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-                            }
-                        } // <-- POPRAWNA KOŃCÓWKA BLOKU 'else'
+          }
 
           if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
           await handleTaskCompletion(updatedTask, project);
@@ -17222,47 +17273,88 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // Zablokuj przenoszenie w widoku zakończonych projektów
             if (state.ui.currentView === 'projects' && findCompletedProject(state.currentProjectId)) return;
 
-            // === POCZĄTEK ZMIANY: Użycie nowej funkcji ===
-            // Sprawdzamy, czy ktoś próbuje przenieść zadanie do "Wykonane", ale nie ma do tego uprawnień
-            if (task && newStatus === 'done' && !canUserCompleteTask(state.currentUser.uid, task, project)) {
-                showNotification("Tylko przypisany, admin lub właściciel może ukończyć to zadanie.", "Błąd");
-                render(); // Odświeża widok, cofając kartę na miejsce
-                draggedTaskId = null; // Zresetuj ID
-                return; // Przerywa operację
-            }
+            // === POCZĄTEK ZMIANY: Logika Override dla Drag & Drop ===
+            const currentUserId = state.currentUser.uid;
+            const isOverride = (project && (project.ownerId === currentUserId || (project.admins || []).includes(currentUserId)));
 
-            // === NOWA BLOKADA POWIĄZANIA ===
             if (task && newStatus === 'done') {
+                // Użytkownik przenosi do "Wykonane"
+
+                // 1. Walidacja Uprawnień
+                if (!canUserCompleteTask(currentUserId, task, project)) {
+                    showNotification("Tylko przypisany, admin lub właściciel może ukończyć to zadanie.", "Błąd");
+                    render();
+                    draggedTaskId = null;
+                    return;
+                }
+
+                // 2. Walidacja Zależności (Blokad)
                 const block = isTaskBlocked(task);
                 if (block.blocked) {
                     showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
-                    render(); // Odśwież widok, aby cofnąć kartę
-                    draggedTaskId = null; // Zresetuj ID
-                    return; // Przerwij
-                }
-            }
-            // === KONIEC NOWEJ BLOKADY ===
-
-            // --- POCZĄTEK NOWEJ ZMIANY ---
-            // Sprawdź, czy próbujesz przenieść zadanie (dowolnego typu) do 'done', a ma ono nieukończone podzadania
-            if (task && newStatus === 'done' && task.subtasks && task.subtasks.length > 0 && task.subtasks.some(s => !s.isCompleted)) {
-                showNotification("Nie można ukończyć zadania, dopóki nie zostaną ukończone wszystkie podzadania.", "Błąd");
-                render(); // Odśwież widok, aby cofnąć kartę
-                return; // Przerwij operację drop
-            }
-            // --- KONIEC NOWEJ ZMIANY ---
-
-            if (task && task.status !== newStatus) {
-                // Sprawdzenie dla zadań wieloosobowych (pozostaje bez zmian)
-                if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < task.assignees.length) {
-                    showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
                     render();
+                    draggedTaskId = null;
                     return;
                 }
+
+                // 3. Walidacja Podzadań
+                const allSubtasksDone = !task.subtasks || task.subtasks.length === 0 || task.subtasks.every(s => s.isCompleted);
+                if (!allSubtasksDone && !isOverride) {
+                    // Zwykły użytkownik nie może ukończyć, jeśli podzadania nie są gotowe
+                    showNotification("Nie można ukończyć zadania, dopóki nie zostaną ukończone wszystkie podzadania.", "Błąd");
+                    render();
+                    draggedTaskId = null;
+                    return;
+                }
+
+                // 4. Walidacja Zadań Wieloosobowych
+                const allAssigneesDone = task.type === 'single' || task.assignees.every(id => task.completedBy.includes(id));
+                if (!allAssigneesDone && !isOverride) {
+                    // Zwykły użytkownik nie może ukończyć, jeśli inni nie skończyli
+                    showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
+                    render();
+                    draggedTaskId = null;
+                    return;
+                }
+            }
+            // === KONIEC ZMIANY ===
+
+
+            if (task && task.status !== newStatus) {
                 const oldStatus = task.status;
                 let updatedTask = { ...task,
                     status: newStatus
                 };
+
+                // === POCZĄTEK ZMIANY: Zastosowanie Override w obiekcie zadania ===
+                if (newStatus === 'done' && isOverride) {
+                    // Admin/Właściciel wymusza ukończenie
+                    
+                    // Wymuś ukończenie podzadań
+                    if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
+                        updatedTask.subtasks = updatedTask.subtasks.map(s => ({
+                            ...s,
+                            isCompleted: true,
+                            completedBy: [...s.assignees]
+                        }));
+                    }
+                    
+                    // Wymuś ukończenie zadania wieloosobowego
+                    if (updatedTask.type === 'multi') {
+                        updatedTask.completedBy = [...updatedTask.assignees];
+                    }
+                } else if (newStatus !== 'done' && oldStatus === 'done' && isOverride) {
+                    // Admin/Właściciel cofa zadanie z "Wykonane"
+                    updatedTask.completedBy = []; // Resetuj wszystkich
+                    // Resetuj wszystkie podzadania
+                    updatedTask.subtasks = (updatedTask.subtasks || []).map(s => ({
+                        ...s,
+                        isCompleted: false,
+                        completedBy: []
+                    }));
+                }
+                // === KONIEC ZMIANY ===
+
                 updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
                 if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
                 await handleTaskCompletion(updatedTask, project);
@@ -20881,6 +20973,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
