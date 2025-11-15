@@ -10738,37 +10738,39 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 taskModal.description.value = task.description || '';
 
                 taskModal.priority.value = task.priority;
-                // === NOWA LOGIKA: Wypełnianie daty rozpoczęcia ===
+                // === NOWA LOGIKA: Wypełnianie daty rozpoczęcia (POPRAWIONA) ===
                 const defaultStartTime = '10:00';
-                // Użyj startDate, jeśli istnieje. Jeśli nie, użyj createdAt. Jeśli nie ma obu, użyj pustych pól.
-                const startDateToParse = task.startDate || task.createdAt; 
+                let startDateToParse = null; // Zaczynamy od null
+
+                if (task.startDate) {
+                    // Przypadek 1: Mamy `startDate` (string ISO YYYY-MM-DD lub YYYY-MM-DDTHH:MM)
+                    startDateToParse = task.startDate;
+                } else if (task.createdAt && typeof task.createdAt.toDate === 'function') {
+                    // Przypadek 2: Nie ma `startDate`, ale jest `createdAt` (Timestamp)
+                    // Konwertujemy Timestamp na datę JS, a potem na string ISO (UTC)
+                    startDateToParse = task.createdAt.toDate().toISOString(); // np. "2025-11-15T18:30:00.000Z"
+                }
                 
                 if (startDateToParse) {
+                    // Teraz `startDateToParse` jest ZAWSZE stringiem (lub nullem, jeśli nie ma obu)
                     const parts = startDateToParse.split('T');
                     const datePart = parts[0];
-                    // Jeśli to startDate, użyj zapisanej godziny. Jeśli to createdAt (i nie ma startDate), użyj 10:00.
-                    const timePart = parts[1] ? parts[1].split(':') : (task.startDate ? ['',''] : defaultStartTime.split(':'));
+                    
+                    // POPRAWKA LOGIKI CZASU:
+                    // Jeśli `task.startDate` istnieje, użyj czasu z niego (jeśli jest)
+                    // Jeśli `task.startDate` nie istnieje (używamy createdAt), użyj `defaultStartTime`
+                    const timePart = (task.startDate && parts[1]) 
+                                     ? parts[1].split(':') 
+                                     : defaultStartTime.split(':');
                     
                     taskModal.startDateDate.value = datePart;
-                    taskModal.startDateHour.value = timePart[0] || '';
-                    taskModal.startDateMinute.value = timePart[1] || '';
+                    taskModal.startDateHour.value = timePart[0] ? timePart[0].padStart(2, '0') : ''; // Uzupełnij godziny
+                    taskModal.startDateMinute.value = timePart[1] ? timePart[1].padStart(2, '0') : ''; // Uzupełnij minuty
                 } else {
+                    // Przypadek 3: Nie ma ani startDate, ani createdAt (bardzo mało prawdopodobne)
                     taskModal.startDateDate.value = '';
                     taskModal.startDateHour.value = '';
                     taskModal.startDateMinute.value = '';
-                }
-                // === NOWA LOGIKA: Rozdzielanie daty i czasu na 3 pola ===
-                if (task.dueDate) {
-                    const parts = task.dueDate.split('T');
-                    const datePart = parts[0];
-                    const timePart = parts[1] ? parts[1].split(':') : ['',''];
-                    taskModal.dueDateDate.value = datePart;
-                    taskModal.dueDateHour.value = timePart[0] || '';
-                    taskModal.dueDateMinute.value = timePart[1] || '';
-                } else {
-                    taskModal.dueDateDate.value = '';
-                    taskModal.dueDateHour.value = '';
-                    taskModal.dueDateMinute.value = '';
                 }
                 // === KONIEC ZMIANY ===
                 
@@ -21113,6 +21115,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
