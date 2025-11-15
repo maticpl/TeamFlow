@@ -10024,18 +10024,40 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const totalCount = tasksInColumn.length + pollsInColumn.length; // Licznik uwzględnia zadania i (widoczne) sondaże
                 // === KONIEC MODYFIKACJI ===
                 // KROK 12.1: OBLICZANIE SUMY ESTYMACJI DLA KOLUMNY
+                // KROK 12.1: OBLICZANIE SUMY ESTYMACJI DLA KOLUMNY
                 let estimationSumHTML = '';
                 const estimationType = project.estimationType || 'none';
                 
                 if (estimationType !== 'none') {
-                    // Sumuj tylko wartości 'estimation' z zadań w tej kolumnie
-                    const estimationSum = tasksInColumn.reduce((sum, task) => {
-                        return sum + (parseFloat(task.estimation) || 0);
-                    }, 0);
+                    
+                    // === POCZĄTEK NOWEGO KODU: Sumowanie obu wartości ===
+                    let estimationSum = 0;
+                    let actualSum = 0;
 
-                    if (estimationSum > 0) {
+                    tasksInColumn.forEach(task => {
+                        const estimatedValue = parseFloat(task.estimation) || 0;
+                        // Jeśli 'actualEffort' jest null/undefined, użyj 'estimatedValue'.
+                        const actualValue = parseFloat(task.actualEffort) ?? estimatedValue; 
+                        
+                        estimationSum += estimatedValue;
+                        actualSum += actualValue;
+                    });
+                    // === KONIEC NOWEGO KODU ===
+
+                    if (estimationSum > 0 || actualSum > 0) { // Pokaż, jeśli którakolwiek suma jest > 0
                         const unit = (estimationType === 'points') ? 'pkt' : 'g';
-                        estimationSumHTML = `<span class="task-estimation-sum" title="Suma szacowanego wysiłku w tej kolumnie">${estimationSum} ${unit}</span>`;
+                        
+                        // Ustal kolor
+                        let color = "var(--text-secondary)"; // Domyślny
+                        if (actualSum > estimationSum) {
+                            color = "var(--danger-primary)"; // Przekroczono
+                        } else if (actualSum > 0 && actualSum < estimationSum) {
+                            color = "var(--success-primary)"; // Poniżej
+                        }
+
+                        estimationSumHTML = `<span class="task-estimation-sum" title="Suma Szacowana / Rzeczywista" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">
+                            ${estimationSum}/${actualSum} ${unit}
+                        </span>`;
                     }
                 }
                 // === KONIEC OBLICZANIA ===
@@ -10363,33 +10385,43 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     </div>
                  `;
             }
+            [Fragment kodu od linii 8932]
             // +++ KONIEC NOWEJ LOGIKI +++
+            
+            // +++ POCZĄTEK ZMODYFIKOWANEJ LOGIKI DLA WYSIŁKU (Szacowany/Rzeczywisty) +++
             let effortIcon = '';
-            const taskEstimationValue = (task.estimation > 0) ? task.estimation : null;
+            // Używamy projektu, który został przekazany do funkcji (jeśli istnieje) lub znajdujemy go
+            const effortProject = project || findProject(task.projectId);
+            const estimationType = effortProject ? effortProject.estimationType : 'none';
 
-            if (taskEstimationValue) {
-                // Musimy znaleźć projekt, aby sprawdzić typ szacowania
-                const { project } = findTask(task.id);
-                const estimationType = project ? project.estimationType : 'none';
-
-                if (estimationType === 'points') {
-                    effortIcon = `
-                    <div class="task-detail" title="Story Points: ${taskEstimationValue}">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="color: #f59e0b;">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
-                        </svg>
-                        <span>(${taskEstimationValue})</span>
-                    </div>`;
-                } else if (estimationType === 'hours') {
-                    effortIcon = `
-                    <div class="task-detail" title="Szacowane godziny: ${taskEstimationValue}g">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                        <span>${taskEstimationValue}g</span>
-                    </div>`;
+            if (estimationType !== 'none') {
+                // Typ jest 'points' or 'hours', więc pokazujemy ikonę
+                const unit = (estimationType === 'points') ? 'pkt' : 'g';
+                
+                // Pobierz obie wartości, domyślnie 0, jeśli null/undefined
+                const estimated = task.estimation ?? 0;
+                
+                // Użyj zmigrowanej wartości z `actualEffort`. Jeśli jest null/undefined, użyj 'estimated'.
+                const actual = task.actualEffort ?? estimated; 
+                
+                // Ustal kolor ikony i tekstu
+                let color = "currentColor"; // Domyślny (szary)
+                if (actual > estimated) {
+                    color = "var(--danger-primary)"; // Czerwony, jeśli przekroczono
+                } else if (actual > 0 && actual < estimated) {
+                    color = "var(--success-primary)"; // Zielony, jeśli poniżej (ale nie 0)
                 }
+
+                // Zbuduj HTML
+                effortIcon = `
+                <div class="task-detail" title="Szacowany / Rzeczywisty Wysiłek">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${color}">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                    <span style="color: ${color}; font-weight: 500;">${estimated}/${actual}${unit}</span>
+                </div>`;
             }
+            // +++ KONIEC ZMODYFIKOWANEJ LOGIKI +++
 
             // Składanie ikon (multiUserIcon, recurringIcon, subtaskIcon zdefiniowane wcześniej)
             // KROK 11.2: DODANIE 'effortIcon' DO LISTY
@@ -21222,6 +21254,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
