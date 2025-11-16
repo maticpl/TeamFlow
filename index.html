@@ -935,32 +935,66 @@
             padding-bottom: 16px; 
         }
        /* === NOWA REGUŁA: CIENIE BOCZNE (FADE EFFECT) === */
-        /* Ten element będzie pozycjonowany nad przewijaną zawartością */
-        .kanban-board:after {
+        
+        /* 1. Cień na PRAWEJ krawędzi (element ::after) */
+        .kanban-board::after {
             content: "";
             position: absolute;
             top: 0;
             right: 0;
-            height: calc(100% - 16px); /* 100% minus padding-bottom kanban-board */
-            width: 40px; 
-            pointer-events: none; 
+            height: calc(100% - 16px); /* Zostaw miejsce na pasek poziomy (padding-bottom: 16px) */
+            width: 40px; /* Szerokość cienia */
+            pointer-events: none; /* KLUCZOWE: Umożliwia klikanie na kolumny pod spodem */
             transition: opacity 0.3s ease-in-out;
             
-            /* ZMIANA KLUCZOWA: Używamy teraz koloru tła aplikacji (--bg-primary) 
-               i mocniejszego, czarnego cienia, aby efekt był widoczny */
-            background: linear-gradient(to right, 
-                rgba(0, 0, 0, 0) 0%, /* Całkowicie przezroczyste */
-                rgba(0, 0, 0, 0.2) 50%, /* Lekki ciemny cień w środku */
-                var(--bg-primary) 100%  /* Wtapianie się w kolor tła aplikacji */
+            /* Gradient: Od przezroczystego do koloru tła aplikacji */
+            background: linear-gradient(to left, 
+                var(--bg-primary) 0%,        /* Mocniejsze wtopienie w kolor tła (prawo) */
+                rgba(0, 0, 0, 0.4) 5%,       /* MOCNY CIENIEŃ (5%) */
+                rgba(0, 0, 0, 0) 100%        /* Całkowita przezroczystość */
             );
             
-            opacity: 1;
+            opacity: 1; /* Domyślnie widoczny */
             z-index: 10;
         }
+        
+        /* 2. Cień na LEWEJ krawędzi (element ::before) */
+        .kanban-board::before {
+             content: "";
+             position: absolute;
+             top: 0;
+             left: 0;
+             height: calc(100% - 16px); /* Zostaw miejsce na pasek poziomy */
+             width: 40px;
+             pointer-events: none;
+             transition: opacity 0.3s ease-in-out;
+             
+             /* Gradient: Od koloru tła aplikacji do przezroczystego */
+             background: linear-gradient(to right, 
+                var(--bg-primary) 0%,        /* Mocniejsze wtopienie w kolor tła (lewo) */
+                rgba(0, 0, 0, 0.4) 5%,       /* MOCNY CIENIEŃ (5%) */
+                rgba(0, 0, 0, 0) 100%        /* Całkowita przezroczystość */
+             );
+             
+             opacity: 0; /* Domyślnie ukryty, pokazywany przy przewinięciu */
+             z-index: 10;
+        }
 
-        /* Ukrywa cień, gdy użytkownik przewinął do końca w prawo */
-        .kanban-board.fade-end:after {
+        /* KLASA DLA UKRYCIA PRAWEGO CIENIA (gdy przewinięto do końca) */
+        .kanban-board.fade-end::after {
             opacity: 0;
+        }
+        
+        /* KLASA DLA POKAZANIA LEWEGO CIENIA (gdy przewinięto W PRAWO) */
+        /* Ten cień powinien być widoczny ZAWSZE, gdy scrollLeft > 0 */
+        .kanban-board.fade-start::before {
+            opacity: 1;
+        }
+
+        /* KLASA DLA UKRYCIA LEWEGO CIENIA (gdy scrollLeft jest 0) */
+        /* To jest kluczowe, aby cień zniknął na pozycji początkowej */
+        .kanban-board:not(.fade-start)::before {
+             opacity: 0;
         }
         /* === KONIEC NOWEJ REGUŁY === */
         /* === NOWE STYLE DLA MINI-KANBAN NA DASHBOARDZIE === */
@@ -21074,19 +21108,26 @@ welcomeModal.okBtn.addEventListener('click', async () => {
             // Sprawdź, czy przewijany element to kanban-board (zabezpieczenie)
             if (!el.classList.contains('kanban-board')) return;
 
-            // Oblicza odległość od prawej krawędzi (cała szerokość - widoczna szerokość)
             const maxScrollLeft = el.scrollWidth - el.clientWidth;
-            
-            // Jeśli przewinięto do końca w prawo (lub bardzo blisko, np. 5px tolerancji)
-            if (el.scrollLeft >= maxScrollLeft - 5) {
-                // Dodaj klasę ukrywającą cień
+            const scrollLeft = el.scrollLeft;
+            const tolerance = 5; // Tolerancja 5 pikseli
+
+            // 1. KONTROLA CIENIA PRAWEGO (fade-end)
+            // Jeśli przewinięto do końca w prawo
+            if (scrollLeft >= maxScrollLeft - tolerance) {
                 el.classList.add('fade-end');
             } else {
-                // Usuń klasę, cień jest widoczny
                 el.classList.remove('fade-end');
             }
+            
+            // 2. KONTROLA CIENIA LEWEGO (fade-start)
+            // Jeśli przewinięto w prawo (jest z dala od 0)
+            if (scrollLeft > tolerance) {
+                el.classList.add('fade-start'); // Pokaż lewy cień
+            } else {
+                el.classList.remove('fade-start'); // Ukryj lewy cień
+            }
         };
-
         // Podpinanie listenera (zapewnij, że jest wywołany po renderowaniu kanbanBoardEl)
         kanbanBoardEl.addEventListener('scroll', kanbanBoardScrollHandler);
 
@@ -21970,6 +22011,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
