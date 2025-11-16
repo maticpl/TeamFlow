@@ -494,8 +494,8 @@
             height: 24px;
         }
         
-        /* 1. Ustaw ikonę dla ULUBIONYCH PROJEKTÓW */
-        .app-container.sidebar-collapsed #projects-list + .nav-section h2::before {
+        /* 1. Ustaw ikonę dla ULUBIONYCH PROJEKTÓW (POPRAWIONY SELEKTOR) */
+        .app-container.sidebar-collapsed .nav-section:has(#projects-list) h2::before {
             content: "❤️"; /* Ikona serca dla ulubionych projektów */
             font-size: 18px;
             line-height: 1;
@@ -503,8 +503,8 @@
             color: var(--danger-primary); /* Kolor serca */
         }
         
-        /* 2. Ustaw ikonę dla ZAKOŃCZONYCH PROJEKTÓW */
-        .app-container.sidebar-collapsed #completed-projects-list + .nav-section h2::before {
+        /* 2. Ustaw ikonę dla ZAKOŃCZONYCH PROJEKTÓW (POPRAWIONY SELEKTOR) */
+        .app-container.sidebar-collapsed .nav-section:has(#completed-projects-list) h2::before {
              content: "📦"; /* Ikona paczki/archiwum dla zakończonych */
              font-size: 18px;
              line-height: 1;
@@ -515,6 +515,95 @@
         .app-container.sidebar-collapsed .nav-section h2 span {
             display: none;
         }
+
+        /* === NOWE REGUŁY: LOGIKA PŁYWAJĄCEGO MENU (FLYOUT) === */
+
+        /* 1. Ustaw domyślny stan ukrycia dla menu, które mają stać się flyoutami */
+        /* WAŻNE: Targetujemy tylko listy projektów, a NIE #main-nav */
+        .app-container.sidebar-collapsed #projects-list,
+        .app-container.sidebar-collapsed #completed-projects-list,
+        .app-container.sidebar-collapsed #resources-menu,
+        .app-container.sidebar-collapsed #group-switcher-menu {
+            position: fixed; /* Pozycjonowanie względem okna przeglądarki */
+            top: auto; /* Będzie ustawione dynamicznie przez :hover */
+            left: 72px; /* DOKŁADNIE szerokość zwiniętego sidebara */
+            width: 220px; /* Szerokość pływającego menu */
+            
+            /* Style wizualne */
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow-lg);
+            padding: 4px;
+            z-index: 3000; /* Nad wszystkim innym */
+
+            /* Ukrywanie i animacja */
+            visibility: hidden;
+            opacity: 0;
+            transform: translateX(-10px);
+            transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+            
+            /* Zapobieganie "skakaniu" po rozwinięciu */
+            max-height: 50vh; /* Ogranicz wysokość menu (na wypadek wielu ulubionych) */
+            overflow-y: auto;
+        }
+        
+        /* 2. Zdefiniuj triggery (elementy, na które najeżdżamy) */
+        /* Używamy :has() do znalezienia h2 i :hover do aktywacji listy */
+        .app-container.sidebar-collapsed .nav-section:has(#projects-list) h2:hover ~ #projects-list {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(0);
+            top: 130px; /* Stała pozycja od góry dla Ulubionych */
+        }
+        .app-container.sidebar-collapsed .nav-section:has(#completed-projects-list) h2:hover ~ #completed-projects-list {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(0);
+            top: 160px; /* Nieco niżej dla Zakończonych */
+        }
+        
+        /* Trigger dla Zasobów (używamy ~ bo #resources-menu nie jest dzieckiem) */
+        .app-container.sidebar-collapsed #resources-btn:hover ~ #resources-menu {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(0);
+            bottom: 168px; /* Pozycjonowanie od dołu dla elementów stopki */
+        }
+
+        /* Trigger dla Przełącznika Grupy (używamy + bo jest bezpośrednio za) */
+        .app-container.sidebar-collapsed #group-switcher-toggle:hover + #group-switcher-menu {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(0);
+            bottom: 72px; /* Pozycjonowanie od dołu dla elementów stopki */
+        }
+
+        /* 3. Poprawka dla menu, aby samo było "hoverowalne" (nie zamykało się) */
+        .app-container.sidebar-collapsed #projects-list:hover,
+        .app-container.sidebar-collapsed #completed-projects-list:hover,
+        .app-container.sidebar-collapsed #resources-menu:hover,
+        .app-container.sidebar-collapsed #group-switcher-menu:hover {
+             visibility: visible;
+             opacity: 1;
+             transform: translateX(0);
+        }
+
+        /* 4. Dostosuj pozycje menu (ponieważ różnią się góra/dół) */
+        /* Ustawiamy pozycje dla list projektów (top) */
+        .app-container.sidebar-collapsed #projects-list { top: 130px; }
+        .app-container.sidebar-collapsed #completed-projects-list { top: 160px; }
+        
+        /* Ustawiamy pozycje dla menu stopki (bottom) */
+        .app-container.sidebar-collapsed #resources-menu {
+            bottom: 168px; /* Koordynacja z :hover */
+            top: auto;
+        }
+         .app-container.sidebar-collapsed #group-switcher-menu {
+            bottom: 72px; /* Koordynacja z :hover */
+            top: auto;
+        }
+        /* === KONIEC NOWYCH REGUŁ === */
         /* === NOWE REGUŁY: LOGIKA PŁYWAJĄCEGO MENU (FLYOUT) === */
 
         /* 1. Ustaw domyślny stan ukrycia dla menu, które mają stać się flyoutami */
@@ -621,14 +710,20 @@
             cursor: pointer; /* Zmienia kursor, sugerując klikalność */
         }
 
-/* Ukryj tekst w przyciskach "Zasoby" i "Nowy Projekt" */
-.app-container.sidebar-collapsed .new-project-btn span,
-.app-container.sidebar-collapsed #resources-btn span {
+/* === NOWA, POPRAWIONA LOGIKA DLA ZASOBÓW I FLYOUTÓW === */
+
+/* Ukryj tekst w przycisku "Nowy Projekt" */
+.app-container.sidebar-collapsed .new-project-btn span {
     display: none;
 }
-/* Ukryj strzałkę w "Zasoby" */
-.app-container.sidebar-collapsed #resources-btn svg {
-    display: none;
+
+/* W przycisku "Zasoby": Pokaż ikonę, ukryj tekst i strzałkę */
+.app-container.sidebar-collapsed #resources-btn .resources-icon {
+    display: block; /* Pokaż ikonę narzędzi */
+}
+.app-container.sidebar-collapsed #resources-btn .resources-text,
+.app-container.sidebar-collapsed #resources-btn .resources-chevron {
+    display: none; /* Ukryj tekst i strzałkę */
 }
 
 /* Wyśrodkuj zawartość przycisków */
@@ -636,6 +731,7 @@
 .app-container.sidebar-collapsed #resources-btn {
     justify-content: center;
 }
+/* === KONIEC LOGIKI ZASOBÓW === */
 /* Dodaj "+" do przycisku Nowy Projekt */
 .app-container.sidebar-collapsed .new-project-btn::before {
     content: "+";
@@ -5530,13 +5626,13 @@
 
             <div class="sidebar-scrollable-area">
                 <nav class="nav-section">
-                    <h2>Ulubione projekty</h2>
+                    <h2><span>Ulubione projekty</span></h2>
                     <ul class="nav-list" id="projects-list">
                     </ul>
                 </nav>
                 
                  <nav class="nav-section" id="completed-projects-section" style="display: none !important;">
-                    <h2>Zakończone projekty</h2>
+                    <h2><span>Zakończone projekty</span></h2>
                     <ul class="nav-list" id="completed-projects-list">
                     </ul>
                 </nav>
@@ -5544,8 +5640,11 @@
 
             <div class="sidebar-static-footer-content">
                 <button class="btn btn-secondary" id="resources-btn" style="width: 100%; margin-bottom: 0; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                    <span>Zasoby i Narzędzia</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 16px; height: 16px;">
+                    <svg class="resources-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px; display: none;">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.83-5.83M11.42 15.17l.029-.029c.535-.535.61-1.474.154-2.13l-.208-.277a2.132 2.132 0 01-.154-2.13l.208-.277c.456-.656.38-1.595-.154-2.13l-.029-.029m-3.794 3.794l1.5-1.5M11.42 15.17l-1.5 1.5m-3.794-3.794l-1.5 1.5M3 17.25A2.652 2.652 0 006.75 21l5.83-5.83M3 17.25l2.08-2.08m0 0l1.5 1.5M3 17.25l-1.5-1.5m0 0l-2.08 2.08" />
+                    </svg>
+                    <span class="resources-text">Zasoby i Narzędzia</span>
+                    <svg class="resources-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 16px; height: 16px;">
                       <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
                     </svg>
                 </button>
@@ -18423,7 +18522,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             });
         });
 
-        // MODYFIKACJA: Ten listener działa teraz tylko, gdy sidebar jest ROZWINIĘTY
+       // MODYFIKACJA: Ten listener działa teraz tylko, gdy sidebar jest ROZWINIĘTY
         searchInput.addEventListener('click', () => {
             if (state.ui.sidebarCollapsed) return; // Nie rób nic, jeśli zwinięty
             
@@ -22412,6 +22511,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
