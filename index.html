@@ -560,7 +560,16 @@
 .app-container.sidebar-collapsed #resources-btn svg {
     display: none;
 }
-
+/* === NOWA REGUŁA: Ikona "Narzędzia" dla zwiniętego sidebara === */
+        .app-container.sidebar-collapsed #resources-btn::before {
+            content: "";
+            width: 20px; 
+            height: 20px;
+            /* Zoptymalizowana ikona SVG dostarczona przez użytkownika */
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M21.8 6.1l-3.3 1.4-2-2 1.4-3.3A6.5 6.5 0 0 0 12 6.5c0 .6.1 1.2.3 1.7L3.5 17c-.8.8-.8 2 0 2.8l.7.7c.8.8 2 .8 2.8 0l8.8-8.8c.5.2 1.1.3 1.7.3a6.5 6.5 0 0 0 4.3-5.9z"/></svg>');
+            background-repeat: no-repeat;
+            background-size: cover;
+        }
 /* Wyśrodkuj zawartość przycisków */
 .app-container.sidebar-collapsed .new-project-btn,
 .app-container.sidebar-collapsed #resources-btn {
@@ -14389,10 +14398,6 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                 const groupToggleBtn = document.getElementById('group-switcher-toggle');
                 const groupMenu = document.getElementById('group-switcher-menu');
 
-                // 1. Zasoby i Narzędzia (Desktop Hover)
-                if (resourcesBtn && resourcesMenu) {
-                    handleSidebarFlyout(resourcesBtn, resourcesMenu);
-                }
 
                 // 2. Przełącznik Grupy (Desktop Hover)
                 if (groupToggleBtn && groupMenu) {
@@ -20470,10 +20475,60 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
         const openTemplatesBtnMenu = document.getElementById('open-templates-btn-menu');
         const openArchiveBtnMenu = document.getElementById('open-archive-btn-menu');
 
-        resourcesBtn.addEventListener('click', () => {
-            resourcesBtn.classList.toggle('open');
-            resourcesMenu.classList.toggle('open');
+        // === NOWA, POPRAWIONA LOGIKA KLIKNIĘCIA DLA "ZASOBY" ===
+        const resourcesBtn = document.getElementById('resources-btn');
+        const resourcesMenu = document.getElementById('resources-menu');
+
+        resourcesBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+
+            const isDesktop = window.innerWidth > 768;
+
+            if (isDesktop && state.ui.sidebarCollapsed) {
+                // --- SCENARIUSZ 1: Desktop, Sidebar ZWINIĘTY (Kliknięcie na ikonę) ---
+                
+                // Ustaw pozycję flyoutu
+                const rect = resourcesBtn.getBoundingClientRect();
+                resourcesMenu.style.position = 'absolute';
+                resourcesMenu.style.bottom = 'auto'; // Reset
+                resourcesMenu.style.top = `${rect.top}px`; // Wyrównaj do góry ikony
+                resourcesMenu.style.left = '72px';
+                resourcesMenu.style.width = '220px'; // Stała szerokość z CSS
+                resourcesMenu.style.zIndex = 3000;
+                
+                // Przełącz klasę flyout
+                resourcesBtn.classList.toggle('open'); // Dla stanu przycisku
+                resourcesMenu.classList.toggle('flyout-open'); // Dla stanu menu
+                
+            } else {
+                // --- SCENARIUSZ 2: Desktop, Sidebar ROZWINIĘTY (Akordeon) ---
+                // --- SCENARIUSZ 3: Mobile (Sidebar OTWARTY) (Akordeon) ---
+                
+                // Resetujemy style flyout, które mogły zostać z desktopu
+                resourcesMenu.style.position = 'static';
+                resourcesMenu.style.width = '100%';
+                resourcesMenu.style.top = 'auto';
+                resourcesMenu.style.left = 'auto';
+                resourcesMenu.style.bottom = 'auto';
+
+                // W obu tych przypadkach używamy domyślnej klasy .open
+                resourcesBtn.classList.toggle('open');
+                resourcesMenu.classList.toggle('open');
+            }
         });
+
+        // Zamykanie menu "Zasoby" po kliknięciu poza nim (TYLKO w trybie flyout)
+        document.addEventListener('click', (e) => {
+            if (resourcesBtn && resourcesMenu && 
+                resourcesMenu.classList.contains('flyout-open') && 
+                !resourcesBtn.contains(e.target) && 
+                !resourcesMenu.contains(e.target)) 
+            {
+                resourcesMenu.classList.remove('flyout-open');
+                resourcesBtn.classList.remove('open');
+            }
+        });
+        // === KONIEC NOWEJ LOGIKI KLIKNIĘCIA ===
 
         openTemplatesBtnMenu.addEventListener('click', async () => {
             openModal(templatesModal.overlay);
@@ -22608,6 +22663,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
