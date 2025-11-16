@@ -14235,56 +14235,109 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             }
         });
         // === KONIEC NOWEGO LISTENERA ===
-       // === INICJALIZACJA FLYOUTÓW ===
-if (state.currentUser && window.innerWidth > 768) {
-    const resourcesBtn = document.getElementById('resources-btn');
-    const resourcesMenu = document.getElementById('resources-menu');
-    const groupToggleBtn = document.getElementById('group-switcher-toggle');
-    const groupMenu = document.getElementById('group-switcher-menu'); // Używamy już istniejącego menu
-
-    // 1. Zasoby i Narzędzia
-    if (resourcesBtn && resourcesMenu) {
-        handleSidebarFlyout(resourcesBtn, resourcesMenu);
-    }
-
-    // 2. Przełącznik Grupy
-        if (groupToggleBtn && groupMenu) {
+       // === POCZĄTEK POPRAWKI: Nowa, poprawna inicjalizacja listenerów ===
+        
+        // === NOWA, POPRAWIONA INICJALIZACJA FLYOUTÓW I KLIKNIĘĆ ===
+        if (state.currentUser) {
             
-            // === POCZĄTEK ZMIANY: PRZYWRÓCENIE I POPRAWKA ===
-            // Style inline SĄ potrzebne, aby dynamicznie pozycjonować flyout
-            // (np. na różnej wysokości 'top').
-            // Stosujemy je tylko, gdy sidebar jest zwinięty.
-            if (state.ui.sidebarCollapsed) {
-                groupMenu.style.position = 'absolute';
-                groupMenu.style.bottom = 'initial'; // Resetujemy 'bottom' (na wypadek widoku mobilnego)
-                groupMenu.style.left = '72px';
-                groupMenu.style.top = 'auto'; // handleSidebarFlyout ustawi poprawną wartość 'top'
-                groupMenu.style.zIndex = 3000;
-            }
-            // === KONIEC ZMIANY ===
+            // --- Sekcja 1: Logika HOVER (Tylko Desktop) ---
+            // Ta logika uruchamia flyouty (menu wysuwane) tylko na desktopie, gdy sidebar jest zwinięty.
+            if (window.innerWidth > 768) {
+                const resourcesBtn = document.getElementById('resources-btn');
+                const resourcesMenu = document.getElementById('resources-menu');
+                const groupToggleBtn = document.getElementById('group-switcher-toggle');
+                const groupMenu = document.getElementById('group-switcher-menu');
 
-            // Ponowne użycie funkcji flyout dla przełącznika grupy
-            handleSidebarFlyout(groupToggleBtn, groupMenu);
-        // UWAGA: Usuwamy stary listener dla toggle, który otwiera menu, gdy sidebar jest rozwinięty.
-        // Zastąpimy go warunkowym otwarciem flyoutu.
-        groupToggleBtn.onclick = null; // Czyścimy stary listener
-        groupToggleBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
+                // 1. Zasoby i Narzędzia (Desktop Hover)
+                if (resourcesBtn && resourcesMenu) {
+                    handleSidebarFlyout(resourcesBtn, resourcesMenu);
+                }
+
+                // 2. Przełącznik Grupy (Desktop Hover)
+                if (groupToggleBtn && groupMenu) {
+                    
+                    // Ustaw style inline dla flyoutu, jeśli sidebar jest już zwinięty
+                    // (To jest potrzebne do dynamicznego pozycjonowania 'top')
+                    if (state.ui.sidebarCollapsed) {
+                        groupMenu.style.position = 'absolute';
+                        groupMenu.style.bottom = 'initial'; 
+                        groupMenu.style.left = '72px';
+                        groupMenu.style.top = 'auto'; 
+                        groupMenu.style.zIndex = 3000;
+                    }
+                    // Podepnij logikę hover
+                    handleSidebarFlyout(groupToggleBtn, groupMenu);
+                }
+            } // Koniec bloku if (window.innerWidth > 768)
+
+            // --- Sekcja 2: Logika KLIKNIĘCIA (Uniwersalna - Desktop i Mobile) ---
+            // Ta sekcja jest teraz *poza* blokiem (window.innerWidth > 768),
+            // dzięki czemu listener kliknięcia zostanie dodany również na mobilnych.
             
-            // === POCZĄTEK ZMIANY: Uproszczenie listenera ===
-            // Ten listener 'click' powinien działać TYLKO wtedy, gdy sidebar jest ROZWINIĘTY.
-            // Tryb zwinięty (flyout) jest obsługiwany wyłącznie przez 'handleSidebarFlyout' (na hover).
-            if (!state.ui.sidebarCollapsed) {
-                 // W trybie rozwiniętym: przełączamy klasę .open, aby wysunąć menu w dół.
-                 groupToggleBtn.classList.toggle('open');
-                 groupMenu.classList.toggle('open');
+            const groupToggleBtn = document.getElementById('group-switcher-toggle');
+            const groupMenu = document.getElementById('group-switcher-menu');
+
+            if (groupToggleBtn && groupMenu) {
+                groupToggleBtn.onclick = null; // Wyczyść stary listener, jeśli istniał
+                groupToggleBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    
+                    const isDesktop = window.innerWidth > 768;
+
+                    if (isDesktop && state.ui.sidebarCollapsed) {
+                        // --- SCENARIUSZ 1: Desktop, Sidebar ZWINIĘTY (Naprawa Błędu #1 i #3) ---
+                        // Kliknięcie na ikonę ma otworzyć flyout (tak jak hover)
+                        
+                        // Ustaw pozycję flyoutu (musi być obliczone przy kliknięciu, bo stopka zmienia wysokość)
+                        const rect = groupToggleBtn.getBoundingClientRect();
+                        groupMenu.style.position = 'absolute';
+                        groupMenu.style.bottom = 'initial';
+                        
+                        // Sprawdzamy, czy menu zmieści się na dole, jeśli nie, otwieramy w górę
+                        const menuHeight = 250; // Szacowana wysokość menu
+                        if (rect.top + menuHeight > window.innerHeight) {
+                             groupMenu.style.top = 'auto';
+                             groupMenu.style.bottom = '5px'; // Lekki offset od dołu
+                        } else {
+                             groupMenu.style.top = `${rect.top}px`;
+                             groupMenu.style.bottom = 'auto';
+                        }
+                        
+                        groupMenu.style.left = '72px';
+                        groupMenu.style.width = '220px';
+                        groupMenu.style.zIndex = 3000;
+                        
+                        // Przełącz klasę flyout
+                        groupToggleBtn.classList.toggle('open'); // Dla stanu przycisku
+                        groupMenu.classList.toggle('flyout-open'); // Dla stanu menu
+                        
+                    } else {
+                        // --- SCENARIUSZ 2: Desktop, Sidebar ROZWINIĘTY ---
+                        // --- SCENARIUSZ 3: Mobile (Sidebar OTWARTY) (Naprawa Błędu #2) ---
+                        // (Na mobilnym `isDesktop` jest false, więc zawsze wejdzie tutaj)
+                        
+                        // W obu tych przypadkach używamy domyślnej klasy .open,
+                        // która jest obsługiwana przez CSS dla obu scenariuszy.
+                        
+                        // Poprawka dla mobilnego otwierania w górę (reset styli inline)
+                        if (!isDesktop) {
+                            groupMenu.style.position = 'absolute';
+                            groupMenu.style.top = 'auto';
+                            groupMenu.style.bottom = '105%'; // Otwieraj w górę
+                            groupMenu.style.left = '0';
+                            groupMenu.style.width = '100%';
+                            groupMenu.style.zIndex = 2001;
+                        }
+                        
+                        groupToggleBtn.classList.toggle('open');
+                        groupMenu.classList.toggle('open'); // Użyj standardowej klasy .open
+                    }
+                });
             }
-            // Usunęliśmy blok 'else', który powodował konflikt z logiką flyout (na hover).
-            // === KONIEC ZMIANY ===
-        });
-    }
-}
-        // === KONIEC INICJALIZACJI FLYOUTÓW ===
+        }
+        // === KONIEC NOWEJ INICJALIZACJI ===
+        
+        // === KONIEC POPRAWKI ===
         // Listener ZALEŻNY OD GRUPY (bez zmian)
         setupFirestoreListeners(user.uid, state.ui.activeGroupId); 
         // === POCZĄTEK NOWEGO KODU: Ustawienie stanu sidebara przy ładowaniu ===
@@ -22416,6 +22469,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
