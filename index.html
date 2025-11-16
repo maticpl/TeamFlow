@@ -2656,6 +2656,75 @@
                 color: var(--text-secondary);
                 font-style: italic;
             }
+            
+            /* === NOWE STYLE DLA PUSTEGO STANU PRODUKTYWNOŚCI (Ludek AI) === */
+            #my-day-empty-state {
+                display: flex; /* Będzie sterowany przez JS */
+                align-items: center;
+                justify-content: center;
+                height: 100%;
+                margin-top: 40px;
+                padding: 20px;
+            }
+            .ai-empty-state-wrapper {
+                max-width: 600px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+            /* Styl dla obrazka (ludka) */
+            .ai-character-img {
+                 width: 150px;
+                 height: auto;
+                 filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1));
+            }
+            /* Dymek - bazuje na kartach, ale dodaje pozycjonowanie */
+            .ai-speech-bubble {
+                max-width: 450px;
+                padding: 20px 25px;
+                background-color: var(--bg-secondary);
+                border-radius: var(--border-radius);
+                box-shadow: var(--shadow-lg);
+                border: 2px solid var(--accent-primary); /* Niebieski akcent */
+                position: relative;
+                margin-top: 20px;
+                text-align: left;
+            }
+            /* OGONEK DYMKA (CSS Triangle) */
+            .ai-speech-bubble::before {
+                content: "";
+                position: absolute;
+                top: -16px;
+                left: 50%;
+                transform: translateX(-50%);
+                border-left: 10px solid transparent;
+                border-right: 10px solid transparent;
+                border-bottom: 16px solid var(--accent-primary); /* Ciemniejsza ramka */
+            }
+            .ai-speech-bubble::after {
+                content: "";
+                position: absolute;
+                top: -12px;
+                left: 50%;
+                transform: translateX(-50%);
+                border-left: 8px solid transparent;
+                border-right: 8px solid transparent;
+                border-bottom: 12px solid var(--bg-secondary); /* Wypełnienie */
+            }
+            /* Styl dla tekstu wewnątrz dymka */
+            .ai-speech-bubble h2 {
+                font-family: var(--font-family-header);
+                font-size: 22px;
+                color: var(--accent-primary);
+                margin-bottom: 12px;
+            }
+            .ai-speech-bubble p {
+                 font-style: normal;
+                 font-size: 15px;
+                 line-height: 1.6;
+                 color: var(--text-primary);
+            }
+            /* === KONIEC NOWYCH STYLI DLA LUDKA I DYMKA === */
              /* ▼▼▼ POCZĄTEK NOWYCH STYLI DLA NAWIGACJI "MÓJ DZIEŃ" ▼▼▼ */
             #my-day-nav-mobile {
                 display: flex; /* Zmienione z none na flex przez JS */
@@ -6092,6 +6161,25 @@
             </section>
 
             <div id="calendar-view" style="display: none; height: 100%;"></div>
+            <div id="my-day-empty-state" class="no-tasks-message" style="display: none;">
+                <div class="ai-empty-state-wrapper">
+                    <img src="TeamFlowAI.png" alt="TeamFlow AI Asystent" class="ai-character-img">
+                    
+                    <div class="ai-speech-bubble">
+                        <h2>Witaj! Twój dzień jest idealnie czysty. ✨</h2>
+                        <p>
+                            Brak zaplanowanych zadań na dziś. Może to dobry moment, by:<br>
+                            <strong>1.</strong> Zaplanować nowe zadania na później.
+                            <br>
+                            <strong>2.</strong> Przejrzeć Dashboard i zająć się zaległościami.
+                        </p>
+                        <div style="margin-top: 20px; display: flex; gap: 12px; justify-content: flex-end; border-top: 1px dashed var(--border-color); padding-top: 12px;">
+                            <a href="#" data-view="my-dashboard" class="btn btn-secondary js-navigate-to-dashboard" style="padding: 8px 14px;">Sprawdź Dashboard</a>
+                            <button class="btn btn-primary js-fab-new-task-trigger" style="padding: 8px 14px;">Zaplanuj Zadanie</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div id="mobile-calendar-wrapper" style="display: none; flex-direction: column; height: 100%;">
     <div id="mobile-calendar-header">
         <button id="mobile-calendar-prev-btn">&lt;</button>
@@ -7892,14 +7980,21 @@ let state = {
             const overdueTasks = myTasks.filter(task => task.dueDate && task.status !== 'done' && new Date(task.dueDate) < selectedDateStartOfDay);
             const activeTasksForDate = myTasks.filter(task => task.dueDate && task.status !== 'done' && task.dueDate.startsWith(state.ui.myDayDate));
             const completedTasksForDate = myTasks.filter(task => task.dueDate && task.status === 'done' && task.dueDate.startsWith(state.ui.myDayDate));
+            const emptyStateEl = document.getElementById('my-day-empty-state'); // NOWA REFERENCJA
 
             overdueTasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
             activeTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
             completedTasksForDate.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
             
             if (overdueTasks.length === 0 && activeTasksForDate.length === 0 && completedTasksForDate.length === 0) {
-                kanbanBoardEl.innerHTML = `<div class="no-tasks-message" style="text-align: left; padding: 20px 0;">Brak zadań na ten dzień. 💪</div>`;
+                // ZMIANA: Ukryj kanbanBoardEl i pokaż nowy pusty stan
+                kanbanBoardEl.style.display = 'none';
+                if (emptyStateEl) emptyStateEl.style.display = 'flex'; // Używamy flex, aby CSS z centrowaniem zadziałał
             } else {
+                // ZMIANA: Pokaż kanbanBoardEl i ukryj nowy pusty stan
+                kanbanBoardEl.style.display = 'block';
+                if (emptyStateEl) emptyStateEl.style.display = 'none';
+                
                 let html = '';
                 if (overdueTasks.length > 0) {
                     html += `<li class="my-day-separator">Zaległe (${overdueTasks.length})</li>`;
@@ -18775,6 +18870,31 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             render(); // Przerenderuj widok, aby zastosować filtr
         });
         // === KONIEC NOWEGO LISTENERA ===
+       // === NOWY LISTENER DLA PUSTEGO STANU WIDOKU MÓJ DZIEŃ ===
+        const myDayEmptyStateEl = document.getElementById('my-day-empty-state');
+
+        if (myDayEmptyStateEl) {
+             myDayEmptyStateEl.addEventListener('click', (e) => {
+                 // 1. Otwórz modal nowego zadania
+                 if (e.target.closest('.js-fab-new-task-trigger')) {
+                     // Wywołujemy standardowy FAB dla nowego zadania
+                     openNewTaskModal({ isFab: true, isSpecial: false });
+                     return;
+                 }
+                 // 2. Nawiguj do Dashboardu
+                 const dashboardLink = e.target.closest('.js-navigate-to-dashboard');
+                 if (dashboardLink) {
+                     e.preventDefault();
+                     state.currentProjectId = null;
+                     state.ui.currentView = 'my-dashboard';
+                     state.ui.isCalendarView = false; 
+                     saveUiState();
+                     render();
+                     return;
+                 }
+            });
+        }
+        // === KONIEC NOWEGO LISTENERA ===
         let draggedTaskId = null;
         kanbanBoardEl.addEventListener('dragstart', (e) => {
             const taskCard = e.target.closest('.task-card');
@@ -22719,6 +22839,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
