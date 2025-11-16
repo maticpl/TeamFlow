@@ -515,7 +515,80 @@
         .app-container.sidebar-collapsed .nav-section h2 span {
             display: none;
         }
+        /* === NOWE REGUŁY: LOGIKA PŁYWAJĄCEGO MENU (FLYOUT) === */
 
+        /* 1. Ustaw domyślny stan ukrycia dla menu, które mają stać się flyoutami */
+        .app-container.sidebar-collapsed .nav-list,
+        .app-container.sidebar-collapsed #resources-menu,
+        .app-container.sidebar-collapsed #group-switcher-menu {
+            position: fixed; /* Pozycjonowanie względem okna przeglądarki */
+            top: auto; /* Będzie ustawione dynamicznie przez :hover */
+            left: 72px; /* DOKŁADNIE szerokość zwiniętego sidebara */
+            width: 220px; /* Szerokość pływającego menu */
+            
+            /* Style wizualne */
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow-lg);
+            padding: 4px;
+            z-index: 3000; /* Nad wszystkim innym */
+
+            /* Ukrywanie i animacja */
+            visibility: hidden;
+            opacity: 0;
+            transform: translateX(-10px);
+            transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+            
+            /* Zapobieganie "skakaniu" po rozwinięciu */
+            max-height: 50vh; /* Ogranicz wysokość menu (na wypadek wielu ulubionych) */
+            overflow-y: auto;
+        }
+        
+        /* 2. Zdefiniuj triggery (elementy, na które najeżdżamy) */
+        /* Trigger dla Ulubionych i Zakończonych */
+        .app-container.sidebar-collapsed .nav-section:hover .nav-list {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(0);
+            top: 130px; /* Stała pozycja od góry dla list projektów */
+        }
+        
+        /* Trigger dla Zasobów (używamy ~ bo #resources-menu nie jest dzieckiem) */
+        .app-container.sidebar-collapsed #resources-btn:hover ~ #resources-menu {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(0);
+            bottom: 168px; /* Pozycjonowanie od dołu dla elementów stopki */
+        }
+
+        /* Trigger dla Przełącznika Grupy (używamy + bo jest bezpośrednio za) */
+        .app-container.sidebar-collapsed #group-switcher-toggle:hover + #group-switcher-menu {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(0);
+            bottom: 72px; /* Pozycjonowanie od dołu dla elementów stopki */
+        }
+
+        /* 3. Poprawka dla menu, aby samo było "hoverowalne" (nie zamykało się) */
+        .app-container.sidebar-collapsed .nav-list:hover,
+        .app-container.sidebar-collapsed #resources-menu:hover,
+        .app-container.sidebar-collapsed #group-switcher-menu:hover {
+             visibility: visible;
+             opacity: 1;
+             transform: translateX(0);
+        }
+
+        /* 4. Dostosuj pozycje menu (ponieważ różnią się góra/dół) */
+        .app-container.sidebar-collapsed #resources-menu {
+            bottom: 168px; /* Koordynacja z :hover */
+            top: auto;
+        }
+         .app-container.sidebar-collapsed #group-switcher-menu {
+            bottom: 72px; /* Koordynacja z :hover */
+            top: auto;
+        }
+        /* === KONIEC NOWYCH REGUŁ === */
 /* Zmodyfikuj pasek wyszukiwania */
         .search-bar { 
             position: relative; 
@@ -581,15 +654,10 @@
     display: none;
 }
 
-/* Ukryj tekst w przełączniku grup */
-.app-container.sidebar-collapsed #group-switcher-toggle span,
-.app-container.sidebar-collapsed #group-switcher-toggle svg {
-    display: none;
-}
 
-/* Ukryj tekst w przełączniku grup */
-        .app-container.sidebar-collapsed #group-switcher-toggle span,
-        .app-container.sidebar-collapsed #group-switcher-toggle svg {
+
+/* Ukryj tekst w przełączniku grup (ALE POKAŻ SVG) */
+        .app-container.sidebar-collapsed #group-switcher-toggle span {
             display: none;
         }
 
@@ -604,18 +672,9 @@
             width: 100%; 
         }
 
-        /* Użyjemy ikony SVG jako elementu tła/pseudo-elementu */
-        .app-container.sidebar-collapsed #group-switcher-toggle::before {
-            content: "";
-            width: 24px;
-            height: 24px;
-            /* Ikona "User Group" z Heroicons */
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2m4-10a4 4 0 110-8 4 4 0 010 8zm14 0a4 4 0 110-8 4 4 0 010 8zm-6 4h3m-3 0h-1"/></svg>');
-            background-repeat: no-repeat;
-            background-size: cover;
-            /* Zapewnia dziedziczenie koloru w trybie ciemnym */
-            filter: invert(var(--dark-mode-invert, 0));
-        }
+        /* === USUNIĘTA REGUŁA ::before === */
+        /* Usunęliśmy całą błędną regułę .app-container.sidebar-collapsed #group-switcher-toggle::before {...}, 
+           ponieważ ikona SVG znajduje się już w kodzie HTML i teraz będzie poprawnie wyświetlana. */
 
 /* Zwiń przyciski stopki (AI, Ustawienia) do samych ikon */
 .app-container.sidebar-collapsed .sidebar-footer-buttons {
@@ -7046,6 +7105,7 @@ function handleSidebarFlyout(targetElement, menuElement) {
         let teamWorkloadChartInstance = null; // <-- DODANA LINIA
         const sortBtn = document.getElementById('sort-btn');
         const searchInput = document.getElementById('search-input');
+        const searchBar = document.querySelector('.search-bar');
         const projectActionsEl = document.getElementById('project-actions');
         const editProjectBtn = document.getElementById('edit-project-btn');
         const completeProjectBtn = document.getElementById('complete-project-btn');
@@ -18363,10 +18423,25 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             });
         });
 
+        // MODYFIKACJA: Ten listener działa teraz tylko, gdy sidebar jest ROZWINIĘTY
         searchInput.addEventListener('click', () => {
+            if (state.ui.sidebarCollapsed) return; // Nie rób nic, jeśli zwinięty
+            
             searchModal.resultsList.innerHTML = '<li class="search-result-item"><p>Zacznij pisać...</p></li>';
             openModal(searchModal.overlay);
             searchModal.input.focus();
+        });
+
+        // NOWY LISTENER: Otwiera modal po kliknięciu ikony lupy w ZWINIĘTYM sidebarze
+        searchBar.addEventListener('click', (e) => {
+            if (state.ui.sidebarCollapsed) {
+                // Upewnij się, że kliknięto tło lub ikonę (a nie input, który jest ukryty)
+                if (e.target === searchBar || e.target.closest('svg')) {
+                    searchModal.resultsList.innerHTML = '<li class="search-result-item"><p>Zacznij pisać...</p></li>';
+                    openModal(searchModal.overlay);
+                    searchModal.input.focus();
+                }
+            }
         });
 
         searchModal.input.addEventListener('input', (e) => {
@@ -22337,6 +22412,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
