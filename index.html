@@ -7033,58 +7033,74 @@ let state = {
                 myDayDate: getLocalDateString()
             }
         };
-        // === NOWA GLOBALNA LOGIKA FLYOUT MENU SIDEBARA ===
-let activeFlyoutElement = null; // Śledzi, które menu flyout jest otwarte
+// === NOWA GLOBALNA LOGIKA FLYOUT MENU SIDEBARA ===
+        let activeFlyoutElement = null; // Śledzi, które menu flyout jest otwarte
 
-function handleSidebarFlyout(targetElement, menuElement) {
-    // 1. Warunek wstępny: Działaj tylko, jeśli sidebar jest zwinięty
-    if (!state.ui.sidebarCollapsed) {
-        menuElement.classList.remove('flyout-open');
-        return;
-    }
+        function handleSidebarFlyout(targetElement, menuElement) {
+            
+            // 1. Obsługa MOUSEENTER (Najazd)
+            targetElement.addEventListener('mouseenter', () => {
+                // KROK 1: Sprawdź stan sidebara WEWNĄTRZ listenera
+                // Jeśli pasek jest rozwinięty, nie rób absolutnie nic.
+                if (!state.ui.sidebarCollapsed) {
+                    menuElement.classList.remove('flyout-open'); // Upewnij się, że jest zamknięte
+                    return;
+                }
+                
+                // Pasek jest zwinięty, kontynuuj...
+                
+                // Ustaw pozycję flyoutu tuż obok ikony
+                const rect = targetElement.getBoundingClientRect();
+                
+                // Użyj 'bottom' dla elementów stopki, 'top' dla reszty
+                if (targetElement.closest('.sidebar-static-footer-content')) {
+                     // Pozycjonowanie od dołu dla elementów stopki
+                     // Używamy 'bottom' okna minus 'top' elementu, aby pozycjonować od góry
+                     // Prostsza metoda: po prostu ustaw 'top' na 'top' elementu.
+                     menuElement.style.top = `${rect.top}px`;
+                     menuElement.style.bottom = 'auto'; // Resetuj 'bottom'
+                } else {
+                    // Pozycjonowanie od góry dla elementów w menu głównym
+                    menuElement.style.top = `${rect.top}px`;
+                    menuElement.style.bottom = 'auto';
+                }
+                
+                // Zamknij inne otwarte menu i otwórz to
+                if (activeFlyoutElement && activeFlyoutElement !== menuElement) {
+                    activeFlyoutElement.classList.remove('flyout-open');
+                }
+                menuElement.classList.add('flyout-open');
+                activeFlyoutElement = menuElement;
+            });
 
-    // 2. Obsługa MOUSEENTER (Najazd)
-    targetElement.addEventListener('mouseenter', () => {
-        // Ustaw pozycję flyoutu tuż obok ikony
-        const rect = targetElement.getBoundingClientRect();
-        menuElement.style.top = `${rect.top}px`;
-        
-        // Jeśli jest to menu Zasoby (jest w stopce), musimy użyć innej logiki pozycjonowania
-        if (targetElement.id === 'resources-btn' || targetElement.id === 'new-project-btn' || targetElement.id === 'open-ai-help-btn' || targetElement.id === 'settings-btn') {
-            // Pozycjonowanie w dół dla elementów w stopce
-             menuElement.style.top = `${rect.top}px`;
-        } else {
-            // Pozycjonowanie w górę dla elementów w głównym menu (np. ulubione projekty)
-            menuElement.style.top = `${rect.top}px`;
-        }
-        
-        // Zamknij inne otwarte menu i otwórz to
-        if (activeFlyoutElement && activeFlyoutElement !== menuElement) {
-            activeFlyoutElement.classList.remove('flyout-open');
-        }
-        menuElement.classList.add('flyout-open');
-        activeFlyoutElement = menuElement;
-    });
+            // 2. Obsługa MOUSELEAVE (Odejście)
+            const closeFlyout = () => {
+                // Ta funkcja jest wywoływana z opóźnieniem.
+                // Sprawdź stan sidebara również tutaj.
+                if (state.ui.sidebarCollapsed) {
+                    if (!targetElement.matches(':hover') && !menuElement.matches(':hover')) {
+                        menuElement.classList.remove('flyout-open');
+                        activeFlyoutElement = null;
+                    }
+                } else {
+                    // Jeśli pasek jest rozwinięty, na wszelki wypadek ukryj flyout
+                    menuElement.classList.remove('flyout-open');
+                    activeFlyoutElement = null;
+                }
+            };
 
-    // 3. Obsługa MOUSELEAVE (Odejście)
-    // Tworzymy funkcję, która zamyka menu tylko, jeśli opuścimy zarówno trigger, jak i menu
-    const closeFlyout = () => {
-        if (!targetElement.matches(':hover') && !menuElement.matches(':hover')) {
-            menuElement.classList.remove('flyout-open');
-            activeFlyoutElement = null;
+            targetElement.addEventListener('mouseleave', () => setTimeout(closeFlyout, 50));
+            menuElement.addEventListener('mouseleave', () => setTimeout(closeFlyout, 50));
+            
+            // 3. Obsługa MOUSEENTER na samym menu
+            menuElement.addEventListener('mouseenter', () => {
+                // Zabezpiecza przed zamknięciem, gdy kursor przechodzi z ikony do menu
+                if (state.ui.sidebarCollapsed) {
+                    menuElement.classList.add('flyout-open');
+                }
+            });
         }
-    };
-
-    targetElement.addEventListener('mouseleave', () => setTimeout(closeFlyout, 50));
-    menuElement.addEventListener('mouseleave', () => setTimeout(closeFlyout, 50));
-    menuElement.addEventListener('mouseenter', () => {
-        // Zabezpiecza przed zamknięciem, gdy kursor przechodzi z ikony do menu
-        if (state.ui.sidebarCollapsed) {
-            menuElement.classList.add('flyout-open');
-        }
-    });
-}
-// === KONIEC NOWEJ GLOBALNEJ LOGIKI ===
+        // === KONIEC NOWEJ GLOBALNEJ LOGIKI ===
 // NOWA, POPRAWIONA FUNKCJA DO POBIERANIA DATY LOKALNEJ
         function getLocalDateString() {
             const date = new Date();
@@ -14293,25 +14309,22 @@ if (state.currentUser && window.innerWidth > 768) {
         groupMenu.style.top = 'auto'; // Dostosuje się do położenia przycisku
         groupMenu.style.zIndex = 3000;
         
-        // Ponowne użycie funkcji flyout dla przełącznika grupy
-        handleSidebarFlyout(groupToggleBtn, groupMenu);
-        
-        // UWAGA: Usuwamy stary listener dla toggle, który otwiera menu, gdy sidebar jest rozwinięty.
-        // Zastąpimy go warunkowym otwarciem flyoutu.
-        groupToggleBtn.onclick = null; // Czyścimy stary listener
-        groupToggleBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!state.ui.sidebarCollapsed) {
-                 // W trybie rozwiniętym nadal używamy starej, wbudowanej logiki
-                 groupToggleBtn.classList.toggle('open');
-                 groupMenu.classList.toggle('open');
-            } else {
-                 // W trybie zwiniętym: to samo kliknięcie ukrywa flyout, jeśli jest otwarty.
-                 groupMenu.classList.toggle('flyout-open');
+       handleSidebarFlyout(groupToggleBtn, groupMenu);
+                
+                groupToggleBtn.onclick = null; // Czyścimy stary listener
+                groupToggleBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // Logika działa TERAZ tylko wtedy, gdy pasek NIE JEST zwinięty
+                    if (!state.ui.sidebarCollapsed) {
+                         // W trybie rozwiniętym nadal używamy starej, wbudowanej logiki
+                         groupToggleBtn.classList.toggle('open');
+                         groupMenu.classList.toggle('open');
+                    }
+                    // Usunęliśmy blok 'else', ponieważ w trybie zwiniętym
+                    // chcemy polegać WYŁĄCZNIE na logice 'hover' (którą naprawiliśmy w KROKU 1).
+                });
             }
-        });
-    }
-}
+        }
         // === KONIEC INICJALIZACJI FLYOUTÓW ===
         // Listener ZALEŻNY OD GRUPY (bez zmian)
         setupFirestoreListeners(user.uid, state.ui.activeGroupId); 
@@ -22471,6 +22484,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
