@@ -934,6 +934,33 @@
             
             padding-bottom: 16px; 
         }
+        /* === NOWA REGUŁA: CIENIE BOCZNE (FADE EFFECT) === */
+        /* Ten element będzie pozycjonowany nad przewijaną zawartością */
+        .kanban-board:after {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: 0;
+            height: calc(100% - 16px); /* 100% minus padding-bottom kanban-board */
+            width: 40px; /* Szerokość cienia */
+            pointer-events: none; /* KLUCZOWE: Umożliwia klikanie na kolumny pod spodem */
+            transition: opacity 0.3s ease-in-out;
+            
+            /* Gradient: Przejście od przezroczystego do koloru tła (var(--bg-primary)) */
+            background: linear-gradient(to right, 
+                rgba(255, 255, 255, 0) 0%, /* Przezroczyste na lewej krawędzi cienia */
+                var(--bg-tertiary) 100%  /* Kolor tła kolumny na prawej krawędzi */
+            );
+            /* Używamy koloru tła kolumny (var(--bg-tertiary)), aby cień wtapiał się w kolumnę */
+            opacity: 1;
+            z-index: 10;
+        }
+
+        /* Ukrywa cień, gdy użytkownik przewinął do końca w prawo */
+        .kanban-board.fade-end:after {
+            opacity: 0;
+        }
+        /* === KONIEC NOWEJ REGUŁY === */
         /* === NOWE STYLE DLA MINI-KANBAN NA DASHBOARDZIE === */
         .kanban-board-mini {
             display: grid;
@@ -21038,7 +21065,55 @@ welcomeModal.okBtn.addEventListener('click', async () => {
        // === POCZĄTEK NOWEGO KODU: Listener Zwijania Sidebara ===
         document.getElementById('sidebar-toggle-btn').addEventListener('click', toggleSidebar);
         // === KONIEC NOWEGO KODU ===
+        // === NOWA LOGIKA: Efekt cienia przy przewijaniu Kanbanu ===
+
+        const kanbanBoardScrollHandler = (e) => {
+            const el = e.target;
+            // Sprawdź, czy przewijany element to kanban-board (zabezpieczenie)
+            if (!el.classList.contains('kanban-board')) return;
+
+            // Oblicza odległość od prawej krawędzi (cała szerokość - widoczna szerokość)
+            const maxScrollLeft = el.scrollWidth - el.clientWidth;
+            
+            // Jeśli przewinięto do końca w prawo (lub bardzo blisko, np. 5px tolerancji)
+            if (el.scrollLeft >= maxScrollLeft - 5) {
+                // Dodaj klasę ukrywającą cień
+                el.classList.add('fade-end');
+            } else {
+                // Usuń klasę, cień jest widoczny
+                el.classList.remove('fade-end');
+            }
+        };
+
+        // Podpinanie listenera (zapewnij, że jest wywołany po renderowaniu kanbanBoardEl)
+        kanbanBoardEl.addEventListener('scroll', kanbanBoardScrollHandler);
+
+        // Ustawienie początkowe przy pierwszym renderowaniu
+        const initialFadeCheck = () => {
+            const board = document.getElementById('kanban-board');
+            // Czekamy na następny cykl zdarzeń, aby mieć pewność, że wszystkie elementy są już w DOM
+            setTimeout(() => {
+                if (board) {
+                    kanbanBoardScrollHandler({ target: board });
+                }
+            }, 50); 
+        };
         
+        // Zmodyfikuj istniejące wywołania render (lub po prostu polegaj na tym, że render uruchamia się po załadowaniu danych).
+        
+        // Ponieważ nie mogę modyfikować funkcji render() globalnie, opieram się na listenrze 'scroll'.
+        // Aby zadziałało to po załadowaniu, dodaję wywołanie po inicjalizacji:
+        
+        window.addEventListener('load', initialFadeCheck);
+
+        // Upewnij się, że ten sam handler jest wywoływany po każdej zmianie widoku (zapewniając, że kanbanBoardEl nie jest null)
+        const observer = new MutationObserver(function() {
+            const board = document.getElementById('kanban-board');
+            if (board) kanbanBoardScrollHandler({ target: board });
+        });
+        
+        // Obserwuj zmiany w głównym kontenerze treści (dla widoczności)
+        observer.observe(document.querySelector('.main-content'), { childList: true, subtree: true });
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
 </script>
@@ -21893,6 +21968,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
