@@ -5603,6 +5603,16 @@
             color: var(--text-on-accent);
         }
         /* === NOWE STYLE DLA FLYOUT ULUBIONYCH (KONIEC) === */
+        /* Dodaj to do sekcji CSS */
+#modal-task-edit-indicator {
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+/* Ukrywamy stary przycisk edycji permanentnie przez CSS, 
+   choć usuniemy logiczną obsługę w JS również */
+#edit-task-btn {
+    display: none !important; 
+}
     </style>
 
 </head>
@@ -6331,10 +6341,15 @@
             <div class="task-modal-content">
                <div class="task-modal-main">
                 <div class="task-modal-title">
-                    <input type="checkbox" id="modal-task-completed">
-                    <h3 id="modal-task-title"></h3>
-                    <input type="text" id="modal-task-title-input" class="form-group" style="font-size: 22px; font-weight: 600; flex-grow: 1; display: none;">
-                </div>
+    <input type="checkbox" id="modal-task-completed">
+    <div style="flex-grow: 1; display: flex; flex-direction: column;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <h3 id="modal-task-title" style="margin: 0;"></h3>
+            <input type="text" id="modal-task-title-input" class="form-group" style="font-size: 22px; font-weight: 600; width: 100%; display: none; margin: 0;">
+        </div>
+        <span id="modal-task-edit-indicator" style="font-size: 11px; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; display: none; margin-top: 2px;">Możliwa edycja</span>
+    </div>
+</div>
                 
                 <p id="modal-task-dependency-link" style="font-size: 13px; color: var(--text-secondary); margin-top: -12px; margin-bottom: 12px; margin-left: 48px; display: none;"></p>
                 
@@ -12114,96 +12129,225 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 };
             }
         }
+                // Zmienna flagująca czy dokonano zmian w formularzu zadania
+let isTaskFormDirty = false;
+
+/**
+ * Funkcja resetująca stan przycisków w stopce modala zadania.
+ * Przywraca przycisk "OK" i ukrywa "Zapisz zmiany".
+ */
+function resetTaskModalButtons() {
+    isTaskFormDirty = false;
+    if (taskModal.okBtn) taskModal.okBtn.style.display = 'block';
+    if (taskModal.saveBtn) taskModal.saveBtn.style.display = 'none';
+}
+
+/**
+ * Funkcja uruchamiana przy wykryciu zmiany w formularzu.
+ * Ukrywa "OK" i pokazuje "Zapisz zmiany".
+ */
+function handleTaskFormChange(e) {
+    // Ignoruj zmiany w:
+    // 1. Komentarzach (mają własny przycisk Dodaj)
+    // 2. Głównym checkboxie ukończenia (ma własną logikę natychmiastową)
+    if (e.target.id === 'new-comment-text' || e.target.id === 'modal-task-completed') {
+        return;
+    }
+
+    if (!isTaskFormDirty) {
+        isTaskFormDirty = true;
+        if (taskModal.okBtn) taskModal.okBtn.style.display = 'none';
+        if (taskModal.saveBtn) taskModal.saveBtn.style.display = 'block';
+    }
+}
+
+// Podpięcie nasłuchiwania na cały modal (delegacja zdarzeń)
         // === KONIEC NOWYCH FUNKCJI ===
         async function openTaskModal(taskId) {
-            console.log("Wywołano openTaskModal z ID:", taskId); // <-- LOG (możesz go potem usunąć)
-            const {
-                task,
-                project
-            } = findTask(taskId);
-            console.log("Wynik findTask - Zadanie:", task, "Projekt:", project); // <-- LOG (możesz go potem usunąć)
+            console.log("Wywołano openTaskModal z ID:", taskId);
+            const { task, project } = findTask(taskId);
 
             if (!task || !project) {
-                 console.error("Nie znaleziono zadania lub projektu dla ID:", taskId, ". Przerywam otwieranie modala.");
+                 console.error("Nie znaleziono zadania lub projektu dla ID:", taskId);
                  return;
             }
 
-            // === POCZĄTEK NOWEJ LOGIKI (KROK 3) ===
-            // Sprawdź, czy okładka zadania jest szablonem i zaktualizuj przycisk
-            const openCoverGalleryBtn = document.getElementById('open-cover-gallery-btn');
-            if (openCoverGalleryBtn) {
-                const isTemplateCover = task.coverImage && task.coverImage.originalPath && task.coverImage.originalPath.startsWith('template_');
-                
-                if (isTemplateCover) {
-                    openCoverGalleryBtn.textContent = 'Usuń szablon';
-                    openCoverGalleryBtn.classList.add('is-danger-btn');
-                    openCoverGalleryBtn.dataset.action = 'remove-template-cover'; // Ustaw akcję
-                } else {
-                    openCoverGalleryBtn.textContent = 'Wybierz banner';
-                    openCoverGalleryBtn.classList.remove('is-danger-btn');
-                    openCoverGalleryBtn.dataset.action = 'open-gallery'; // Ustaw akcję
-                }
-            }
-            // === NOWA LOGIKA: Inicjalizacja przycisku koloru ===
-            if (taskModalBackgroundColorBtn) {
-                updateColorButtonState(taskModalBackgroundColorBtn, task.backgroundColor);
-            }
-            // === KONIEC ===
-            // === KONIEC NOWEJ LOGIKI (KROK 3) ===
-           
-        // === KONIEC FUNKCJI POMOCNICZEJ ===
+            // 1. Reset stanu przycisków i wskaźnika
+            resetTaskModalButtons();
+            const indicator = document.getElementById('modal-task-edit-indicator');
+            
+            // 2. Określenie uprawnień
+            const currentUserId = state.currentUser.uid;
+            const isOwner = project.ownerId === currentUserId;
+            const isAdmin = (project.admins || []).includes(currentUserId);
+            const isCreator = task.createdBy === currentUserId;
+            
+            // GLÓWNA ZMIANA: Kto może edytować? (Właściciel, Admin, Twórca)
+            // Zwykły przypisany członek (assignee) ma TYLKO odczyt.
+            const canEdit = isOwner || isAdmin || isCreator;
 
-   
-            // --- FUNKCJA DLA TRYBU WIDOKU (z przywróconymi brakującymi fragmentami) ---
-            const setViewMode = () => {
-                // KROK 9.2: WYWOŁANIE KONFIGURACJI ZAKŁADKI W TRYBIE WIDOKU
-                setupEffortTab(project, task, taskModal);
-                // === POCZĄTEK NOWEGO KODU: Ustawienie wartości Actual Effort ===
-                // Pobierz wartość szacowaną jako domyślną
-                const estimationValue = (task.estimation > 0) ? task.estimation : '';
-                // Użyj 'actualEffort' jeśli istnieje (nawet jeśli to 0), w przeciwnym razie użyj 'estimation'
-                // Używamy `??` (nullish coalescing) aby obsłużyć 0, ale nie null/undefined
-                const actualEffortValue = task.actualEffort ?? estimationValue;
+            // 3. Konfiguracja UI w zależności od uprawnień
+            if (canEdit) {
+                // --- TRYB EDYCJI (Dostępny od razu) ---
+                if(indicator) indicator.style.display = 'block'; // Pokaż "Możliwa edycja"
                 
-                if (taskModal.actualEffortInput) {
-                    taskModal.actualEffortInput.value = actualEffortValue;
-                    taskModal.actualEffortInput.disabled = true; // Zablokuj w trybie podglądu
-                }
-                // === KONIEC NOWEGO KODU ===
-                taskModal.overlay.dataset.taskId = taskId;
+                // Tytuł jako input
+                taskModal.title.style.display = 'none';
+                taskModal.titleInput.style.display = 'block';
+                taskModal.titleInput.value = task.title;
+                taskModal.titleInput.disabled = false;
+
+                // Odblokuj pola
+                taskModal.description.disabled = false;
+                if (taskModal.effortInput) taskModal.effortInput.disabled = false;
+                if (taskModal.actualEffortInput) taskModal.actualEffortInput.disabled = false;
+
+                // Odblokuj inputy w zakładkach
+                 Array.from(taskModal.overlay.querySelectorAll(
+                     '#tab-content-dueDate input, #tab-content-dueDate select, #tab-content-status select, #tab-content-priority select, #tab-content-recurrence input, #tab-content-recurrence select, #tab-content-actions button'
+                )).forEach(el => el.disabled = false);
+
+                // Budżet - odblokuj
+                taskModal.budgetToggle.disabled = false;
+                if (taskModal.addBudgetItemBtn) taskModal.addBudgetItemBtn.disabled = false;
+                // Odblokuj elementy w liście budżetowej
+                /* (Ta logika jest też w renderowaniu, ale upewniamy się tutaj) */
+                
+                // Pokaż przycisk usuwania
+                taskModal.deleteBtn.style.display = 'block';
+
+            } else {
+                // --- TRYB TYLKO DO ODCZYTU ---
+                if(indicator) indicator.style.display = 'none';
+
+                // Tytuł jako tekst
                 taskModal.title.textContent = task.title;
                 taskModal.title.style.display = 'block';
                 taskModal.titleInput.style.display = 'none';
-                // === DODANY FRAGMENT KODU: Wyświetlanie linku zależności ===
-                const dependencyLinkEl = document.getElementById('modal-task-dependency-link');
-                if (dependencyLinkEl) {
-                    if (task.dependency && task.dependency.blockingTaskId) {
-                        // Mamy powiązanie, spróbuj znaleźć nazwę zadania
-                        const { task: blockingTask } = findTask(task.dependency.blockingTaskId);
-                        
-                        if (blockingTask) {
-                            // Użyłem "Zależne od:" (Depends on:) - jest bardziej precyzyjny
-                            dependencyLinkEl.innerHTML = `Zależne od: <strong style="color: var(--text-primary); cursor: pointer;" data-linked-task-id="${blockingTask.id}" title="Kliknij, aby otworzyć">${blockingTask.title}</strong>`;
-                            dependencyLinkEl.style.display = 'block';
-                        } else {
-                            // Powiązanie osierocone, ale nadal je pokażemy
-                            dependencyLinkEl.textContent = 'Zależne od: (Nie znaleziono zadania)';
-                            dependencyLinkEl.style.display = 'block';
-                        }
-                    } else {
-                        // Brak powiązania, ukryj element
-                        dependencyLinkEl.style.display = 'none';
-                        dependencyLinkEl.textContent = '';
-                    }
-                }
-                // === KONIEC DODANEGO FRAGMENTU KODU ===
+
+                // Zablokuj pola
+                taskModal.description.disabled = true;
+                if (taskModal.effortInput) taskModal.effortInput.disabled = true;
+                if (taskModal.actualEffortInput) taskModal.actualEffortInput.disabled = true; // Zablokuj w trybie podglądu
+
+                // Zablokuj inputy w zakładkach
+                Array.from(taskModal.overlay.querySelectorAll(
+                     '#tab-content-dueDate input, #tab-content-dueDate select, #tab-content-status select, #tab-content-priority select, #tab-content-recurrence input, #tab-content-recurrence select, #tab-content-actions button'
+                )).forEach(el => el.disabled = true);
+
+                // Budżet - zablokuj
+                taskModal.budgetToggle.disabled = true;
+                if (taskModal.addBudgetItemBtn) taskModal.addBudgetItemBtn.disabled = true;
                 
-                // === POCZĄTEK NOWEJ ZMIANY: WYŚWIETLANIE TWÓRCY I DATY ===
-                const creatorInfoEl = document.getElementById('modal-task-creator-info');
+                // Ukryj przycisk usuwania
+                taskModal.deleteBtn.style.display = 'none';
+            }
+
+            // Przycisk "Edytuj" zawsze ukryty (zastąpiony logiką powyżej)
+            if (taskModal.editBtn) taskModal.editBtn.style.display = 'none';
+
+            // --- Konfiguracja Bannerów (bez zmian logicznych, tylko obsługa UI) ---
+            const openCoverGalleryBtn = document.getElementById('open-cover-gallery-btn');
+            if (openCoverGalleryBtn) {
+                // Zezwól na zmianę bannera tylko edytującym
+                openCoverGalleryBtn.disabled = !canEdit; 
+                // ... reszta logiki bannera ...
+                const isTemplateCover = task.coverImage && task.coverImage.originalPath && task.coverImage.originalPath.startsWith('template_');
+                if (isTemplateCover) {
+                    openCoverGalleryBtn.textContent = 'Usuń szablon';
+                    openCoverGalleryBtn.classList.add('is-danger-btn');
+                    openCoverGalleryBtn.dataset.action = 'remove-template-cover';
+                } else {
+                    openCoverGalleryBtn.textContent = 'Wybierz banner';
+                    openCoverGalleryBtn.classList.remove('is-danger-btn');
+                    openCoverGalleryBtn.dataset.action = 'open-gallery';
+                }
+            }
+             // Zezwól na zmianę koloru tła tylko edytującym
+            if (taskModalBackgroundColorBtn) {
+                taskModalBackgroundColorBtn.disabled = !canEdit;
+                updateColorButtonState(taskModalBackgroundColorBtn, task.backgroundColor);
+            }
+
+            // --- Wypełnianie pól danymi (Wspólne dla obu trybów) ---
+            taskModal.overlay.dataset.taskId = taskId;
+            
+            // Wypełnianie dat
+            const defaultStartTime = '10:00';
+            let startDateToParse = task.startDate || (task.createdAt && typeof task.createdAt.toDate === 'function' ? task.createdAt.toDate().toISOString() : null);
+            
+            if (startDateToParse) {
+                const parts = startDateToParse.split('T');
+                const datePart = parts[0];
+                const timePart = (task.startDate && parts[1]) ? parts[1].split(':') : defaultStartTime.split(':');
+                taskModal.startDateDate.value = datePart;
+                taskModal.startDateHour.value = timePart[0] ? timePart[0].padStart(2, '0') : '';
+                taskModal.startDateMinute.value = timePart[1] ? timePart[1].padStart(2, '0') : '';
+            } else {
+                taskModal.startDateDate.value = '';
+                taskModal.startDateHour.value = '';
+                taskModal.startDateMinute.value = '';
+            }
+
+            if (task.dueDate) {
+                const parts = task.dueDate.split('T');
+                taskModal.dueDateDate.value = parts[0];
+                if (parts[1]) {
+                    const timePart = parts[1].split(':');
+                    taskModal.dueDateHour.value = timePart[0] ? timePart[0].padStart(2, '0') : '00';
+                    taskModal.dueDateMinute.value = timePart[1] ? timePart[1].padStart(2, '0') : '00';
+                } else {
+                    taskModal.dueDateHour.value = '00'; 
+                    taskModal.dueDateMinute.value = '00';
+                }
+            } else {
+                taskModal.dueDateDate.value = '';
+                taskModal.dueDateHour.value = '00'; 
+                taskModal.dueDateMinute.value = '00';
+            }
+
+            taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
+            taskModal.priority.value = task.priority;
+            taskModal.description.value = task.description || '';
+
+            // Checkbox ukończenia - logika specjalna
+            taskModal.completed.checked = task.status === 'done';
+            const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
+            // Checkbox działa niezależnie od trybu edycji (każdy przypisany może oznaczyć, jeśli nie multi-blocked)
+            // Ale dodajemy blokadę, jeśli użytkownik w ogóle nie ma praw do zadania
+            const canComplete = canUserCompleteTask(currentUserId, task, project);
+            taskModal.completed.disabled = shouldBeDisabled || !canComplete;
+            
+            // Konfiguracja Wysiłku
+            setupEffortTab(project, task, taskModal);
+            // Ustaw Actual Effort
+            const estimationValue = (task.estimation > 0) ? task.estimation : '';
+            const actualEffortValue = task.actualEffort ?? estimationValue;
+            if (taskModal.actualEffortInput) {
+                taskModal.actualEffortInput.value = actualEffortValue;
+            }
+
+            // Link zależności
+            const dependencyLinkEl = document.getElementById('modal-task-dependency-link');
+            if (dependencyLinkEl) {
+                if (task.dependency && task.dependency.blockingTaskId) {
+                    const { task: blockingTask } = findTask(task.dependency.blockingTaskId);
+                    if (blockingTask) {
+                        dependencyLinkEl.innerHTML = `Zależne od: <strong style="color: var(--text-primary); cursor: pointer;" data-linked-task-id="${blockingTask.id}" title="Kliknij, aby otworzyć">${blockingTask.title}</strong>`;
+                        dependencyLinkEl.style.display = 'block';
+                    } else {
+                        dependencyLinkEl.textContent = 'Zależne od: (Nie znaleziono zadania)';
+                        dependencyLinkEl.style.display = 'block';
+                    }
+                } else {
+                    dependencyLinkEl.style.display = 'none';
+                }
+            }
+
+            // Info o twórcy
+             const creatorInfoEl = document.getElementById('modal-task-creator-info');
                 if (creatorInfoEl) {
                     let creatorInfoText = '';
-                    
-                    // 1. Znajdź twórcę (pole 'createdBy' powinno istnieć)
                     if (task.createdBy) {
                         const creator = findUser(task.createdBy);
                         const creatorName = creator ? (creator.name || creator.email) : 'Nieznany';
@@ -12211,159 +12355,66 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     } else {
                         creatorInfoText = `Utworzył: Nieznany`;
                     }
-                    
-                    // 2. Znajdź datę utworzenia (pole 'createdAt' będzie istniało dla nowych zadań)
-                    if (task.createdAt && typeof task.createdAt.toDate === 'function') { // <<< MODYFIKACJA
-                        const creationDate = task.createdAt.toDate().toLocaleDateString('pl-PL', { // <<< MODYFIKACJA
+                    if (task.createdAt && typeof task.createdAt.toDate === 'function') { 
+                        const creationDate = task.createdAt.toDate().toLocaleDateString('pl-PL', { 
                             day: '2-digit',
                             month: '2-digit',
                             year: 'numeric'
                         });
                         creatorInfoText += `, Data utworzenia: ${creationDate}`;
                     }
-                    
                     creatorInfoEl.textContent = creatorInfoText;
                 }
-                // === KONIEC NOWEJ ZMIANY ===
-                
-                taskModal.completed.checked = task.status === 'done';
-                const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
-                taskModal.completed.disabled = shouldBeDisabled;
-                taskModal.completed.title = shouldBeDisabled ? "Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części." : "";
-                taskModal.description.value = task.description || '';
 
-                taskModal.priority.value = task.priority;
-                // === NOWA LOGIKA: Wypełnianie daty rozpoczęcia (POPRAWIONA) ===
-                const defaultStartTime = '10:00';
-                let startDateToParse = null; // Zaczynamy od null
-
-                if (task.startDate) {
-                    // Przypadek 1: Mamy `startDate` (string ISO YYYY-MM-DD lub YYYY-MM-DDTHH:MM)
-                    startDateToParse = task.startDate;
-                } else if (task.createdAt && typeof task.createdAt.toDate === 'function') {
-                    // Przypadek 2: Nie ma `startDate`, ale jest `createdAt` (Timestamp)
-                    // Konwertujemy Timestamp na datę JS, a potem na string ISO (UTC)
-                    startDateToParse = task.createdAt.toDate().toISOString(); // np. "2025-11-15T18:30:00.000Z"
-                }
-                
-                if (startDateToParse) {
-                    // Teraz `startDateToParse` jest ZAWSZE stringiem (lub nullem, jeśli nie ma obu)
-                    const parts = startDateToParse.split('T');
-                    const datePart = parts[0];
-                    
-                    // POPRAWKA LOGIKI CZASU:
-                    // Jeśli `task.startDate` istnieje, użyj czasu z niego (jeśli jest)
-                    // Jeśli `task.startDate` nie istnieje (używamy createdAt), użyj `defaultStartTime`
-                    const timePart = (task.startDate && parts[1]) 
-                                     ? parts[1].split(':') 
-                                     : defaultStartTime.split(':');
-                    
-                    taskModal.startDateDate.value = datePart;
-                    taskModal.startDateHour.value = timePart[0] ? timePart[0].padStart(2, '0') : ''; // Uzupełnij godziny
-                    taskModal.startDateMinute.value = timePart[1] ? timePart[1].padStart(2, '0') : ''; // Uzupełnij minuty
-                } else {
-                    // Przypadek 3: Nie ma ani startDate, ani createdAt (bardzo mało prawdopodobne)
-                    taskModal.startDateDate.value = '';
-                    taskModal.startDateHour.value = '';
-                    taskModal.startDateMinute.value = '';
-                }
-                // === KONIEC ZMIANY ===
-
-                // === POCZĄTEK NOWEJ ZMIANY: Wypełnianie daty zakończenia (Terminu) ===
-                if (task.dueDate) {
-                    // task.dueDate jest stringiem ISO, np. "2025-11-22T10:00"
-                    const parts = task.dueDate.split('T');
-                    const datePart = parts[0];
-                    
-                    taskModal.dueDateDate.value = datePart; // Ustaw datę
-
-                    if (parts[1]) { // Jeśli jest czas
-                        const timePart = parts[1].split(':');
-                        taskModal.dueDateHour.value = timePart[0] ? timePart[0].padStart(2, '0') : '00';
-                        taskModal.dueDateMinute.value = timePart[1] ? timePart[1].padStart(2, '0') : '00';
-                    } else { // Jeśli jest tylko data (fallback, rzadkie)
-                        taskModal.dueDateHour.value = '00'; 
-                        taskModal.dueDateMinute.value = '00';
-                    }
-                } else {
-                    // Brak terminu, wyczyść TYLKO pole daty
-                    taskModal.dueDateDate.value = '';
-                    // Pozostawiamy selecty czasu na ich domyślnych wartościach
-                    taskModal.dueDateHour.value = '00'; 
-                    taskModal.dueDateMinute.value = '00';
-                }
-                // === KONIEC NOWEJ ZMIANY ===
-                
-                // === PRZYWRÓCONE WYPEŁNIANIE STATUSU ===
-                taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
-                // ======================================
-                // === NOWA LOGIKA: Resetowanie stanu akordeonu przy otwarciu ===
-                // Gwarantuje, że modal zawsze otwiera się ze zwiniętą listą
-                const subtasksToggleBtn = document.getElementById('subtasks-toggle-btn');
-                const subtasksCollapsibleArea = document.getElementById('subtasks-collapsible-area');
-                if (subtasksToggleBtn && subtasksCollapsibleArea) {
-                    subtasksToggleBtn.classList.add('collapsed');
-                    subtasksCollapsibleArea.classList.add('collapsed');
-                    const toggleText = subtasksToggleBtn.querySelector('.toggle-text');
-                    if (toggleText) toggleText.textContent = 'Rozwiń';
-                }
-                // === KONIEC NOWEJ LOGIKI ===
-                if (task.recurrence) {
-                    taskModal.isRecurring.checked = true;
-                    taskModal.recurrenceOptions.style.display = 'block';
-                    const type = task.recurrence.type;
-                    taskModal.recurrenceType.value = type;
-                    document.getElementById('modal-task-recurrence-day-wrapper').style.display = type === 'dayOfMonth' ? 'block' : 'none';
-                    document.getElementById('modal-task-nth-day-options').style.display = type === 'nthDayOfMonth' ? 'flex' : 'none';
-                    if (type === 'dayOfMonth') {
-                        taskModal.recurrenceDay.value = task.recurrence.day;
-                    } else if (type === 'nthDayOfMonth') {
-                        document.getElementById('modal-task-recurrence-nth').value = task.recurrence.nth;
-                        document.getElementById('modal-task-recurrence-weekday').value = task.recurrence.weekday;
-                    }
-                } else {
-                    taskModal.isRecurring.checked = false;
-                    taskModal.recurrenceOptions.style.display = 'none';
-                    document.getElementById('modal-task-recurrence-day-wrapper').style.display = 'none';
-                    document.getElementById('modal-task-nth-day-options').style.display = 'none';
-                }
-
-                // Zablokuj wszystkie GŁÓWNE pola input, select, textarea w zakładkach (poza budżetem i komentarzami)
-            Array.from(taskModal.overlay.querySelectorAll(
-                 // '.description textarea,' // <<< USUNIĘTO '.description textarea,' Z TEGO SELEKTORA
-                 '#tab-content-dueDate input, #tab-content-status select, #tab-content-priority select, #tab-content-recurrence input, #tab-content-recurrence select, #tab-content-actions button'
-            )).forEach(el => el.disabled = true);
-
-            // Jawne zablokowanie pola opisu
-            taskModal.description.disabled = true;
-            // === POCZĄTEK NOWEGO KODU: Zablokowanie pola Effort w trybie podglądu ===
-            if (taskModal.effortInput) {
-                taskModal.effortInput.disabled = true;
-            }
-            // === KONIEC NOWEGO KODU ===
-            // Komentarze POZOSTAJĄ odblokowane w trybie widoku
-            // taskModal.addCommentBtn.disabled = true; // <<< USUNIĘTE
-            // taskModal.newCommentText.disabled = true; // <<< USUNIĘTE
-
-            // --- BARDZIEJ PRECYZYJNA LOGIKA BLOKOWANIA BUDŻETU (CZĘŚĆ 1 - Elementy statyczne) ---
-            // Zablokuj główny checkbox budżetu zadania
-            taskModal.budgetToggle.disabled = true;
-
-            // Zablokuj przycisk "+ Dodaj pozycję"
-            if (taskModal.addBudgetItemBtn) {
-                taskModal.addBudgetItemBtn.disabled = true;
+            // Reset akordeonu
+            const subtasksToggleBtn = document.getElementById('subtasks-toggle-btn');
+            const subtasksCollapsibleArea = document.getElementById('subtasks-collapsible-area');
+            if (subtasksToggleBtn && subtasksCollapsibleArea) {
+                subtasksToggleBtn.classList.add('collapsed');
+                subtasksCollapsibleArea.classList.add('collapsed');
+                const toggleText = subtasksToggleBtn.querySelector('.toggle-text');
+                if (toggleText) toggleText.textContent = 'Rozwiń';
             }
 
-            // Ukryj przyciski usuwania (X) przy pozycjach budżetowych - MOŻNA TO ZROBIĆ TUTAJ LUB PO RENDEROWANIU
-            // Zostawmy na razie tutaj, bo ukrywamy przez CSS, co zadziała nawet na pustej liście
-             Array.from(taskModal.budgetItemsList.querySelectorAll('.delete-task-budget-item-btn'))
-                  .forEach(btn => btn.style.display = 'none');
-            // --- KONIEC CZĘŚCI 1 ---
+            // Cykliczność
+            if (task.recurrence) {
+                taskModal.isRecurring.checked = true;
+                taskModal.recurrenceOptions.style.display = 'block';
+                const type = task.recurrence.type;
+                taskModal.recurrenceType.value = type;
+                document.getElementById('modal-task-recurrence-day-wrapper').style.display = type === 'dayOfMonth' ? 'block' : 'none';
+                document.getElementById('modal-task-nth-day-options').style.display = type === 'nthDayOfMonth' ? 'flex' : 'none';
+                if (type === 'dayOfMonth') {
+                    taskModal.recurrenceDay.value = task.recurrence.day;
+                } else if (type === 'nthDayOfMonth') {
+                    document.getElementById('modal-task-recurrence-nth').value = task.recurrence.nth;
+                    document.getElementById('modal-task-recurrence-weekday').value = task.recurrence.weekday;
+                }
+            } else {
+                taskModal.isRecurring.checked = false;
+                taskModal.recurrenceOptions.style.display = 'none';
+                document.getElementById('modal-task-recurrence-day-wrapper').style.display = 'none';
+                document.getElementById('modal-task-nth-day-options').style.display = 'none';
+            }
 
-            // Upewnij się, że przycisk dodawania załącznika jest WŁĄCZONY
-            taskModal.addAttachmentBtn.disabled = false;
-
-                // === PRZYWRÓCONE WYPEŁNIANIE OSÓB ===
+            // Osoby przypisane (Pigułki do edycji)
+            // W nowym systemie: jeśli canEdit, pokazujemy pigułki do edycji. Jeśli !canEdit, pokazujemy listę awatarów (read-only).
+            
+            if (canEdit) {
+                taskModal.assigneesList.style.display = 'none';
+                taskModal.assigneesEdit.style.display = 'block';
+                const membersOptions = (project.members || []).map(memberId => findUser(memberId)).filter(Boolean);
+                taskModal.assigneesEdit.innerHTML = membersOptions.map(user => {
+                    const isSelected = task.assignees.includes(user.id);
+                    const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
+                    return `
+                        <div class="member-pill ${isSelected ? 'selected' : ''}" data-user-id="${user.id}" title="${user.name || user.email}">
+                            ${avatarHTML} <span>${user.name || user.email}</span>
+                        </div> `;
+                }).join('');
+            } else {
+                taskModal.assigneesEdit.style.display = 'none';
+                taskModal.assigneesList.style.display = 'flex';
                 taskModal.assigneesList.innerHTML = (task.assignees || [])
                     .map(memberId => {
                         const user = findUser(memberId);
@@ -12371,50 +12422,39 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         return renderAvatarHTML(user);
                     })
                     .join('');
-                // ==================================
-                taskModal.assigneesEdit.style.display = 'none';
-                taskModal.assigneesList.style.display = 'flex';
+            }
 
-                taskModal.saveBtn.style.display = 'none';
-                taskModal.okBtn.style.display = 'block'; // Twoja zmiana
-                const isCreator = !task.createdBy || (task.createdBy && task.createdBy === state.currentUser.uid);
-                taskModal.deleteBtn.style.display = isCreator ? 'block' : 'none';
-                taskModal.editBtn.style.display = isCreator ? 'block' : 'none';
+            // Status ukończenia (multi)
+            if (task.type === 'multi') {
+                taskModal.completionStatusSection.style.display = 'block';
+                taskModal.completionStatusList.innerHTML = (task.assignees || [])
+                    .map(userId => {
+                        const user = findUser(userId);
+                        if (!user) return '';
+                        const isDone = task.completedBy.includes(userId);
+                        const isCurrentUser = userId === state.currentUser.uid;
+                        const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm js-complete-my-part-btn" data-user-id="${userId}">Oznacz jako wykonane</button>` : '';
 
-                // === PRZYWRÓCONE WYPEŁNIANIE STATUSU UKOŃCZENIA ===
-                if (task.type === 'multi') {
-                    taskModal.completionStatusSection.style.display = 'block';
-                    taskModal.completionStatusList.innerHTML = (task.assignees || [])
-                        .map(userId => {
-                            const user = findUser(userId);
-                            if (!user) return '';
-                            const isDone = task.completedBy.includes(userId);
-                            const isCurrentUser = userId === state.currentUser.uid;
-                            const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm js-complete-my-part-btn" data-user-id="${userId}">Oznacz jako wykonane</button>` : '';
+                        return `<li class="completion-status-item">
+                                    <div class="user-info"> ${renderAvatarHTML(user)} <span>${user.name || user.email}</span> </div>
+                                    <div class="status-indicator-wrapper">${actionButton}<span class="status-indicator ${isDone ? 'done' : 'pending'}">${isDone ? 'Gotowe' : 'Oczekuje'}</span></div>
+                                </li>`;
+                    }).join('');
+            } else {
+                taskModal.completionStatusSection.style.display = 'none';
+            }
 
-                            return `<li class="completion-status-item">
-                                        <div class="user-info"> ${renderAvatarHTML(user)} <span>${user.name || user.email}</span> </div>
-                                        <div class="status-indicator-wrapper">${actionButton}<span class="status-indicator ${isDone ? 'done' : 'pending'}">${isDone ? 'Gotowe' : 'Oczekuje'}</span></div>
-                                    </li>`;
-                        }).join('');
-                } else {
-                    taskModal.completionStatusSection.style.display = 'none';
-                }
-                const projectBudget = project.budget;
+            // Budżet
+             const projectBudget = project.budget;
             const projectHasBudgetItems = projectBudget && projectBudget.items && projectBudget.items.length > 0;
-                // ==============================================
-                // <<<===== POCZĄTEK NOWEGO KODU =====>>>
-            // --- Uzupełnienie logiki BUDŻETU ZADANIA (Etap 1 - Renderowanie) ---
             const projectCurrency = (projectBudget && projectBudget.currency) || '';
             const projectItemNames = projectHasBudgetItems ? projectBudget.items.map(item => item.name) : [];
 
-            // Resetuj stan sekcji budżetu zadania przy każdym otwarciu
             taskModal.budgetToggle.checked = false;
             taskModal.budgetDetails.style.display = 'none';
             taskModal.budgetItemsList.innerHTML = '<li class="budget-item-empty" style="font-style: italic; color: var(--text-secondary); font-size: 13px;">Brak pozycji kosztowych.</li>';
             taskModal.budgetErrorP.textContent = '';
 
-            // Wczytaj dane, jeśli projekt ma pozycje budżetowe ORAZ zadanie ma przypisane koszty
             if (projectHasBudgetItems && task.budgetItems && task.budgetItems.length > 0) {
                 taskModal.budgetToggle.checked = true;
                 taskModal.budgetDetails.style.display = 'block';
@@ -12423,9 +12463,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 task.budgetItems.forEach((item, index) => {
                     if (projectItemNames.includes(item.name)) {
                         const itemHTML = renderTaskBudgetItemHTML(item, index, projectItemNames);
-                        taskModal.budgetItemsList.insertAdjacentHTML('beforeend', itemHTML); // <<< LISTA JEST WYPEŁNIANA TUTAJ
-                    } else {
-                        console.warn(`Pozycja budżetowa "${item.name}" z zadania "${task.title}" nie istnieje już w projekcie "${project.name}". Zostanie pominięta przy edycji.`);
+                        taskModal.budgetItemsList.insertAdjacentHTML('beforeend', itemHTML);
                     }
                 });
                 if (taskModal.budgetItemsList.children.length === 0) {
@@ -12436,168 +12474,50 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 updateTaskBudgetTotal(taskModal, projectCurrency);
             }
 
-            // --- BARDZIEJ PRECYZYJNA LOGIKA BLOKOWANIA BUDŻETU (CZĘŚĆ 2 - Elementy dynamiczne) ---
-            // Zablokuj WSZYSTKIE selecty i inputy typu number WEWNĄTRZ elementów li.budget-item DOPIERO PO ICH WYRENDEROWANIU
-            Array.from(taskModal.budgetItemsList.querySelectorAll('li.budget-item select, li.budget-item input[type="number"]'))
-                 .forEach(el => {
-                     if (el.tagName === 'SELECT') {
-                         el.disabled = true; // Dla SELECT używamy właściwości
-                     } else if (el.tagName === 'INPUT' && el.type === 'number') {
-                         el.setAttribute('disabled', 'disabled'); // <<< DLA INPUT[type=number] UŻYWAMY SETATTRIBUTE
-                     }
-                 });
-            // --- KONIEC CZĘŚCI 2 ---
-             // --- KONIEC NOWEJ LOGIKI BUDŻETU ZADANIA ---
-             // <<<===== KONIEC NOWEGO KODU =====>>>
-                renderComments(task);
-                renderActivityLog(task);
-                renderAttachments(task);
-                renderSubtaskListInMainModal(task);
-                
-                openModal(taskModal.overlay); // <-- Otwarcie modala JEST tutaj
-            };
-
-            // --- FUNKCJA DLA TRYBU EDYCJI (Bez zmian) ---
-            const setEditMode = () => {
-                setupEffortTab(project, task, taskModal);
-                // === POCZĄTEK NOWEGO KODU: Ustawienie wartości Actual Effort w trybie edycji ===
-                // Logika jest identyczna jak w setViewMode - wczytujemy zapisaną wartość,
-                // lub jeśli jej nie ma, wczytujemy domyślną estymację.
-                const estimationValue = (task.estimation > 0) ? task.estimation : '';
-                const actualEffortValue = task.actualEffort ?? estimationValue;
-                
-                if (taskModal.actualEffortInput) {
-                    taskModal.actualEffortInput.value = actualEffortValue;
-                    taskModal.actualEffortInput.disabled = false; // Odblokuj w trybie edycji
-                }
-                // === KONIEC NOWEGO KODU ===
-                taskModal.title.style.display = 'none';
-                taskModal.titleInput.value = task.title;
-                taskModal.titleInput.style.display = 'block';
-
-                // Odblokuj wszystkie GŁÓWNE pola input, select, textarea w zakładkach (poza budżetem i komentarzami)
-                Array.from(taskModal.overlay.querySelectorAll(
-                     // '.description textarea,' // <<< USUNIĘTO '.description textarea,' Z TEGO SELEKTORA
-                     '#tab-content-dueDate input, #tab-content-status select, #tab-content-priority select, #tab-content-recurrence input, #tab-content-recurrence select, #tab-content-actions button'
-                )).forEach(el => el.disabled = false);
-
-                // Jawne odblokowanie pola opisu
-                taskModal.description.disabled = false;
-                if (taskModal.effortInput) taskModal.effortInput.disabled = false;
-                // taskModal.newCommentText.disabled = false; // <<< USUNIĘTE
-
-                // --- BARDZIEJ PRECYZYJNA LOGIKA ODBLOKOWANIA BUDŻETU ---
-                // Odblokuj główny checkbox budżetu zadania
-                taskModal.budgetToggle.disabled = false;
-
-                // Odblokuj przycisk "+ Dodaj pozycję"
-                 if (taskModal.addBudgetItemBtn) {
-                     taskModal.addBudgetItemBtn.disabled = false;
-                 }
-
-                // Odblokuj WSZYSTKIE selecty i inputy typu number BEZPOŚREDNIO wewnątrz elementów li.budget-item
-                Array.from(taskModal.budgetItemsList.querySelectorAll('li.budget-item select, li.budget-item input[type="number"]')) // <<< BARDZIEJ PRECYZYJNY SELEKTOR
-                     .forEach(el => el.disabled = false);
-
-                // Pokaż przyciski usuwania (X) przy pozycjach budżetowych
+            // Blokada budżetu jeśli !canEdit
+            if (!canEdit) {
+                Array.from(taskModal.budgetItemsList.querySelectorAll('li.budget-item select, li.budget-item input[type="number"]'))
+                     .forEach(el => {
+                         if (el.tagName === 'SELECT') el.disabled = true;
+                         else if (el.tagName === 'INPUT') el.setAttribute('disabled', 'disabled');
+                     });
                 Array.from(taskModal.budgetItemsList.querySelectorAll('.delete-task-budget-item-btn'))
-                     .forEach(btn => btn.style.display = 'inline-block');
-                // --- KONIEC BARDZIEJ PRECYZYJNEJ LOGIKI ODBLOKOWANIA BUDŻETU ---
-                
-                taskModal.assigneesList.style.display = 'none';
-                taskModal.assigneesEdit.style.display = 'block';
-                
-                const membersOptions = (project.members || []).map(memberId => findUser(memberId)).filter(Boolean);
-
-                taskModal.assigneesEdit.innerHTML = membersOptions.map(user => {
-                    const isSelected = task.assignees.includes(user.id);
-                    const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
-                    return `
-                        <div class="member-pill ${isSelected ? 'selected' : ''}" data-user-id="${user.id}" title="${user.name || user.email}">
-                            ${avatarHTML} <span>${user.name || user.email}</span>
-                        </div> `;
-                }).join('');
-                
-                taskModal.saveBtn.style.display = 'block';
-                taskModal.okBtn.style.display = 'none';
-                taskModal.deleteBtn.style.display = 'none';
-                taskModal.editBtn.style.display = 'none';
-            };
-            
-            // --- LISTENERY (Bez zmian) ---
-             taskModal.completed.onchange = async () => {
-                 const taskId = taskModal.overlay.dataset.taskId;
-                 const { task: currentTask, project: currentProject } = findTask(taskId); 
-                 if (!currentTask || !currentProject) return;
-                
-                 if (taskModal.completed.disabled) return;
-
-                 // === NOWA BLOKADA POWIĄZANIA ===
-                 if (taskModal.completed.checked) { // Sprawdzamy tylko, jeśli użytkownik próbuje OZNACZYĆ jako 'done'
-                    const block = isTaskBlocked(currentTask);
-                    if (block.blocked) {
-                        showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
-                        taskModal.completed.checked = false; // Cofnij zmianę
-                        return; // Przerwij
-                    }
-                 }
-                 // === KONIEC NOWEJ BLOKADY ===
-
-                 let updatedTask = { ...currentTask };
-                 const oldStatus = updatedTask.status;
-                 updatedTask.status = taskModal.completed.checked ? 'done' : 'todo';
-
-                 if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
-                     if (updatedTask.status === 'done') {
-                         updatedTask.subtasks = updatedTask.subtasks.map(s => ({ ...s, isCompleted: true, completedBy: [...s.assignees] }));
-                     } else {
-                         updatedTask.subtasks = updatedTask.subtasks.map(s => ({ ...s, isCompleted: false, completedBy: [] }));
-                     }
-                 }
-
-                 if (updatedTask.status !== oldStatus) {
-                     updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-                     if (updatedTask.status === 'done') showConfetti();
-                     await handleTaskCompletion(updatedTask, currentProject, 'manual');
-                     openTaskModal(taskId); 
-                 } else {
-                     const projectDocRef = findProject(currentProject.id) ? doc(projectsRef, currentProject.id) : doc(completedProjectsRef, currentProject.id);
-                     const tasks = currentProject.tasks.map(t => (t.id === taskId ? updatedTask : t));
-                     await updateDoc(projectDocRef, { tasks: tasks });
-                     openTaskModal(taskId); 
-                 }
-             };
-
-            taskModal.editBtn.onclick = setEditMode;
-            taskModal.moveBtn.onclick = () => {
-                 const taskId = taskModal.overlay.dataset.taskId;
-                 const { project: currentProject } = findTask(taskId);
-                 if (currentProject) {
-                    openMoveTaskDialog(taskId, currentProject.id);
-                 }
-            };
-            
-            // <<< ZMIANA: Sprawdzenie i warunkowe wyświetlanie zakładki Budżet >>>
-            const budgetTabButton = document.getElementById('task-tab-taskBudget');
-        if (budgetTabButton) {
-                 // Sprawdzamy, czy projekt, do którego należy zadanie, ma budżet
-                 const { project: taskProject } = findTask(taskId);
-                 const hasBudget = taskProject && taskProject.budget && typeof taskProject.budget === 'object' && (parseFloat(taskProject.budget.amount) > 0);
-                 budgetTabButton.style.display = hasBudget ? 'flex' : 'none'; 
+                  .forEach(btn => btn.style.display = 'none');
             }
-            // <<< KONIEC ZMIANY >>>
 
+            // Renderowanie list (komentarze, historia, załączniki, podzadania)
+            renderComments(task);
+            renderActivityLog(task);
+            renderAttachments(task); // To też zawiera logikę uprawnień dla przycisków usuwania (już w kodzie)
+            renderSubtaskListInMainModal(task);
+
+            // === PODPIĘCIE LISTENERÓW ZMIAN (tylko jeśli canEdit) ===
+            // Usuwamy stare listenery "change/input" z modala (poprzez klonowanie lub flagę - tu użyjemy prostego nadpisania oninput, 
+            // ale bezpieczniej jest dodaćEventListener raz przy inicjalizacji.
+            // Zróbmy to globalnie raz na kontenerze. Patrz poniżej `openTaskModal`.
             
-            // === POPRAWIONA KOLEJNOŚĆ ===
-            setViewMode(); // 1. Wypełnij pola i otwórz modal
-            tippy('#task-modal .task-modal-tab', { offset: [0, 15] }); // 2. Zainicjuj Tippy (Z DODANYM OFFSETEM)
-            // 3. Kliknij domyślną zakładkę "Opis" (lub inną, jeśli 'opis' jest domyślnie ukryty, co w tym widoku się nie zdarza)
+            openModal(taskModal.overlay);
+            
+            tippy('#task-modal .task-modal-tab', { offset: [0, 15] });
             const descriptionTab = taskModal.overlay.querySelector('.task-modal-tab[data-tab="description"]');
             if (descriptionTab) {
                 descriptionTab.click();
             }
-            // === KONIEC POPRAWIONEJ KOLEJNOŚCI ===
-        } // <-- Koniec openTaskModal
+        }
+
+        // === DODATEK: Listener globalny dla modala zadania (Wykrywanie zmian) ===
+        // Dodaj to poza funkcją openTaskModal, np. w bloku init
+        const taskModalContent = taskModal.overlay.querySelector('.task-modal-content');
+        if (taskModalContent) {
+            taskModalContent.addEventListener('input', handleTaskFormChange);
+            taskModalContent.addEventListener('change', handleTaskFormChange);
+            // Obsługa pigułek (click zamiast change)
+            taskModalContent.addEventListener('click', (e) => {
+                 if (e.target.closest('.member-pill') || e.target.closest('.subtask-checkbox')) {
+                     handleTaskFormChange(e);
+                 }
+            });
+        }
        // === POCZĄTEK NOWEJ, BRAKUJĄCEJ FUNKCJI ===
         /**
          * Otwiera modal do tworzenia lub edycji podzadania.
@@ -23165,6 +23085,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
