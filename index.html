@@ -11218,10 +11218,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             };
             // === KONIEC ZMIANY ===
 
-            renderMyTasksKanban(myTasks, myTasksKanbanEl);
-
             // === NOWA LOGIKA: Włączenie Drag & Drop na Dashboardzie ===
-            // 1. Wyczyść stare instancje Sortable (jeśli istnieją w globalnej tablicy)
+            // 1. Wyczyść stare instancje Sortable (jeśli istnieją)
             if (window.dashboardSortableInstances) {
                 window.dashboardSortableInstances.forEach(s => s.destroy());
             }
@@ -11241,32 +11239,26 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     delay: 200, // Opóźnienie dla dotyku
                     delayOnTouchOnly: true,
                     
-                    // Kluczowe: Ustawienie ID przeciąganego zadania
+                    // Po rozpoczęciu przeciągania
                     onStart: (evt) => {
-                        draggedTaskId = evt.item.dataset.taskId; // Ustawiamy zmienną globalną używaną przez główny listener 'drop'
+                        draggedTaskId = evt.item.dataset.taskId; 
                         evt.item.classList.add('dragging');
                     },
                     
-                    // Kluczowe: Symulacja zdarzenia 'drop' po upuszczeniu
+                    // Po upuszczeniu (zmiana statusu)
                     onEnd: (evt) => {
                         evt.item.classList.remove('dragging');
                         
-                        // Znajdź kolumnę docelową
                         const column = evt.to.closest('.kanban-column');
-                        
-                        if (column) {
-                            // Tworzymy sztuczne zdarzenie 'drop', które zostanie przechwycone 
-                            // przez główny listener na elemencie 'kanbanBoardEl' (zdefiniowany w kodzie głównym).
-                            // Dzięki temu logika aktualizacji bazy danych zadziała automatycznie.
-                            const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
-                            
-                            // Nadpisujemy 'target' zdarzenia, aby wskazywał na kolumnę
-                            Object.defineProperty(dropEvent, 'target', { value: column, writable: false });
-                            
-                            // Wysyłamy zdarzenie do głównego kontenera (kanbanBoardEl)
-                            // Uwaga: W widoku Dashboardu, 'kanbanBoardEl' ma klasę 'dashboard-view' i zawiera w sobie 'myTasksKanbanEl'.
-                            kanbanBoardEl.dispatchEvent(dropEvent);
+                        if (column && draggedTaskId) {
+                            const newStatus = column.dataset.status;
+                            // Na Dashboardzie nie ma Custom Columns, więc zawsze null
+                            const newCustomColumnId = null;
+
+                            // WYWOŁANIE LOGIKI BIZNESOWEJ
+                            handleDroppedTask(draggedTaskId, newStatus, newCustomColumnId);
                         }
+                        draggedTaskId = null; 
                     }
                 });
                 window.dashboardSortableInstances.push(sortable);
@@ -19310,68 +19302,64 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         kanbanBoardEl.addEventListener('dragover', (e) => e.preventDefault());
 
         
-        kanbanBoardEl.addEventListener('drop', async (e) => {
-            e.preventDefault();
-            const column = e.target.closest('.kanban-column');
-            if (!column || !draggedTaskId) return;
+        /**
+         * NOWA FUNKCJA: Obsługa upuszczenia zadania (Logika biznesowa)
+         * Wywoływana przez native Drag&Drop oraz Sortable.js (Dashboard)
+         */
+        async function handleDroppedTask(taskId, newStatus, newCustomColumnId) {
+            const { task, project } = findTask(taskId);
+            if (!task || !project) return;
 
-            // === POCZĄTEK NOWEJ LOGIKI: Odczyt statusu I ID kolumny ===
-            const newStatus = column.dataset.status;
-            const newColumnIdAttr = column.dataset.columnId; // "null" (string) lub "col_id_123"
+            // Zabezpieczenie: Nie pozwalaj na edycję w zakończonych projektach
+            const isProjectCompleted = state.completedProjects.some(p => p.id === project.id) || 
+                                     state.globalUserCompletedProjects.some(p => p.id === project.id);
             
-            // Konwertuj string "null" na prawdziwy null
-            const newCustomColumnId = newColumnIdAttr === 'null' ? null : newColumnIdAttr; 
-            
-            const { task, project } = findTask(draggedTaskId);
-            // === KONIEC NOWEJ LOGIKI ===
+            if (isProjectCompleted) {
+                 showNotification("Nie można modyfikować zadań w zakończonych projektach.", "Błąd");
+                 render(); 
+                 return;
+            }
 
-            // Zablokuj przenoszenie w widoku zakończonych projektów
-            if (state.ui.currentView === 'projects' && findCompletedProject(state.currentProjectId)) return;
-
-            // Walidacja uprawnień (Override)
             const currentUserId = state.currentUser.uid;
-            const isOverride = (project && (project.ownerId === currentUserId || (project.admins || []).includes(currentUserId)));
+            const isOverride = (project.ownerId === currentUserId || (project.admins || []).includes(currentUserId));
 
-            // === ZMODYFIKOWANA WALIDACJA (Logika Override dla Drag & Drop) ===
-            if (task && newStatus === 'done') {
-                // Użytkownik przenosi do "Wykonane" - walidacja pozostaje taka sama
+            // === WALIDACJA STATUSU DONE ===
+            if (newStatus === 'done') {
                 if (!canUserCompleteTask(currentUserId, task, project)) {
                     showNotification("Tylko przypisany, admin lub właściciel może ukończyć to zadanie.", "Błąd");
-                    render(); draggedTaskId = null; return;
+                    render(); return;
                 }
                 const block = isTaskBlocked(task);
                 if (block.blocked) {
                     showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
-                    render(); draggedTaskId = null; return;
+                    render(); return;
                 }
                 const allSubtasksDone = !task.subtasks || task.subtasks.length === 0 || task.subtasks.every(s => s.isCompleted);
                 if (!allSubtasksDone && !isOverride) {
                     showNotification("Nie można ukończyć zadania, dopóki nie zostaną ukończone wszystkie podzadania.", "Błąd");
-                    render(); draggedTaskId = null; return;
+                    render(); return;
                 }
                 const allAssigneesDone = task.type === 'single' || task.assignees.every(id => task.completedBy.includes(id));
                 if (!allAssigneesDone && !isOverride) {
                     showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
-                    render(); draggedTaskId = null; return;
+                    render(); return;
                 }
             }
-            // === KONIEC WALIDACJI ===
 
-            // Sprawdź, czy cokolwiek się zmieniło
+            // Sprawdź zmiany
             const statusChanged = task.status !== newStatus;
             const columnChanged = task.customColumnId !== newCustomColumnId;
 
-            if (task && (statusChanged || columnChanged)) {
+            if (statusChanged || columnChanged) {
                 const oldStatus = task.status;
                 let updatedTask = { 
                     ...task,
                     status: newStatus,
-                    customColumnId: newCustomColumnId // Zawsze ustawiaj nowe ID kolumny
+                    customColumnId: newCustomColumnId 
                 };
 
-                // === ZMODYFIKOWANA LOGIKA OVERRIDE ===
+                // LOGIKA OVERRIDE (Wymuszanie/Cofanie)
                 if (newStatus === 'done' && isOverride) {
-                    // Admin/Właściciel wymusza ukończenie
                     if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
                         updatedTask.subtasks = updatedTask.subtasks.map(s => ({
                             ...s, isCompleted: true, completedBy: [...s.assignees]
@@ -19381,26 +19369,36 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                         updatedTask.completedBy = [...updatedTask.assignees];
                     }
                 } else if (newStatus !== 'done' && oldStatus === 'done') {
-                    // Ktoś (admin lub zwykły użytkownik, jeśli ma uprawnienia) cofa zadanie z "Wykonane"
                     updatedTask.completedBy = []; 
                     updatedTask.subtasks = (updatedTask.subtasks || []).map(s => ({
                         ...s, isCompleted: false, completedBy: []
                     }));
                 }
-                // === KONIEC MODYFIKACJI OVERRIDE ===
 
-                // Loguj aktywność tylko jeśli zmienił się status główny
                 if (statusChanged) {
                     updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
                 }
                 
                 if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
                 
-                // handleTaskCompletion zajmie się logiką cykliczności i zapisem
+                // ZAPIS DO BAZY
                 await handleTaskCompletion(updatedTask, project);
             }
-             // Reset draggedTaskId po zakończeniu operacji drop
-             draggedTaskId = null;
+        }
+
+        // Zaktualizowany główny listener DROP (korzysta z nowej funkcji)
+        kanbanBoardEl.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            const column = e.target.closest('.kanban-column');
+            if (!column || !draggedTaskId) return;
+
+            const newStatus = column.dataset.status;
+            const newColumnIdAttr = column.dataset.columnId; 
+            const newCustomColumnId = newColumnIdAttr === 'null' ? null : newColumnIdAttr; 
+            
+            await handleDroppedTask(draggedTaskId, newStatus, newCustomColumnId);
+            
+            draggedTaskId = null;
         });
         // --- NOWY LISTENER: Obsługa rozwijania szczegółów budżetu na kafelku ---
         kanbanBoardEl.addEventListener('click', (e) => {
@@ -23271,6 +23269,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
