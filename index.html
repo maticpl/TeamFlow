@@ -12371,20 +12371,27 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // 2. Ustawiamy stan pól
             Array.from(taskModal.overlay.querySelectorAll('input, select, textarea, button')).forEach(el => {
-                 // Pomijamy przyciski sterujące modalem
-                 if (el.classList.contains('modal-close-btn') || el.id === 'ok-task-btn' || el.id === 'save-task-btn') return;
+                 // A. Pomijamy przyciski sterujące samym oknem (zamknij, ok, zapisz, usuń)
+                 // Nie chcemy, żeby logika 'canEdit' je zablokowała lub odblokowała
+                 if (el.classList.contains('modal-close-btn') || el.id === 'ok-task-btn' || el.id === 'save-task-btn' || el.id === 'delete-task-btn') return;
                  
-                 // Wyjątki: Elementy dostępne dla każdego członka
-                 const isCommentField = el.id === 'new-comment-text' || el.id === 'add-comment-btn';
-                 const isCheckbox = el.type === 'checkbox';
-                 const isFileInput = el.type === 'file';
-                 const isAttachmentBtn = el.id === 'add-attachment-btn';
-                 const isSubtaskBtn = el.classList.contains('subtask-action-btn'); // Np. edycja subzadania
+                 // B. Definiujemy wyjątki - co może robić "Użytkownik B" (Przypisany)?
+                 const isCommentField = el.id === 'new-comment-text' || el.id === 'add-comment-btn'; // Pisanie komentarzy
+                 const isCheckbox = el.type === 'checkbox';          // Odhaczanie zadań
+                 const isSubtaskBtn = el.classList.contains('subtask-action-btn'); // Przyciski przy podzadaniach (np. usuń swoje)
                  
-                 if (isCommentField || isCheckbox || isFileInput || isAttachmentBtn || isSubtaskBtn) {
+                 // === NOWE WYJĄTKI: ZAŁĄCZNIKI ===
+                 const isFileInput = el.type === 'file';             // Input do wybierania plików
+                 const isAttachmentBtn = el.id === 'add-attachment-btn'; // Przycisk "Dodaj załącznik"
+                 // === KONIEC NOWYCH WYJĄTKÓW ===
+
+                 // C. Decyzja: Odblokuj, jeśli to wyjątek LUB jeśli masz pełne uprawnienia
+                 if (isCommentField || isCheckbox || isSubtaskBtn || isFileInput || isAttachmentBtn) {
+                     // To są rzeczy "wspólne" - przypisany członek może to robić
                      el.disabled = false;
                  } else {
-                     // Reszta pól (tytuł, opis, daty, budżet) - tylko dla uprawnionych
+                     // To są "twarde dane" (Tytuł, Daty, Priorytet, Budżet)
+                     // Jeśli nie jesteś Szefem/Twórcą (canEdit = false), to pole jest ZABLOKOWANE
                      el.disabled = !canEdit;
                  }
             });
@@ -17622,27 +17629,31 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
 
             // 7. Sprawdź kliknięcie na kafelek Zadania (aby otworzyć modal)
-            const taskItem = e.target.closest('.task-card'); // .task-card (bez .poll-card)
+            const taskItem = e.target.closest('.task-card'); 
             if (taskItem) {
-                openTaskModal(taskItem.dataset.taskId);
+                const taskId = taskItem.dataset.taskId;
+                const { task, project } = findTask(taskId);
+                const userId = state.currentUser.uid;
+
+                if (task && project) {
+                    // Definicja ról
+                    const isOwner = project.ownerId === userId;
+                    const isAdmin = (project.admins || []).includes(userId);
+                    const isCreator = task.createdBy === userId;
+                    const isAssignee = (task.assignees || []).includes(userId);
+
+                    // === NOWA BLOKADA DLA UŻYTKOWNIKA "C" ===
+                    // Jeśli NIE jesteś właścicielem, NIE adminem, NIE twórcą i NIE przypisanym...
+                    if (!isOwner && !isAdmin && !isCreator && !isAssignee) {
+                        showNotification("To zadanie jest przypisane do kogoś innego, nie możesz zobaczyć szczegółów zadania.", "Brak dostępu");
+                        return; // STOP - nie otwieraj modala
+                    }
+                }
+
+                // Jeśli przeszedł weryfikację (jest B, Twórcą lub Adminem), otwórz
+                openTaskModal(taskId);
                 return;
             }
-            
-            // 8. Pozostałe kliknięcia (dodawanie zadania, nawigacja)
-            if (e.target.closest('.add-task-icon-btn')) {
-                // === POPRAWKA TUTAJ ===
-                // Zmieniono wywołanie z 'openNewTaskModal(false)' na 'openNewTaskModal({})'
-                openNewTaskModal({});
-                // === KONIEC POPRAWKI ===
-            } else if (e.target.closest('.js-project-title')) {
-                const projectId = e.target.closest('.project-tile').dataset.id;
-                state.currentProjectId = projectId;
-                state.ui.previousView = state.ui.currentView;
-                state.ui.currentView = 'projects';
-                saveUiState();
-                render();
-            }
-        });
         function renderDashboardDetailsModal(type) {
             const allMyTasks = getAllMyTasks();
             let title = '';
@@ -22994,6 +23005,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
