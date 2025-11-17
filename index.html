@@ -11217,6 +11217,59 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // === KONIEC ZMIANY ===
 
             renderMyTasksKanban(myTasks, myTasksKanbanEl);
+
+            // === NOWA LOGIKA: Włączenie Drag & Drop na Dashboardzie ===
+            // 1. Wyczyść stare instancje Sortable (jeśli istnieją w globalnej tablicy)
+            if (window.dashboardSortableInstances) {
+                window.dashboardSortableInstances.forEach(s => s.destroy());
+            }
+            window.dashboardSortableInstances = [];
+
+            // 2. Znajdź wszystkie listy zadań w sekcji dashboardu
+            const dashboardTaskLists = myTasksKanbanEl.querySelectorAll('.kanban-tasks');
+            
+            // 3. Zainicjuj Sortable dla każdej listy
+            dashboardTaskLists.forEach(list => {
+                const sortable = new Sortable(list, {
+                    group: 'dashboard-tasks', // Umożliwia przenoszenie między kolumnami
+                    animation: 150,
+                    ghostClass: 'task-card-ghost',
+                    chosenClass: 'task-card-chosen',
+                    dragClass: 'task-card-drag',
+                    delay: 200, // Opóźnienie dla dotyku
+                    delayOnTouchOnly: true,
+                    
+                    // Kluczowe: Ustawienie ID przeciąganego zadania
+                    onStart: (evt) => {
+                        draggedTaskId = evt.item.dataset.taskId; // Ustawiamy zmienną globalną używaną przez główny listener 'drop'
+                        evt.item.classList.add('dragging');
+                    },
+                    
+                    // Kluczowe: Symulacja zdarzenia 'drop' po upuszczeniu
+                    onEnd: (evt) => {
+                        evt.item.classList.remove('dragging');
+                        
+                        // Znajdź kolumnę docelową
+                        const column = evt.to.closest('.kanban-column');
+                        
+                        if (column) {
+                            // Tworzymy sztuczne zdarzenie 'drop', które zostanie przechwycone 
+                            // przez główny listener na elemencie 'kanbanBoardEl' (zdefiniowany w kodzie głównym).
+                            // Dzięki temu logika aktualizacji bazy danych zadziała automatycznie.
+                            const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
+                            
+                            // Nadpisujemy 'target' zdarzenia, aby wskazywał na kolumnę
+                            Object.defineProperty(dropEvent, 'target', { value: column, writable: false });
+                            
+                            // Wysyłamy zdarzenie do głównego kontenera (kanbanBoardEl)
+                            // Uwaga: W widoku Dashboardu, 'kanbanBoardEl' ma klasę 'dashboard-view' i zawiera w sobie 'myTasksKanbanEl'.
+                            kanbanBoardEl.dispatchEvent(dropEvent);
+                        }
+                    }
+                });
+                window.dashboardSortableInstances.push(sortable);
+            });
+            // === KONIEC NOWEJ LOGIKI ===
         }
         function renderKanbanBoard(project, isInteractive) {
             kanbanBoardEl.innerHTML = '';
@@ -23216,6 +23269,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
