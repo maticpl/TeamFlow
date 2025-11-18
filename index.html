@@ -12562,32 +12562,39 @@ function handleTaskFormChange(e) {
                 document.getElementById('modal-task-nth-day-options').style.display = 'none';
             }
 
-            // Osoby przypisane (Pigułki do edycji)
-            if (canEdit) {
-                taskModal.assigneesList.style.display = 'none';
-                taskModal.assigneesEdit.style.display = 'block';
+            // Osoby przypisane (Zawsze pokazujemy nową listę, z blokadą dla read-only)
+            
+            // Zawsze ukryj starą listę i pokaż nową
+            taskModal.assigneesList.style.display = 'none';
+            taskModal.assigneesEdit.style.display = 'block';
+            
+            // 1. Pobierz i posortuj alfabetycznie
+            const membersOptions = (project.members || [])
+                .map(memberId => findUser(memberId))
+                .filter(Boolean)
+                .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+
+            // 2. Wygeneruj listę numerowaną
+            taskModal.assigneesEdit.innerHTML = membersOptions.map((user, index) => {
+                const isSelected = task.assignees.includes(user.id);
+                const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
                 
-                // 1. Pobierz i posortuj alfabetycznie
-                const membersOptions = (project.members || [])
-                    .map(memberId => findUser(memberId))
-                    .filter(Boolean)
-                    .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+                // === ZMIANA: Dodanie klasy disabled, jeśli nie można edytować ===
+                // To zapobiegnie zmianie stanu po kliknięciu (dzięki listenerowi :not(.disabled))
+                const disabledClass = !canEdit ? 'disabled' : '';
+                
+                // Style dla wiersza
+                // Dla read-only (disabled) zmieniamy kursor na default, żeby nie sugerował klikalności
+                const cursorStyle = !canEdit ? 'cursor: default;' : '';
+                const rowStyle = `width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px; ${cursorStyle}`;
 
-                // 2. Wygeneruj listę numerowaną
-                taskModal.assigneesEdit.innerHTML = membersOptions.map((user, index) => {
-                    const isSelected = task.assignees.includes(user.id);
-                    const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
-                    
-                    // Style dla wiersza
-                    const rowStyle = 'width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px;';
-
-                    return `
-                        <div class="member-pill ${isSelected ? 'selected' : ''}" data-user-id="${user.id}" title="${user.name || user.email}" style="${rowStyle}">
-                            <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
-                            ${avatarHTML} 
-                            <span style="margin-left: 8px;">${user.name || user.email}</span>
-                        </div> `;
-                }).join('');
+                return `
+                    <div class="member-pill ${isSelected ? 'selected' : ''} ${disabledClass}" data-user-id="${user.id}" title="${user.name || user.email}" style="${rowStyle}">
+                        <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
+                        ${avatarHTML} 
+                        <span style="margin-left: 8px;">${user.name || user.email}</span>
+                    </div> `;
+            }).join('');
             } else {
                 taskModal.assigneesEdit.style.display = 'none';
                 taskModal.assigneesList.style.display = 'flex';
@@ -17895,20 +17902,34 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 const { task, project } = findTask(taskId);
                 
                 if (task && project) {
-                    // Używamy istniejącej logiki (z modala), ale musimy ją lekko dostosować
-                    // Logika ta jest w listenerze 'click' modala, ale wyodrębnijmy ją lub zduplikujmy kluczową część.
-                    // Najbezpieczniej i najprościej wywołać to samo co w modalu:
                     
                     const currentUserId = state.currentUser.uid;
                     let updatedTask = { ...task };
                     const oldStatus = updatedTask.status;
 
-                    // Dodaj usera do completedBy
+                    // Dodaj usera do completedBy (Główna część zadania)
                     if (!updatedTask.completedBy.includes(currentUserId)) {
                         updatedTask.completedBy.push(currentUserId);
                     }
+
+                    // === NOWA LOGIKA: Auto-kompletowanie subzadań użytkownika (FIX) ===
+                    // Jeśli są podzadania, oznaczamy te przypisane do użytkownika jako wykonane
+                    if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
+                        updatedTask.subtasks = updatedTask.subtasks.map(s => {
+                            // Sprawdź, czy użytkownik jest przypisany do subzadania i jeszcze go nie ukończył
+                            if (s.assignees.includes(currentUserId) && !s.completedBy.includes(currentUserId)) {
+                                // Dodaj go do listy ukończonych dla tego subzadania
+                                const newCompletedBy = [...(s.completedBy || []), currentUserId];
+                                // Sprawdź, czy subzadanie jest teraz w pełni ukończone przez wszystkich przypisanych
+                                const isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
+                                return { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
+                            }
+                            return s; // Zwróć bez zmian, jeśli nie dotyczy użytkownika
+                        });
+                    }
+                    // === KONIEC NOWEJ LOGIKI ===
                     
-                    // Sprawdź, czy wszyscy ukończyli
+                    // Sprawdź, czy wszyscy ukończyli główne zadanie
                     const allDone = updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
                     if (allDone) {
                         updatedTask.status = 'done';
@@ -17924,7 +17945,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     updatedTask = addActivity(updatedTask, 'completion');
 
                     // Zapisz
-                    // (handleTaskCompletion jest funkcją async, ale w listenerze click nie musimy używać await na poziomie top-level)
                     handleTaskCompletion(updatedTask, project, 'manual').then(() => {
                         showNotification("Twoja część zadania została oznaczona jako wykonana.", "Sukces");
                         // Widok odświeży się automatycznie dzięki onSnapshot
@@ -23427,6 +23447,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
