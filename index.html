@@ -9276,33 +9276,48 @@ let state = {
             }
         }
        
-// NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU
-// KROK 2.1: Dodano nowy argument `adminIds` z domyślną pustą tablicą
+// NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU (WERSJA NAPRAWIONA)
 function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null, adminIds = []) {
     containerElement.innerHTML = ''; // Zawsze czyścimy kontener na starcie
 
     const activeGroupId = state.ui.activeGroupId;
+    
+    // [DEBUG] Sprawdźmy, jaka jest aktywna grupa i ilu mamy użytkowników w pamięci
+    console.log(`[buildTeamMembersAccordion] Active Group ID: ${activeGroupId}`);
+    console.log(`[buildTeamMembersAccordion] Total users in state: ${state.users.length}`);
 
     // 1. Filtrujemy użytkowników: sprawdzamy, czy należą do AKTYWNEJ grupy
-    // (Poprawka: używamy tablicy groupIds lub sprawdzamy klucze w groupInfo)
-    const teamMembers = state.users.filter(u => 
-        (u.groupIds && u.groupIds.includes(activeGroupId)) || 
-        (u.groupInfo && u.groupInfo[activeGroupId])
-    );
+    const teamMembers = state.users.filter(u => {
+        // Sprawdź czy user ma tablicę groupIds I czy zawiera ona ID grupy
+        const hasGroupId = u.groupIds && Array.isArray(u.groupIds) && u.groupIds.includes(activeGroupId);
+        // LUB czy ma klucz w groupInfo
+        const hasGroupInfoKey = u.groupInfo && u.groupInfo[activeGroupId];
+        
+        return hasGroupId || hasGroupInfoKey;
+    });
 
     // 2. Grupujemy odfiltrowanych członków po ich podgrupie w RAMACH TEJ GRUPY
     const usersBySubgroup = teamMembers.reduce((acc, user) => {
         let subgroup = 'Bez przypisanej podgrupy';
+        let source = 'default';
 
-        // === NOWA LOGIKA ODCZYTU PODGRUPY ===
+        // === ULEPSZONA LOGIKA ODCZYTU PODGRUPY ===
+        // Sprawdzamy bezpiecznie istnienie zagnieżdżonych właściwości
         if (user.groupInfo && user.groupInfo[activeGroupId] && user.groupInfo[activeGroupId].subgroup) {
-            // Pobierz podgrupę z nowej struktury dla aktywnej grupy
             subgroup = user.groupInfo[activeGroupId].subgroup;
-        } else if (user.subgroupName) {
-            // Fallback do starego pola (wsteczna kompatybilność)
+            source = 'groupInfo';
+        } 
+        // Fallback do starego pola, ale TYLKO jeśli nie znaleziono w groupInfo
+        else if (user.subgroupName) {
             subgroup = user.subgroupName;
+            source = 'legacy';
         }
-        // === KONIEC ZMIANY ===
+        
+        // [DEBUG] Logujemy decyzję dla zalogowanego użytkownika (żeby nie spamować konsoli dla wszystkich)
+        if (user.uid === state.currentUser.uid) {
+             console.log(`[DEBUG User: ${user.name}] Found Subgroup: "${subgroup}" (Source: ${source})`);
+             console.log(`[DEBUG User: ${user.name}] Raw groupInfo:`, user.groupInfo);
+        }
 
         if (!acc[subgroup]) {
             acc[subgroup] = [];
@@ -9312,64 +9327,38 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
     }, {});
 
     // 3. Tworzymy akordeon, iterując po znalezionych podgrupach
-    Object.keys(usersBySubgroup).sort().forEach(subgroup => {
+    // Sortujemy klucze, aby 'Bez przypisanej podgrupy' było na końcu (opcjonalne, tu sortujemy alfabetycznie)
+    const sortedSubgroups = Object.keys(usersBySubgroup).sort();
+    
+    sortedSubgroups.forEach(subgroup => {
         const groupDiv = document.createElement('div');
         groupDiv.className = 'department-group';
 
         const headerDiv = document.createElement('div');
         headerDiv.className = 'department-header';
+        // Dodajemy licznik osób w dziale
         headerDiv.innerHTML = `
-            <span>${subgroup}</span>
+            <span>${subgroup} <small style="font-weight:normal; color:var(--text-secondary);">(${usersBySubgroup[subgroup].length})</small></span>
             <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
             </svg>
         `;
 
         const usersDiv = document.createElement('div');
-        usersDiv.className = 'department-users collapsed';
+        // Domyślnie zwinięte, CHYBA ŻE to jedyna grupa lub zawiera wybranego użytkownika
+        const shouldExpand = usersBySubgroup[subgroup].some(u => selectedMemberIds.includes(u.id));
+        
+        usersDiv.className = `department-users ${shouldExpand ? '' : 'collapsed'}`;
+        if (shouldExpand) headerDiv.classList.add('active'); // Dodaj klasę active do nagłówka, jeśli rozwinięte
 
         usersBySubgroup[subgroup].forEach(user => {
             const isSelected = selectedMemberIds.includes(user.id);
-            // Sprawdzamy, czy użytkownik jest właścicielem projektu (dla edycji) LUB czy jest to aktualnie zalogowany użytkownik (dla tworzenia nowego projektu)
             const isOwner = user.id === projectOwnerId || (!projectOwnerId && user.id === state.currentUser.uid);
             const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
             
-            // KROK 2.2: Logika generowania przycisku korony
             let crownHTML = '';
-            // Pokaż koronę tylko jeśli:
-            // 1. Przekazano `projectOwnerId` (co oznacza, że jesteśmy w trybie Edycji Projektu)
-            // 2. Ten użytkownik NIE jest głównym właścicielem (właściciel nie może zarządzać sam sobą)
             if (projectOwnerId && !isOwner) {
                 const isAdmin = (adminIds || []).includes(user.id);
-                crownHTML = `
-                    <button type="button" 
-                            class="admin-toggle-btn ${isAdmin ? 'is-admin' : ''}" 
-                            data-user-id="${user.id}" 
-                            title="${isAdmin ? 'Odbierz uprawnienia administratora projektu' : 'Nadaj uprawnienia administratora projektu'}">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 8.25V10.5m0 0V15m0-4.5h13.5m0 0V8.25m0 2.25V15M3 9l3-3 3 3M3 15l3 3 3-3" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 3l3.342 5.422a.5.5 0 00.375.253h5.511a.5.5 0 01.32 0l-4.46 3.24a.5.5 0 00-.188.447l1.705 5.54a.5.5 0 01-.726.55L12 15.116a.5.5 0 00-.464 0l-4.46 3.24a.5.5 0 01-.726-.55l1.705-5.54a.5.5 0 00-.188-.447l-4.46-3.24a.5.5 0 01.32 0h5.511a.5.5 0 00.375-.253L12 3z" clip-rule="evenodd" />
-                            <path d="M12 3l3.342 5.422a.5.5 0 00.375.253h5.511a.5.5 0 01.32 0l-4.46 3.24a.5.5 0 00-.188.447l1.705 5.54a.5.5 0 01-.726.55L12 15.116a.5.5 0 00-.464 0l-4.46 3.24a.5.5 0 01-.726-.55l1.705-5.54a.5.5 0 00-.188-.447l-4.46-3.24a.5.5 0 01.32 0h5.511a.5.5 0 00.375-.253L12 3z" />
-                        </svg>
-                    </button>
-                `;
-                // Użyłem ikony korony z https://heroicons.com/ (jako przykład, można podmienić na SVG)
-                // Użyłem ikony "AdjustmentsHorizontalIcon" jako placeholder, SVG korony jest bardziej złożone.
-                // UŻYJEMY INNEJ IKONY - "Star" (Gwiazdka), jest prostsza i czytelniejsza.
-                crownHTML = `
-                    <button type="button" 
-                            class="admin-toggle-btn ${isAdmin ? 'is-admin' : ''}" 
-                            data-user-id="${user.id}" 
-                            title="${isAdmin ? 'Odbierz uprawnienia administratora projektu' : 'Nadaj uprawnienia administratora projektu'}">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                            <path d="M11.645 20.91l-1.07-3.292c-.066-.203-.261-.344-.474-.344H6.84c-.213 0-.408.141-.474.344l-1.07 3.292M12 21a9 9 0 100-18 9 9 0 000 18zM12 9.75L14.25 12l-2.25 2.25M12 14.25L9.75 12l2.25-2.25" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                            <path d="M12 9.75L14.25 12l-2.25 2.25M12 14.25L9.75 12l2.25-2.25" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                            <path d="M12 3.75v.008v-.008zM12 18.75v.008v-.008zM3.375 12h.008h-.008zM18.75 12h.008h-.008zM5.196 5.196l.008.008-.008-.008zM17.07 17.07l.008.008-.008-.008zM5.196 17.07l.008-.008-.008.008zM17.07 5.196l.008-.008-.008.008z" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                            <path d="M10.125 2.25h3.75M10.125 20.25h3.75M2.25 10.125v3.75M20.25 10.125v3.75M4.225 4.225l2.121 2.121M16.025 16.025l2.121 2.121M4.225 18.275l2.121-2.121M16.025 6.346l2.121-2.121" stroke="currentColor" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                        </svg>
-                    </button>
-                `;
-                // OK, używam ikony Gwiazdki (StarIcon z Heroicons) - jest czytelniejsza niż korona.
                  crownHTML = `
                     <button type="button" 
                             class="admin-toggle-btn ${isAdmin ? 'is-admin' : ''}" 
@@ -9386,7 +9375,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}`;
             pill.dataset.userId = user.id;
             pill.title = user.name || user.email;
-            // KROK 2.3: Dodanie `crownHTML` do pigułki
             pill.innerHTML = `${avatarHTML} <span>${user.name || user.email}</span> ${crownHTML}`;
             usersDiv.appendChild(pill);
         });
@@ -23178,6 +23166,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
