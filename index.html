@@ -6581,16 +6581,20 @@
                         <div id="tab-content-assignees" class="task-modal-tab-content">
                             <div id="modal-task-assignees-list" style="display: flex;"></div>
                             <div id="modal-task-assignees-edit" class="members-selection-pills" style="display: none;"></div>
-                             <div class="task-modal-section completion-status" id="modal-completion-status-section" style="display: none; margin-top: 16px;">
-                                <h4>Status ukończenia</h4>
-                                <ul class="completion-status-list" id="modal-completion-status-list"></ul>
                             </div>
-                        </div>
                         
                         <div id="tab-content-status" class="task-modal-tab-content">
-                            <label for="modal-task-status">Status</label>
+                            <label for="modal-task-status">Status Zadania</label>
                             <select id="modal-task-status"></select>
-                        </div>
+                            
+                            <div id="modal-multi-task-status-container" style="display: none; margin-top: 16px; padding: 12px; background-color: var(--bg-tertiary); border-radius: var(--border-radius); border: 1px solid var(--border-color);">
+                                <h4 style="font-size: 13px; margin-bottom: 8px; color: var(--text-secondary);">Twoja część zadania (Tryb Wieloosobowy)</h4>
+                                <div id="modal-multi-task-action-area"></div>
+                                <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
+                                    Zadanie główne zostanie oznaczone jako "Wykonane" automatycznie, gdy wszyscy uczestnicy ukończą swoje części.
+                                </p>
+                            </div>
+                            </div>
     
                         <div id="tab-content-priority" class="task-modal-tab-content">
                             <label for="modal-task-priority">Priorytet</label>
@@ -12525,25 +12529,47 @@ function handleTaskFormChange(e) {
                     .join('');
             }
 
-            // Status ukończenia (multi)
-            if (task.type === 'multi') {
-                taskModal.completionStatusSection.style.display = 'block';
-                taskModal.completionStatusList.innerHTML = (task.assignees || [])
-                    .map(userId => {
-                        const user = findUser(userId);
-                        if (!user) return '';
-                        const isDone = task.completedBy.includes(userId);
-                        const isCurrentUser = userId === state.currentUser.uid;
-                        const actionButton = isCurrentUser && !isDone ? `<button class="btn btn-primary btn-sm js-complete-my-part-btn" data-user-id="${userId}">Oznacz jako wykonane</button>` : '';
+            // === NOWA LOGIKA: Status ukończenia dla zadań wieloosobowych (w zakładce Status) ===
+            const multiTaskContainer = document.getElementById('modal-multi-task-status-container');
+            const multiTaskActionArea = document.getElementById('modal-multi-task-action-area');
 
-                        return `<li class="completion-status-item">
-                                    <div class="user-info"> ${renderAvatarHTML(user)} <span>${user.name || user.email}</span> </div>
-                                    <div class="status-indicator-wrapper">${actionButton}<span class="status-indicator ${isDone ? 'done' : 'pending'}">${isDone ? 'Gotowe' : 'Oczekuje'}</span></div>
-                                </li>`;
-                    }).join('');
+            if (task.type === 'multi') {
+                // Sprawdź, czy aktualny użytkownik jest przypisany do zadania
+                const isCurrentUserAssigned = task.assignees.includes(state.currentUser.uid);
+
+                if (isCurrentUserAssigned) {
+                    multiTaskContainer.style.display = 'block';
+                    
+                    const isMyPartDone = task.completedBy.includes(state.currentUser.uid);
+                    
+                    if (isMyPartDone) {
+                        // Stan: Użytkownik już ukończył
+                        multiTaskActionArea.innerHTML = `
+                            <div style="display: flex; align-items: center; gap: 8px; color: var(--success-primary); font-weight: 600;">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 24px; height: 24px;">
+                                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>Ukończyłeś/aś swoją część</span>
+                            </div>
+                            <button class="btn btn-secondary btn-sm js-complete-my-part-btn" data-user-id="${state.currentUser.uid}" style="margin-top: 8px; font-size: 12px;">Cofnij ukończenie</button>
+                        `;
+                    } else {
+                        // Stan: Do zrobienia
+                        multiTaskActionArea.innerHTML = `
+                            <button class="btn btn-primary js-complete-my-part-btn" data-user-id="${state.currentUser.uid}" style="width: 100%; justify-content: center;">
+                                ✓ Oznacz moją część jako wykonaną
+                            </button>
+                        `;
+                    }
+                } else {
+                    // Zadanie multi, ale user nie jest przypisany (np. admin podgląda)
+                    multiTaskContainer.style.display = 'none';
+                }
             } else {
-                taskModal.completionStatusSection.style.display = 'none';
+                // Zadanie pojedyncze
+                if (multiTaskContainer) multiTaskContainer.style.display = 'none';
             }
+            // === KONIEC NOWEJ LOGIKI ===
 
             // Budżet
              const projectBudget = project.budget;
@@ -23215,6 +23241,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
