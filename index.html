@@ -6342,13 +6342,8 @@
                <div class="task-modal-main">
                 <div class="task-modal-title">
     <input type="checkbox" id="modal-task-completed">
-    <div style="flex-grow: 1; display: flex; flex-direction: column;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <h3 id="modal-task-title" style="margin: 0;"></h3>
-            <input type="text" id="modal-task-title-input" class="form-group" style="font-size: 22px; font-weight: 600; width: 100%; display: none; margin: 0;">
-        </div>
-        <span id="modal-task-edit-indicator" style="font-size: 11px; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; display: none; margin-top: 2px;">Możliwa edycja</span>
-    </div>
+    <h3 id="modal-task-title"></h3>
+    <input type="text" id="modal-task-title-input" class="form-group" style="font-size: 22px; font-weight: 600; flex-grow: 1; display: none;">
 </div>
                 
                 <p id="modal-task-dependency-link" style="font-size: 13px; color: var(--text-secondary); margin-top: -12px; margin-bottom: 12px; margin-left: 48px; display: none;"></p>
@@ -6625,12 +6620,15 @@
                 </div>
             </div>
              <div class="modal-footer">
-                <button type="button" id="delete-task-btn" class="btn btn-danger" style="margin-right: auto;">Usuń zadanie</button>
-                <button type="button" id="edit-task-btn" class="btn btn-secondary" style="margin-right: auto; display: none;">Edytuj</button>
-                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
-                <button type="button" id="ok-task-btn" class="btn btn-primary modal-close-btn" style="display: none;">OK</button>
-                <button type="button" id="save-task-btn" class="btn btn-primary" style="display: none;">Zapisz zmiany</button>
-            </div>
+    <span id="modal-task-edit-indicator" style="margin-right: auto; font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: none; padding: 10px 0;">Możliwa edycja</span>
+    
+    <button type="button" id="delete-task-btn" class="btn btn-danger" style="margin-right: 8px;">Usuń zadanie</button>
+    <button type="button" id="edit-task-btn" class="btn btn-secondary" style="margin-right: auto; display: none !important;">Edytuj</button>
+    
+    <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+    <button type="button" id="ok-task-btn" class="btn btn-primary modal-close-btn" style="display: none;">OK</button>
+    <button type="button" id="save-task-btn" class="btn btn-primary" style="display: none;">Zapisz zmiany</button>
+</div>
         </div>
     </div>
     
@@ -12184,7 +12182,7 @@ function handleTaskFormChange(e) {
             // Sprawdzamy, czy użytkownik jest przypisany do zadania
             const isAssignee = (task.assignees || []).includes(currentUserId);
 
-            // === NOWA LOGIKA: BLOKADA DOSTĘPU ===
+            // === NOWA LOGIKA: BLOKADA DOSTĘPU (Privacy Guard) ===
             // Dostęp mają: Właściciel, Admin, Twórca LUB Przypisany
             const hasAccess = isOwner || isAdmin || isCreator || isAssignee;
 
@@ -12193,15 +12191,15 @@ function handleTaskFormChange(e) {
                 return; // PRZERYWAMY funkcję - modal się nie otworzy
             }
             // === KONIEC BLOKADY ===
-            
-            // Uprawnienie do EDYCJI (bez zmian względem poprzedniego kroku)
+
+            // Uprawnienie do EDYCJI
             // Zwykły przypisany członek (assignee) ma TYLKO odczyt, chyba że jest też twórcą/adminem.
             const canEdit = isOwner || isAdmin || isCreator;
 
             // 3. Konfiguracja UI w zależności od uprawnień
             if (canEdit) {
                 // --- TRYB EDYCJI (Dostępny od razu) ---
-                if(indicator) indicator.style.display = 'block'; // Pokaż "Możliwa edycja"
+                if(indicator) indicator.style.display = 'inline-block'; // Pokaż wskaźnik w stopce
                 
                 // Tytuł jako input
                 taskModal.title.style.display = 'none';
@@ -12222,11 +12220,14 @@ function handleTaskFormChange(e) {
                 // Budżet - odblokuj
                 taskModal.budgetToggle.disabled = false;
                 if (taskModal.addBudgetItemBtn) taskModal.addBudgetItemBtn.disabled = false;
-                // Odblokuj elementy w liście budżetowej
-                /* (Ta logika jest też w renderowaniu, ale upewniamy się tutaj) */
                 
-                // Pokaż przycisk usuwania
+                // Pokaż przycisk usuwania (jeśli jest twórcą lub właścicielem projektu)
+                // Dla porządku: Właściciel/Admin widzą Delete. Twórca też.
                 taskModal.deleteBtn.style.display = 'block';
+
+                // Jeśli wskaźnik jest widoczny, przesuń przycisk usuwania trochę w prawo (margin-left) 
+                // lub zostaw go obok (w zależności od CSS w HTML).
+                // W HTML ustawiłem wskaźnikowi margin-right: auto, więc on wypchnie resztę przycisków.
 
             } else {
                 // --- TRYB TYLKO DO ODCZYTU ---
@@ -12255,15 +12256,15 @@ function handleTaskFormChange(e) {
                 taskModal.deleteBtn.style.display = 'none';
             }
 
-            // Przycisk "Edytuj" zawsze ukryty (zastąpiony logiką powyżej)
+            // Przycisk "Edytuj" zawsze ukryty
             if (taskModal.editBtn) taskModal.editBtn.style.display = 'none';
 
-            // --- Konfiguracja Bannerów (bez zmian logicznych, tylko obsługa UI) ---
+            // --- Konfiguracja Bannerów ---
             const openCoverGalleryBtn = document.getElementById('open-cover-gallery-btn');
             if (openCoverGalleryBtn) {
                 // Zezwól na zmianę bannera tylko edytującym
                 openCoverGalleryBtn.disabled = !canEdit; 
-                // ... reszta logiki bannera ...
+                
                 const isTemplateCover = task.coverImage && task.coverImage.originalPath && task.coverImage.originalPath.startsWith('template_');
                 if (isTemplateCover) {
                     openCoverGalleryBtn.textContent = 'Usuń szablon';
@@ -12325,14 +12326,13 @@ function handleTaskFormChange(e) {
             // Checkbox ukończenia - logika specjalna
             taskModal.completed.checked = task.status === 'done';
             const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
-            // Checkbox działa niezależnie od trybu edycji (każdy przypisany może oznaczyć, jeśli nie multi-blocked)
-            // Ale dodajemy blokadę, jeśli użytkownik w ogóle nie ma praw do zadania
+            // Checkbox działa niezależnie od trybu edycji (każdy przypisany może oznaczyć), 
+            // ale blokujemy go, jeśli user nie ma w ogóle dostępu (choć Privacy Guard wyżej i tak to zablokuje).
             const canComplete = canUserCompleteTask(currentUserId, task, project);
             taskModal.completed.disabled = shouldBeDisabled || !canComplete;
             
             // Konfiguracja Wysiłku
             setupEffortTab(project, task, taskModal);
-            // Ustaw Actual Effort
             const estimationValue = (task.estimation > 0) ? task.estimation : '';
             const actualEffortValue = task.actualEffort ?? estimationValue;
             if (taskModal.actualEffortInput) {
@@ -12410,8 +12410,6 @@ function handleTaskFormChange(e) {
             }
 
             // Osoby przypisane (Pigułki do edycji)
-            // W nowym systemie: jeśli canEdit, pokazujemy pigułki do edycji. Jeśli !canEdit, pokazujemy listę awatarów (read-only).
-            
             if (canEdit) {
                 taskModal.assigneesList.style.display = 'none';
                 taskModal.assigneesEdit.style.display = 'block';
@@ -12500,13 +12498,8 @@ function handleTaskFormChange(e) {
             // Renderowanie list (komentarze, historia, załączniki, podzadania)
             renderComments(task);
             renderActivityLog(task);
-            renderAttachments(task); // To też zawiera logikę uprawnień dla przycisków usuwania (już w kodzie)
+            renderAttachments(task); 
             renderSubtaskListInMainModal(task);
-
-            // === PODPIĘCIE LISTENERÓW ZMIAN (tylko jeśli canEdit) ===
-            // Usuwamy stare listenery "change/input" z modala (poprzez klonowanie lub flagę - tu użyjemy prostego nadpisania oninput, 
-            // ale bezpieczniej jest dodaćEventListener raz przy inicjalizacji.
-            // Zróbmy to globalnie raz na kontenerze. Patrz poniżej `openTaskModal`.
             
             openModal(taskModal.overlay);
             
@@ -12516,7 +12509,6 @@ function handleTaskFormChange(e) {
                 descriptionTab.click();
             }
         }
-
         // === DODATEK: Listener globalny dla modala zadania (Wykrywanie zmian) ===
         // Dodaj to poza funkcją openTaskModal, np. w bloku init
         const taskModalContent = taskModal.overlay.querySelector('.task-modal-content');
@@ -23097,6 +23089,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
