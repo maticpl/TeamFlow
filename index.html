@@ -12801,9 +12801,8 @@ function handleTaskFormChange(e) {
             }
 
             // Wypełnij listę pigułek z członkami
-            // ZMIANA: Przekazujemy 'mainTask.assignees' zamiast 'project.members', 
-            // aby w podzadaniach można było wybrać tylko osoby przypisane do zadania głównego.
-            buildSubtaskAssigneePills(subtaskModal.assigneesList, mainTask.assignees, selectedAssignees);
+            // Używamy funkcji 'buildTeamMembersAccordion', która jest już dostępna w kodzie
+            buildSubtaskAssigneePills(subtaskModal.assigneesList, project.members, selectedAssignees);
 
             // Otwórz modal
             openModal(subtaskModal.overlay);
@@ -12875,41 +12874,34 @@ function handleTaskFormChange(e) {
 
         // === KONIEC PRZENIESIONYCH FUNKCJI ===
 
-        // === NOWA FUNKCJA (NAPRAWA BŁĘDU 2 - STYL ZAKTUALIZOWANY) ===
+        // === NOWA FUNKCJA (NAPRAWA BŁĘDU 2) ===
         /**
-         * Buduje listę pigułek dla członków (ZADANIA GŁÓWNEGO).
+         * Buduje listę pigułek WYŁĄCZNIE dla członków danego projektu.
          * Zastępuje 'buildTeamMembersAccordion' w modalu podzadania.
          */
-        function buildSubtaskAssigneePills(containerElement, availableMemberIds = [], selectedMemberIds = []) {
+        function buildSubtaskAssigneePills(containerElement, projectMemberIds = [], selectedMemberIds = []) {
             containerElement.innerHTML = ''; // Wyczyść kontener
 
-            if (availableMemberIds.length === 0) {
-                // ZMIANA KOMUNIKATU: Teraz odnosi się do zadania głównego
-                containerElement.innerHTML = '<li style="color: var(--text-secondary); font-style: italic; padding: 8px;">Brak osób przypisanych do zadania głównego. Przypisz kogoś do zadania, aby dodać go do podzadania.</li>';
+            if (projectMemberIds.length === 0) {
+                containerElement.innerHTML = '<li style="color: var(--text-secondary); font-style: italic;">Brak członków w projekcie.</li>';
                 return;
             }
 
-            // 1. Pobierz obiekty użytkowników i posortuj alfabetycznie
-            const members = availableMemberIds
-                .map(userId => findUser(userId))
-                .filter(Boolean)
-                .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+            // Iteruj tylko po ID członków projektu
+            projectMemberIds.forEach(userId => {
+                const user = findUser(userId);
+                if (!user) return; // Pomiń, jeśli nie znaleziono użytkownika (powinno się zdarzyć rzadko)
 
-            // 2. Wygeneruj HTML w nowym stylu (lista numerowana)
-            containerElement.innerHTML = members.map((user, index) => {
                 const isSelected = selectedMemberIds.includes(user.id);
                 const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
                 
-                // Styl wiersza (taki sam jak w innych modalach)
-                const rowStyle = 'width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px;';
-                
-                return `
-                <div class="member-pill ${isSelected ? 'selected' : ''}" data-user-id="${user.id}" title="${user.name || user.email}" style="${rowStyle}">
-                    <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
-                    ${avatarHTML} 
-                    <span style="margin-left: 8px;">${user.name || user.email}</span>
-                </div>`;
-            }).join('');
+                const pill = document.createElement('div');
+                pill.className = `member-pill ${isSelected ? 'selected' : ''}`;
+                pill.dataset.userId = user.id;
+                pill.title = user.name || user.email;
+                pill.innerHTML = `${avatarHTML} <span>${user.name || user.email}</span>`;
+                containerElement.appendChild(pill);
+            });
         }
         // === KONIEC NOWEJ FUNKCJI ===
         // NOWA FUNKCJA POMOCNICZA DO TŁUMACZENIA WZMIANEK
@@ -17903,56 +17895,26 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 const { task, project } = findTask(taskId);
                 
                 if (task && project) {
+                    // Używamy istniejącej logiki (z modala), ale musimy ją lekko dostosować
+                    // Logika ta jest w listenerze 'click' modala, ale wyodrębnijmy ją lub zduplikujmy kluczową część.
+                    // Najbezpieczniej i najprościej wywołać to samo co w modalu:
+                    
                     const currentUserId = state.currentUser.uid;
                     let updatedTask = { ...task };
                     const oldStatus = updatedTask.status;
 
-                    // 1. Dodaj usera do completedBy w zadaniu GŁÓWNYM
+                    // Dodaj usera do completedBy
                     if (!updatedTask.completedBy.includes(currentUserId)) {
                         updatedTask.completedBy.push(currentUserId);
                     }
-
-                    // === NOWA LOGIKA: Auto-kompletowanie PODZADAŃ użytkownika ===
-                    // Jeśli użytkownik klika "Ukończ moją część" na głównym,
-                    // automatycznie zaliczamy mu też wszystkie podzadania, do których jest przypisany.
-                    if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
-                        updatedTask.subtasks = updatedTask.subtasks.map(s => {
-                            // Sprawdź, czy użytkownik jest przypisany do subzadania i jeszcze go nie ukończył
-                            if (s.assignees.includes(currentUserId) && !s.completedBy.includes(currentUserId)) {
-                                // Dodaj go do listy ukończonych w podzadaniu
-                                const newCompletedBy = [...s.completedBy, currentUserId];
-                                // Sprawdź, czy subzadanie jest teraz w pełni ukończone przez wszystkich
-                                const isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
-                                
-                                return { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
-                            }
-                            return s; // Zwróć bez zmian
-                        });
-                    }
-                    // === KONIEC NOWEJ LOGIKI ===
                     
-                    // 2. Sprawdź, czy całe zadanie GŁÓWNE jest ukończone (wszyscy kliknęli)
+                    // Sprawdź, czy wszyscy ukończyli
                     const allDone = updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
                     if (allDone) {
                         updatedTask.status = 'done';
                     } else {
                         updatedTask.status = 'inprogress';
                     }
-
-                    // Aktywność
-                    if (updatedTask.status !== oldStatus) {
-                         if (updatedTask.status === 'done') showConfetti();
-                         updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-                    }
-                    updatedTask = addActivity(updatedTask, 'completion');
-
-                    // Zapisz
-                    handleTaskCompletion(updatedTask, project, 'manual').then(() => {
-                        showNotification("Twoja część zadania (i przypisane podzadania) została oznaczona jako wykonana.", "Sukces");
-                    });
-                }
-                return;
-            }
 
                     // Aktywność
                     if (updatedTask.status !== oldStatus) {
@@ -23465,7 +23427,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
-
 
 
 
