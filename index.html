@@ -9349,9 +9349,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         const shouldExpand = usersBySubgroup[subgroup].some(u => selectedMemberIds.includes(u.id));
         
         usersDiv.className = `department-users ${shouldExpand ? '' : 'collapsed'}`;
-        if (shouldExpand) headerDiv.classList.add('active'); // Dodaj klasę active do nagłówka, jeśli rozwinięte
+        // === ZMIANA: Ustawiamy styl listy pionowej ===
+        usersDiv.style.display = 'flex';
+        usersDiv.style.flexDirection = 'column'; 
+        usersDiv.style.gap = '4px'; // Mały odstęp między wierszami
+        usersDiv.style.padding = '8px 4px'; // Padding wewnątrz rozwiniętej sekcji
+        // === KONIEC ZMIANY ===
 
-        usersBySubgroup[subgroup].forEach(user => {
+        if (shouldExpand) headerDiv.classList.add('active');
+
+        // === ZMIANA: Dodajemy index do pętli forEach ===
+        usersBySubgroup[subgroup].forEach((user, index) => {
             const isSelected = selectedMemberIds.includes(user.id);
             const isOwner = user.id === projectOwnerId || (!projectOwnerId && user.id === state.currentUser.uid);
             const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
@@ -9373,9 +9381,26 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
             const pill = document.createElement('div');
             pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}`;
+            
+            // === ZMIANA: Style dla wiersza listy ===
+            pill.style.width = '100%'; // Rozciągnij na całą szerokość
+            pill.style.justifyContent = 'flex-start'; // Wyrównaj do lewej
+            pill.style.borderRadius = '4px'; // Mniejsze zaokrąglenie dla listy
+            // === KONIEC ZMIANY ===
+
             pill.dataset.userId = user.id;
             pill.title = user.name || user.email;
-            pill.innerHTML = `${avatarHTML} <span>${user.name || user.email}</span> ${crownHTML}`;
+            
+            // === ZMIANA: Dodanie numeracji do HTML ===
+            // Dodajemy span z numerem (index + 1)
+            pill.innerHTML = `
+                <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
+                ${avatarHTML} 
+                <span style="margin-left: 8px;">${user.name || user.email}</span> 
+                ${crownHTML}
+            `;
+            // === KONIEC ZMIANY ===
+            
             usersDiv.appendChild(pill);
         });
 
@@ -12466,13 +12491,26 @@ function handleTaskFormChange(e) {
             if (canEdit) {
                 taskModal.assigneesList.style.display = 'none';
                 taskModal.assigneesEdit.style.display = 'block';
-                const membersOptions = (project.members || []).map(memberId => findUser(memberId)).filter(Boolean);
-                taskModal.assigneesEdit.innerHTML = membersOptions.map(user => {
+                
+                // 1. Pobierz i posortuj alfabetycznie
+                const membersOptions = (project.members || [])
+                    .map(memberId => findUser(memberId))
+                    .filter(Boolean)
+                    .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+
+                // 2. Wygeneruj listę numerowaną
+                taskModal.assigneesEdit.innerHTML = membersOptions.map((user, index) => {
                     const isSelected = task.assignees.includes(user.id);
                     const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
+                    
+                    // Style dla wiersza
+                    const rowStyle = 'width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px;';
+
                     return `
-                        <div class="member-pill ${isSelected ? 'selected' : ''}" data-user-id="${user.id}" title="${user.name || user.email}">
-                            ${avatarHTML} <span>${user.name || user.email}</span>
+                        <div class="member-pill ${isSelected ? 'selected' : ''}" data-user-id="${user.id}" title="${user.name || user.email}" style="${rowStyle}">
+                            <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
+                            ${avatarHTML} 
+                            <span style="margin-left: 8px;">${user.name || user.email}</span>
                         </div> `;
                 }).join('');
             } else {
@@ -13071,21 +13109,32 @@ function handleTaskFormChange(e) {
                 return;
             }
 
-            const membersOptions = (project.members || []).map(memberId => findUser(memberId)).filter(Boolean);
+            // 1. Pobierz i posortuj użytkowników alfabetycznie
+            const membersOptions = (project.members || [])
+                .map(memberId => findUser(memberId))
+                .filter(Boolean)
+                .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+
             newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => `<option value="${u.id}">${u.name || u.email}</option>`).join('');
             
-            // === POCZĄTEK ZMIANY ===
-            // Sprawdzamy, czy zalogowany użytkownik jest na liście członków projektu.
-            // Jeśli tak, ustawiamy go jako domyślnie wybranego w polu select.
             if (membersOptions.some(u => u.id === state.currentUser.uid)) {
                 newTaskModal.assigneeSingleSelect.value = state.currentUser.uid;
             }
-            // === KONIEC ZMIANY ===
 
-            newTaskModal.assigneeMultiList.innerHTML = membersOptions.map(u => {
+            // 2. Wygeneruj listę w nowym stylu (pionowa, numerowana)
+            newTaskModal.assigneeMultiList.innerHTML = membersOptions.map((u, index) => {
                 const isCurrentUser = u.id === state.currentUser.uid;
-                const initials = (u.name || u.email).substring(0, 2).toUpperCase();
-                return `<div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${u.id}" title="${u.name}"><div class="member-pill-avatar" style="background-color: ${u.avatarColor || '#ccc'}">${initials}</div><span>${u.name || u.email}</span></div>`;
+                const avatarHTML = renderAvatarHTML(u, 'member-pill-avatar'); // Używamy helpera
+                
+                // Style dla wiersza (takie same jak w modalu projektu)
+                const rowStyle = 'width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px;';
+                
+                return `
+                <div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${u.id}" title="${u.name || u.email}" style="${rowStyle}">
+                    <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
+                    ${avatarHTML}
+                    <span style="margin-left: 8px;">${u.name || u.email}</span>
+                </div>`;
             }).join('');
         }
 
@@ -23166,6 +23215,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
