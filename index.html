@@ -4854,8 +4854,9 @@
             transform: scale(1.1);
         }
 
-        /* 2. Główny kontener na listę podzadań (domyślnie zwinięty) */
-        .kanban-subtask-list-container {
+        /* 2. Główny kontener na listę podzadań ORAZ statusów multi (domyślnie zwinięty) */
+        .kanban-subtask-list-container,
+        .kanban-multi-status-container { /* <<< DODANO NOWĄ KLASĘ */
             max-height: 0;
             overflow: hidden;
             transition: max-height 0.3s ease-out, margin-top 0.3s ease-out, padding-top 0.3s ease-out;
@@ -4865,7 +4866,8 @@
         }
         
         /* 3. Styl kontenera w stanie rozwiniętym */
-        .kanban-subtask-list-container:not(.collapsed) {
+        .kanban-subtask-list-container:not(.collapsed),
+        .kanban-multi-status-container:not(.collapsed) { /* <<< DODANO NOWĄ KLASĘ */
             max-height: 200px; /* Maksymalna wysokość, włącza przewijanie */
             overflow-y: auto;
             /* Dodaje odstęp i linię oddzielającą po rozwinięciu */
@@ -11806,12 +11808,77 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
             // +++ KONIEC ZMODYFIKOWANEJ LOGIKI +++
 
-            // Składanie ikon (multiUserIcon, recurringIcon, subtaskIcon zdefiniowane wcześniej)
-            // KROK 11.2: DODANIE 'effortIcon' DO LISTY
-            const iconsHTML = `${effortIcon}${multiUserIcon}${recurringIcon}${subtaskIcon}${budgetIcon}`;
+            // === NOWA LOGIKA: Ikona i lista dla zadań MULTI (na kafelku) ===
+            let multiStatusIcon = '';
+            let multiStatusListHTML = '';
 
-            // 3. MODYFIKACJA: Dodajemy kontener na podzadania na końcu <li>
-            // ORAZ ZMIENIONY return dla okładki
+            if (task.type === 'multi' && task.assignees && task.assignees.length > 0) {
+                const completedCount = (task.completedBy || []).length;
+                const totalCount = task.assignees.length;
+                const isAllDone = completedCount === totalCount;
+
+                // 1. Ikona licznika (zastępuje standardową ikonę multiUserIcon lub jest obok niej)
+                // Używamy klasy 'js-toggle-multi-status' do obsługi kliknięcia
+                multiStatusIcon = `
+                <div class="task-detail js-toggle-multi-status" title="Postęp zespołu: ${completedCount}/${totalCount} (Kliknij, aby rozwinąć)" style="cursor: pointer;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${isAllDone ? 'var(--success-primary)' : 'currentColor'}">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                    </svg>
+                    <span style="font-weight: 600; font-size: 11px;">${completedCount}/${totalCount}</span>
+                </div>`;
+
+                // 2. Generowanie listy uczestników do rozwinięcia
+                const listItems = task.assignees.map(userId => {
+                    const user = findUser(userId);
+                    if (!user) return '';
+                    const isUserDone = (task.completedBy || []).includes(userId);
+                    
+                    // Ikony SVG (te same co w modalu)
+                    const iconPending = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="16" height="16" role="img" aria-label="Oczekuje" style="margin-left: auto;"><circle cx="25" cy="25" r="20" fill="none" stroke="#e6e6e6" stroke-width="4"/><circle cx="25" cy="25" r="20" fill="none" stroke="#2b2b2b" stroke-width="4" stroke-linecap="round" stroke-dasharray="60 100"><animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 25 25" to="360 25 25" dur="0.9s" repeatCount="indefinite"/></circle></svg>`;
+                    const iconDone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" style="margin-left: auto; color: var(--success-primary);"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 12l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+                    return `
+                    <li style="display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--bg-primary);">
+                        ${renderAvatarHTML(user, 'member-pill-avatar')} 
+                        <span style="font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${user.name || user.email}</span>
+                        ${isUserDone ? iconDone : iconPending}
+                    </li>`;
+                }).join('');
+
+                // 3. Przycisk akcji (tylko jeśli user przypisany i jeszcze nie skończył)
+                let actionButton = '';
+                const currentUserId = state.currentUser.uid;
+                if (task.assignees.includes(currentUserId)) {
+                    const amIDone = (task.completedBy || []).includes(currentUserId);
+                    if (!amIDone) {
+                         // Przycisk "Ukończ moją część"
+                        actionButton = `
+                        <button class="btn btn-primary btn-sm js-card-complete-my-part" data-task-id="${task.id}" style="width: 100%; margin-top: 8px; padding: 4px; font-size: 11px;">
+                            ✓ Ukończ moją część
+                        </button>`;
+                    } else {
+                         // Info że ukończono
+                         actionButton = `
+                         <div style="margin-top: 8px; font-size: 11px; color: var(--success-primary); text-align: center; font-weight: 600;">
+                            Twoja część ukończona
+                         </div>`;
+                    }
+                }
+
+                multiStatusListHTML = `
+                <div class="kanban-multi-status-container collapsed">
+                    <ul style="list-style: none; padding: 0; margin: 0;">${listItems}</ul>
+                    ${actionButton}
+                </div>`;
+            }
+            // === KONIEC NOWEJ LOGIKI ===
+
+            // Składanie ikon (ZAMIENIAMY multiUserIcon na multiStatusIcon jeśli istnieje)
+            // Jeśli to zadanie multi, używamy nowej ikony z licznikiem, jeśli nie - pustego stringa (bo stara zmienna multiUserIcon była tylko dla typu multi)
+            const finalMultiIcon = multiStatusIcon || multiUserIcon; 
+            
+            const iconsHTML = `${effortIcon}${finalMultiIcon}${recurringIcon}${subtaskIcon}${budgetIcon}`;
+
             return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass} ${coverImageClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}" ${customStyle}>
                 ${coverImageHTML}
                 <div class="task-card-icons">${iconsHTML}</div>
@@ -11828,7 +11895,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         ${subtasksListHTML}
                     </ul>
                 </div>
-                </li>`;
+                ${multiStatusListHTML} </li>`;
         }
        // === NOWE FUNKCJE CZATU PROJEKTU ===
 
@@ -17777,9 +17844,9 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return;
             }
 
-            // === NOWA LOGIKA: Sprawdzenie triggerów podzadań ===
+            // === NOWA LOGIKA: Sprawdzenie triggerów podzadań ORAZ zadań multi ===
             
-            // 1. Sprawdź kliknięcie na IKONĘ rozwijania podzadań
+            // 1a. Sprawdź kliknięcie na IKONĘ rozwijania PODZADAŃ
             const subtaskToggleBtn = e.target.closest('.js-toggle-subtasks');
             if (subtaskToggleBtn) {
                 e.preventDefault(); // Zapobiegaj bąbelkowaniu
@@ -17789,9 +17856,77 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     const subtaskContainer = taskCard.querySelector('.kanban-subtask-list-container');
                     if (subtaskContainer) {
                         subtaskContainer.classList.toggle('collapsed');
+                        // Zwiń ewentualnie otwarty kontener multi
+                        const multiContainer = taskCard.querySelector('.kanban-multi-status-container');
+                        if (multiContainer) multiContainer.classList.add('collapsed');
                     }
                 }
                 return; // Zakończ
+            }
+
+            // 1b. Sprawdź kliknięcie na IKONĘ rozwijania STATUSU MULTI
+            const multiStatusToggleBtn = e.target.closest('.js-toggle-multi-status');
+            if (multiStatusToggleBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const taskCard = multiStatusToggleBtn.closest('.task-card');
+                if (taskCard) {
+                    const multiContainer = taskCard.querySelector('.kanban-multi-status-container');
+                    if (multiContainer) {
+                        multiContainer.classList.toggle('collapsed');
+                        // Zwiń ewentualnie otwarty kontener podzadań (dla estetyki)
+                        const subtaskContainer = taskCard.querySelector('.kanban-subtask-list-container');
+                        if (subtaskContainer) subtaskContainer.classList.add('collapsed');
+                    }
+                }
+                return;
+            }
+
+            // 1c. Sprawdź kliknięcie na PRZYCISK "Ukończ moją część" na kafelku
+            const cardCompleteBtn = e.target.closest('.js-card-complete-my-part');
+            if (cardCompleteBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const taskId = cardCompleteBtn.dataset.taskId;
+                const { task, project } = findTask(taskId);
+                
+                if (task && project) {
+                    // Używamy istniejącej logiki (z modala), ale musimy ją lekko dostosować
+                    // Logika ta jest w listenerze 'click' modala, ale wyodrębnijmy ją lub zduplikujmy kluczową część.
+                    // Najbezpieczniej i najprościej wywołać to samo co w modalu:
+                    
+                    const currentUserId = state.currentUser.uid;
+                    let updatedTask = { ...task };
+                    const oldStatus = updatedTask.status;
+
+                    // Dodaj usera do completedBy
+                    if (!updatedTask.completedBy.includes(currentUserId)) {
+                        updatedTask.completedBy.push(currentUserId);
+                    }
+                    
+                    // Sprawdź, czy wszyscy ukończyli
+                    const allDone = updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
+                    if (allDone) {
+                        updatedTask.status = 'done';
+                    } else {
+                        updatedTask.status = 'inprogress';
+                    }
+
+                    // Aktywność
+                    if (updatedTask.status !== oldStatus) {
+                         if (updatedTask.status === 'done') showConfetti();
+                         updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                    }
+                    updatedTask = addActivity(updatedTask, 'completion');
+
+                    // Zapisz
+                    // (handleTaskCompletion jest funkcją async, ale w listenerze click nie musimy używać await na poziomie top-level)
+                    handleTaskCompletion(updatedTask, project, 'manual').then(() => {
+                        showNotification("Twoja część zadania została oznaczona jako wykonana.", "Sukces");
+                        // Widok odświeży się automatycznie dzięki onSnapshot
+                    });
+                }
+                return;
             }
 
             // 2. Sprawdź kliknięcie na CHECKBOX podzadania (wewnątrz rozwiniętej listy)
@@ -23288,6 +23423,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
