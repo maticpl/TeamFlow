@@ -9276,17 +9276,34 @@ let state = {
             }
         }
        
-        // NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU
+// NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU
 // KROK 2.1: Dodano nowy argument `adminIds` z domyślną pustą tablicą
 function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null, adminIds = []) {
     containerElement.innerHTML = ''; // Zawsze czyścimy kontener na starcie
 
-    // 1. Filtrujemy wszystkich użytkowników, aby pokazać tylko tych z tej samej grupy co zalogowany użytkownik
-    const teamMembers = state.users.filter(u => u.groupId === state.currentUser.groupId);
+    const activeGroupId = state.ui.activeGroupId;
 
-    // 2. Grupujemy odfiltrowanych członków po ich podgrupie (subgroupName)
+    // 1. Filtrujemy użytkowników: sprawdzamy, czy należą do AKTYWNEJ grupy
+    // (Poprawka: używamy tablicy groupIds lub sprawdzamy klucze w groupInfo)
+    const teamMembers = state.users.filter(u => 
+        (u.groupIds && u.groupIds.includes(activeGroupId)) || 
+        (u.groupInfo && u.groupInfo[activeGroupId])
+    );
+
+    // 2. Grupujemy odfiltrowanych członków po ich podgrupie w RAMACH TEJ GRUPY
     const usersBySubgroup = teamMembers.reduce((acc, user) => {
-        const subgroup = user.subgroupName || 'Bez przypisanej podgrupy';
+        let subgroup = 'Bez przypisanej podgrupy';
+
+        // === NOWA LOGIKA ODCZYTU PODGRUPY ===
+        if (user.groupInfo && user.groupInfo[activeGroupId] && user.groupInfo[activeGroupId].subgroup) {
+            // Pobierz podgrupę z nowej struktury dla aktywnej grupy
+            subgroup = user.groupInfo[activeGroupId].subgroup;
+        } else if (user.subgroupName) {
+            // Fallback do starego pola (wsteczna kompatybilność)
+            subgroup = user.subgroupName;
+        }
+        // === KONIEC ZMIANY ===
+
         if (!acc[subgroup]) {
             acc[subgroup] = [];
         }
@@ -23161,6 +23178,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
