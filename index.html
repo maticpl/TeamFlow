@@ -12540,14 +12540,57 @@ function handleTaskFormChange(e) {
                 if (isCurrentUserAssigned) {
                     multiTaskContainer.style.display = 'block';
                     
+                    // --- 1. Generowanie Listy Uczestników i ich Statusów ---
+                    const usersListHTML = task.assignees.map(userId => {
+                        const user = findUser(userId);
+                        if (!user) return '';
+                        
+                        const isDone = (task.completedBy || []).includes(userId);
+                        
+                        // Ikona dla Oczekujących (Loading)
+                        const iconPending = `
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="20" height="20" role="img" aria-label="Ładowanie" style="margin-left: auto;">
+                          <title>Oczekuje</title>
+                          <circle cx="25" cy="25" r="20" fill="none" stroke="#e6e6e6" stroke-width="4"/>
+                          <circle cx="25" cy="25" r="20" fill="none" stroke="#2b2b2b" stroke-width="4" stroke-linecap="round" stroke-dasharray="60 100">
+                            <animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 25 25" to="360 25 25" dur="0.9s" repeatCount="indefinite"/>
+                          </circle>
+                        </svg>`;
+                        
+                        // Ikona dla Ukończonych (Check)
+                        const iconDone = `
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style="margin-left: auto; color: var(--success-primary);">
+                          <title>Ukończone</title>
+                          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+                          <path d="M7 12l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>`;
+
+                        return `
+                        <div class="member-pill" style="width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px; cursor: default; background-color: var(--bg-secondary);">
+                            ${renderAvatarHTML(user, 'member-pill-avatar')}
+                            <span style="margin-left: 8px; font-size: 13px;">${user.name || user.email}</span>
+                            ${isDone ? iconDone : iconPending}
+                        </div>`;
+                    }).join('');
+
+                    // ZMIANA STYLI: Margines i linia są teraz NA GÓRZE (top), aby oddzielić od przycisku powyżej
+                    const statusListContainer = `
+                        <div style="display: flex; flex-direction: column; gap: 2px; margin-top: 16px; border-top: 1px dashed var(--border-color); padding-top: 12px;">
+                            <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; text-transform: uppercase;">Postęp zespołu:</span>
+                            ${usersListHTML}
+                        </div>
+                    `;
+                    // --- Koniec Generowania Listy ---
+
                     const isMyPartDone = task.completedBy.includes(state.currentUser.uid);
-                    
+                    let actionHTML = '';
+
                     if (isMyPartDone) {
                         // Stan: Użytkownik już ukończył
-                        multiTaskActionArea.innerHTML = `
+                        actionHTML = `
                             <div style="display: flex; align-items: center; gap: 8px; color: var(--success-primary); font-weight: 600;">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 24px; height: 24px;">
-                                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                                 </svg>
                                 <span>Ukończyłeś/aś swoją część</span>
                             </div>
@@ -12555,12 +12598,16 @@ function handleTaskFormChange(e) {
                         `;
                     } else {
                         // Stan: Do zrobienia
-                        multiTaskActionArea.innerHTML = `
+                        actionHTML = `
                             <button class="btn btn-primary js-complete-my-part-btn" data-user-id="${state.currentUser.uid}" style="width: 100%; justify-content: center;">
                                 ✓ Oznacz moją część jako wykonaną
                             </button>
                         `;
                     }
+
+                    // ZMIANA KOLEJNOŚCI: Najpierw przycisk (actionHTML), potem lista pod spodem (statusListContainer)
+                    multiTaskActionArea.innerHTML = actionHTML + statusListContainer;
+
                 } else {
                     // Zadanie multi, ale user nie jest przypisany (np. admin podgląda)
                     multiTaskContainer.style.display = 'none';
@@ -23241,6 +23288,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
