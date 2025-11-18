@@ -19198,24 +19198,49 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 const oldStatus = task.status;
                 let updatedTask = { ...task };
 
-                // Oznacz główną część zadania jako wykonaną przez użytkownika
-                if (!updatedTask.completedBy.includes(userId)) {
-                    updatedTask.completedBy.push(userId);
-                }
+                // Sprawdź, czy użytkownik JUŻ ukończył swoją część
+                const wasCompletedByMe = updatedTask.completedBy.includes(userId);
 
-                // === NOWA LOGIKA: Auto-kompletowanie subzadań użytkownika ===
-                if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
-                    updatedTask.subtasks = updatedTask.subtasks.map(s => {
-                        // Sprawdź, czy użytkownik jest przypisany do subzadania i jeszcze go nie ukończył
-                        if (s.assignees.includes(userId) && !s.completedBy.includes(userId)) {
-                            // Dodaj go do listy ukończonych
-                            const newCompletedBy = [...s.completedBy, userId];
-                            // Sprawdź, czy subzadanie jest teraz w pełni ukończone przez wszystkich
-                            const isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
-                            return { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
-                        }
-                        return s; // Zwróć bez zmian, jeśli użytkownik nie jest przypisany lub już ukończył
-                    });
+                if (wasCompletedByMe) {
+                    // --- LOGIKA COFANIA (UNDO) ---
+                    
+                    // 1. Usuń użytkownika z głównego zadania
+                    updatedTask.completedBy = updatedTask.completedBy.filter(id => id !== userId);
+                    
+                    // 2. Cofnij ukończenie we wszystkich podzadaniach, gdzie użytkownik jest przypisany
+                    if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
+                        updatedTask.subtasks = updatedTask.subtasks.map(s => {
+                            // Jeśli użytkownik jest w liście completedBy podzadania, usuń go
+                            if (s.completedBy.includes(userId)) {
+                                const newCompletedBy = s.completedBy.filter(id => id !== userId);
+                                // Skoro cofamy, to subzadanie na pewno nie jest już "w pełni ukończone"
+                                return { ...s, completedBy: newCompletedBy, isCompleted: false };
+                            }
+                            return s;
+                        });
+                    }
+
+                    // 3. Wymuś status 'inprogress' (skoro cofamy, to nie może być 'done')
+                    updatedTask.status = 'inprogress';
+
+                } else {
+                    // --- LOGIKA UKOŃCZENIA (COMPLETE) ---
+                    
+                    // 1. Oznacz główną część zadania jako wykonaną przez użytkownika
+                    updatedTask.completedBy.push(userId);
+
+                    // 2. Auto-kompletowanie subzadań użytkownika
+                    if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
+                        updatedTask.subtasks = updatedTask.subtasks.map(s => {
+                            // Sprawdź, czy użytkownik jest przypisany do subzadania i jeszcze go nie ukończył
+                            if (s.assignees.includes(userId) && !s.completedBy.includes(userId)) {
+                                const newCompletedBy = [...s.completedBy, userId];
+                                const isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
+                                return { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
+                            }
+                            return s;
+                        });
+                    }
                 }
                 // === KONIEC NOWEJ LOGIKI ===
 
@@ -23437,6 +23462,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
