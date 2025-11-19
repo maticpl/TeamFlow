@@ -5672,6 +5672,81 @@
 #edit-task-btn {
     display: none !important; 
 }
+        /* === NOWE STYLE DLA WYSZUKIWARKI UŻYTKOWNIKÓW === */
+.member-search-container {
+    position: relative;
+    margin-bottom: 12px;
+}
+.member-search-input {
+    width: 100%;
+    padding: 8px 12px 8px 30px; /* Miejsce na lupę */
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-secondary);
+    font-size: 14px;
+    color: var(--text-primary);
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="%239ca3af" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>');
+    background-repeat: no-repeat;
+    background-position: 8px center;
+    background-size: 16px;
+}
+.member-search-results {
+    list-style: none;
+    margin-top: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background-color: var(--bg-secondary);
+    max-height: 200px;
+    overflow-y: auto;
+    display: none; /* Domyślnie ukryte */
+    position: absolute;
+    width: 100%;
+    z-index: 10;
+    box-shadow: var(--shadow-md);
+}
+.member-search-results.visible {
+    display: block;
+}
+.member-search-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--bg-primary);
+    transition: background-color 0.2s;
+}
+.member-search-item:last-child {
+    border-bottom: none;
+}
+.member-search-item:hover {
+    background-color: var(--bg-tertiary);
+}
+.member-search-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.member-search-info span {
+    font-size: 14px;
+    font-weight: 500;
+}
+.member-search-add-btn {
+    background-color: var(--accent-primary);
+    color: white;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: 600;
+}
+.member-search-add-btn:hover {
+    background-color: var(--accent-hover);
+}
+.member-search-add-btn.added {
+    background-color: var(--success-primary);
+    cursor: default;
+}
     </style>
 
 </head>
@@ -6783,6 +6858,10 @@
                     </div>
                     <div class="form-group">
                         <label>Dodaj członków zespołu</label>
+                        <div class="member-search-container">
+                            <input type="text" id="new-project-member-search" class="member-search-input" placeholder="Wpisz nazwę lub e-mail użytkownika...">
+                            <ul id="new-project-member-search-results" class="member-search-results"></ul>
+                        </div>
                         <div id="new-project-members" class="members-selection-pills"></div>
                     </div>
                 </div>
@@ -6877,6 +6956,10 @@
                     </div>
                     <div class="form-group">
                         <label>Członkowie zespołu</label>
+                        <div class="member-search-container">
+                            <input type="text" id="edit-project-member-search" class="member-search-input" placeholder="Wpisz nazwę lub e-mail użytkownika...">
+                            <ul id="edit-project-member-search-results" class="member-search-results"></ul>
+                        </div>
                         <div id="edit-project-members" class="members-selection-pills"></div>
                     </div>
                 </div>
@@ -7534,6 +7617,8 @@ let state = {
             endDateInput: document.getElementById('new-project-endDate'),
             prioritySelect: document.getElementById('new-project-priority'),
             membersContainer: document.getElementById('new-project-members'),
+            memberSearchInput: document.getElementById('new-project-member-search'),
+            memberSearchResults: document.getElementById('new-project-member-search-results'),
             descriptionTextarea: document.getElementById('new-project-description'),
 
             // --- POCZĄTEK NOWYCH REFERENCJI BUDŻETU ---
@@ -7562,6 +7647,8 @@ let state = {
             prioritySelect: document.getElementById('edit-project-priority'),
             descriptionTextarea: document.getElementById('edit-project-description'),
             membersContainer: document.getElementById('edit-project-members'),
+            memberSearchInput: document.getElementById('edit-project-member-search'),
+            memberSearchResults: document.getElementById('edit-project-member-search-results'),
 
             // --- POCZĄTEK NOWYCH REFERENCJI BUDŻETU ---
             budgetToggle: document.getElementById('edit-project-budget-toggle'),
@@ -9478,6 +9565,113 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         containerElement.appendChild(groupDiv);
     });
 }
+       /**
+         * Konfiguruje wyszukiwarkę użytkowników dla danego modala.
+         * @param {HTMLInputElement} inputElement - Pole wpisywania.
+         * @param {HTMLUListElement} resultsElement - Lista wyników.
+         * @param {HTMLElement} pillsContainer - Kontener z pigułkami (do sprawdzania zaznaczenia).
+         */
+        function setupUserSearch(inputElement, resultsElement, pillsContainer) {
+            if (!inputElement || !resultsElement || !pillsContainer) return;
+
+            // Funkcja czyszcząca
+            const clearSearch = () => {
+                inputElement.value = '';
+                resultsElement.innerHTML = '';
+                resultsElement.classList.remove('visible');
+            };
+
+            // Listener na wpisywanie
+            inputElement.addEventListener('input', (e) => {
+                const term = e.target.value.toLowerCase().trim();
+                
+                if (term.length < 2) {
+                    resultsElement.innerHTML = '';
+                    resultsElement.classList.remove('visible');
+                    return;
+                }
+
+                // Filtruj użytkowników z globalnego stanu
+                const matches = state.users.filter(user => {
+                    const name = (user.name || '').toLowerCase();
+                    const email = (user.email || '').toLowerCase();
+                    return name.includes(term) || email.includes(term);
+                });
+
+                if (matches.length === 0) {
+                    resultsElement.innerHTML = '<li style="padding: 8px 12px; color: var(--text-secondary);">Brak wyników</li>';
+                    resultsElement.classList.add('visible');
+                    return;
+                }
+
+                // Generuj HTML wyników
+                resultsElement.innerHTML = matches.map(user => {
+                    // Sprawdź, czy użytkownik jest już zaznaczony w kontenerze pigułek
+                    // Szukamy pigułki z tym ID i sprawdzamy czy ma klasę .selected
+                    const pill = pillsContainer.querySelector(`.member-pill[data-user-id="${user.id}"]`);
+                    const isSelected = pill && pill.classList.contains('selected');
+                    const isDisabled = pill && pill.classList.contains('disabled'); // Np. właściciel
+
+                    let btnHTML;
+                    if (isDisabled) {
+                        btnHTML = `<span style="font-size: 12px; color: var(--text-secondary);">Właściciel</span>`;
+                    } else if (isSelected) {
+                        btnHTML = `<button type="button" class="member-search-add-btn added">Dodano</button>`;
+                    } else {
+                        btnHTML = `<button type="button" class="member-search-add-btn" data-user-id="${user.id}">Dodaj</button>`;
+                    }
+
+                    return `
+                        <li class="member-search-item">
+                            <div class="member-search-info">
+                                ${renderAvatarHTML(user, 'member-pill-avatar')}
+                                <span>${user.name || user.email}</span>
+                            </div>
+                            ${btnHTML}
+                        </li>
+                    `;
+                }).join('');
+                
+                resultsElement.classList.add('visible');
+            });
+
+            // Listener na kliknięcie w "Dodaj"
+            resultsElement.addEventListener('click', (e) => {
+                const btn = e.target.closest('.member-search-add-btn');
+                if (!btn || btn.classList.contains('added')) return;
+
+                const userId = btn.dataset.userId;
+                
+                // Znajdź odpowiednią pigułkę w akordeonie i kliknij ją (lub dodaj klasę)
+                const pill = pillsContainer.querySelector(`.member-pill[data-user-id="${userId}"]`);
+                
+                if (pill) {
+                    // Jeśli pigułka nie jest zaznaczona, zaznacz ją
+                    if (!pill.classList.contains('selected')) {
+                        pill.classList.add('selected');
+                    }
+                    
+                    // Jeśli pigułka jest w zwiniętej sekcji, rozwiń sekcję (opcjonalne, ale miłe dla UX)
+                    const parentSection = pill.closest('.department-users');
+                    const header = parentSection ? parentSection.previousElementSibling : null;
+                    if (parentSection && parentSection.classList.contains('collapsed') && header) {
+                        parentSection.classList.remove('collapsed');
+                        header.classList.add('active');
+                    }
+                    
+                    // Zaktualizuj przycisk w wynikach wyszukiwania
+                    btn.textContent = "Dodano";
+                    btn.classList.add('added');
+                }
+            });
+
+            // Zamykanie wyników po kliknięciu poza
+            document.addEventListener('click', (e) => {
+                if (!inputElement.contains(e.target) && !resultsElement.contains(e.target)) {
+                    resultsElement.classList.remove('visible');
+                }
+            });
+        }
        // NOWA FUNKCJA DO RENDEROWANIA WIDOKU ARCHIWUM
         function renderArchiveView() {
             kanbanBoardEl.className = 'all-projects-view'; // Używamy tych samych stylów co dla "Wszystkich Projektów"
@@ -14003,7 +14197,11 @@ newTaskModal.projectGroup.style.display = 'block';
                  updateBudgetSummary(editProjectModal); // Wywołaj, aby ustawić sumy na 0
             }
             // --- KONIEC NOWEJ LOGIKI WCZYTYWANIA BUDŻETU ---
-
+    // === NOWE: Reset wyszukiwarki ===
+            editProjectModal.memberSearchInput.value = '';
+            editProjectModal.memberSearchResults.innerHTML = '';
+            editProjectModal.memberSearchResults.classList.remove('visible');
+            // === KONIEC ===
     openModal(editProjectModal.overlay);
 }
             
@@ -16899,7 +17097,11 @@ if (transferOwnershipModal.form) {
 
        newProjectBtn.addEventListener('click', () => {
     newProjectModal.form.reset();
-    
+    // === NOWE: Reset wyszukiwarki ===
+            newProjectModal.memberSearchInput.value = '';
+            newProjectModal.memberSearchResults.innerHTML = '';
+            newProjectModal.memberSearchResults.classList.remove('visible');
+            // === KONIEC ===
     // ZMIANA START
     // Ustawienie domyślnej daty rozpoczęcia na dziś (format YYYY-MM-DD)
     const today = new Date();
@@ -22845,6 +23047,9 @@ welcomeModal.okBtn.addEventListener('click', async () => {
             });
         }
         // === KONIEC NOWEJ LOGIKI ===
+       // Inicjalizacja wyszukiwarki w modalach projektów
+    setupUserSearch(newProjectModal.memberSearchInput, newProjectModal.memberSearchResults, newProjectModal.membersContainer);
+    setupUserSearch(editProjectModal.memberSearchInput, editProjectModal.memberSearchResults, editProjectModal.membersContainer);
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
 </script>
@@ -23714,6 +23919,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
