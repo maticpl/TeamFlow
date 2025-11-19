@@ -7318,6 +7318,34 @@
             inprogress: 'W trakcie realizacji',
             done: 'Wykonane'
         };
+       // === NOWA FUNKCJA POMOCNICZA ===
+        /**
+         * Zwraca czytelną nazwę statusu zadania, uwzględniając kolumny niestandardowe.
+         */
+        function getTaskStatusLabel(task, project) {
+            // 1. Jeśli status to 'done', zawsze 'Wykonane'
+            if (task.status === 'done') return STATUSES.done;
+            
+            // 2. Jeśli status to 'todo', zawsze 'Do realizacji'
+            if (task.status === 'todo') return STATUSES.todo;
+
+            // 3. Jeśli status to 'inprogress':
+            if (task.status === 'inprogress') {
+                // Sprawdź czy zadanie ma customColumnId
+                if (task.customColumnId) {
+                    // Znajdź nazwę tej kolumny w projekcie
+                    const customCol = (project.customColumns || []).find(c => c.id === task.customColumnId);
+                    if (customCol) {
+                        return customCol.title; // Np. "Do akceptacji"
+                    }
+                }
+                // Jeśli nie ma customColumnId lub nie znaleziono kolumny, zwróć domyślne
+                return STATUSES.inprogress; 
+            }
+            
+            return 'Nieznany';
+        }
+        // === KONIEC NOWEJ FUNKCJI ===
        // Definicja palety kolorów dla zadań
         const TASK_COLORS = [
             { name: "Domyślny (Biały)", value: "var(--bg-secondary)", id: "default" },
@@ -12549,7 +12577,35 @@ function handleTaskFormChange(e) {
                 taskModal.dueDateMinute.value = '00';
             }
 
-            taskModal.status.innerHTML = Object.keys(STATUSES).map(key => `<option value="${key}" ${task.status === key ? 'selected' : ''}>${STATUSES[key]}</option>`).join('');
+            // === ZMIANA: Generowanie listy statusów z uwzględnieniem Custom Columns ===
+            let statusOptionsHTML = '';
+            
+            // 1. Opcja "Do realizacji"
+            statusOptionsHTML += `<option value="todo" ${task.status === 'todo' ? 'selected' : ''}>${STATUSES.todo}</option>`;
+
+            // 2. Opcja "W trakcie realizacji" (Domyślna kolumna)
+            const isDefaultInprogress = task.status === 'inprogress' && !task.customColumnId;
+            statusOptionsHTML += `<option value="inprogress" ${isDefaultInprogress ? 'selected' : ''}>${STATUSES.inprogress}</option>`;
+
+            // 3. Opcje dla Custom Columns (jeśli są w projekcie)
+            if (project.customColumns && project.customColumns.length > 0) {
+                // Sortujemy zgodnie z kolejnością w projekcie
+                const sortedCols = [...project.customColumns].sort((a, b) => (a.order || 0) - (b.order || 0));
+                
+                sortedCols.forEach(col => {
+                    // Sprawdzamy, czy zadanie jest w tej konkretnej kolumnie
+                    const isSelected = task.status === 'inprogress' && task.customColumnId === col.id;
+                    // Jako value używamy specjalnego prefiksu "col_ID", aby rozróżnić przy zapisie
+                    statusOptionsHTML += `<option value="CUSTOM_COL:${col.id}" ${isSelected ? 'selected' : ''}>${col.title}</option>`;
+                });
+            }
+
+            // 4. Opcja "Wykonane"
+            statusOptionsHTML += `<option value="done" ${task.status === 'done' ? 'selected' : ''}>${STATUSES.done}</option>`;
+
+            taskModal.status.innerHTML = statusOptionsHTML;
+            // === KONIEC ZMIANY ===
+
             taskModal.priority.value = task.priority;
             taskModal.description.value = task.description || '';
 
@@ -13053,8 +13109,22 @@ function handleTaskFormChange(e) {
 
                 let message = '';
                 if (log.type === 'status') {
-                    const oldStatusClass = `status-${log.oldValue.toLowerCase().replace(/\s/g, '')}`;
-                    const newStatusClass = `status-${log.newValue.toLowerCase().replace(/\s/g, '')}`;
+                    // Zabezpieczamy nazwy klas (usuwamy spacje, polskie znaki)
+                    // lub po prostu używamy jednej klasy dla statusów, bo kolory są i tak w CSS dla 'status-change'
+                    // Tutaj dla uproszczenia i bezpieczeństwa nadaję po prostu styl badge'a
+                    
+                    // Jeśli chcesz zachować kolory:
+                    // status-done = zielony, status-todo = czerwony, reszta = niebieski
+                    
+                    const getBadgeClass = (label) => {
+                        if (label === 'Wykonane') return 'status-done';
+                        if (label === 'Do realizacji') return 'status-todo';
+                        return 'status-inprogress'; // Wszystkie inne (W trakcie, Do akceptacji...) są niebieskie
+                    };
+
+                    const oldStatusClass = getBadgeClass(log.oldValue);
+                    const newStatusClass = getBadgeClass(log.newValue);
+                    
                     message = `zmienił status z <span class="status-change ${oldStatusClass}">${log.oldValue}</span> na <span class="status-change ${newStatusClass}">${log.newValue}</span>.`;
                 } else if (log.type === 'priority') {
                     message = `zmienił priorytet z <strong>${log.oldValue}</strong> na <strong>${log.newValue}</strong>.`;
@@ -13129,7 +13199,24 @@ function handleTaskFormChange(e) {
 
             const newType = newAssignees.length > 1 ? 'multi' : 'single';
             const oldStatus = task.status;
-            const newStatus = taskModal.status.value;
+            // === ZMIANA: Parsowanie wybranego statusu ===
+            const selectedStatusValue = taskModal.status.value;
+            let newStatus = 'todo'; // Domyślnie
+            let newCustomColumnId = null;
+
+            if (selectedStatusValue === 'done') {
+                newStatus = 'done';
+            } else if (selectedStatusValue === 'todo') {
+                newStatus = 'todo';
+            } else if (selectedStatusValue === 'inprogress') {
+                newStatus = 'inprogress';
+                newCustomColumnId = null; // Czyste "W trakcie"
+            } else if (selectedStatusValue.startsWith('CUSTOM_COL:')) {
+                // To jest nasza niestandardowa kolumna!
+                newStatus = 'inprogress'; // Technicznie nadal "W trakcie"
+                newCustomColumnId = selectedStatusValue.replace('CUSTOM_COL:', ''); // Wyciągamy ID
+            }
+            // === KONIEC ZMIANY ===
             const oldPriority = task.priority;
             const newPriority = taskModal.priority.value;
             const newEstimationValue = parseFloat(taskModal.effortInput.value);
@@ -13162,6 +13249,7 @@ function handleTaskFormChange(e) {
                 type: newType,
                 description: taskModal.description.value,
                 status: newStatus,
+                customColumnId: newCustomColumnId, // <--- DODANO: Zapisujemy ID kolumny
                 priority: newPriority,
                 // dueDate: taskModal.dueDate.value, // USUNIĘTE
 
@@ -13253,9 +13341,20 @@ function handleTaskFormChange(e) {
     updatedTask.budgetItems = taskBudgetItems;
      // --- KONIEC NOWEJ LOGIKI ZAPISU BUDŻETU ZADANIA ---
      // <<<===== KONIEC NOWEGO KODU =====>>>
-            if (oldStatus !== newStatus) {
-                updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+            // === ZMIANA: Dokładniejsze logowanie zmiany statusu ===
+            // Sprawdzamy czy zmienił się status główny LUB kolumna niestandardowa
+            const oldCustomId = task.customColumnId || null;
+            if (oldStatus !== newStatus || oldCustomId !== newCustomColumnId) {
+                // Używamy naszej nowej funkcji pomocniczej do pobrania ładnych nazw
+                const oldLabel = getTaskStatusLabel(task, project);
+                
+                // Tworzymy tymczasowy obiekt "nowego zadania" tylko po to, by pobrać etykietę
+                const tempNewTask = { ...updatedTask, status: newStatus, customColumnId: newCustomColumnId };
+                const newLabel = getTaskStatusLabel(tempNewTask, project);
+
+                updatedTask = addActivity(updatedTask, 'status', oldLabel, newLabel);
             }
+            // === KONIEC ZMIANY ===
             if (oldPriority !== newPriority) {
                 updatedTask = addActivity(updatedTask, 'priority', oldPriority, newPriority);
             }
@@ -19640,9 +19739,14 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     }));
                 }
 
-                if (statusChanged) {
-                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[newStatus]);
+               // === ZMIANA: Logowanie zmian statusu/kolumny ===
+                if (statusChanged || columnChanged) {
+                     const oldLabel = getTaskStatusLabel(task, project);
+                     const newLabel = getTaskStatusLabel(updatedTask, project);
+                     
+                     updatedTask = addActivity(updatedTask, 'status', oldLabel, newLabel);
                 }
+                // === KONIEC ZMIANY ===
                 
                 if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
                 
@@ -23569,6 +23673,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
