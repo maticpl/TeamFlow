@@ -20301,10 +20301,8 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
     const newName = manageGroupModal.newSubgroupNameInput.value.trim();
     if (!newName) return;
 
-    const user = state.currentUser;
-    // === POCZĄTEK ZMIANY ===
-    const groupRef = doc(groupsRef, state.ui.activeGroupId); // Używamy aktywnej grupy
-    // === KONIEC ZMIANY ===
+    // Używamy aktywnej grupy
+    const groupRef = doc(groupsRef, state.ui.activeGroupId); 
 
     try {
         const groupSnap = await getDoc(groupRef);
@@ -20314,12 +20312,36 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 showNotification("Podgrupa o tej nazwie już istnieje.", "Informacja");
                 return;
             }
+            
+            // 1. Zapisz w Firebase
             await updateDoc(groupRef, { subgroups: [...subgroups, newName] });
-            manageGroupModal.newSubgroupNameInput.value = ''; // Wyczyść pole
-            openManageGroupBtn.click(); // Odśwież widok modala
+            
+            // 2. Wyczyść pole input
+            manageGroupModal.newSubgroupNameInput.value = ''; 
+
+            // === NOWA LOGIKA: Ręczna aktualizacja DOM ("na żywo") ===
+            const list = manageGroupModal.subgroupsList;
+
+            // a) Jeśli na liście jest tylko komunikat "Brak...", usuń go
+            if (list.children.length === 1 && list.children[0].textContent.includes('Brak')) {
+                list.innerHTML = '';
+            }
+
+            // b) Stwórz nowy element HTML pasujący stylem do reszty
+            const li = document.createElement('li');
+            li.className = 'attachment-item';
+            li.innerHTML = `
+                <div class="attachment-info">${newName}</div>
+                <button class="delete-attachment-btn js-delete-subgroup" data-name="${newName}" title="Usuń podgrupę">&times;</button>
+            `;
+
+            // c) Dodaj go do listy natychmiastowo
+            list.appendChild(li);
+            // === KONIEC NOWEJ LOGIKI ===
         }
     } catch (error) {
         console.error("Błąd dodawania podgrupy:", error);
+        showNotification("Wystąpił błąd podczas dodawania.", "Błąd");
     }
 });
 
@@ -20345,8 +20367,9 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             // Obsługa usuwania podgrupy
             if (e.target.classList.contains('js-delete-subgroup')) {
                 const nameToDelete = e.target.dataset.name;
+                // Pobieramy referencję do klikniętego przycisku, aby wiedzieć, co usunąć z DOM
+                const btnClicked = e.target; 
                 
-                // === POPRAWKA: Używamy activeGroupId ===
                 const groupRef = doc(groupsRef, state.ui.activeGroupId); 
                 
                 showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć podgrupę "${nameToDelete}"?`, async (confirmed) => {
@@ -20356,11 +20379,25 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                             if (groupSnap.exists()) {
                                 const subgroups = groupSnap.data().subgroups || [];
                                 const updatedSubgroups = subgroups.filter(name => name !== nameToDelete);
+                                
+                                // 1. Zapisz zmiany w Firebase
                                 await updateDoc(groupRef, { subgroups: updatedSubgroups });
-                                openManageGroupBtn.click(); // Odśwież widok modala
+                                
+                                // === NOWA LOGIKA: Usuwanie z DOM "na żywo" ===
+                                const liToRemove = btnClicked.closest('li');
+                                if (liToRemove) {
+                                    liToRemove.remove();
+                                }
+
+                                // Sprawdź, czy lista jest pusta i wyświetl stosowny komunikat
+                                if (manageGroupModal.subgroupsList.children.length === 0) {
+                                    manageGroupModal.subgroupsList.innerHTML = '<li>Brak zdefiniowanych podgrup.</li>';
+                                }
+                                // === KONIEC NOWEJ LOGIKI ===
                             }
                         } catch (error) {
                             console.error("Błąd usuwania podgrupy:", error);
+                            showNotification("Błąd usuwania.", "Błąd");
                         }
                     }
                 }, true);
@@ -23673,6 +23710,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
