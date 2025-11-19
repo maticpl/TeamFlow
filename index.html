@@ -5759,6 +5759,110 @@
     background-color: var(--success-primary);
     cursor: default;
 }
+        /* === STYLE DLA NOWEGO MODALA USTAWIEŃ === */
+.settings-container {
+    display: flex;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Sidebar */
+.settings-sidebar {
+    width: 220px;
+    background-color: var(--bg-primary);
+    border-right: 1px solid var(--border-color);
+    padding: 16px;
+    flex-shrink: 0;
+}
+.settings-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.settings-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 14px;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s;
+}
+.settings-nav-item:hover, .settings-nav-item.active {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+.settings-nav-item.active {
+    color: var(--accent-primary);
+    font-weight: 600;
+}
+.settings-nav-item svg {
+    width: 20px; height: 20px;
+}
+
+/* Content */
+.settings-content {
+    flex-grow: 1;
+    padding: 32px;
+    overflow-y: auto;
+    background-color: var(--bg-secondary);
+}
+.settings-section.centered {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 32px;
+}
+
+/* Avatar */
+.settings-avatar-wrapper {
+    position: relative;
+    width: 100px; height: 100px;
+    border-radius: 50%;
+    cursor: pointer;
+    overflow: hidden;
+    border: 2px solid var(--border-color);
+    transition: border-color 0.2s;
+}
+.settings-avatar-wrapper:hover {
+    border-color: var(--accent-primary);
+}
+.settings-avatar-wrapper:hover .avatar-overlay {
+    opacity: 1;
+}
+.avatar-xl {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px; font-weight: 600;
+    background-color: var(--bg-tertiary); color: var(--text-secondary);
+}
+.avatar-xl img {
+    width: 100%; height: 100%; object-fit: cover;
+}
+.avatar-overlay {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    background-color: rgba(0, 0, 0, 0.4);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 0.2s;
+}
+.avatar-overlay svg {
+    width: 32px; height: 32px; color: white;
+}
+.settings-hint {
+    font-size: 12px; color: var(--text-secondary); margin-top: 8px;
+}
+
+@media (max-width: 768px) {
+    .settings-container { flex-direction: column; }
+    .settings-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border-color); padding: 8px; }
+}
     </style>
 
 </head>
@@ -7953,13 +8057,20 @@ let state = {
         };
        const settingsModal = {
         overlay: document.getElementById('settings-modal'),
-        avatarPlaceholder: document.getElementById('settings-avatar-placeholder'),
-        usernameDisplay: document.getElementById('settings-username-display'),
-        openUploadBtn: document.getElementById('open-upload-photo-btn'),
-        openUsernameBtn: document.getElementById('open-change-username-btn'),
-        openPasswordBtn: document.getElementById('open-change-password-btn'),
-        openChangeGroupBtn: document.getElementById('open-change-group-btn'),
-     };
+        // Nowe referencje do elementów wewnątrz dużego modala
+        avatarWrapper: document.getElementById('settings-avatar-wrapper'),
+        avatarPreview: document.getElementById('settings-avatar-preview'),
+        nameInput: document.getElementById('settings-name'),
+        emailInput: document.getElementById('settings-email'),
+        subgroupSelect: document.getElementById('settings-subgroup'),
+        newPasswordInput: document.getElementById('settings-new-password'),
+        confirmPasswordInput: document.getElementById('settings-confirm-password'),
+        confirmPasswordGroup: document.getElementById('settings-confirm-password-group'),
+        saveBtn: document.getElementById('settings-save-btn')
+    };
+    
+    // Zmienna tymczasowa na zdjęcie (Blob) - przechowuje zdjęcie zanim klikniesz "Zapisz"
+    let tempProfileBlob = null;
        // === POCZĄTEK ZMIANY: Referencje do modala powitalnego ===
        const welcomeModal = {
             overlay: document.getElementById('welcome-modal'),
@@ -20371,22 +20482,56 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         // === KONIEC NOWEJ LOGIKI ===
         // --- CZĘŚĆ 1: Logika otwierania okienek ---
 
-// Ten listener "nasłuchuje" na kliknięcie ikony zębatki w stopce.
-settingsBtn.addEventListener('click', async () => {
-    const user = state.currentUser;
-    if (!user) return;
+// Listener otwierania głównego panelu ustawień (zastępuje stare małe okienko)
+    settingsBtn.addEventListener('click', async () => {
+        const user = state.currentUser;
+        if (!user) return;
+        
+        // Reset zmiennych i pól formularza
+        tempProfileBlob = null;
+        settingsModal.newPasswordInput.value = '';
+        settingsModal.confirmPasswordInput.value = '';
+        settingsModal.confirmPasswordGroup.style.display = 'none';
 
-    // Aktualizuje nazwę użytkownika w okienku ustawień
-    settingsModal.usernameDisplay.textContent = user.name || user.email;
-    
-    // Używa uniwersalnej funkcji do wstawienia awatara (zdjęcia lub inicjałów)
-    settingsModal.avatarPlaceholder.innerHTML = renderAvatarHTML(user, 'avatar-large');
-    
+        // A. Ustaw Awatar (korzystamy z helpera, ale wstawiamy do nowego kontenera)
+        settingsModal.avatarPreview.innerHTML = renderAvatarHTML(user, 'avatar-xl-img'); 
+        // Poprawka styli dla wygenerowanego awatara, aby pasował do kółka
+        if (settingsModal.avatarPreview.firstChild) {
+            settingsModal.avatarPreview.firstChild.style.width = '100%';
+            settingsModal.avatarPreview.firstChild.style.height = '100%';
+            settingsModal.avatarPreview.firstChild.style.borderRadius = '0'; 
+        }
 
+        // B. Wypełnij dane tekstowe
+        settingsModal.nameInput.value = user.name || '';
+        settingsModal.emailInput.value = user.email || '';
 
-    // Na koniec pokazuje główne okno ustawień
-    openModal(settingsModal.overlay);
-});
+        // C. Wypełnij listę Podgrup (Działów)
+        settingsModal.subgroupSelect.innerHTML = '<option value="">-- Brak (Domyślny) --</option>';
+        try {
+            const groupRef = doc(groupsRef, state.ui.activeGroupId);
+            const groupSnap = await getDoc(groupRef);
+            
+            if (groupSnap.exists()) {
+                const subgroups = groupSnap.data().subgroups || [];
+                // Pobierz aktualną podgrupę z danych użytkownika (groupInfo)
+                const currentGroupInfo = state.currentUser.groupInfo[state.ui.activeGroupId] || {};
+                const currentSubgroup = currentGroupInfo.subgroup;
+
+                subgroups.forEach(sub => {
+                    const option = document.createElement('option');
+                    option.value = sub;
+                    option.textContent = sub;
+                    if (sub === currentSubgroup) option.selected = true;
+                    settingsModal.subgroupSelect.appendChild(option);
+                });
+            }
+        } catch (e) {
+            console.error("Błąd ładowania podgrup:", e);
+        }
+
+        openModal(settingsModal.overlay);
+    });
         
 /**
          * Otwiera i wypełnia modal zarządzania dla AKTYWNEJ grupy.
@@ -20698,112 +20843,160 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
         // (Brak `document.getElementById('pending-requests-list').addEventListener(...)`)
         // (Brak `document.addEventListener('click', ... groupSwitcher ...)` w tym miejscu)
 
-        // Otwieranie okien podrzędnych z głównego menu ustawień
-        settingsModal.openUploadBtn.addEventListener('click', () => photoUploadInput.click());
-
-        settingsModal.openUsernameBtn.addEventListener('click', () => {
-            changeUsernameModal.input.value = state.currentUser.name || ''; // Wypełnia pole aktualną nazwą
-            openModal(changeUsernameModal.overlay); // Otwiera modal zmiany nazwy
-            closeModal(settingsModal.overlay); // Zamyka główne menu ustawień
-        });
-
-        settingsModal.openPasswordBtn.addEventListener('click', () => {
-            openModal(changePasswordModal.overlay); // Otwiera modal zmiany hasła
-            closeModal(settingsModal.overlay); // Zamyka główne menu ustawień
-        });
-
-        // --- CZĘŚĆ 2: Logika wysyłania zdjęcia (z kadrowaniem) ---
-
-        // Pobieramy referencje do nowego modala i jego elementów
+        // --- NOWA Logika: Obsługa zdjęcia i hasła w panelu ---
+        
         const cropPhotoModal = {
             overlay: document.getElementById('crop-photo-modal'),
             container: document.getElementById('croppie-container'),
             saveBtn: document.getElementById('save-cropped-photo-btn')
         };
-        // Zmienna, która będzie przechowywać instancję edytora Croppie
         let croppieInstance = null;
 
-        // Ten listener reaguje, gdy użytkownik wybierze plik ze swojego komputera.
+        // 1. Kliknięcie w awatar otwiera wybór pliku
+        settingsModal.avatarWrapper.addEventListener('click', () => {
+            photoUploadInput.click();
+        });
+
+        // 2. Listener zmiany pliku (dostosowany: nie wysyła od razu, tylko zapisuje do tempProfileBlob)
         photoUploadInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
 
             const reader = new FileReader();
             reader.onload = function(event) {
-                // Zamykamy okno ustawień
-                closeModal(settingsModal.overlay);
                 // Otwieramy okno kadrowania
                 openModal(cropPhotoModal.overlay);
-
-                // Niszczymy starą instancję, jeśli istnieje
-                if (croppieInstance) {
-                    croppieInstance.destroy();
-                }
                 
-                // Tworzymy nową instancję Croppie
+                if (croppieInstance) croppieInstance.destroy();
                 croppieInstance = new Croppie(cropPhotoModal.container, {
                     viewport: { width: 250, height: 250, type: 'circle' },
                     boundary: { width: 300, height: 300 },
                     enableExif: true
                 });
-
-                // Ładujemy obrazek do edytora
-                croppieInstance.bind({
-                    url: event.target.result,
-                });
-            }
-            // Czytamy plik jako URL, co jest potrzebne dla Croppie
+                croppieInstance.bind({ url: event.target.result });
+                
+                // Nadpisujemy przycisk "Zapisz" w Cropperze - TERAZ TYLKO AKTUALIZUJE PODGLĄD
+                cropPhotoModal.saveBtn.onclick = async () => {
+                    const blob = await croppieInstance.result({
+                        type: 'blob', size: { width: 400, height: 400 }, format: 'jpeg'
+                    });
+                    
+                    // Zapisz blob do zmiennej tymczasowej
+                    tempProfileBlob = blob;
+                    
+                    // Zaktualizuj podgląd w panelu ustawień
+                    const previewUrl = URL.createObjectURL(blob);
+                    settingsModal.avatarPreview.innerHTML = `<img src="${previewUrl}" style="width:100%; height:100%; object-fit:cover;">`;
+                    
+                    // Zamknij croppera
+                    closeModal(cropPhotoModal.overlay);
+                    photoUploadInput.value = '';
+                };
+            };
             reader.readAsDataURL(file);
         });
-
-        // Ten listener reaguje na kliknięcie "Zapisz" w oknie kadrowania
-        cropPhotoModal.saveBtn.addEventListener('click', async () => {
+        // 4. GŁÓWNA FUNKCJA ZAPISU
+        settingsModal.saveBtn.addEventListener('click', async () => {
             const user = state.currentUser;
-            if (!croppieInstance || !user) return;
+            const newName = settingsModal.nameInput.value.trim();
+            const newSubgroup = settingsModal.subgroupSelect.value;
+            const newPass = settingsModal.newPasswordInput.value;
+            const confirmPass = settingsModal.confirmPasswordInput.value;
 
-            // Zmieniamy tekst na przycisku, aby dać znać, że coś się dzieje
-            cropPhotoModal.saveBtn.disabled = true;
-            cropPhotoModal.saveBtn.textContent = 'Przesyłanie...';
+            if (!newName) {
+                showNotification("Imię i nazwisko nie może być puste.", "Błąd");
+                return;
+            }
+
+            if (newPass) {
+                if (newPass.length < 6) {
+                    showNotification("Nowe hasło musi mieć min. 6 znaków.", "Błąd");
+                    return;
+                }
+                if (newPass !== confirmPass) {
+                    showNotification("Hasła nie są identyczne.", "Błąd");
+                    return;
+                }
+            }
+
+            settingsModal.saveBtn.disabled = true;
+            settingsModal.saveBtn.textContent = 'Zapisywanie...';
 
             try {
-                // Pobieramy wykadrowany obrazek jako obiekt Blob (optymalny do wysyłania)
-                const blob = await croppieInstance.result({
-                    type: 'blob',
-                    size: { width: 400, height: 400 }, // Definiujemy finalny rozmiar awatara
-                    format: 'jpeg',
-                    quality: 0.9,
-                    circle: false 
-                });
+                const updates = {};
+                let messages = [];
 
-                // Tworzymy unikalną ścieżkę do pliku w Firebase Storage
-                const filePath = `profile-pictures/${user.uid}/avatar.jpeg`;
-                const fileRef = ref(storage, filePath);
+                // A. Wysyłanie zdjęcia (jeśli zmieniono)
+                if (tempProfileBlob) {
+                    const filePath = `profile-pictures/${user.uid}/avatar.jpeg`;
+                    const fileRef = ref(storage, filePath);
+                    await uploadBytes(fileRef, tempProfileBlob);
+                    const photoURL = await getDownloadURL(fileRef);
+                    updates.photoURL = photoURL;
+                    messages.push("Zdjęcie");
+                }
 
-                // 1. Wysyła WYKADROWANY plik do Firebase
-                await uploadBytes(fileRef, blob);
+                // B. Aktualizacja nazwy
+                if (newName !== user.name) {
+                    updates.name = newName;
+                    messages.push("Nazwa");
+                }
                 
-                // 2. Pobiera publiczny adres URL do wysłanego pliku
-                const photoURL = await getDownloadURL(fileRef);
-                
-                // 3. Znajduje dokument użytkownika w bazie Firestore
-                const userDocRef = doc(usersRef, user.uid);
-                
-                // 4. Aktualizuje pole 'photoURL' w dokumencie
-                await updateDoc(userDocRef, { photoURL: photoURL });
+                // C. Aktualizacja działu (w strukturze groupInfo)
+                const currentGroupInfo = state.currentUser.groupInfo[state.ui.activeGroupId] || {};
+                if (newSubgroup !== currentGroupInfo.subgroup) {
+                    updates[`groupInfo.${state.ui.activeGroupId}.subgroup`] = newSubgroup;
+                    
+                    // Aktualizacja lokalna dla UI
+                    if (!state.currentUser.groupInfo[state.ui.activeGroupId]) {
+                        state.currentUser.groupInfo[state.ui.activeGroupId] = {};
+                    }
+                    state.currentUser.groupInfo[state.ui.activeGroupId].subgroup = newSubgroup;
+                    state.ui.activeGroupInfo.subgroup = newSubgroup;
+                    messages.push("Dział");
+                }
 
-                showNotification("Zdjęcie profilowe zostało zaktualizowane.", "Sukces");
-            
-            } catch (error) { 
-                console.error("Błąd podczas wysyłania zdjęcia:", error);
-                showNotification("Wystąpił błąd podczas zmiany zdjęcia.", "Błąd");
-            } finally { 
-                // Niezależnie od wyniku, przywracamy przycisk i zamykamy modal
-                cropPhotoModal.saveBtn.disabled = false;
-                cropPhotoModal.saveBtn.textContent = 'Zapisz';
-                closeModal(cropPhotoModal.overlay);
-                photoUploadInput.value = ''; // Czyści input
+                // Wykonaj update w Firestore
+                if (Object.keys(updates).length > 0) {
+                    const userRef = doc(usersRef, user.uid);
+                    await updateDoc(userRef, updates);
+                }
+
+                // D. Aktualizacja hasła
+                if (newPass) {
+                    await updatePassword(auth.currentUser, newPass);
+                    messages.push("Hasło");
+                }
+
+                if (messages.length > 0) {
+                    showNotification(`Pomyślnie zaktualizowano: ${messages.join(", ")}.`, "Sukces");
+                } else {
+                    showNotification("Nie wprowadzono żadnych zmian.", "Informacja");
+                }
+
+                closeModal(settingsModal.overlay);
+                render(); // Odśwież interfejs
+
+            } catch (error) {
+                console.error("Błąd zapisu ustawień:", error);
+                if (error.code === 'auth/requires-recent-login') {
+                    showNotification("Aby zmienić hasło, musisz się wylogować i zalogować ponownie.", "Bezpieczeństwo");
+                } else {
+                    showNotification("Wystąpił błąd podczas zapisu.", "Błąd");
+                }
+            } finally {
+                settingsModal.saveBtn.disabled = false;
+                settingsModal.saveBtn.textContent = 'Zapisz zmiany';
             }
-        }); 
+        });
+        // 3. Obsługa pola hasła
+        settingsModal.newPasswordInput.addEventListener('input', (e) => {
+            if (e.target.value.length > 0) {
+                settingsModal.confirmPasswordGroup.style.display = 'block';
+            } else {
+                settingsModal.confirmPasswordGroup.style.display = 'none';
+            }
+        });
 
         // --- CZĘŚĆ 3: Logika zmiany nazwy użytkownika ---
         
@@ -23058,22 +23251,79 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     
 </script>
     <div class="modal-overlay" id="settings-modal">
-    <div class="modal" style="max-width: 420px;">
+    <div class="modal" style="max-width: 900px; height: 80vh; max-height: 800px; padding: 0;">
+        
         <div class="modal-header">
-            <h2>Ustawienia</h2>
+            <h2>Ustawienia Konta</h2>
             <button type="button" class="modal-close-btn">&times;</button>
         </div>
-        <div class="settings-main-content">
-            <div class="settings-profile-header">
-                <div id="settings-avatar-placeholder" class="avatar-large"></div>
-                <h3 id="settings-username-display"></h3>
-            </div>
-            <div class="settings-actions">
-    <button id="open-upload-photo-btn" class="btn btn-secondary">Zmień zdjęcie</button>
-    <button id="open-change-username-btn" class="btn btn-secondary">Zmień nazwę</button>
-    <button id="open-change-password-btn" class="btn btn-secondary">Zmień hasło</button>
-    <button id="open-change-subgroup-btn" class="btn btn-secondary">Zmień dział/podgrupę</button>
-    </div>
+
+        <div class="settings-container">
+            <aside class="settings-sidebar">
+                <nav class="settings-nav">
+                    <button class="settings-nav-item active" data-tab="profile">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                        </svg>
+                        <span>Mój Profil</span>
+                    </button>
+                </nav>
+            </aside>
+
+            <main class="settings-content">
+                <div id="settings-tab-profile" class="settings-tab-content active">
+                    
+                    <div class="settings-section centered">
+                        <div class="settings-avatar-wrapper" id="settings-avatar-wrapper" title="Kliknij, aby zmienić zdjęcie">
+                            <div id="settings-avatar-preview" class="avatar-xl"></div>
+                            <div class="avatar-overlay">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                                </svg>
+                            </div>
+                        </div>
+                        <p class="settings-hint">Kliknij zdjęcie, aby je zaktualizować</p>
+                    </div>
+
+                    <form id="settings-profile-form">
+                        <div class="form-group">
+                            <label for="settings-name">Imię i Nazwisko</label>
+                            <input type="text" id="settings-name" placeholder="Twoje imię">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="settings-email">Adres E-mail</label>
+                            <input type="email" id="settings-email" disabled style="opacity: 0.6; cursor: not-allowed;" title="Nie można zmienić adresu e-mail">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="settings-subgroup">Twój Dział / Podgrupa</label>
+                            <select id="settings-subgroup">
+                                <option value="">-- Brak (Domyślny) --</option>
+                            </select>
+                            <p class="settings-hint">Wybierz dział, do którego należysz w tej grupie.</p>
+                        </div>
+
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 24px 0;">
+
+                        <h4 style="margin-bottom: 16px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">Zmiana Hasła (Opcjonalne)</h4>
+                        <div class="form-group">
+                            <label for="settings-new-password">Nowe hasło</label>
+                            <input type="password" id="settings-new-password" placeholder="Wpisz tylko, jeśli chcesz zmienić">
+                        </div>
+                        <div class="form-group" id="settings-confirm-password-group" style="display:none;">
+                            <label for="settings-confirm-password">Potwierdź nowe hasło</label>
+                            <input type="password" id="settings-confirm-password" placeholder="Powtórz nowe hasło">
+                        </div>
+                    </form>
+                </div>
+            </main>
+        </div>
+
+        <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+            <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+            <button type="button" id="settings-save-btn" class="btn btn-primary">Zapisz zmiany</button>
         </div>
     </div>
 </div>
@@ -23923,6 +24173,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
