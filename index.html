@@ -7689,7 +7689,16 @@ let state = {
         const projectDetailsBtn = document.getElementById('project-details-btn');
         const mobileProjectActionsToggle = document.getElementById('mobile-project-actions-toggle');
         const mobileProjectActionsMenu = document.getElementById('mobile-project-actions-menu'); 
-    
+    const changeUsernameModal = {
+        overlay: document.getElementById('change-username-modal'),
+        form: document.getElementById('change-username-form'),
+        input: document.getElementById('new-username-input'),
+    };
+    const changeSubgroupModal = {
+        overlay: document.getElementById('change-subgroup-modal'),
+        form: document.getElementById('change-subgroup-form'),
+        select: document.getElementById('change-subgroup-select-list'),
+    };
         const groupSwitcher = {
             toggle: document.getElementById('group-switcher-toggle'),
             menu: document.getElementById('group-switcher-menu'),
@@ -8009,7 +8018,14 @@ let state = {
         const registerSubgroupSelect = document.getElementById('register-subgroup-select');
         const registerNewSubgroupSection = document.getElementById('register-new-subgroup-section');
         const registerNewSubgroupNameInput = document.getElementById('register-new-subgroup-name');
-       
+        const changePasswordModal = {
+    overlay: document.getElementById('change-password-modal'),
+    form: document.getElementById('change-password-form'),
+    currentPassword: document.getElementById('current-password'),
+    newPassword: document.getElementById('new-password'),
+    confirmPassword: document.getElementById('confirm-password'),
+    error: document.getElementById('change-password-error'),
+};
        
 
         // NOWY MODAL: Szczegóły zadań z Dashboardu
@@ -8027,7 +8043,7 @@ let state = {
         
         // ▼▼▼ DODAJ BRAKUJĄCĄ LINIĘ PONIŻEJ ▼▼▼
         const openManageGroupBtn = document.getElementById('open-manage-group-btn');
-      
+        const openChangeSubgroupBtn = document.getElementById('open-change-subgroup-btn');
         // --- Definicje wszystkich funkcji ---
        // === NOWE REFERENCJE DLA MODALA AI ===
         const aiHelpModal = {
@@ -21086,9 +21102,137 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             }
         });
 
-       
+        // --- CZĘŚĆ 3: Logika zmiany nazwy użytkownika ---
+        
+        changeUsernameModal.form.addEventListener('submit', async (e) => { 
+            e.preventDefault(); 
+            const newName = changeUsernameModal.input.value.trim();
+            const user = state.currentUser;
+            if (!newName || !user) return;
 
-      
+            try {
+                const userDocRef = doc(usersRef, user.uid);
+                await updateDoc(userDocRef, { name: newName });
+                
+                closeModal(changeUsernameModal.overlay);
+                showNotification("Nazwa użytkownika została zmieniona.", "Sukces");
+            } catch (error) {
+                console.error("Błąd podczas zmiany nazwy:", error);
+                showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+            }
+        });
+
+        // --- CZĘŚĆ 4: Logika zmiany hasła (przeniesiona i dostosowana) ---
+
+        changePasswordModal.form.addEventListener('submit', async (e) => { 
+            e.preventDefault();
+            const currentPassword = changePasswordModal.currentPassword.value;
+            const newPassword = changePasswordModal.newPassword.value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+
+            if (newPassword !== confirmPassword) {
+                changePasswordModal.error.textContent = 'Nowe hasła nie są takie same.';
+                return;
+            }
+            if (newPassword.length < 6) {
+                changePasswordModal.error.textContent = 'Nowe hasło musi mieć co najmniej 6 znaków.';
+                return;
+            }
+
+            changePasswordModal.error.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Zmienianie...';
+
+            const user = auth.currentUser;
+            if (!user) {
+                changePasswordModal.error.textContent = 'Błąd: Użytkownik nie jest zalogowany.';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Zmień hasło';
+                return;
+            }
+
+            try {
+                const credential = EmailAuthProvider.credential(user.email, currentPassword);
+                await reauthenticateWithCredential(user, credential);
+                await updatePassword(user, newPassword);
+                showNotification("Hasło zostało pomyślnie zmienione.", "Sukces");
+                closeModal(changePasswordModal.overlay);
+            } catch (error) {
+                console.error("Błąd podczas zmiany hasła:", error);
+                if (error.code === 'auth/wrong-password') {
+                    changePasswordModal.error.textContent = 'Bieżące hasło jest nieprawidłowe.';
+                } else if (error.code === 'auth/weak-password') {
+                    changePasswordModal.error.textContent = 'Nowe hasło jest zbyt słabe.';
+                } else {
+                    changePasswordModal.error.textContent = 'Wystąpił nieoczekiwany błąd. Spróbuj ponownie.';
+                }
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Zmień hasło';
+            }
+        });
+
+        const handleBackButtonClick = (e) => {
+            e.preventDefault();
+            if (state.ui.previousView) {
+                state.ui.currentView = state.ui.previousView;
+                state.ui.previousView = null;
+                state.currentProjectId = null;
+                saveUiState();
+                render();
+            }
+        };
+
+        backToProjectsBtn.addEventListener('click', handleBackButtonClick);
+        backToProjectsBtnMobile.addEventListener('click', handleBackButtonClick);
+        
+        editDashboardLayoutBtn.addEventListener('click', async () => {
+            if (state.ui.dashboardEditMode) {
+                if (sortableDashboard) {
+                    const newOrder = sortableDashboard.toArray();
+                    state.currentUser.layouts.dashboard = newOrder;
+                    try {
+                        const userRef = doc(usersRef, state.currentUser.uid);
+                        await updateDoc(userRef, { "layouts.dashboard": newOrder });
+                        showNotification("Układ pulpitu został zapisany.", "Sukces");
+                    } catch (error) {
+                        console.error("Błąd zapisu układu pulpitu:", error);
+                        showNotification("Nie udało się zapisać układu.", "Błąd");
+                    }
+                }
+                state.ui.dashboardEditMode = false;
+                editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
+            } else {
+                state.ui.dashboardEditMode = true;
+                editDashboardLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
+            }
+            render();
+        });
+
+         editProjectsLayoutBtn.addEventListener('click', async () => {
+            if (state.ui.allProjectsEditMode) {
+                if (sortableProjects) {
+                    const newOrder = sortableProjects.toArray();
+                    state.currentUser.layouts.allProjects = newOrder;
+                    try {
+                        const userRef = doc(usersRef, state.currentUser.uid);
+                        await updateDoc(userRef, { "layouts.allProjects": newOrder });
+                        showNotification("Układ projektów został zapisany.", "Sukces");
+                    } catch (error) {
+                        console.error("Błąd zapisu układu projektów:", error);
+                        showNotification("Nie udało się zapisać układu.", "Błąd");
+                    }
+                }
+                state.ui.allProjectsEditMode = false;
+                editProjectsLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ</span>`;
+            } else {
+                state.ui.allProjectsEditMode = true;
+                editProjectsLayoutBtn.innerHTML = `<span>Zapisz układ</span>`;
+            }
+            render();
+        });
+    
        
 
        
@@ -21118,7 +21262,53 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             }
         });
 
-        
+        changeSubgroupModal.form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const newSubgroup = changeSubgroupModal.select.value;
+            
+            // --- Krok 1: Inicjalizacja przycisku i walidacja ---
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            
+            if (!newSubgroup) {
+                showNotification("Musisz wybrać dział z listy.", "Błąd");
+                return;
+            }
+            
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Zapisywanie...';
+            // --- Koniec Kroku 1 ---
+
+
+            try {
+                const userRef = doc(usersRef, state.currentUser.uid);
+                
+                // Aktualizujemy mapę 'groupInfo' używając notacji kropkowej.
+                await updateDoc(userRef, {
+                    [`groupInfo.${state.ui.activeGroupId}.subgroup`]: newSubgroup
+                });
+                
+                // Zaktualizuj stan lokalny NATYCHMIAST, aby UI się zgadzał
+                state.currentUser.groupInfo[state.ui.activeGroupId].subgroup = newSubgroup;
+                state.ui.activeGroupInfo.subgroup = newSubgroup;
+
+                closeModal(changeSubgroupModal.overlay);
+                showNotification("Dział został pomyślnie zaktualizowany.", "Sukces");
+                
+                // Wymuś pełne odświeżenie renderowania (bezpieczniej)
+                render(); 
+
+            } catch (error) {
+                console.error("Błąd aktualizacji podgrupy:", error);
+                // Usuń blokadę i pokaż błąd
+                showNotification("Wystąpił błąd podczas zapisywania zmiany.", "Błąd");
+
+            } finally {
+                // --- Krok 2: Odblokowanie przycisku w bloku finally ---
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Zapisz zmianę';
+                // --- Koniec Kroku 2 ---
+            }
+        });
 
         moveTaskModal.confirmBtn.addEventListener('click', async () => {
             const taskId = moveTaskModal.overlay.dataset.taskId;
@@ -23207,7 +23397,56 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </div>
 
+<div class="modal-overlay" id="change-username-modal">
+    <div class="modal" style="max-width: 400px;">
+        <form id="change-username-form">
+            <div class="modal-header">
+                <h2>Zmień nazwę użytkownika</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <div class="form-group">
+                    <label for="new-username-input">Nowa nazwa</label>
+                    <input type="text" id="new-username-input" required>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="submit" class="btn btn-primary">Zapisz</button>
+            </div>
+        </form>
+    </div>
+</div>
 
+<div class="modal-overlay" id="change-password-modal">
+    <div class="modal" style="max-width: 400px;">
+        <form id="change-password-form">
+            <div class="modal-header">
+                <h2>Zmień hasło</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <div class="form-group">
+                    <label for="current-password">Bieżące hasło</label>
+                    <input type="password" id="current-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="new-password">Nowe hasło (min. 6 znaków)</label>
+                    <input type="password" id="new-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="confirm-password">Potwierdź nowe hasło</label>
+                    <input type="password" id="confirm-password" required>
+                </div>
+                <p id="change-password-error" class="error-message"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="submit" class="btn btn-primary">Zmień hasło</button>
+            </div>
+        </form>
+    </div>
+</div>
 <div class="modal-overlay" id="dashboard-details-modal">
     <div class="modal" style="max-width: 900px;">
         <div class="modal-header">
@@ -23368,7 +23607,28 @@ welcomeModal.okBtn.addEventListener('click', async () => {
         </form>
     </div>
 </div>
-    
+    <div class="modal-overlay" id="change-subgroup-modal">
+    <div class="modal" style="max-width: 400px;">
+        <form id="change-subgroup-form">
+            <div class="modal-header">
+                <h2>Zmień podgrupę (dział)</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content">
+                <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">Wybierz z listy nowy dział, do którego chcesz być przypisany/a.</p>
+                <div class="form-group">
+                    <label for="change-subgroup-select-list">Dostępne działy</label>
+                    <select id="change-subgroup-select-list" required>
+                        </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="submit" class="btn btn-primary">Zapisz zmianę</button>
+            </div>
+        </form>
+    </div>
+</div>
     <div class="modal-overlay" id="notifications-modal">
     <div class="modal">
         <div class="modal-header">
@@ -24024,7 +24284,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
-
 
 
 
