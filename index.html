@@ -20627,16 +20627,45 @@ async function openManageGroupModal() {
                     const groupData = groupSnap.data();
                     const subgroups = groupData.subgroups || [];
                     
+                    // 1. Pobierz członków (z wyłączeniem właściciela)
                     const groupMembers = state.users.filter(u => u.uid !== groupData.ownerId);
+
+                    // Sortowanie alfabetyczne
+                    groupMembers.sort((a, b) => {
+                        const nameA = (a.name || a.email || '').toLowerCase();
+                        const nameB = (b.name || b.email || '').toLowerCase();
+                        return nameA.localeCompare(nameB);
+                    });
+
                     membersListEl.innerHTML = '';
                     if (groupMembers.length > 0) {
                         groupMembers.forEach(member => {
+                            // === NOWA LOGIKA: Pobieranie nazwy podgrupy ===
+                            let memberSubgroup = 'Bez działu';
+                            
+                            // Sprawdzamy w groupInfo dla aktywnej grupy
+                            if (member.groupInfo && member.groupInfo[activeGroupId] && member.groupInfo[activeGroupId].subgroup) {
+                                memberSubgroup = member.groupInfo[activeGroupId].subgroup;
+                            } 
+                            // Fallback dla starszych kont
+                            else if (member.subgroupName) {
+                                memberSubgroup = member.subgroupName;
+                            }
+                            // === KONIEC NOWEJ LOGIKI ===
+
                             const li = document.createElement('li');
                             li.className = 'attachment-item';
+                            
+                            // Zmieniony HTML: Używamy Flexbox (column) dla tekstu
                             li.innerHTML = `
                                 <div class="attachment-info">
                                     ${renderAvatarHTML(member, 'avatar-comment')}
-                                    <span>${member.name || member.email}</span>
+                                    <div style="display: flex; flex-direction: column; justify-content: center; margin-left: 4px;">
+                                        <span style="font-weight: 500; line-height: 1.2;">${member.name || member.email}</span>
+                                        <span style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+                                            Dział: ${memberSubgroup}
+                                        </span>
+                                    </div>
                                 </div>
                                 <button class="delete-attachment-btn js-delete-member" data-user-id="${member.id}" title="Usuń z grupy">&times;</button>
                             `;
@@ -24284,6 +24313,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
