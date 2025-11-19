@@ -1397,13 +1397,15 @@
             padding-left: 24px;
             font-size: 15px; 
             font-weight: 600; 
-            margin-bottom: 8px; 
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            margin-bottom: 4px; /* Zmniejszamy margines dolny, bo zaraz pod nim będą ikony */
+            /* === NOWE REGUŁY SKRACANIA TEKSTU (DLA ZADAŃ) === */
+            /* Zezwalamy na zawijanie tekstu, skoro mamy cały wiersz */
+            white-space: normal; 
+            word-break: break-word;
+            /* Resetujemy max-width, bo nic nie blokuje prawej strony */
             display: block; 
-            /* ZMIANA: Zwiększono z 55% na 80%, bo ikony zajmują teraz mniej miejsca w poziomie */
-            max-width: 75%; 
+            max-width: 100%; 
+            padding-right: 8px;
         }
         .task-card.completed h4 { text-decoration: line-through; color: var(--text-secondary); }
         .task-meta { display: flex; justify-content: space-between; align-items: flex-end; }
@@ -3548,23 +3550,26 @@
         /* === POCZĄTEK: Style dla ikon w rogu karty zadania === */
 
 .task-card-icons {
-    position: absolute;
-    top: 6px; /* Lekko wyżej, żeby zmieścić dwa rzędy */
-    right: 6px; /* Lekko bardziej w prawo */
+    /* ZMIANA: Usuwamy position absolute, aby ikony były w przepływie dokumentu (pod tytułem) */
+    position: static; 
     display: flex;
-    flex-direction: column; /* Układ pionowy (rzędy jeden pod drugim) */
-    align-items: flex-end; /* Wyrównanie do prawej */
-    gap: 2px; /* Odstęp między rzędami */
+    flex-wrap: wrap; /* Zawijaj, jeśli ikon jest dużo */
+    align-items: center;
+    gap: 8px; /* Większy odstęp między ikonami */
+    
+    /* Pozycjonowanie wiersza */
+    margin-top: 4px;
+    margin-bottom: 8px;
+    padding-left: 24px; /* Wcięcie, aby zrównać z tekstem tytułu (omijając checkbox) */
+    
     z-index: 2;
 }
 
-/* Nowa klasa dla pojedynczego rzędu ikon */
+/* Ta klasa nie jest już potrzebna, ale możemy ją zostawić pustą lub usunąć */
 .task-icons-row {
-    display: flex;
-    gap: 4px; /* Odstęp między ikonami w rzędzie */
-    justify-content: flex-end;
+    display: contents; /* Sprawia, że wrapper znika logicznie */
 }
-/* Poprawka, aby ikony nie miały dodatkowych marginesów */
+
 .task-card-icons .task-detail {
     margin: 0;
     padding: 0;
@@ -5679,8 +5684,8 @@
 }
 .member-search-input {
     width: 100%;
-    /* ZMIANA: Zwiększono padding z lewej z 30px na 40px */
-    padding: 8px 12px 8px 40px; 
+    /* ZMIANA: Zwiększono padding do 48px dla pewności */
+    padding: 10px 12px 10px 48px; 
     border-radius: var(--border-radius);
     border: 1px solid var(--border-color);
     background-color: var(--bg-secondary);
@@ -5688,8 +5693,10 @@
     color: var(--text-primary);
     background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="%239ca3af" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>');
     background-repeat: no-repeat;
-    background-position: 8px center;
-    background-size: 16px;
+    /* ZMIANA: Przesunięto ikonę na 14px od lewej (była na 8px) */
+    background-position: 14px center;
+    /* ZMIANA: Lekko powiększono ikonę do 18px */
+    background-size: 18px;
 }
 .member-search-results {
     list-style: none;
@@ -12177,32 +12184,24 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // Składanie ikon (ZAMIENIAMY multiUserIcon na multiStatusIcon jeśli istnieje)
             const finalMultiIcon = multiStatusIcon || multiUserIcon; 
             
-            // === ZMIANA UKŁADU IKON (2 rzędy) ===
-            
-            // Rząd 1 (Góra): Ikony "Strukturalne" (Wieloosobowe, Podzadania)
-            const iconsTop = `${finalMultiIcon}${subtaskIcon}`;
-            
-            // Rząd 2 (Dół): Ikony "Informacyjne" (Cykliczność, Wysiłek, Załączniki, Komentarze, Budżet)
-            const iconsBottom = `${recurringIcon}${effortIcon}${attachmentIcon}${commentIcon}${budgetIcon}`;
+            // === ZMIANA UKŁADU IKON (Jeden rząd pod tytułem) ===
+            // Kolejność: Multi -> Podzadania -> Cykliczność -> Wysiłek -> Załączniki -> Komentarze -> Budżet
+            const allIcons = `${finalMultiIcon}${subtaskIcon}${recurringIcon}${effortIcon}${attachmentIcon}${commentIcon}${budgetIcon}`;
 
-            // Budujemy strukturę HTML z dwoma rzędami
-            const iconsHTML = `
-                <div class="task-icons-row">${iconsTop}</div>
-                <div class="task-icons-row">${iconsBottom}</div>
-            `;
+            // Opakowujemy w kontener (jeśli są jakiekolwiek ikony)
+            const iconsHTML = allIcons ? `<div class="task-card-icons">${allIcons}</div>` : '';
             
-            // === NOWA ZMIENNA: Klasa dla kafelka z dwoma rzędami ikon ===
-            // Jeśli 'iconsTop' nie jest pusty (czyli mamy ikonę Multi lub Subtask), dodajemy klasę
-            const doubleRowClass = iconsTop ? 'has-double-row-icons' : '';
-            // === KONIEC ===
+            // Usuwamy klasę doubleRowClass, bo już jej nie potrzebujemy
+            const doubleRowClass = '';
 
-            // Dodano ${doubleRowClass} do listy klas w <li>
-            return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass} ${coverImageClass} ${doubleRowClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}" ${customStyle}>
+            return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass} ${coverImageClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}" ${customStyle}>
                 ${coverImageHTML}
-                <div class="task-card-icons">${iconsHTML}</div>
                 <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} ${tooltipText}>
                 ${projectNameHTML}
                 <h4 title="${task.title}">${task.title}</h4>
+                
+                ${iconsHTML}
+                
                 <div class="task-meta">
                     <div class="task-details">${startDateHTML}${dueDateHTML}</div>
                     <div class="task-assignees">${assigneesHTML}</div>
@@ -23920,6 +23919,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
