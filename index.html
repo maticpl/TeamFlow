@@ -8066,12 +8066,13 @@ let state = {
         };
        const settingsModal = {
         overlay: document.getElementById('settings-modal'),
-        // Nowe referencje do elementów wewnątrz dużego modala
         avatarWrapper: document.getElementById('settings-avatar-wrapper'),
         avatarPreview: document.getElementById('settings-avatar-preview'),
         nameInput: document.getElementById('settings-name'),
         emailInput: document.getElementById('settings-email'),
         subgroupSelect: document.getElementById('settings-subgroup'),
+        // DODANO: Referencja do obecnego hasła
+        currentPasswordInput: document.getElementById('settings-current-password'), 
         newPasswordInput: document.getElementById('settings-new-password'),
         confirmPasswordInput: document.getElementById('settings-confirm-password'),
         confirmPasswordGroup: document.getElementById('settings-confirm-password-group'),
@@ -20491,13 +20492,15 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         // === KONIEC NOWEJ LOGIKI ===
         // --- CZĘŚĆ 1: Logika otwierania okienek ---
 
-// Listener otwierania głównego panelu ustawień (zastępuje stare małe okienko)
+// Listener otwierania głównego panelu ustawień
     settingsBtn.addEventListener('click', async () => {
         const user = state.currentUser;
         if (!user) return;
         
         // Reset zmiennych i pól formularza
         tempProfileBlob = null;
+        // DODANO: Reset pola obecnego hasła
+        if (settingsModal.currentPasswordInput) settingsModal.currentPasswordInput.value = ''; 
         settingsModal.newPasswordInput.value = '';
         settingsModal.confirmPasswordInput.value = '';
         settingsModal.confirmPasswordGroup.style.display = 'none';
@@ -20905,99 +20908,131 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             reader.readAsDataURL(file);
         });
         // 4. GŁÓWNA FUNKCJA ZAPISU
-        settingsModal.saveBtn.addEventListener('click', async () => {
-            const user = state.currentUser;
-            const newName = settingsModal.nameInput.value.trim();
-            const newSubgroup = settingsModal.subgroupSelect.value;
-            const newPass = settingsModal.newPasswordInput.value;
-            const confirmPass = settingsModal.confirmPasswordInput.value;
+    settingsModal.saveBtn.addEventListener('click', async () => {
+        const user = state.currentUser;
+        const firebaseUser = auth.currentUser; // Potrzebny do re-autentykacji
 
-            if (!newName) {
-                showNotification("Imię i nazwisko nie może być puste.", "Błąd");
+        const newName = settingsModal.nameInput.value.trim();
+        const newSubgroup = settingsModal.subgroupSelect.value;
+        
+        // Pobieramy wartości haseł
+        const currentPass = settingsModal.currentPasswordInput.value;
+        const newPass = settingsModal.newPasswordInput.value;
+        const confirmPass = settingsModal.confirmPasswordInput.value;
+
+        if (!newName) {
+            showNotification("Imię i nazwisko nie może być puste.", "Błąd");
+            return;
+        }
+
+        // === NOWA WALIDACJA HASŁA ===
+        // Jeśli użytkownik wpisał cokolwiek w polu "Nowe hasło", wymagamy pełnej procedury
+        if (newPass) {
+            if (!currentPass) {
+                showNotification("Aby zmienić hasło, musisz podać obecne hasło.", "Błąd");
+                settingsModal.currentPasswordInput.focus();
                 return;
             }
+            if (newPass.length < 6) {
+                showNotification("Nowe hasło musi mieć min. 6 znaków.", "Błąd");
+                return;
+            }
+            if (newPass !== confirmPass) {
+                showNotification("Nowe hasła nie są identyczne.", "Błąd");
+                return;
+            }
+            if (currentPass === newPass) {
+                 showNotification("Nowe hasło musi być inne niż obecne.", "Błąd");
+                 return;
+            }
+        }
+        // === KONIEC WALIDACJI ===
 
-            if (newPass) {
-                if (newPass.length < 6) {
-                    showNotification("Nowe hasło musi mieć min. 6 znaków.", "Błąd");
-                    return;
-                }
-                if (newPass !== confirmPass) {
-                    showNotification("Hasła nie są identyczne.", "Błąd");
-                    return;
-                }
+        settingsModal.saveBtn.disabled = true;
+        settingsModal.saveBtn.textContent = 'Zapisywanie...';
+
+        try {
+            const updates = {};
+            let messages = [];
+
+            // A. Obsługa Zdjęcia
+            if (tempProfileBlob) {
+                const filePath = `profile-pictures/${user.uid}/avatar.jpeg`;
+                const fileRef = ref(storage, filePath);
+                await uploadBytes(fileRef, tempProfileBlob);
+                const photoURL = await getDownloadURL(fileRef);
+                updates.photoURL = photoURL;
+                messages.push("Zdjęcie");
             }
 
-            settingsModal.saveBtn.disabled = true;
-            settingsModal.saveBtn.textContent = 'Zapisywanie...';
-
-            try {
-                const updates = {};
-                let messages = [];
-
-                // A. Wysyłanie zdjęcia (jeśli zmieniono)
-                if (tempProfileBlob) {
-                    const filePath = `profile-pictures/${user.uid}/avatar.jpeg`;
-                    const fileRef = ref(storage, filePath);
-                    await uploadBytes(fileRef, tempProfileBlob);
-                    const photoURL = await getDownloadURL(fileRef);
-                    updates.photoURL = photoURL;
-                    messages.push("Zdjęcie");
-                }
-
-                // B. Aktualizacja nazwy
-                if (newName !== user.name) {
-                    updates.name = newName;
-                    messages.push("Nazwa");
-                }
+            // B. Obsługa Nazwy
+            if (newName !== user.name) {
+                updates.name = newName;
+                messages.push("Nazwa");
+            }
+            
+            // C. Obsługa Działu
+            const currentGroupInfo = state.currentUser.groupInfo[state.ui.activeGroupId] || {};
+            if (newSubgroup !== currentGroupInfo.subgroup) {
+                updates[`groupInfo.${state.ui.activeGroupId}.subgroup`] = newSubgroup;
                 
-                // C. Aktualizacja działu (w strukturze groupInfo)
-                const currentGroupInfo = state.currentUser.groupInfo[state.ui.activeGroupId] || {};
-                if (newSubgroup !== currentGroupInfo.subgroup) {
-                    updates[`groupInfo.${state.ui.activeGroupId}.subgroup`] = newSubgroup;
-                    
-                    // Aktualizacja lokalna dla UI
-                    if (!state.currentUser.groupInfo[state.ui.activeGroupId]) {
-                        state.currentUser.groupInfo[state.ui.activeGroupId] = {};
-                    }
-                    state.currentUser.groupInfo[state.ui.activeGroupId].subgroup = newSubgroup;
-                    state.ui.activeGroupInfo.subgroup = newSubgroup;
-                    messages.push("Dział");
+                if (!state.currentUser.groupInfo[state.ui.activeGroupId]) {
+                    state.currentUser.groupInfo[state.ui.activeGroupId] = {};
                 }
-
-                // Wykonaj update w Firestore
-                if (Object.keys(updates).length > 0) {
-                    const userRef = doc(usersRef, user.uid);
-                    await updateDoc(userRef, updates);
-                }
-
-                // D. Aktualizacja hasła
-                if (newPass) {
-                    await updatePassword(auth.currentUser, newPass);
-                    messages.push("Hasło");
-                }
-
-                if (messages.length > 0) {
-                    showNotification(`Pomyślnie zaktualizowano: ${messages.join(", ")}.`, "Sukces");
-                } else {
-                    showNotification("Nie wprowadzono żadnych zmian.", "Informacja");
-                }
-
-                closeModal(settingsModal.overlay);
-                render(); // Odśwież interfejs
-
-            } catch (error) {
-                console.error("Błąd zapisu ustawień:", error);
-                if (error.code === 'auth/requires-recent-login') {
-                    showNotification("Aby zmienić hasło, musisz się wylogować i zalogować ponownie.", "Bezpieczeństwo");
-                } else {
-                    showNotification("Wystąpił błąd podczas zapisu.", "Błąd");
-                }
-            } finally {
-                settingsModal.saveBtn.disabled = false;
-                settingsModal.saveBtn.textContent = 'Zapisz zmiany';
+                state.currentUser.groupInfo[state.ui.activeGroupId].subgroup = newSubgroup;
+                state.ui.activeGroupInfo.subgroup = newSubgroup;
+                messages.push("Dział");
             }
-        });
+
+            // D. Obsługa Hasła (Z RE-AUTENTYKACJĄ)
+            if (newPass) {
+                try {
+                    // 1. Utwórz poświadczenia z obecnego maila i podanego STAREGO hasła
+                    const credential = EmailAuthProvider.credential(firebaseUser.email, currentPass);
+                    
+                    // 2. Spróbuj przelogować użytkownika (weryfikacja)
+                    await reauthenticateWithCredential(firebaseUser, credential);
+                    
+                    // 3. Jeśli sukces, ustaw nowe hasło
+                    await updatePassword(firebaseUser, newPass);
+                    messages.push("Hasło");
+
+                } catch (authError) {
+                    console.error("Błąd zmiany hasła:", authError);
+                    if (authError.code === 'auth/wrong-password') {
+                        throw new Error("Podane obecne hasło jest nieprawidłowe.");
+                    } else if (authError.code === 'auth/too-many-requests') {
+                        throw new Error("Zbyt wiele nieudanych prób. Spróbuj ponownie później.");
+                    } else {
+                        throw new Error("Nie udało się zmienić hasła. Spróbuj ponownie.");
+                    }
+                }
+            }
+
+            // Wykonaj update profilu w Firestore
+            if (Object.keys(updates).length > 0) {
+                const userRef = doc(usersRef, user.uid);
+                await updateDoc(userRef, updates);
+            }
+
+            if (messages.length > 0) {
+                showNotification(`Pomyślnie zaktualizowano: ${messages.join(", ")}.`, "Sukces");
+                closeModal(settingsModal.overlay);
+            } else {
+                showNotification("Nie wprowadzono żadnych zmian.", "Informacja");
+            }
+            
+            render(); 
+
+        } catch (error) {
+            console.error("Błąd zapisu ustawień:", error);
+            // Wyświetl konkretny komunikat błędu (np. o złym haśle)
+            showNotification(error.message || "Wystąpił błąd podczas zapisu.", "Błąd");
+        } finally {
+            settingsModal.saveBtn.disabled = false;
+            settingsModal.saveBtn.textContent = 'Zapisz zmiany';
+        }
+    });
         // 3. Obsługa pola hasła
         settingsModal.newPasswordInput.addEventListener('input', (e) => {
             if (e.target.value.length > 0) {
@@ -23275,10 +23310,16 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
                         <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 24px 0;">
 
-                        <h4 style="margin-bottom: 16px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">Zmiana Hasła (Opcjonalne)</h4>
+                        <h4 style="margin-bottom: 16px; font-size: 14px; font-weight: 600; color: var(--text-secondary);">Zmiana Hasła</h4>
+                        
+                        <div class="form-group">
+                            <label for="settings-current-password">Obecne hasło</label>
+                            <input type="password" id="settings-current-password" placeholder="Wymagane do zmiany hasła">
+                        </div>
+
                         <div class="form-group">
                             <label for="settings-new-password">Nowe hasło</label>
-                            <input type="password" id="settings-new-password" placeholder="Wpisz tylko, jeśli chcesz zmienić">
+                            <input type="password" id="settings-new-password" placeholder="Minimum 6 znaków">
                         </div>
                         <div class="form-group" id="settings-confirm-password-group" style="display:none;">
                             <label for="settings-confirm-password">Potwierdź nowe hasło</label>
@@ -24141,6 +24182,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
