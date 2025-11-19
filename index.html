@@ -5863,6 +5863,28 @@
     .settings-container { flex-direction: column; }
     .settings-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border-color); padding: 8px; }
 }
+        /* Style specyficzne dla modala zarządzania grupą (bazują na settings) */
+.manage-tab-content {
+    display: none;
+    animation: fadeIn 0.2s ease-out;
+}
+.manage-tab-content.active {
+    display: block;
+}
+
+/* Drobna poprawka dla listy w tym modalu, aby wyglądała profesjonalniej */
+#manage-group-modal .attachment-item {
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-secondary); /* Białe tło na liście */
+    margin-bottom: 8px;
+    border-radius: var(--border-radius);
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+#manage-group-modal .attachment-item:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
     </style>
 
 </head>
@@ -20544,34 +20566,60 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
         openModal(settingsModal.overlay);
     });
-        
-/**
-         * Otwiera i wypełnia modal zarządzania dla AKTYWNEJ grupy.
-         * Zakłada, że użytkownik jest właścicielem.
-         */
-        async function openManageGroupModal() {
+   // Obsługa nawigacji w modalu "Zarządzaj Grupą"
+    const manageGroupNav = document.getElementById('manage-group-nav');
+    if (manageGroupNav) {
+        manageGroupNav.addEventListener('click', (e) => {
+            // Znajdź kliknięty przycisk
+            const btn = e.target.closest('.settings-nav-item');
+            if (!btn) return;
+
+            // Pobierz nazwę zakładki (subgroups, members, pending)
+            const tabName = btn.dataset.tab;
+            
+            // 1. Zaktualizuj aktywny przycisk w menu
+            manageGroupNav.querySelectorAll('.settings-nav-item').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            // 2. Zaktualizuj widoczną treść
+            const container = document.querySelector('#manage-group-modal .settings-content');
+            container.querySelectorAll('.manage-tab-content').forEach(content => content.classList.remove('active'));
+            
+            const activeContent = document.getElementById(`manage-tab-${tabName}`);
+            if (activeContent) {
+                activeContent.classList.add('active');
+            }
+        });
+    }     
+async function openManageGroupModal() {
             const user = state.currentUser;
-            const activeGroupId = state.ui.activeGroupId; // Używamy aktywnej grupy
+            const activeGroupId = state.ui.activeGroupId; 
             
             if (!user || !activeGroupId) {
                 showNotification("Błąd: Brak aktywnej grupy do zarządzania.", "Błąd");
                 return;
             }
 
-            // === POCZĄTEK ZMIANY: Referencje do zakładek i nowej kolekcji ===
             const membersListEl = document.getElementById('group-members-list');
             const pendingListEl = document.getElementById('pending-requests-list');
             const requestsRef = collection(db, `artifacts/${appId}/public/data/groupRequests`);
+            const pendingBadge = document.getElementById('pending-requests-badge');
+
+            // === ZMIANA: Resetowanie widoku do pierwszej zakładki (Działy) ===
+            const nav = document.getElementById('manage-group-nav');
+            const contentContainer = document.querySelector('#manage-group-modal .settings-content');
             
-            // Resetowanie zakładek do domyślnego widoku
-            manageGroupModal.overlay.querySelectorAll('.modal-tab-btn').forEach(btn => btn.classList.remove('active'));
-            manageGroupModal.overlay.querySelectorAll('.modal-tab-content').forEach(content => content.classList.remove('active'));
-            manageGroupModal.overlay.querySelector('.modal-tab-btn[data-tab="mg-members"]').classList.add('active');
-            manageGroupModal.overlay.querySelector('#mg-members').classList.add('active');
+            // Reset przycisków menu
+            nav.querySelectorAll('.settings-nav-item').forEach(btn => btn.classList.remove('active'));
+            nav.querySelector('[data-tab="subgroups"]').classList.add('active');
+            
+            // Reset treści
+            contentContainer.querySelectorAll('.manage-tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById('manage-tab-subgroups').classList.add('active');
             // === KONIEC ZMIANY ===
 
             try {
-                // --- Logika wypełniania zakładki "Członkowie i Działy" (bez zmian) ---
+                // --- Logika wypełniania danych (Działy i Członkowie) ---
                 const groupRef = doc(groupsRef, activeGroupId); 
                 const groupSnap = await getDoc(groupRef);
 
@@ -20595,7 +20643,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                             membersListEl.appendChild(li);
                         });
                     } else {
-                        membersListEl.innerHTML = '<li>Brak innych członków w tej grupie.</li>';
+                        membersListEl.innerHTML = '<li style="padding:20px; text-align:center; color:var(--text-secondary);">Brak innych członków w tej grupie.</li>';
                     }
                     
                     manageGroupModal.subgroupsList.innerHTML = ''; 
@@ -20604,48 +20652,60 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                             const li = document.createElement('li');
                             li.className = 'attachment-item';
                             li.innerHTML = `
-                                <div class="attachment-info">${name}</div>
+                                <div class="attachment-info" style="font-weight: 500;">${name}</div>
                                 <button class="delete-attachment-btn js-delete-subgroup" data-name="${name}" title="Usuń podgrupę">&times;</button>
                             `;
                             manageGroupModal.subgroupsList.appendChild(li);
                         });
                     } else {
-                        manageGroupModal.subgroupsList.innerHTML = '<li>Brak zdefiniowanych podgrup.</li>';
+                        manageGroupModal.subgroupsList.innerHTML = '<li style="padding:20px; text-align:center; color:var(--text-secondary);">Brak zdefiniowanych podgrup.</li>';
                     }
                 }
                 
-                // === POCZĄTEK ZMIANY: Wypełnianie zakładki "Oczekujący" ===
-                pendingListEl.innerHTML = '<li>Ładowanie próśb...</li>';
+                // --- Logika wypełniania Oczekujących ---
+                pendingListEl.innerHTML = '<li style="padding:20px; text-align:center;">Ładowanie...</li>';
                 const q = query(requestsRef, 
                     where("groupId", "==", activeGroupId), 
                     where("status", "==", "pending")
                 );
                 const requestsSnapshot = await getDocs(q);
                 
+                // Aktualizacja Badge'a (licznika)
+                const pendingCount = requestsSnapshot.size;
+                if (pendingBadge) {
+                    if (pendingCount > 0) {
+                        pendingBadge.textContent = pendingCount;
+                        pendingBadge.style.display = 'flex';
+                    } else {
+                        pendingBadge.style.display = 'none';
+                    }
+                }
+                
                 if (requestsSnapshot.empty) {
-                    pendingListEl.innerHTML = '<li>Brak oczekujących próśb o dołączenie.</li>';
+                    pendingListEl.innerHTML = '<li style="padding:20px; text-align:center; color:var(--text-secondary);">Brak oczekujących próśb o dołączenie.</li>';
                 } else {
-                    pendingListEl.innerHTML = ''; // Wyczyść "Ładowanie..."
+                    pendingListEl.innerHTML = '';
                     requestsSnapshot.docs.forEach(doc => {
                         const request = doc.data();
                         const requestId = doc.id;
                         const li = document.createElement('li');
                         li.className = 'attachment-item';
-                        // Dodajemy przyciski Akceptuj / Odrzuć
                         li.innerHTML = `
                             <div class="attachment-info" title="${request.userEmail}">
                                 ${renderAvatarHTML({ name: request.userName, email: request.userEmail }, 'avatar-comment')}
-                                <span>${request.userName || request.userEmail}</span>
+                                <div style="display:flex; flex-direction:column;">
+                                    <span style="font-weight:600;">${request.userName}</span>
+                                    <span style="font-size:11px; color:var(--text-secondary);">${request.userEmail}</span>
+                                </div>
                             </div>
                             <div class="attachment-item-controls">
-                                <button class="btn btn-secondary js-reject-request" data-id="${requestId}" style="padding: 4px 8px; font-size: 12px;">Odrzuć</button>
-                                <button class="btn btn-primary js-approve-request" data-id="${requestId}" style="padding: 4px 8px; font-size: 12px;">Akceptuj</button>
+                                <button class="btn btn-secondary js-reject-request" data-id="${requestId}" style="padding: 6px 12px; font-size: 12px;">Odrzuć</button>
+                                <button class="btn btn-primary js-approve-request" data-id="${requestId}" style="padding: 6px 12px; font-size: 12px;">Akceptuj</button>
                             </div>
                         `;
                         pendingListEl.appendChild(li);
                     });
                 }
-                // === KONIEC ZMIANY ===
                 
                 if (settingsModal.overlay.classList.contains('visible')) {
                     closeModal(settingsModal.overlay);
@@ -23436,49 +23496,91 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </div>
 <div class="modal-overlay" id="manage-group-modal">
-    <div class="modal" style="max-width: 600px;"> <div class="modal-header">
-            <h2>Zarządzaj grupą</h2>
+    <div class="modal" style="max-width: 900px; height: 80vh; max-height: 800px; padding: 0;">
+        
+        <div class="modal-header">
+            <h2>Centrum Zarządzania Grupą</h2>
             <button type="button" class="modal-close-btn">&times;</button>
         </div>
-        
-        <style>
-            .modal-tabs { display: flex; border-bottom: 1px solid var(--border-color); padding: 0 24px; }
-            .modal-tab-btn { background: none; border: none; padding: 12px 16px; font-size: 14px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-bottom: 3px solid transparent; }
-            .modal-tab-btn.active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
-            .modal-tab-content { display: none; }
-            .modal-tab-content.active { display: block; }
-        </style>
-        
-        <div class="modal-tabs">
-            <button class="modal-tab-btn active" data-tab="mg-members">Członkowie i Działy</button>
-            <button class="modal-tab-btn" data-tab="mg-pending">Oczekujący</button>
-        </div>
-        <div class="form-modal-content">
-            <div id="mg-members" class="modal-tab-content active">
-                <h4>Członkowie zespołu</h4>
-                <ul id="group-members-list" class="attachments-list" style="margin-top: 8px; max-height: 200px; overflow-y: auto;">
-                </ul>
 
-                <h4 style="margin-top: 24px;">Istniejące podgrupy (działy)</h4>
-                <ul id="subgroups-list" class="attachments-list" style="margin-top: 8px; max-height: 150px; overflow-y: auto;">
-                </ul>
-                <form id="add-subgroup-form" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                    <div class="form-group">
-                        <label for="new-subgroup-name-input">Dodaj nową podgrupę</label>
-                        <div style="display: flex; gap: 8px;">
-                            <input type="text" id="new-subgroup-name-input" required placeholder="np. Finanse">
-                            <button type="submit" class="btn btn-primary">Dodaj</button>
-                        </div>
-                    </div>
-                </form>
-            </div>
+        <div class="settings-container">
             
-            <div id="mg-pending" class="modal-tab-content">
-                <h4>Prośby o dołączenie</h4>
-                <ul id="pending-requests-list" class="attachments-list" style="margin-top: 8px; max-height: 400px; overflow-y: auto;">
-                    <li>Brak oczekujących próśb.</li>
-                </ul>
-            </div>
+            <aside class="settings-sidebar">
+                <nav class="settings-nav" id="manage-group-nav">
+                    
+                    <button class="settings-nav-item active" data-tab="subgroups">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 0 1-1.125-1.125v-3.75ZM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-8.25ZM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-2.25Z" />
+                        </svg>
+                        <span>Działy / Podgrupy</span>
+                    </button>
+
+                    <button class="settings-nav-item" data-tab="members">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+                        </svg>
+                        <span>Członkowie Zespołu</span>
+                    </button>
+
+                    <button class="settings-nav-item" data-tab="pending">
+                        <div style="position: relative;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3.75 15h2.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-2.25A1.125 1.125 0 0 0 2.625 12.375v1.5c0 .621.504 1.125 1.125 1.125Zm14.25 5.25a3.375 3.375 0 0 0-2.725-5.172 8.968 8.968 0 0 0-2.618.677 4.501 4.501 0 0 1-4.173.832 4.501 4.501 0 0 0-4.18 2.062c-.38.58-.572 1.26-.572 1.95V19.5A2.25 2.25 0 0 0 6 21.75h12.75a2.25 2.25 0 0 0 2.25-2.25v-.75Z" />
+                            </svg>
+                            <span id="pending-requests-badge" class="notification-badge" style="display: none; top: -5px; right: -5px;">0</span>
+                        </div>
+                        <span>Oczekujący</span>
+                    </button>
+
+                </nav>
+            </aside>
+
+            <main class="settings-content">
+                
+                <div id="manage-tab-subgroups" class="manage-tab-content active">
+                    <div class="settings-section">
+                        <h3 style="margin-bottom: 8px;">Struktura Organizacji</h3>
+                        <p class="settings-hint" style="margin-bottom: 24px;">Zdefiniuj działy (podgrupy), do których mogą przypisywać się członkowie.</p>
+
+                        <form id="add-subgroup-form" style="margin-bottom: 24px; display: flex; gap: 12px;">
+                            <input type="text" id="new-subgroup-name-input" required placeholder="Nazwa nowego działu (np. Marketing)" style="flex-grow: 1; padding: 10px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                            <button type="submit" class="btn btn-primary">Dodaj dział</button>
+                        </form>
+
+                        <ul id="subgroups-list" class="attachments-list" style="max-height: 400px; overflow-y: auto;">
+                            </ul>
+                    </div>
+                </div>
+
+                <div id="manage-tab-members" class="manage-tab-content">
+                    <div class="settings-section">
+                        <h3 style="margin-bottom: 8px;">Członkowie Zespołu</h3>
+                        <p class="settings-hint" style="margin-bottom: 24px;">Zarządzaj osobami, które mają dostęp do tej grupy.</p>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <span style="font-weight: 600; color: var(--text-secondary);">Lista aktywnych członków</span>
+                            </div>
+
+                        <ul id="group-members-list" class="attachments-list" style="max-height: 500px; overflow-y: auto;">
+                            </ul>
+                    </div>
+                </div>
+
+                <div id="manage-tab-pending" class="manage-tab-content">
+                    <div class="settings-section">
+                        <h3 style="margin-bottom: 8px;">Prośby o dołączenie</h3>
+                        <p class="settings-hint" style="margin-bottom: 24px;">Osoby, które chcą dołączyć do Twojej grupy.</p>
+
+                        <ul id="pending-requests-list" class="attachments-list" style="max-height: 500px; overflow-y: auto;">
+                            </ul>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+
+        <div class="modal-footer" style="border-top: 1px solid var(--border-color);">
+            <button type="button" class="btn btn-secondary modal-close-btn" style="margin-left: auto;">Zamknij</button>
         </div>
     </div>
 </div>
@@ -24182,6 +24284,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
