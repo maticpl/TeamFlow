@@ -21755,6 +21755,33 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 settingsModal.confirmPasswordGroup.style.display = 'none';
             }
         });
+
+        // === NAPRAWA BŁĘDU: Definicje zmiennych ustawień (MUSZĄ BYĆ TUTAJ) ===
+        const settingsStartView = document.getElementById('settings-start-view');
+        const settingsShowConfetti = document.getElementById('settings-show-confetti');
+        const settingsConfirmDelete = document.getElementById('settings-confirm-delete');
+
+        // Listenery zapisujące zmiany od razu po zmianie wartości
+        if (settingsStartView) {
+            settingsStartView.addEventListener('change', (e) => {
+                state.ui.startView = e.target.value;
+                saveUiState();
+            });
+        }
+        if (settingsShowConfetti) {
+            settingsShowConfetti.addEventListener('change', (e) => {
+                state.ui.showConfetti = e.target.checked;
+                saveUiState();
+            });
+        }
+        if (settingsConfirmDelete) {
+            settingsConfirmDelete.addEventListener('change', (e) => {
+                state.ui.confirmDelete = e.target.checked;
+                saveUiState();
+            });
+        }
+        // === KONIEC NAPRAWY ===
+
         // === NOWA LOGIKA: Obsługa zakładek w głównym modalu ustawień ===
         const settingsMainNav = document.getElementById('settings-main-nav');
         if (settingsMainNav) {
@@ -21787,32 +21814,74 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                     state.ui.theme = e.target.value; // 'light' lub 'dark'
                     saveUiState();
                     applyTheme();
-                    // Opcjonalnie: synchronizuj stare przełączniki w nagłówku (jeśli zostają)
                 }
             });
         });
 
         // Aktualizacja przycisku otwierania ustawień, aby ustawiał poprawny stan UI
-        const originalSettingsBtnClick = settingsBtn.onclick; // (Jeśli był przypisany inline, ale tu mamy addEventListener)
+        const originalSettingsBtnClick = settingsBtn.onclick; 
         
         // Dodajemy logikę inicjalizacji UI do istniejącego listenera settingsBtn
         settingsBtn.addEventListener('click', () => {
-            // ... (istniejąca logika otwierania profilu) ...
+            const user = state.currentUser;
+            if (!user) return;
             
-            // Ustawienie poprawnego radio buttona motywu
+            // Reset zmiennych i pól formularza
+            tempProfileBlob = null;
+            if (settingsModal.currentPasswordInput) settingsModal.currentPasswordInput.value = ''; 
+            settingsModal.newPasswordInput.value = '';
+            settingsModal.confirmPasswordInput.value = '';
+            settingsModal.confirmPasswordGroup.style.display = 'none';
+
+            // A. Ustaw Awatar
+            settingsModal.avatarPreview.innerHTML = renderAvatarHTML(user, 'avatar-xl-img'); 
+            if (settingsModal.avatarPreview.firstChild) {
+                settingsModal.avatarPreview.firstChild.style.width = '100%';
+                settingsModal.avatarPreview.firstChild.style.height = '100%';
+                settingsModal.avatarPreview.firstChild.style.borderRadius = '0'; 
+            }
+
+            // B. Wypełnij dane tekstowe
+            settingsModal.nameInput.value = user.name || '';
+            settingsModal.emailInput.value = user.email || '';
+
+            // C. Wypełnij listę Podgrup (Działów)
+            settingsModal.subgroupSelect.innerHTML = '<option value="">-- Brak (Domyślny) --</option>';
+            getDoc(doc(groupsRef, state.ui.activeGroupId)).then(groupSnap => {
+                if (groupSnap.exists()) {
+                    const subgroups = groupSnap.data().subgroups || [];
+                    const currentGroupInfo = state.currentUser.groupInfo[state.ui.activeGroupId] || {};
+                    const currentSubgroup = currentGroupInfo.subgroup;
+
+                    subgroups.forEach(sub => {
+                        const option = document.createElement('option');
+                        option.value = sub;
+                        option.textContent = sub;
+                        if (sub === currentSubgroup) option.selected = true;
+                        settingsModal.subgroupSelect.appendChild(option);
+                    });
+                }
+            }).catch(e => console.error("Błąd ładowania podgrup:", e));
+
+            // === USTAWIENIA APLIKACJI (Wypełnianie formularza) ===
             const currentTheme = state.ui.theme || 'light';
             const radioToSelect = document.querySelector(`input[name="app-theme"][value="${currentTheme}"]`);
             if (radioToSelect) radioToSelect.checked = true;
-            // === NOWA LOGIKA: Wypełnij formularz ustawień wartościami ze stanu ===
+
+            // Wypełnij formularz ustawień wartościami ze stanu
+            // TERAZ TO ZADZIAŁA, bo zmienne są zdefiniowane wyżej
             if (settingsStartView) settingsStartView.value = state.ui.startView || 'auto';
-            if (settingsShowConfetti) settingsShowConfetti.checked = (state.ui.showConfetti !== false); // Domyślnie true
-            if (settingsConfirmDelete) settingsConfirmDelete.checked = (state.ui.confirmDelete !== false); // Domyślnie true
+            if (settingsShowConfetti) settingsShowConfetti.checked = (state.ui.showConfetti !== false);
+            if (settingsConfirmDelete) settingsConfirmDelete.checked = (state.ui.confirmDelete !== false);
             // === KONIEC ===
-            // Reset do zakładki profilu przy każdym otwarciu (opcjonalne, dla spójności)
+            
+            // Reset do zakładki profilu przy każdym otwarciu
             const profileBtn = settingsMainNav.querySelector('[data-tab="profile"]');
             if (profileBtn) profileBtn.click();
+
+            openModal(settingsModal.overlay);
         });
-        // === KONIEC NOWEJ LOGIKI ===
+        
         // --- CZĘŚĆ 3: Logika zmiany nazwy użytkownika ---
         
         changeUsernameModal.form.addEventListener('submit', async (e) => { 
@@ -25102,6 +25171,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
