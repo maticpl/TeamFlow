@@ -6048,6 +6048,83 @@
     width: 14px; 
     height: 14px;
 }
+        /* === NOWE STYLE: TRYB KOMPAKTOWY === */
+body.compact-mode {
+    font-size: 13px; /* Lekkie zmniejszenie bazowej czcionki */
+}
+
+/* Mniejsze karty zadań */
+body.compact-mode .task-card,
+body.compact-mode .poll-card {
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    min-height: 0;
+}
+
+/* Mniejszy nagłówek zadania */
+body.compact-mode .task-card h4,
+body.compact-mode .poll-card h4 {
+    font-size: 13px;
+    margin-bottom: 2px;
+    padding-left: 20px; /* Dostosowanie do mniejszego checkboxa */
+}
+
+/* Mniejszy checkbox */
+body.compact-mode .task-card-checkbox {
+    top: 8px;
+    left: 8px;
+    width: 14px;
+    height: 14px;
+}
+
+/* Bardziej zwarte metadane */
+body.compact-mode .task-meta,
+body.compact-mode .poll-meta {
+    margin-top: 2px;
+}
+body.compact-mode .task-detail,
+body.compact-mode .poll-detail {
+    font-size: 11px;
+    gap: 2px;
+}
+body.compact-mode .task-detail svg,
+body.compact-mode .poll-detail svg {
+    width: 12px;
+    height: 12px;
+}
+
+/* Zmniejszenie awatarów na kartach */
+body.compact-mode .task-assignees .avatar,
+body.compact-mode .poll-assignees .avatar {
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
+    margin-left: -6px;
+}
+
+/* Zwarta nawigacja boczna */
+body.compact-mode .nav-item a {
+    padding: 2px 6px;
+    font-size: 11px;
+}
+body.compact-mode .nav-section h2 {
+    margin-bottom: 2px;
+    font-size: 10px;
+}
+
+/* Zwarte tabele w modalach */
+body.compact-mode #details-budget-tasks-table-container th,
+body.compact-mode #details-budget-tasks-table-container td {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* Zwarte listy w modalach (np. komentarze) */
+body.compact-mode .comment-item {
+    padding: 4px 8px;
+    margin-bottom: 6px;
+}
+/* === KONIEC STYLI KOMPAKTOWYCH === */
     </style>
 
 </head>
@@ -16025,6 +16102,24 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         // 4. Potwierdzenia
         if (prefs.confirmDelete !== undefined) state.ui.confirmDelete = prefs.confirmDelete;
 
+        // === NOWE: 5. Tryb Kompaktowy ===
+        if (prefs.compactMode !== undefined) {
+            state.ui.compactMode = prefs.compactMode;
+            applyInterfaceSettings(); // Aplikuj natychmiast po załadowaniu usera
+        }
+
+        // === NOWE: 6. Start ze zwiniętym paskiem ===
+        if (prefs.startCollapsed !== undefined) {
+            state.ui.startCollapsed = prefs.startCollapsed;
+            
+            // Jeśli użytkownik chce startować ze zwiniętym paskiem, wymuś to teraz
+            // (Chyba że jesteśmy na mobile, tam pasek i tak jest domyślnie ukryty)
+            if (state.ui.startCollapsed && window.innerWidth > 768) {
+                state.ui.sidebarCollapsed = true;
+                applySidebarState(); // Funkcja pomocnicza istniejąca w kodzie
+            }
+        }
+
         // Zaktualizuj localStorage, aby były zgodne z chmurą
         saveUiState();
         // === KONIEC SYNCHRONIZACJI ===
@@ -21750,6 +21845,23 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 state.ui.confirmDelete = settingsConfirmDelete.checked;
                 messages.push("Potwierdzenia");
             }
+
+            // === NOWE: 5. Tryb Kompaktowy ===
+            const dbCompactMode = currentPrefs.compactMode || false;
+            if (settingsCompactMode && settingsCompactMode.checked !== dbCompactMode) {
+                updates['preferences.compactMode'] = settingsCompactMode.checked;
+                state.ui.compactMode = settingsCompactMode.checked;
+                applyInterfaceSettings(); // Aplikuj globalnie
+                messages.push("Tryb kompaktowy");
+            }
+
+            // === NOWE: 6. Start ze zwiniętym paskiem ===
+            const dbStartCollapsed = currentPrefs.startCollapsed || false;
+            if (settingsStartCollapsed && settingsStartCollapsed.checked !== dbStartCollapsed) {
+                updates['preferences.startCollapsed'] = settingsStartCollapsed.checked;
+                state.ui.startCollapsed = settingsStartCollapsed.checked;
+                messages.push("Ustawienie paska bocznego");
+            }
             
             // Zapisz też UI state do localStorage
             saveUiState();
@@ -21805,11 +21917,42 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
         const settingsStartView = document.getElementById('settings-start-view');
         const settingsShowConfetti = document.getElementById('settings-show-confetti');
         const settingsConfirmDelete = document.getElementById('settings-confirm-delete');
+        
+        // === NOWE REFERENCJE DLA INTERFEJSU ===
+        const settingsCompactMode = document.getElementById('settings-compact-mode');
+        const settingsStartCollapsed = document.getElementById('settings-start-collapsed');
+        // === KONIEC ===
+
+        // === NOWA FUNKCJA: Aplikowanie ustawień interfejsu ===
+        function applyInterfaceSettings() {
+            // Aplikuj tryb kompaktowy
+            if (state.ui.compactMode) {
+                document.body.classList.add('compact-mode');
+            } else {
+                document.body.classList.remove('compact-mode');
+            }
+            // Uwaga: 'startCollapsed' jest sprawdzane tylko przy starcie (w onAuthStateChanged)
+        }
+        // === KONIEC ===
 
         // Listenery zapisujące zmiany od razu po zmianie wartości
         if (settingsStartView) {
             settingsStartView.addEventListener('change', (e) => {
                 state.ui.startView = e.target.value;
+                saveUiState();
+            });
+        }
+        // === NOWE LISTENERY (Lokalne aktualizacje UI) ===
+        if (settingsCompactMode) {
+            settingsCompactMode.addEventListener('change', (e) => {
+                state.ui.compactMode = e.target.checked;
+                applyInterfaceSettings(); // Natychmiastowy podgląd
+                saveUiState();
+            });
+        }
+        if (settingsStartCollapsed) {
+            settingsStartCollapsed.addEventListener('change', (e) => {
+                state.ui.startCollapsed = e.target.checked;
                 saveUiState();
             });
         }
@@ -21918,6 +22061,9 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             if (settingsStartView) settingsStartView.value = state.ui.startView || 'auto';
             if (settingsShowConfetti) settingsShowConfetti.checked = (state.ui.showConfetti !== false);
             if (settingsConfirmDelete) settingsConfirmDelete.checked = (state.ui.confirmDelete !== false);
+            // === NOWE ===
+            if (settingsCompactMode) settingsCompactMode.checked = (state.ui.compactMode === true);
+            if (settingsStartCollapsed) settingsStartCollapsed.checked = (state.ui.startCollapsed === true);
             // === KONIEC ===
             
             // Reset do zakładki profilu przy każdym otwarciu
@@ -24215,14 +24361,29 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                             </div>
                         </div>
 
-                        <div class="form-group" style="margin-top: 16px;">
+                        
+                            <div class="form-group" style="margin-top: 16px;">
                             <label>Bezpieczeństwo</label>
                             <div class="form-group-checkbox" style="margin-top: 8px;">
                                 <input type="checkbox" id="settings-confirm-delete">
                                 <label for="settings-confirm-delete">Pytaj o potwierdzenie przed usunięciem zadania</label>
                             </div>
                         </div>
-                    </div>
+
+                        <div class="form-group" style="margin-top: 16px;">
+                            <label>Interfejs</label>
+                            
+                            <div class="form-group-checkbox" style="margin-top: 8px;">
+                                <input type="checkbox" id="settings-compact-mode">
+                                <label for="settings-compact-mode">Tryb kompaktowy (zmniejszone odstępy)</label>
+                            </div>
+
+                            <div class="form-group-checkbox" style="margin-top: 8px;">
+                                <input type="checkbox" id="settings-start-collapsed">
+                                <label for="settings-start-collapsed">Zawsze uruchamiaj ze zwiniętym paskiem bocznym</label>
+                            </div>
+                        </div>
+                        </div>
                 </div>
                 <div id="settings-tab-profile" class="settings-tab-content active">
                     
@@ -25216,6 +25377,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
