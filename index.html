@@ -15984,6 +15984,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         
         
         // --- NOWA LOGIKA: Ustawienie `state.currentUser` ---
+        // --- NOWA LOGIKA: Ustawienie state.currentUser ---
         state.currentUser = {
             id: user.uid,
             uid: user.uid,
@@ -15991,7 +15992,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             name: userData.name,
             avatarColor: userData.avatarColor,
             photoURL: userData.photoURL,
-            // Nowe pola grup
+            // Grupy
             groupIds: userGroupsIds,
             groupInfo: userGroupInfo,
             lastActiveGroupId: userData.lastActiveGroupId,
@@ -16001,12 +16002,32 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                 dashboard: userDashboardLayout,
                 allProjects: userData.layouts?.allProjects || []
             },
-            // === NOWE POLE: Mapa czasów ostatniego odczytu czatu ===
             chatLastViewed: userData.chatLastViewed || {},
-            // === POCZĄTEK ZMIANY: Dodanie flagi modala powitalnego ===
-            showWelcomeModal: userData.showWelcomeModal 
-            // === KONIEC ZMIANY ===
+            showWelcomeModal: userData.showWelcomeModal,
+            // === WAŻNE: Zapisz preferencje w obiekcie usera do porównywania przy zapisie ===
+            preferences: userData.preferences || {} 
         };
+
+        // === SYNCHRONIZACJA (PULL): Aplikuj ustawienia z Firestore do aplikacji ===
+        const prefs = userData.preferences || {};
+        
+        // 1. Motyw
+        if (prefs.theme) {
+            state.ui.theme = prefs.theme;
+            applyTheme(); // Aplikuj natychmiast
+        }
+        // 2. Widok Startowy
+        if (prefs.startView) state.ui.startView = prefs.startView;
+        
+        // 3. Konfetti (uwaga: sprawdzamy undefined, bo false to też wartość)
+        if (prefs.showConfetti !== undefined) state.ui.showConfetti = prefs.showConfetti;
+        
+        // 4. Potwierdzenia
+        if (prefs.confirmDelete !== undefined) state.ui.confirmDelete = prefs.confirmDelete;
+
+        // Zaktualizuj localStorage, aby były zgodne z chmurą
+        saveUiState();
+        // === KONIEC SYNCHRONIZACJI ===
         
         // --- NOWA LOGIKA: Ustalenie aktywnej grupy ---
         let groupIdToLoad = state.currentUser.lastActiveGroupId;
@@ -21622,14 +21643,15 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             reader.readAsDataURL(file);
         });
         // 4. GŁÓWNA FUNKCJA ZAPISU
+    // 4. GŁÓWNA FUNKCJA ZAPISU (Wersja Firestore-First z poprawką na undefined)
     settingsModal.saveBtn.addEventListener('click', async () => {
         const user = state.currentUser;
-        const firebaseUser = auth.currentUser; // Potrzebny do re-autentykacji
+        const firebaseUser = auth.currentUser; 
 
         const newName = settingsModal.nameInput.value.trim();
         const newSubgroup = settingsModal.subgroupSelect.value;
         
-        // Pobieramy wartości haseł
+        // Hasła
         const currentPass = settingsModal.currentPasswordInput.value;
         const newPass = settingsModal.newPasswordInput.value;
         const confirmPass = settingsModal.confirmPasswordInput.value;
@@ -21639,8 +21661,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             return;
         }
 
-        // === NOWA WALIDACJA HASŁA ===
-        // Jeśli użytkownik wpisał cokolwiek w polu "Nowe hasło", wymagamy pełnej procedury
+        // Walidacja hasła
         if (newPass) {
             if (!currentPass) {
                 showNotification("Aby zmienić hasło, musisz podać obecne hasło.", "Błąd");
@@ -21655,12 +21676,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 showNotification("Nowe hasła nie są identyczne.", "Błąd");
                 return;
             }
-            if (currentPass === newPass) {
-                 showNotification("Nowe hasło musi być inne niż obecne.", "Błąd");
-                 return;
-            }
         }
-        // === KONIEC WALIDACJI ===
 
         settingsModal.saveBtn.disabled = true;
         settingsModal.saveBtn.textContent = 'Zapisywanie...';
@@ -21698,69 +21714,73 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 messages.push("Dział");
             }
 
-            // === NOWE: E. Obsługa Ustawień Aplikacji (Zapis do chmury) ===
-            // Pobieramy obecne preferencje z bazy (lub puste, jeśli brak)
+            // === E. OBSŁUGA USTAWIEŃ APLIKACJI (FIRESTORE) ===
+            // Pobieramy obecne preferencje z obiektu usera
             const currentPrefs = user.preferences || {};
             
-            // 1. Widok Startowy
-            if (settingsStartView && settingsStartView.value !== (currentPrefs.startView || 'auto')) {
+            // 1. Motyw (Theme)
+            const selectedTheme = document.querySelector('input[name="app-theme"]:checked')?.value || 'light';
+            const dbTheme = currentPrefs.theme || 'light';
+            if (selectedTheme !== dbTheme) {
+                updates['preferences.theme'] = selectedTheme;
+                state.ui.theme = selectedTheme; 
+                messages.push("Motyw");
+            }
+
+            // 2. Widok Startowy
+            const dbStartView = currentPrefs.startView || 'auto';
+            if (settingsStartView && settingsStartView.value !== dbStartView) {
                 updates['preferences.startView'] = settingsStartView.value;
-                // Aktualizuj też stan lokalny UI na wszelki wypadek
-                state.ui.startView = settingsStartView.value; 
+                state.ui.startView = settingsStartView.value;
                 messages.push("Widok startowy");
             }
 
-            // 2. Konfetti (Domyślnie true)
+            // 3. Konfetti (POPRAWKA: obsługa undefined jako true)
             const dbShowConfetti = currentPrefs.showConfetti !== undefined ? currentPrefs.showConfetti : true;
-            
             if (settingsShowConfetti && settingsShowConfetti.checked !== dbShowConfetti) {
                 updates['preferences.showConfetti'] = settingsShowConfetti.checked;
                 state.ui.showConfetti = settingsShowConfetti.checked;
                 messages.push("Konfetti");
             }
 
-            // 3. Potwierdzenie usuwania (Domyślnie true)
+            // 4. Potwierdzenia (POPRAWKA: obsługa undefined jako true)
             const dbConfirmDelete = currentPrefs.confirmDelete !== undefined ? currentPrefs.confirmDelete : true;
-
             if (settingsConfirmDelete && settingsConfirmDelete.checked !== dbConfirmDelete) {
                 updates['preferences.confirmDelete'] = settingsConfirmDelete.checked;
                 state.ui.confirmDelete = settingsConfirmDelete.checked;
                 messages.push("Potwierdzenia");
             }
             
-            // Zapisz też UI state do localStorage, żeby było spójnie
+            // Zapisz też UI state do localStorage
             saveUiState();
-            // === KONIEC NOWEGO KODU ===
+            // === KONIEC ===
 
-            // D. Obsługa Hasła (Z RE-AUTENTYKACJĄ)
+            // D. Obsługa Hasła
             if (newPass) {
-                try {
-                    // 1. Utwórz poświadczenia z obecnego maila i podanego STAREGO hasła
-                    const credential = EmailAuthProvider.credential(firebaseUser.email, currentPass);
-                    
-                    // 2. Spróbuj przelogować użytkownika (weryfikacja)
-                    await reauthenticateWithCredential(firebaseUser, credential);
-                    
-                    // 3. Jeśli sukces, ustaw nowe hasło
-                    await updatePassword(firebaseUser, newPass);
-                    messages.push("Hasło");
-
-                } catch (authError) {
-                    console.error("Błąd zmiany hasła:", authError);
-                    if (authError.code === 'auth/wrong-password') {
-                        throw new Error("Podane obecne hasło jest nieprawidłowe.");
-                    } else if (authError.code === 'auth/too-many-requests') {
-                        throw new Error("Zbyt wiele nieudanych prób. Spróbuj ponownie później.");
-                    } else {
-                        throw new Error("Nie udało się zmienić hasła. Spróbuj ponownie.");
-                    }
-                }
+                const credential = EmailAuthProvider.credential(firebaseUser.email, currentPass);
+                await reauthenticateWithCredential(firebaseUser, credential);
+                await updatePassword(firebaseUser, newPass);
+                messages.push("Hasło");
             }
 
-            // Wykonaj update profilu w Firestore
+            // WYKONAJ ZAPIS DO FIRESTORE
             if (Object.keys(updates).length > 0) {
                 const userRef = doc(usersRef, user.uid);
                 await updateDoc(userRef, updates);
+                
+                // Zaktualizuj lokalny obiekt currentUser.preferences
+                // Rozszerzamy istniejące preferencje o nowe updates (spłaszczone)
+                
+                // Ponieważ updates ma klucze typu 'preferences.theme', musimy to obsłużyć
+                // Tworzymy obiekt 'preferences' z update'ów
+                const newPrefs = { ...currentPrefs };
+                
+                if (updates['preferences.theme']) newPrefs.theme = updates['preferences.theme'];
+                if (updates['preferences.startView']) newPrefs.startView = updates['preferences.startView'];
+                if (updates['preferences.showConfetti'] !== undefined) newPrefs.showConfetti = updates['preferences.showConfetti'];
+                if (updates['preferences.confirmDelete'] !== undefined) newPrefs.confirmDelete = updates['preferences.confirmDelete'];
+
+                state.currentUser.preferences = newPrefs;
             }
 
             if (messages.length > 0) {
@@ -21774,21 +21794,12 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
         } catch (error) {
             console.error("Błąd zapisu ustawień:", error);
-            // Wyświetl konkretny komunikat błędu (np. o złym haśle)
             showNotification(error.message || "Wystąpił błąd podczas zapisu.", "Błąd");
         } finally {
             settingsModal.saveBtn.disabled = false;
             settingsModal.saveBtn.textContent = 'Zapisz zmiany';
         }
     });
-        // 3. Obsługa pola hasła
-        settingsModal.newPasswordInput.addEventListener('input', (e) => {
-            if (e.target.value.length > 0) {
-                settingsModal.confirmPasswordGroup.style.display = 'block';
-            } else {
-                settingsModal.confirmPasswordGroup.style.display = 'none';
-            }
-        });
 
         // === NAPRAWA BŁĘDU: Definicje zmiennych ustawień (MUSZĄ BYĆ TUTAJ) ===
         const settingsStartView = document.getElementById('settings-start-view');
@@ -25205,6 +25216,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
