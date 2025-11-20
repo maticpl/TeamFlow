@@ -9878,10 +9878,13 @@ let state = {
                     dashboardCompletedFilter: '7days'
                 };
                 
-                // === POCZĄTEK ZMIANY: Dodanie domyślnego stanu sidebara ===
+                // === POCZĄTEK ZMIANY: Dodanie domyślnego stanu sidebara I PREFERENCJI ===
                 const defaultUiState = {
                     sidebarCollapsed: false,
-                    collapsedColumns: {}, // === DODANA TA LINIA ===
+                    collapsedColumns: {}, 
+                    startView: 'auto',         // Domyślny widok startowy
+                    showConfetti: true,        // Domyślnie włączone
+                    confirmDelete: true,       // Domyślnie włączone
                     ...defaultCompletedFilters
                 };
                 // === KONIEC ZMIANY ===
@@ -9890,8 +9893,6 @@ let state = {
                     ...defaultUiState, // <-- ZMIANA: Użycie nowego obiektu domyślnego
                     ...loadedUi, // <-- Załaduj zapisane (nadpiszą domyślne, jeśli istnieją)
                     unsubscribeProjects: state.ui.unsubscribeProjects,
-                    unsubscribeCompleted: state.ui.unsubscribeCompleted,
-                    unsubscribeUsers: state.ui.unsubscribeUsers
                 };
             }
             // ZAWSZE ustawiaj datę na dzisiaj podczas ładowania aplikacji, ignorując starą wartość z pamięci
@@ -15372,6 +15373,10 @@ attachmentsListNewTask.addEventListener('click', (e) => {
     }
 });
         function showConfetti() {
+            // === NOWY WARUNEK: Sprawdź ustawienia ===
+            if (state.ui.showConfetti === false) return;
+            // === KONIEC ===
+
             const container = document.createElement('div');
             container.className = 'confetti-container';
             document.body.appendChild(container);
@@ -16024,20 +16029,26 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         const deepLinkProjectId = urlParams.get('projectId');
         
         if (deepLinkProjectId) {
-            // Jeśli mamy parametr w URL, wymuszamy widok projektu
+            // ... (Deep linking bez zmian) ...
             state.currentProjectId = deepLinkProjectId;
             state.ui.currentView = 'projects';
-            
-            // Opcjonalnie: Czyścimy URL, aby po odświeżeniu nie wracać tu na siłę (lub zostawiamy, żeby można było zrobić bookmark)
-            // Ja zostawiam, bo to "Otwórz w nowym oknie" ma właśnie służyć do trwałego linkowania.
         } else {
-            // Standardowe zachowanie (jeśli brak parametru)
-            if (window.innerWidth <= 768) {
-                state.ui.currentView = 'my-day';
+            // === ZMODYFIKOWANA LOGIKA STARTOWA (Zgodna z ustawieniami) ===
+            const prefView = state.ui.startView || 'auto';
+            
+            if (prefView === 'auto') {
+                // Stara logika: Mobile -> Mój Dzień, Desktop -> Dashboard
+                if (window.innerWidth <= 768) {
+                    state.ui.currentView = 'my-day';
+                } else {
+                    state.ui.currentView = 'my-dashboard';
+                }
             } else {
-                state.ui.currentView = 'my-dashboard';
+                // Użyj preferencji użytkownika ('my-day', 'my-dashboard', 'all-projects')
+                state.ui.currentView = prefView;
             }
             state.currentProjectId = null;
+            // === KONIEC MODYFIKACJI ===
         }
         // === KONIEC NOWEJ LOGIKI ===
         
@@ -20748,12 +20759,9 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
         });
         // +++ KONIEC DODANEGO KODU +++
-        taskModal.deleteBtn.addEventListener('click', async () => {
+       taskModal.deleteBtn.addEventListener('click', async () => {
             const taskId = taskModal.overlay.dataset.taskId;
-            const {
-                task,
-                project
-            } = findTask(taskId);
+            const { task, project } = findTask(taskId);
 
             if (!task || !project) return;
             if (task.createdBy !== state.currentUser.uid && project.ownerId !== state.currentUser.uid) {
@@ -20761,48 +20769,54 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return;
             }
 
-            showConfirmation(
-            "Potwierdź usunięcie zadania",
-            `Czy na pewno chcesz trwale usunąć zadanie: "${task.title}"?`,
-            async (confirmed) => {
-                if (confirmed) {
-                    // Lista zadań BEZ usuwanego zadania
-                    const updatedTasks = project.tasks.filter(t => t.id !== taskId);
+            // === NOWA FUNKCJA WEWNĘTRZNA: Logika usuwania (wyodrębniona) ===
+            const performDelete = async () => {
+                // Lista zadań BEZ usuwanego zadania
+                const updatedTasks = project.tasks.filter(t => t.id !== taskId);
 
-                    // Referencja do dokumentu projektu
-                    const projectDocRef = findProject(project.id) ?
-                        doc(projectsRef, project.id) :
-                        doc(completedProjectsRef, project.id);
+                // Referencja do dokumentu projektu
+                const projectDocRef = findProject(project.id) ?
+                    doc(projectsRef, project.id) :
+                    doc(completedProjectsRef, project.id);
 
-                    try {
-                        // --- AKTUALIZACJA LOGIKI (Wersja 2): Obliczanie budgetSummary przy usuwaniu ---
-                        const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
-                        // --- KONIEC AKTUALIZACJI ---
+                try {
+                    // --- AKTUALIZACJA LOGIKI (Wersja 2): Obliczanie budgetSummary przy usuwaniu ---
+                    const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
+                    // --- KONIEC AKTUALIZACJI ---
 
-                        // --- Użycie writeBatch do atomowego zapisu ---
-                        const batch = writeBatch(db);
+                    // --- Użycie writeBatch do atomowego zapisu ---
+                    const batch = writeBatch(db);
+                    batch.update(projectDocRef, { tasks: updatedTasks });
+                    batch.update(projectDocRef, { budgetSummary: newBudgetSummary });
 
-                        // Aktualizacja listy zadań w batchu
-                        batch.update(projectDocRef, { tasks: updatedTasks });
-                        // Aktualizacja budgetSummary w batchu
-                        batch.update(projectDocRef, { budgetSummary: newBudgetSummary });
+                    await batch.commit();
+                    console.log(`[Budget v2] Zaktualizowano budgetSummary dla projektu ${project.id} po usunięciu zadania ${taskId}.`);
 
-                        // Wykonanie batcha
-                        await batch.commit();
-                        console.log(`[Budget v2] Zaktualizowano budgetSummary dla projektu ${project.id} po usunięciu zadania ${taskId}.`);
-                        // --- Koniec użycia writeBatch ---
-
-                        closeModal(taskModal.overlay);
-                        showNotification("Zadanie zostało pomyślnie usunięte.", "Sukces");
-                    } catch (error) {
-                        console.error("Błąd podczas usuwania zadania lub aktualizacji reservedBudget:", error); // Zaktualizowano komunikat
-                        showNotification("Wystąpił błąd podczas usuwania zadania.", "Błąd");
-                    }
+                    closeModal(taskModal.overlay);
+                    showNotification("Zadanie zostało pomyślnie usunięte.", "Sukces");
+                } catch (error) {
+                    console.error("Błąd podczas usuwania zadania:", error); 
+                    showNotification("Wystąpił błąd podczas usuwania zadania.", "Błąd");
                 }
-            },
-            true
-        );
-    });
+            };
+            // === KONIEC FUNKCJI WEWNĘTRZNEJ ===
+
+            // === NOWA LOGIKA: Sprawdzenie ustawień ===
+            if (state.ui.confirmDelete === false) {
+                // Jeśli potwierdzenia są WYŁĄCZONE, usuń od razu
+                performDelete();
+            } else {
+                // Jeśli włączone (domyślnie), pytaj
+                showConfirmation(
+                    "Potwierdź usunięcie zadania",
+                    `Czy na pewno chcesz trwale usunąć zadanie: "${task.title}"?`,
+                    (confirmed) => {
+                        if (confirmed) performDelete();
+                    },
+                    true
+                );
+            }
+        });
 
         function setupRecurrenceUIListeners(modalElements) {
             modalElements.recurrenceNthDayOptions = document.getElementById(modalElements.isRecurring.id.replace('is-recurring', 'nth-day-options'));
@@ -21789,7 +21803,11 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             const currentTheme = state.ui.theme || 'light';
             const radioToSelect = document.querySelector(`input[name="app-theme"][value="${currentTheme}"]`);
             if (radioToSelect) radioToSelect.checked = true;
-            
+            // === NOWA LOGIKA: Wypełnij formularz ustawień wartościami ze stanu ===
+            if (settingsStartView) settingsStartView.value = state.ui.startView || 'auto';
+            if (settingsShowConfetti) settingsShowConfetti.checked = (state.ui.showConfetti !== false); // Domyślnie true
+            if (settingsConfirmDelete) settingsConfirmDelete.checked = (state.ui.confirmDelete !== false); // Domyślnie true
+            // === KONIEC ===
             // Reset do zakładki profilu przy każdym otwarciu (opcjonalne, dla spójności)
             const profileBtn = settingsMainNav.querySelector('[data-tab="profile"]');
             if (profileBtn) profileBtn.click();
@@ -24041,7 +24059,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
             <main class="settings-content">
                 <div id="settings-tab-application" class="settings-tab-content">
                     <div class="settings-section">
-                        <h3 style="margin-bottom: 8px;">Wygląd i Działanie</h3>
+                        <h3 style="margin-bottom: 8px;">Wygląd</h3>
                         <p class="settings-hint" style="margin-bottom: 24px;">Dostosuj interfejs aplikacji do swoich preferencji.</p>
                         
                         <div class="form-group">
@@ -24055,6 +24073,39 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                                     <input type="radio" name="app-theme" value="dark">
                                     Tryb Ciemny 🌙
                                 </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 24px 0;">
+
+                    <div class="settings-section">
+                        <h3 style="margin-bottom: 8px;">Zachowanie (Workflow)</h3>
+                        <p class="settings-hint" style="margin-bottom: 24px;">Skonfiguruj, jak aplikacja reaguje na Twoje działania.</p>
+
+                        <div class="form-group">
+                            <label for="settings-start-view">Domyślny widok startowy</label>
+                            <select id="settings-start-view">
+                                <option value="auto">Automatycznie (Dashboard / Mój Dzień)</option>
+                                <option value="my-dashboard">Mój Dashboard</option>
+                                <option value="my-day">Mój Dzień</option>
+                                <option value="all-projects">Wszystkie Projekty</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 16px;">
+                            <label>Efekty wizualne</label>
+                            <div class="form-group-checkbox" style="margin-top: 8px;">
+                                <input type="checkbox" id="settings-show-confetti">
+                                <label for="settings-show-confetti">Pokazuj konfetti po ukończeniu zadania 🎉</label>
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 16px;">
+                            <label>Bezpieczeństwo</label>
+                            <div class="form-group-checkbox" style="margin-top: 8px;">
+                                <input type="checkbox" id="settings-confirm-delete">
+                                <label for="settings-confirm-delete">Pytaj o potwierdzenie przed usunięciem zadania</label>
                             </div>
                         </div>
                     </div>
@@ -25051,6 +25102,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
