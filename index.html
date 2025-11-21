@@ -7745,9 +7745,13 @@ body.compact-mode .comment-item {
         <span>Opis</span>
     </button>
     <button type="button" class="task-modal-tab" data-tab="assignees" title="Osoby">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
-        <span>Osoby</span>
-    </button>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px;height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
+                            <span>Osoby</span>
+                        </button>
+                        <button type="button" class="task-modal-tab" data-tab="status" title="Status">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px;height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" /><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z" /></svg>
+                            <span>Status</span>
+                        </button>
     <button type="button" class="task-modal-tab" data-tab="attachments" title="Załączniki">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.94l-7.693 7.693a2.25 2.25 0 003.182 3.182l7.693-7.693a.75.75 0 011.06 1.06l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32" /></svg>
         <span>Załączniki</span>
@@ -9095,7 +9099,11 @@ let state = {
             assigneesList: document.getElementById('subtask-modal-assignees-list'),
             memberSearchInput: document.getElementById('subtask-member-search'),
             memberSearchResults: document.getElementById('subtask-member-search-results'),
-            
+            // === NOWE: Status (Multi-user) ===
+            multiStatusContainer: document.getElementById('subtask-multi-status-container'),
+            multiActionArea: document.getElementById('subtask-multi-action-area'),
+            singleStatusInfo: document.getElementById('subtask-single-status-info'),
+            // ================================
             // Załączniki
             attachmentInput: document.getElementById('subtask-attachment-input'),
             addAttachmentBtn: document.getElementById('add-subtask-attachment-btn'),
@@ -14886,9 +14894,72 @@ function handleTaskFormChange(e) {
                     });
                 }
 
+                // === NOWE: Obsługa zakładki Status (dla edycji) ===
+                const assigneesCount = (subtask.assignees || []).length;
+                
+                if (assigneesCount > 1) {
+                    // Tryb Wieloosobowy
+                    subtaskModal.multiStatusContainer.style.display = 'block';
+                    subtaskModal.singleStatusInfo.style.display = 'none';
+                    
+                    // Generowanie listy postępu
+                    const usersListHTML = (subtask.assignees || []).map(userId => {
+                        const user = findUser(userId);
+                        if (!user) return '';
+                        const isDone = (subtask.completedBy || []).includes(userId);
+                        
+                        const iconPending = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="20" height="20" style="margin-left: auto;"><circle cx="25" cy="25" r="20" fill="none" stroke="#e6e6e6" stroke-width="4"/><circle cx="25" cy="25" r="20" fill="none" stroke="#2b2b2b" stroke-width="4" stroke-linecap="round" stroke-dasharray="60 100"><animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 25 25" to="360 25 25" dur="0.9s" repeatCount="indefinite"/></circle></svg>`;
+                        const iconDone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" style="margin-left: auto; color: var(--success-primary);"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 12l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+                        return `
+                        <div class="member-pill" style="width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px; cursor: default; background-color: var(--bg-secondary);">
+                            ${renderAvatarHTML(user, 'member-pill-avatar')}
+                            <span style="margin-left: 8px; font-size: 13px;">${user.name || user.email}</span>
+                            ${isDone ? iconDone : iconPending}
+                        </div>`;
+                    }).join('');
+
+                    const isMyPartDone = (subtask.completedBy || []).includes(state.currentUser.uid);
+                    const amIAssigned = (subtask.assignees || []).includes(state.currentUser.uid);
+                    
+                    let actionButtonHTML = '';
+                    
+                    if (amIAssigned) {
+                        if (isMyPartDone) {
+                             actionButtonHTML = `
+                                <div style="display: flex; align-items: center; gap: 8px; color: var(--success-primary); font-weight: 600; margin-bottom: 8px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 24px; height: 24px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                                    <span>Ukończyłeś/aś swoją część</span>
+                                </div>
+                                <button class="btn btn-secondary btn-sm js-subtask-complete-my-part" data-subtask-id="${subtaskId}" data-action="undo" style="width:100%; font-size: 12px;">Cofnij ukończenie</button>
+                            `;
+                        } else {
+                             actionButtonHTML = `
+                                <button class="btn btn-primary js-subtask-complete-my-part" data-subtask-id="${subtaskId}" data-action="complete" style="width: 100%; justify-content: center; margin-bottom: 8px;">
+                                    ✓ Oznacz moją część jako wykonaną
+                                </button>
+                            `;
+                        }
+                    } else {
+                        actionButtonHTML = `<p style="font-style: italic; color: var(--text-secondary); font-size: 12px;">Nie jesteś przypisany do tego podzadania.</p>`;
+                    }
+
+                    subtaskModal.multiActionArea.innerHTML = actionButtonHTML + `<div style="margin-top: 12px; border-top: 1px dashed var(--border-color); padding-top: 8px;">${usersListHTML}</div>`;
+
+                } else {
+                    // Tryb Jednoosobowy (lub nowy)
+                    subtaskModal.multiStatusContainer.style.display = 'none';
+                    subtaskModal.singleStatusInfo.style.display = 'block';
+                }
+                // =======================================================
+
             } else {
                 // --- TRYB TWORZENIA ---
                 subtaskModal.modalTitle.textContent = 'Dodaj podzadanie';
+                // Ukrywamy sekcję statusu przy tworzeniu (bo jeszcze nie ma czego kończyć)
+                subtaskModal.multiStatusContainer.style.display = 'none';
+                subtaskModal.singleStatusInfo.style.display = 'none';
+                
                 subtaskModal.subtaskIdInput.value = '';
                 // Domyślnie przypisz tych samych co w zadaniu głównym
                 selectedAssignees = mainTask.assignees || [];
@@ -23517,7 +23588,76 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  openSubtaskModal(mainTaskId, subtaskId);
              }
         });
+        // === NOWY LISTENER: Obsługa przycisków wewnątrz modala Podzadania ===
+        subtaskModal.multiActionArea.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.js-subtask-complete-my-part');
+            if (!btn) return;
+            e.preventDefault(); // Zapobiegaj submitowi formularza
 
+            const action = btn.dataset.action; // 'complete' lub 'undo'
+            const subtaskId = btn.dataset.subtaskId;
+            const mainTaskId = subtaskModal.overlay.dataset.mainTaskId;
+            
+            if (!subtaskId || !mainTaskId) return;
+
+            const { task: mainTask, project } = findTask(mainTaskId);
+            if (!mainTask || !project) return;
+
+            // Znajdź podzadanie w obiekcie
+            const subtask = (mainTask.subtasks || []).find(s => s.id === subtaskId);
+            if (!subtask) return;
+
+            const currentUserId = state.currentUser.uid;
+            let updatedSubtask = { ...subtask };
+            
+            // Aktualizuj listę completedBy
+            let newCompletedBy = [...(updatedSubtask.completedBy || [])];
+            
+            if (action === 'complete') {
+                if (!newCompletedBy.includes(currentUserId)) {
+                    newCompletedBy.push(currentUserId);
+                }
+            } else {
+                newCompletedBy = newCompletedBy.filter(id => id !== currentUserId);
+            }
+            
+            // Przelicz status isCompleted (dla całego podzadania)
+            // Podzadanie jest ukończone, jeśli WSZYSCY przypisani są w liście completedBy
+            const assignees = updatedSubtask.assignees || [];
+            const isNowCompleted = assignees.length > 0 && assignees.every(id => newCompletedBy.includes(id));
+            
+            updatedSubtask.completedBy = newCompletedBy;
+            updatedSubtask.isCompleted = isNowCompleted;
+
+            // Aktualizuj tablicę podzadań w zadaniu głównym
+            const updatedSubtasksList = mainTask.subtasks.map(s => s.id === subtaskId ? updatedSubtask : s);
+            const updatedMainTask = { ...mainTask, subtasks: updatedSubtasksList };
+
+            // Zapisz do Firestore
+            try {
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                const allTasks = project.tasks.map(t => t.id === mainTaskId ? updatedMainTask : t);
+                
+                await updateDoc(projectDocRef, { tasks: allTasks });
+                
+                // Odśwież widok modala (nie zamykaj go) -> Otwórz go ponownie z tym samym ID
+                // To odświeży stan przycisków i listy w zakładce Status
+                openSubtaskModal(mainTaskId, subtaskId);
+                
+                // Przełącz na zakładkę Status, żeby użytkownik widział efekt
+                const statusTabBtn = subtaskModal.tabsContainer.querySelector('[data-tab="status"]');
+                if (statusTabBtn) statusTabBtn.click();
+
+                // Sprawdź auto-kompletowanie zadania głównego (jeśli to było ostatnie podzadanie)
+                await checkAndCompleteMainTask(updatedMainTask, project);
+                
+                showNotification(action === 'complete' ? "Twoja część została zapisana." : "Cofnięto ukończenie.", "Sukces");
+
+            } catch (error) {
+                console.error("Błąd aktualizacji statusu podzadania:", error);
+                showNotification("Wystąpił błąd podczas zapisu.", "Błąd");
+            }
+        });
         subtaskModal.form.addEventListener('submit', async (e) => {
              e.preventDefault();
              const mainTaskId = subtaskModal.overlay.dataset.mainTaskId;
@@ -23684,12 +23824,65 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  }
 
                  // --- 3. Zapis do Firestore ---
-                 const updatedTask = { ...mainTask, subtasks: updatedSubtasks };
+                 
+                 // === NOWE: Propagacja osób do zadania głównego ===
+                 let parentAssignees = [...(mainTask.assignees || [])];
+                 let assigneesChanged = false;
+
+                 // Dodaj osoby z podzadania do zadania głównego, jeśli ich tam nie ma
+                 selectedAssignees.forEach(userId => {
+                     if (!parentAssignees.includes(userId)) {
+                         parentAssignees.push(userId);
+                         assigneesChanged = true;
+                     }
+                 });
+
+                 // Jeśli lista osób się zmieniła lub zadanie ma > 1 osoby, a typ jest 'single', zaktualizuj typ
+                 let parentType = mainTask.type;
+                 if (parentAssignees.length > 1) {
+                     parentType = 'multi';
+                 }
+                 // ================================================
+
+                 // Aktualizujemy zadanie główne o nową listę podzadań ORAZ nowych członków/typ
+                 const updatedTask = { 
+                     ...mainTask, 
+                     subtasks: updatedSubtasks,
+                     assignees: parentAssignees, // Aktualizacja listy osób w zadaniu głównym
+                     type: parentType            // Aktualizacja typu (single -> multi)
+                 };
                  
                  const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                  const allTasks = project.tasks.map(t => t.id === mainTaskId ? updatedTask : t);
                  
                  await updateDoc(projectDocRef, { tasks: allTasks });
+
+                 // === NOWE: Jeśli dodano nowe osoby do zadania głównego, wyślij im powiadomienia ===
+                 if (assigneesChanged) {
+                     const newParentAssignees = parentAssignees.filter(id => !(mainTask.assignees || []).includes(id));
+                     if (newParentAssignees.length > 0) {
+                         const batch = writeBatch(db);
+                         const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+                         
+                         newParentAssignees.forEach(assigneeId => {
+                             if (assigneeId === state.currentUser.uid) return;
+
+                             const notification = {
+                                 userId: assigneeId,
+                                 creatorId: state.currentUser.uid,
+                                 type: 'task_assigned',
+                                 message: `<strong>${state.currentUser.name}</strong> przypisał/a Cię do zadania "<strong>${mainTask.title}</strong>" (poprzez podzadanie) w projekcie <em>${project.name}</em>.`,
+                                 isRead: false,
+                                 timestamp: Date.now(),
+                                 groupId: state.ui.activeGroupId,
+                                 link: { type: 'task', projectId: project.id, taskId: mainTask.id }
+                             };
+                             const newNotifRef = doc(notificationsRef);
+                             batch.set(newNotifRef, notification);
+                         });
+                         await batch.commit();
+                     }
+                 }
 
                  // --- 4. Finalizacja ---
                  closeModal(subtaskModal.overlay);
@@ -26030,15 +26223,21 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
                     <div id="subtask-tab-content-assignees" class="task-modal-tab-content">
                         <div class="form-group">
-                            <label>Wyszukaj i przypisz</label>
-                            <div class="member-search-container">
-                                <input type="text" id="subtask-member-search" class="member-search-input" placeholder="Wpisz nazwę lub e-mail...">
-                                <ul id="subtask-member-search-results" class="member-search-results"></ul>
-                            </div>
-                        </div>
-                        <div class="form-group">
                             <label>Przypisani członkowie:</label>
                             <div id="subtask-modal-assignees-list" style="margin-top: 8px;"></div>
+                        </div>
+                    </div>
+
+                    <div id="subtask-tab-content-status" class="task-modal-tab-content">
+                        <div id="subtask-multi-status-container" style="display: none; padding: 12px; background-color: var(--bg-tertiary); border-radius: var(--border-radius); border: 1px solid var(--border-color);">
+                            <h4 style="font-size: 13px; margin-bottom: 8px; color: var(--text-secondary);">Twoja część podzadania (Tryb Wieloosobowy)</h4>
+                            <div id="subtask-multi-action-area"></div>
+                            <p style="font-size: 11px; color: var(--text-secondary); margin-top: 8px;">
+                                Podzadanie zostanie oznaczone jako "Ukończone" automatycznie, gdy wszyscy uczestnicy ukończą swoje części.
+                            </p>
+                        </div>
+                        <div id="subtask-single-status-info" style="display: none; padding: 12px; text-align: center; color: var(--text-secondary);">
+                            To jest podzadanie jednoosobowe. Użyj przycisku "Zapisz" lub checkboxa na liście, aby je ukończyć.
                         </div>
                     </div>
 
@@ -26728,6 +26927,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
