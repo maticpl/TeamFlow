@@ -8120,6 +8120,35 @@ body.compact-mode .comment-item {
             inprogress: 'W trakcie realizacji',
             done: 'Wykonane'
         };
+       /**
+         * NOWA FUNKCJA POMOCNICZA
+         * Sprawdza, czy podani użytkownicy są członkami projektu. Jeśli nie, dodaje ich.
+         */
+        async function ensureProjectMembers(projectId, assigneeIds) {
+            if (!projectId || !assigneeIds || assigneeIds.length === 0) return;
+
+            const project = findProject(projectId);
+            if (!project) return;
+
+            // Znajdź ID użytkowników, którzy są na liście do przypisania, ale nie ma ich w projekcie
+            const missingMembers = assigneeIds.filter(id => !project.members.includes(id));
+
+            if (missingMembers.length > 0) {
+                console.log(`[Auto-Add] Dodawanie użytkowników do projektu ${project.name}:`, missingMembers);
+                
+                // 1. Zaktualizuj lokalny stan (dla natychmiastowego efektu UI)
+                project.members = [...project.members, ...missingMembers];
+                
+                // 2. Zaktualizuj Firestore
+                const projectRef = doc(projectsRef, projectId);
+                await updateDoc(projectRef, {
+                    members: arrayUnion(...missingMembers)
+                });
+
+                // 3. Wyślij powiadomienie
+                showNotification(`Dodano ${missingMembers.length} nowych osób do projektu.`, "Info");
+            }
+        }
        // === NOWA FUNKCJA POMOCNICZA ===
         /**
          * Zwraca czytelną nazwę statusu zadania, uwzględniając kolumny niestandardowe.
@@ -10679,7 +10708,8 @@ let state = {
         }
        
 // NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU (WERSJA NAPRAWIONA)
-function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null, adminIds = []) {
+// ZMIANA: Dodano 5. parametr 'currentProjectMemberIds' (domyślnie null)
+function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null, adminIds = [], currentProjectMemberIds = null) {
     containerElement.innerHTML = ''; // Zawsze czyścimy kontener na starcie
 
     const activeGroupId = state.ui.activeGroupId;
@@ -10778,6 +10808,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 `;
             }
             
+            // === NOWA LOGIKA: Sprawdzenie czy użytkownik jest w projekcie ===
+            // Jeśli currentProjectMemberIds jest null (np. nowy projekt), uznajemy że każdy jest "członkiem" (brak etykiety)
+            // Jeśli tablica jest podana, sprawdzamy ID.
+            const isProjectMember = currentProjectMemberIds ? currentProjectMemberIds.includes(user.id) : true;
+            const statusLabel = !isProjectMember ? '<span style="font-size: 10px; color: var(--text-secondary); margin-left: auto;">+Projekt</span>' : '';
+            const extraStyle = !isProjectMember ? 'border: 1px dashed var(--border-color); opacity: 0.9;' : '';
+            // === KONIEC ===
+
             const pill = document.createElement('div');
             pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}`;
             
@@ -10785,18 +10823,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             pill.style.width = '100%'; // Rozciągnij na całą szerokość
             pill.style.justifyContent = 'flex-start'; // Wyrównaj do lewej
             pill.style.borderRadius = '4px'; // Mniejsze zaokrąglenie dla listy
+            // Dodajemy extraStyle (przerywana ramka dla osób spoza projektu)
+            if (extraStyle) pill.style.cssText += extraStyle;
             // === KONIEC ZMIANY ===
 
             pill.dataset.userId = user.id;
             pill.title = user.name || user.email;
             
             // === ZMIANA: Dodanie numeracji do HTML ===
-            // Dodajemy span z numerem (index + 1)
+            // Dodano statusLabel na końcu
             pill.innerHTML = `
                 <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
                 ${avatarHTML} 
                 <span style="margin-left: 8px;">${user.name || user.email}</span> 
                 ${crownHTML}
+                ${statusLabel}
             `;
             // === KONIEC ZMIANY ===
             
@@ -14473,10 +14514,10 @@ function handleTaskFormChange(e) {
             taskModal.assigneesList.style.display = 'none';
             taskModal.assigneesEdit.style.display = 'block';
             
-            // 1. Pobierz i posortuj alfabetycznie
-            const membersOptions = (project.members || [])
-                .map(memberId => findUser(memberId))
-                .filter(Boolean)
+            // 1. Pobierz wszystkich użytkowników z grupy (zamiast tylko członków projektu)
+            const allGroupUsers = state.users || [];
+            const membersOptions = allGroupUsers
+                .slice()
                 .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
 
             // 2. Wygeneruj listę numerowaną
@@ -14484,20 +14525,21 @@ function handleTaskFormChange(e) {
                 const isSelected = task.assignees.includes(user.id);
                 const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
                 
-                // === ZMIANA: Dodanie klasy disabled, jeśli nie można edytować ===
-                // To zapobiegnie zmianie stanu po kliknięciu (dzięki listenerowi :not(.disabled))
+                // Sprawdź czy user jest w projekcie
+                const isMember = project.members.includes(user.id);
+                const extraStyle = isMember ? '' : 'border: 1px dashed var(--text-secondary); opacity: 0.9;';
+                const statusLabel = !isMember ? '<span style="font-size: 10px; color: var(--text-secondary); margin-left: auto;">+Projekt</span>' : '';
+
                 const disabledClass = !canEdit ? 'disabled' : '';
-                
-                // Style dla wiersza
-                // Dla read-only (disabled) zmieniamy kursor na default, żeby nie sugerował klikalności
                 const cursorStyle = !canEdit ? 'cursor: default;' : '';
-                const rowStyle = `width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px; ${cursorStyle}`;
+                const rowStyle = `width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px; ${cursorStyle} ${extraStyle}`;
 
                 return `
                     <div class="member-pill ${isSelected ? 'selected' : ''} ${disabledClass}" data-user-id="${user.id}" title="${user.name || user.email}" style="${rowStyle}">
                         <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
                         ${avatarHTML} 
                         <span style="margin-left: 8px;">${user.name || user.email}</span>
+                        ${statusLabel}
                     </div> `;
             }).join('');
            
@@ -14888,7 +14930,8 @@ function handleTaskFormChange(e) {
                 subtaskModal.assigneesList, 
                 selectedAssignees, 
                 project.ownerId, 
-                project.admins || []
+                project.admins || [],
+                project.members // <--- NOWY ARGUMENT: Lista obecnych członków do weryfikacji "+Projekt"
             );
             
             // Włącz wyszukiwarkę dla tej listy
@@ -15213,7 +15256,10 @@ function handleTaskFormChange(e) {
             }
 
             const newAssignees = Array.from(taskModal.assigneesEdit.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
-          
+            
+            // === NOWE: Automatyczne dodawanie osób spoza projektu ===
+            await ensureProjectMembers(project.id, newAssignees);
+            // ======================================================
 
             const newType = newAssignees.length > 1 ? 'multi' : 'single';
             const oldStatus = task.status;
@@ -15480,31 +15526,44 @@ function handleTaskFormChange(e) {
                 return;
             }
 
-            // 1. Pobierz i posortuj użytkowników alfabetycznie
-            const membersOptions = (project.members || [])
-                .map(memberId => findUser(memberId))
-                .filter(Boolean)
+            // === ZMIANA: Używamy wszystkich użytkowników grupy (state.users) zamiast tylko członków projektu ===
+            const allGroupUsers = state.users || [];
+            
+            const membersOptions = allGroupUsers
+                .slice() // Kopia tablicy
                 .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
 
-            newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => `<option value="${u.id}">${u.name || u.email}</option>`).join('');
+            // Generowanie opcji dla selecta (Single mode)
+            newTaskModal.assigneeSingleSelect.innerHTML = '<option value="">Nikt</option>' + membersOptions.map(u => {
+                const isMember = project.members.includes(u.id);
+                const suffix = isMember ? '' : ' (zostanie dodany)';
+                return `<option value="${u.id}">${u.name || u.email}${suffix}</option>`;
+            }).join('');
             
+            // Domyślnie zaznacz siebie
             if (membersOptions.some(u => u.id === state.currentUser.uid)) {
                 newTaskModal.assigneeSingleSelect.value = state.currentUser.uid;
             }
 
-            // 2. Wygeneruj listę w nowym stylu (pionowa, numerowana)
+            // Generowanie listy (Multi mode)
             newTaskModal.assigneeMultiList.innerHTML = membersOptions.map((u, index) => {
                 const isCurrentUser = u.id === state.currentUser.uid;
-                const avatarHTML = renderAvatarHTML(u, 'member-pill-avatar'); // Używamy helpera
+                const avatarHTML = renderAvatarHTML(u, 'member-pill-avatar');
                 
-                // Style dla wiersza (takie same jak w modalu projektu)
-                const rowStyle = 'width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px;';
+                // Sprawdź czy jest w projekcie
+                const isMember = project.members.includes(u.id);
+                const extraStyle = isMember ? '' : 'border: 1px dashed var(--text-secondary); opacity: 0.8;';
+                const titleSuffix = isMember ? '' : ' (Spoza projektu - zostanie dodany)';
+
+                // Style dla wiersza
+                const rowStyle = `width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px; ${extraStyle}`;
                 
                 return `
-                <div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${u.id}" title="${u.name || u.email}" style="${rowStyle}">
+                <div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${u.id}" title="${u.name || u.email}${titleSuffix}" style="${rowStyle}">
                     <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
                     ${avatarHTML}
                     <span style="margin-left: 8px;">${u.name || u.email}</span>
+                    ${!isMember ? '<span style="font-size: 10px; color: var(--text-secondary); margin-left: auto;">+Projekt</span>' : ''}
                 </div>`;
             }).join('');
         }
@@ -19613,6 +19672,12 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             assignees = Array.from(newTaskModal.assigneeMultiList.querySelectorAll('.member-pill.selected'))
                            .map(pill => pill.dataset.userId);
         }
+
+        // === NOWE: Automatyczne dodawanie osób spoza projektu ===
+        // Wywołujemy funkcję pomocniczą przed zapisem zadania.
+        // Jeśli ktoś z 'assignees' nie jest w 'project.members', zostanie dodany.
+        await ensureProjectMembers(projectId, assignees);
+        // ======================================================
         
         // === NOWA LOGIKA: Łączenie daty i czasu z 3 pól ===
         // Data Rozpoczęcia
@@ -23501,6 +23566,11 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      throw new Error("Podzadanie musi być przypisane do co najmniej jednej osoby.");
                  }
 
+                 // === NOWE: Automatyczne dodawanie osób spoza projektu ===
+                 // Używamy ID projektu z zadania nadrzędnego (project.id)
+                 await ensureProjectMembers(project.id, selectedAssignees);
+                 // ======================================================
+
                  // Budżet
                  let budgetItems = [];
                  if (subtaskModal.budgetToggle.checked) {
@@ -26658,6 +26728,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
