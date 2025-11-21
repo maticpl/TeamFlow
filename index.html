@@ -14007,114 +14007,176 @@ function handleTaskFormChange(e) {
             }
 
             subtaskModal.overlay.dataset.mainTaskId = mainTaskId;
-            subtaskStagedFiles = []; // Reset plików
+            subtaskStagedFiles = []; // Reset plików tymczasowych
 
-            // Reset formularza i UI
+            // Reset formularza i interfejsu
             subtaskModal.form.reset();
             subtaskModal.budgetDetails.style.display = 'none';
             subtaskModal.attachmentsList.innerHTML = '';
             subtaskModal.commentsList.innerHTML = '';
             
+            // Wyczyść i ukryj komunikaty błędów dat
+            if(subtaskModal.startError) subtaskModal.startError.style.display = 'none';
+            if(subtaskModal.dueError) subtaskModal.dueError.style.display = 'none';
+            
+            // Ustaw domyślne godziny (dla wygody użytkownika)
+            subtaskModal.startDateHour.value = '10'; subtaskModal.startDateMinute.value = '00';
+            subtaskModal.dueDateHour.value = '12'; subtaskModal.dueDateMinute.value = '00';
+
             // Reset zakładek do pierwszej (Opis)
-    subtaskModal.tabsContainer.querySelector('[data-tab="description"]').click();
+            // Sprawdzamy czy element istnieje, żeby uniknąć błędu
+            if(subtaskModal.tabsContainer && subtaskModal.tabsContainer.querySelector('[data-tab="description"]')) {
+                subtaskModal.tabsContainer.querySelector('[data-tab="description"]').click();
+            }
 
-    // === NOWA LOGIKA: Reset i Walidacja Dat ===
-    subtaskModal.startDateInput.value = '';
-    subtaskModal.dueDateInput.value = '';
-    
-    // Usuwamy stare ograniczenia (żeby nie zostały z poprzedniego otwarcia)
-    subtaskModal.startDateInput.min = '';
-    subtaskModal.startDateInput.max = '';
-    subtaskModal.dueDateInput.min = '';
-    subtaskModal.dueDateInput.max = '';
-
-    // Jeśli zadanie główne ma datę startu, podzadanie nie może zacząć się wcześniej
-    if (mainTask.startDate) {
-        subtaskModal.startDateInput.min = mainTask.startDate;
-        subtaskModal.dueDateInput.min = mainTask.startDate;
-    }
-
-    // Jeśli zadanie główne ma termin końca, podzadanie nie może skończyć się później
-    if (mainTask.dueDate) {
-        subtaskModal.startDateInput.max = mainTask.dueDate;
-        subtaskModal.dueDateInput.max = mainTask.dueDate;
-    }
-    // === KONIEC NOWEJ LOGIKI ===
-
-    // --- 1. Konfiguracja warunkowa (Wysiłek / Budżet) ---
+            // --- 1. Konfiguracja Wysiłku (Effort) i Budżetu ---
             const estimationType = project.estimationType || 'none';
             if (estimationType === 'none') {
                 subtaskModal.tabEffort.style.display = 'none';
             } else {
-                subtaskModal.tabEffort.style.display = 'block';
-                subtaskModal.effortLabel.textContent = estimationType === 'points' ? 'Story Points' : 'Szacowane godziny';
+                subtaskModal.tabEffort.style.display = 'flex';
+                subtaskModal.effortLabel.textContent = estimationType === 'points' ? 'Szacowane Story Points' : 'Szacowane godziny';
                 subtaskModal.effortUnit.textContent = estimationType === 'points' ? 'pkt' : 'h';
+                // Resetuj pola
+                subtaskModal.effortInput.value = '';
+                subtaskModal.actualEffortInput.value = '';
             }
 
             const hasProjectBudget = project.budget && parseFloat(project.budget.amount) > 0;
-            if (hasProjectBudget) {
-                subtaskModal.tabBudget.style.display = 'block';
-            } else {
-                subtaskModal.tabBudget.style.display = 'none';
+            subtaskModal.tabBudget.style.display = hasProjectBudget ? 'flex' : 'none';
+
+            // --- 2. Logika Dat i Walidacja ---
+            // Reset ograniczeń inputów
+            subtaskModal.startDateDate.min = '';
+            subtaskModal.startDateDate.max = '';
+            subtaskModal.dueDateDate.min = '';
+            subtaskModal.dueDateDate.max = '';
+
+            // Ustaw ograniczenia na podstawie zadania GŁÓWNEGO
+            if (mainTask.startDate) {
+                const mainStartISO = mainTask.startDate.split('T')[0];
+                // Podzadanie nie może zacząć się wcześniej niż zadanie główne
+                subtaskModal.startDateDate.min = mainStartISO; 
+                subtaskModal.dueDateDate.min = mainStartISO;
+            }
+            if (mainTask.dueDate) {
+                const mainDueISO = mainTask.dueDate.split('T')[0];
+                // Podzadanie nie może skończyć się później niż zadanie główne
+                subtaskModal.startDateDate.max = mainDueISO;
+                subtaskModal.dueDateDate.max = mainDueISO;
             }
 
-            // --- 2. Wypełnianie danymi ---
+            // Funkcja walidująca daty "na żywo"
+            const validateDates = () => {
+                subtaskModal.startError.style.display = 'none';
+                subtaskModal.dueError.style.display = 'none';
+                
+                const sDate = subtaskModal.startDateDate.value;
+                const dDate = subtaskModal.dueDateDate.value;
+
+                // Sprawdź czy data startu mieści się w zakresie głównego zadania
+                if (sDate && mainTask.startDate && sDate < mainTask.startDate.split('T')[0]) {
+                    subtaskModal.startError.textContent = "Data startu jest wcześniejsza niż start zadania głównego!";
+                    subtaskModal.startError.style.display = 'block';
+                    subtaskModal.startDateDate.value = ''; // Resetuj błędną datę
+                }
+                // Sprawdź czy termin wykonania mieści się w zakresie głównego zadania
+                if (dDate && mainTask.dueDate && dDate > mainTask.dueDate.split('T')[0]) {
+                    subtaskModal.dueError.textContent = "Termin wykracza poza termin zadania głównego!";
+                    subtaskModal.dueError.style.display = 'block';
+                    subtaskModal.dueDateDate.value = ''; // Resetuj błędną datę
+                }
+                // Sprawdź relację Start < Koniec w samym podzadaniu
+                if (sDate && dDate && sDate > dDate) {
+                    subtaskModal.dueError.textContent = "Termin wykonania musi być późniejszy niż start.";
+                    subtaskModal.dueError.style.display = 'block';
+                    // Nie resetujemy tutaj, dajemy użytkownikowi poprawić
+                }
+            };
+            
+            // Podepnij listenery walidacji (unikamy wielokrotnego podpinania przez przypisanie onchange)
+            subtaskModal.startDateDate.onchange = validateDates;
+            subtaskModal.dueDateDate.onchange = validateDates;
+
+
+            // --- 3. Wypełnianie danymi (Edycja vs Tworzenie) ---
             let selectedAssignees = [];
             
             if (subtaskId) {
                 // --- TRYB EDYCJI ---
                 const subtask = (mainTask.subtasks || []).find(s => s.id === subtaskId);
-                if (!subtask) { return; }
+                if (!subtask) return;
 
                 subtaskModal.modalTitle.textContent = 'Edytuj podzadanie';
                 subtaskModal.subtaskIdInput.value = subtaskId;
                 
-                // Podstawowe
+                // Dane podstawowe
                 subtaskModal.titleInput.value = subtask.title;
-    subtaskModal.descriptionInput.value = subtask.description || '';
-    subtaskModal.startDateInput.value = subtask.startDate || ''; // <--- Wczytujemy start
-    subtaskModal.dueDateInput.value = subtask.dueDate || '';
+                subtaskModal.descriptionInput.value = subtask.description || '';
+                
+                // Rozbijanie daty startu (jeśli istnieje)
+                if (subtask.startDate) {
+                    const parts = subtask.startDate.split('T');
+                    subtaskModal.startDateDate.value = parts[0];
+                    if (parts[1]) {
+                        const time = parts[1].split(':');
+                        subtaskModal.startDateHour.value = time[0];
+                        subtaskModal.startDateMinute.value = time[1];
+                    }
+                }
+                
+                // Rozbijanie terminu wykonania (jeśli istnieje)
+                if (subtask.dueDate) {
+                    const parts = subtask.dueDate.split('T');
+                    subtaskModal.dueDateDate.value = parts[0];
+                    if (parts[1]) {
+                        const time = parts[1].split(':');
+                        subtaskModal.dueDateHour.value = time[0];
+                        subtaskModal.dueDateMinute.value = time[1];
+                    }
+                }
+                
+                // Wysiłek
                 if (subtask.effort) subtaskModal.effortInput.value = subtask.effort;
+                if (subtask.actualEffort) subtaskModal.actualEffortInput.value = subtask.actualEffort;
 
                 selectedAssignees = subtask.assignees || [];
 
-                // Budżet
+                // Budżet: Wczytaj pozycje i wyrenderuj
                 if (hasProjectBudget && subtask.budgetItems && subtask.budgetItems.length > 0) {
                     subtaskModal.budgetToggle.checked = true;
                     subtaskModal.budgetDetails.style.display = 'block';
                     const projectItemNames = project.budget.items.map(i => i.name);
                     
+                    // Używamy existing helper function renderTaskBudgetItemHTML
                     subtaskModal.budgetItemsList.innerHTML = subtask.budgetItems.map((item, idx) => 
                         renderTaskBudgetItemHTML(item, idx, projectItemNames)
                     ).join('');
-                } else {
-                    subtaskModal.budgetItemsList.innerHTML = '';
                 }
 
-                // Załączniki (Istniejące + logika usuwania)
-                // Uwaga: Tutaj wyświetlamy tylko listę linków do istniejących.
-                // Nowe pliki dodawane są przez subtaskStagedFiles
-                if (subtask.attachments && subtask.attachments.length > 0) {
+                // Załączniki: Wyświetl linki do istniejących
+                if (subtask.attachments) {
                     subtask.attachments.forEach(att => {
                         const li = document.createElement('li');
-                        li.className = 'staged-attachment-item'; // Używamy tego samego stylu co dla staged
+                        li.className = 'staged-attachment-item';
                         li.innerHTML = `
                             <div class="staged-attachment-info">
                                 <a href="${att.url}" target="_blank" style="text-decoration:none; color:inherit;">${att.name}</a>
                             </div>
-                            <button type="button" class="delete-subtask-existing-att-btn" data-path="${att.path}" style="color:red;">&times;</button>
-                        `;
+                            `;
                         subtaskModal.attachmentsList.appendChild(li);
                     });
                 }
-
-                // Komentarze (Tylko do odczytu + dodawanie nowych przez pole tekstowe)
-                if (subtask.comments && subtask.comments.length > 0) {
+                
+                // Komentarze: Wyświetl historię
+                if (subtask.comments) {
                     subtask.comments.forEach(c => {
                         const user = findUser(c.userId);
                         const li = document.createElement('li');
                         li.className = 'comment-item';
-                        li.innerHTML = `<small><strong>${user ? user.name : 'Ktoś'}</strong>: ${c.text}</small>`;
+                        // Używamy parseMentions (jeśli dostępna) lub zwykłego tekstu
+                        const textContent = typeof parseMentions === 'function' ? parseMentions(c.text) : c.text;
+                        li.innerHTML = `<small><strong>${user ? user.name : 'Ktoś'}</strong>: ${textContent}</small>`;
                         subtaskModal.commentsList.appendChild(li);
                     });
                 }
@@ -14123,14 +14185,51 @@ function handleTaskFormChange(e) {
                 // --- TRYB TWORZENIA ---
                 subtaskModal.modalTitle.textContent = 'Dodaj podzadanie';
                 subtaskModal.subtaskIdInput.value = '';
-                selectedAssignees = mainTask.assignees || []; // Domyślnie przypisz tych co w zadaniu głównym
+                // Domyślnie przypisz tych samych co w zadaniu głównym
+                selectedAssignees = mainTask.assignees || [];
+                
+                // Domyślne daty: Dziś
+                const today = new Date().toISOString().split('T')[0];
+                subtaskModal.startDateDate.value = today;
+                // Jeśli zadanie główne ma daty, walidator przypilnuje zakresów
             }
 
-            // 3. Inicjalizacja Wyszukiwarki i Listy Osób
-            // Używamy uniwersalnej wyszukiwarki
+            // Inicjalizacja wzmianek (Tribute) w polu komentarza
+            // Używamy tej samej logiki co w głównym zadaniu
+            if (typeof Tribute !== 'undefined' && !window.subtaskTributeInstance) {
+                 try {
+                    window.subtaskTributeInstance = new Tribute({
+                        trigger: '@',
+                        values: (text, cb) => {
+                            const users = project.members.map(findUser).filter(Boolean).map(u => ({
+                                name: u.name || u.email,
+                                value: (u.name || u.email).replace(/[^a-zA-Z0-9]/g, ''),
+                                avatarHTML: renderAvatarHTML(u, 'avatar-mention')
+                            }));
+                            cb(users);
+                        },
+                        lookup: 'name',
+                        itemTemplate: item => `${item.original.avatarHTML} <span>${item.original.name}</span>`,
+                        selectTemplate: item => `@${item.original.value}`,
+                        allowSpaces: false,
+                        menuItemLimit: 5
+                    });
+                    window.subtaskTributeInstance.attach(subtaskModal.commentInput);
+                } catch (e) { console.error("Tribute subtask init error", e); }
+            }
+
+            // Zbuduj listę osób (używamy stylu akordeonu)
+            // Używamy existing helper function buildTeamMembersAccordion
+            // Przekazujemy kontener subtaskModal.assigneesList
+            buildTeamMembersAccordion(
+                subtaskModal.assigneesList, 
+                selectedAssignees, 
+                project.ownerId, 
+                project.admins || []
+            );
+            
+            // Włącz wyszukiwarkę dla tej listy
             setupUserSearch(subtaskModal.memberSearchInput, subtaskModal.memberSearchResults, subtaskModal.assigneesList);
-            // Budujemy listę pigułek
-            buildSubtaskAssigneePills(subtaskModal.assigneesList, project.members, selectedAssignees);
 
             openModal(subtaskModal.overlay);
         }
@@ -22650,11 +22749,6 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              const subtaskId = subtaskModal.subtaskIdInput.value; 
              const title = subtaskModal.titleInput.value.trim();
 
-             if (!mainTaskId) {
-                 console.error("Brak ID zadania głównego.");
-                 return;
-             }
-
              if (!title) {
                  showNotification("Tytuł jest wymagany.", "Błąd");
                  return;
@@ -22670,13 +22764,26 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              subtaskModal.saveBtn.textContent = 'Zapisywanie...';
 
              try {
-        // 1. Zbieranie danych z formularza
-        const description = subtaskModal.descriptionInput.value;
-        const startDate = subtaskModal.startDateInput.value; // <--- Pobieramy datę startu
-        const dueDate = subtaskModal.dueDateInput.value;
-        const effort = subtaskModal.effortInput.value ? parseFloat(subtaskModal.effortInput.value) : null;
+                 // --- 1. Zbieranie danych ---
+                 const description = subtaskModal.descriptionInput.value;
                  
-                 // --- 2. Osoby ---
+                 // Składanie daty rozpoczęcia (YYYY-MM-DD + T + HH:MM)
+                 let startDate = null;
+                 if (subtaskModal.startDateDate.value) {
+                     startDate = `${subtaskModal.startDateDate.value}T${subtaskModal.startDateHour.value}:${subtaskModal.startDateMinute.value}`;
+                 }
+
+                 // Składanie terminu wykonania (YYYY-MM-DD + T + HH:MM)
+                 let dueDate = null;
+                 if (subtaskModal.dueDateDate.value) {
+                     dueDate = `${subtaskModal.dueDateDate.value}T${subtaskModal.dueDateHour.value}:${subtaskModal.dueDateMinute.value}`;
+                 }
+                 
+                 // Wysiłek
+                 const effort = subtaskModal.effortInput.value ? parseFloat(subtaskModal.effortInput.value) : null;
+                 const actualEffort = subtaskModal.actualEffortInput.value ? parseFloat(subtaskModal.actualEffortInput.value) : null;
+                 
+                 // Osoby (z "eleganckiej" listy pigułek)
                  const selectedAssignees = Array.from(subtaskModal.assigneesList.querySelectorAll('.member-pill.selected'))
                                                .map(pill => pill.dataset.userId);
                  
@@ -22684,7 +22791,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      throw new Error("Podzadanie musi być przypisane do co najmniej jednej osoby.");
                  }
 
-                 // --- 3. Budżet ---
+                 // Budżet
                  let budgetItems = [];
                  if (subtaskModal.budgetToggle.checked) {
                      subtaskModal.budgetItemsList.querySelectorAll('li.budget-item').forEach(li => {
@@ -22701,7 +22808,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      });
                  }
 
-                 // --- 4. Komentarz (Nowy) ---
+                 // Komentarz (Nowy)
                  const newCommentText = subtaskModal.commentInput.value.trim();
                  let newCommentObj = null;
                  if (newCommentText) {
@@ -22713,7 +22820,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      };
                  }
 
-                 // --- 5. Przesyłanie plików (Staged Files) ---
+                 // Przesyłanie plików (Staged Files)
                  let newAttachments = [];
                  if (subtaskStagedFiles.length > 0) {
                      subtaskModal.saveBtn.textContent = `Przesyłanie plików (${subtaskStagedFiles.length})...`;
@@ -22737,7 +22844,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      newAttachments = await Promise.all(uploadPromises);
                  }
 
-                 // --- 6. Konstrukcja/Aktualizacja Obiektu Podzadania ---
+                 // --- 2. Konstrukcja/Aktualizacja Obiektu Podzadania ---
                  let updatedSubtasks = [...(mainTask.subtasks || [])];
                  let currentUpdatedSubtask = null; // Do użycia po zapisie
                  
@@ -22758,9 +22865,10 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                                  ...s,
                                  title,
                                  description,
-                                 startDate,
-                                 dueDate,
+                                 startDate,   // Zapisz złożoną datę startu
+                                 dueDate,     // Zapisz złożony termin
                                  effort,
+                                 actualEffort,
                                  budgetItems,
                                  assignees: selectedAssignees,
                                  completedBy: currentCompletedBy,
@@ -22778,9 +22886,10 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
                          title,
                          description,
-                         startDate,
-                         dueDate,
+                         startDate,   // Zapisz złożoną datę startu
+                         dueDate,     // Zapisz złożony termin
                          effort,
+                         actualEffort,
                          budgetItems,
                          assignees: selectedAssignees,
                          isCompleted: false,
@@ -22794,27 +22903,28 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      currentUpdatedSubtask = newSubtask;
                  }
 
-                 // --- 7. Zapis do Firestore ---
+                 // --- 3. Zapis do Firestore ---
                  const updatedTask = { ...mainTask, subtasks: updatedSubtasks };
                  
                  const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                  const allTasks = project.tasks.map(t => t.id === mainTaskId ? updatedTask : t);
                  
-                 // Aktualizujemy listę zadań w projekcie
-                 // (UWAGA: W tym kroku nie aktualizujemy globalnego budżetu projektu na podstawie podzadań, 
-                 // ponieważ funkcja calculateProjectBudgetSummary patrzy na zadania główne. 
-                 // Jest to zgodne z obecną architekturą.)
                  await updateDoc(projectDocRef, { tasks: allTasks });
 
-                 // --- 8. Finalizacja ---
+                 // --- 4. Finalizacja ---
                  closeModal(subtaskModal.overlay);
                  
                  // Odśwież listę podzadań w modalu zadania głównego
                  renderSubtaskListInMainModal(updatedTask);
                  
                  // Sprawdź, czy zmiana podzadania wpływa na ukończenie zadania głównego
+                 // Uwaga: w Twoim kodzie funkcja nazywa się `checkAndCompleteMainTask`
+                 // i przyjmuje `updatedTask` i `project`.
                  await checkAndCompleteMainTask(updatedTask, project);
                  
+                 // Sprawdź autouzupełnianie mojej części (funkcja zaimplementowana wcześniej)
+                 await checkSubtasksAndCompleteMyPart(updatedTask, project);
+
                  showNotification("Podzadanie zapisane pomyślnie.", "Sukces");
 
              } catch (error) {
@@ -25860,6 +25970,7 @@ HTML
 </div>
 </body>
 </html>
+
 
 
 
