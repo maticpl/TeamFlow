@@ -6125,6 +6125,109 @@ body.compact-mode .comment-item {
     margin-bottom: 6px;
 }
 /* === KONIEC STYLI KOMPAKTOWYCH === */
+        /* === NOWE STYLE: Rodzina Podzadań (Subtask Family) === */
+.subtask-visual-card {
+    /* Wcięcie od lewej o ok. 2cm (50px) */
+    margin-left: 50px; 
+    width: calc(100% - 50px);
+    
+    /* Wygląd bazowy */
+    background-color: var(--bg-secondary);
+    border-radius: var(--border-radius);
+    padding: 10px 12px; /* Nieco mniejszy padding niż główne zadanie */
+    margin-top: 4px;
+    margin-bottom: 8px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-color); /* Domyślna ramka */
+    position: relative;
+    
+    /* Efekt mgły */
+    opacity: 0.6;
+    transition: all 0.2s ease-in-out;
+    cursor: pointer;
+}
+
+/* Pełna widoczność po najechaniu */
+.subtask-visual-card:hover {
+    opacity: 1;
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    z-index: 5;
+    border-color: var(--accent-primary);
+}
+
+/* Checkbox w podzadaniu - pozycjonowanie */
+.subtask-visual-card .subtask-card-checkbox {
+    position: absolute;
+    left: 10px;
+    top: 12px;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+/* Tytuł podzadania */
+.subtask-visual-card h5 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    padding-left: 24px; /* Miejsce na checkbox */
+    color: var(--text-primary);
+    white-space: normal;
+    word-break: break-word;
+}
+
+/* Przekreślenie ukończonego */
+.subtask-visual-card.completed h5 {
+    text-decoration: line-through;
+    color: var(--text-secondary);
+}
+
+/* Kontener ikon (kopia logiki z task-card) */
+.subtask-visual-icons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-bottom: 4px;
+    padding-left: 24px;
+}
+
+/* Stopka podzadania (daty i awatary) */
+.subtask-visual-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-left: 24px;
+}
+
+/* Styl daty w stopce */
+.subtask-visual-date {
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Styl linii łączącej (opcjonalny smaczek wizualny) */
+.subtask-visual-card::before {
+    content: '';
+    position: absolute;
+    left: -25px; /* Połowa wcięcia */
+    top: -14px; /* Zaczepienie o kartę wyżej */
+    height: calc(100% + 14px);
+    width: 20px;
+    border-left: 2px solid var(--border-color);
+    border-bottom: 2px solid var(--border-color);
+    border-bottom-left-radius: 8px;
+    pointer-events: none;
+    opacity: 0.5;
+}
+/* Ukrycie linii dla pierwszego elementu, jeśli chcemy (opcjonalne) */
+.subtask-visual-card:first-of-type::before {
+    height: 30px; /* Krótsza linia dla pierwszego */
+    top: -6px;
+}
     </style>
 
 </head>
@@ -12787,6 +12890,137 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 `;
             }
         }
+       /**
+         * === NOWA FUNKCJA ===
+         * Generuje HTML dla wizualnego kafelka podzadania (rodzina podzadań).
+         */
+        function createVisualSubtaskCardHTML(subtask, parentTask, project) {
+            const isCompleted = subtask.isCompleted;
+            
+            // Dziedziczenie koloru tła od rodzica
+            let customStyle = '';
+            if (parentTask.backgroundColor) {
+                customStyle = `style="background-color: ${parentTask.backgroundColor};"`;
+            }
+
+            // Checkbox (używamy klasy .kanban-subtask-checkbox, aby działał istniejący listener)
+            // Dodajemy data-subtask-id, aby listener wiedział co odznaczyć
+            // Uwaga: Listener w mainie szuka .kanban-subtask-checkbox wewnątrz .task-card.
+            // Musimy zapewnić, że struktura to umożliwia.
+            const canIComplete = (subtask.assignees || []).includes(state.currentUser.uid);
+            const checkboxHTML = `
+                <input type="checkbox" 
+                       class="subtask-card-checkbox kanban-subtask-checkbox" 
+                       data-subtask-id="${subtask.id}"
+                       ${isCompleted ? 'checked' : ''}
+                       ${!canIComplete ? 'disabled' : ''}
+                       title="${canIComplete ? 'Oznacz swoją część' : 'Nie jesteś przypisany/a'}">
+            `;
+
+            // Tytuł
+            const titleHTML = `<h5>${subtask.title}</h5>`;
+
+            // --- GENEROWANIE IKON (KOPIA LOGIKI Z TASK CARD) ---
+            let iconsHTML = '';
+            
+            // 1. Budżet
+            let budgetIcon = '';
+            if (subtask.budgetItems && subtask.budgetItems.length > 0) {
+                 const total = subtask.budgetItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                 const currency = project?.budget?.currency || '';
+                 const formatted = total.toLocaleString('pl-PL', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+                 budgetIcon = `<div class="task-detail" title="Budżet podzadania: ${formatted} ${currency}" style="transform: scale(0.9);">
+                     ${SVG_BUDGET_ICON}
+                 </div>`;
+            }
+
+            // 2. Załączniki
+            let attIcon = '';
+            if (subtask.attachments && subtask.attachments.length > 0) {
+                attIcon = `<div class="task-detail" title="Załączniki: ${subtask.attachments.length}">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.94l-7.693 7.693a2.25 2.25 0 003.182 3.182l7.693-7.693a.75.75 0 011.06 1.06l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32" /></svg>
+                </div>`;
+            }
+
+            // 3. Komentarze
+            let commIcon = '';
+            if (subtask.comments && subtask.comments.length > 0) {
+                commIcon = `<div class="task-detail" title="Komentarze: ${subtask.comments.length}">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" /></svg>
+                </div>`;
+            }
+
+            // 4. Wysiłek
+            let effortIcon = '';
+            if (project.estimationType !== 'none' && (subtask.effort > 0 || subtask.actualEffort > 0)) {
+                const est = subtask.effort || 0;
+                const act = subtask.actualEffort || est; // Fallback
+                let color = "currentColor";
+                if (act > est) color = "var(--danger-primary)";
+                else if (act < est) color = "var(--success-primary)";
+                
+                effortIcon = `<div class="task-detail" title="Wysiłek: ${est}/${act}">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${color}" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                </div>`;
+            }
+
+            iconsHTML = `<div class="subtask-visual-icons">${effortIcon}${attIcon}${commIcon}${budgetIcon}</div>`;
+
+            // --- STOPKA (DATY I AWATARY) ---
+            
+            // Daty
+            let dateHTML = '';
+            if (subtask.startDate || subtask.dueDate) {
+                const startStr = subtask.startDate ? new Date(subtask.startDate).toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit'}) : '';
+                const dueStr = subtask.dueDate ? new Date(subtask.dueDate).toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit'}) : '';
+                
+                // Sprawdź opóźnienie
+                const isOverdue = subtask.dueDate && new Date(subtask.dueDate).getTime() < Date.now() && !isCompleted;
+                const dueStyle = isOverdue ? 'color: var(--danger-primary); font-weight: 700;' : '';
+
+                dateHTML = `
+                    <div class="subtask-visual-date">
+                        ${startStr ? `<span title="Start">${startStr}</span>` : ''}
+                        ${(startStr && dueStr) ? '<span>-</span>' : ''}
+                        ${dueStr ? `<span title="Koniec" style="${dueStyle}">${dueStr}</span>` : ''}
+                    </div>
+                `;
+            }
+
+            // Awatary
+            const assigneesHTML = (subtask.assignees || [])
+                .map(uid => findUser(uid))
+                .filter(Boolean)
+                .slice(0, 3) // Max 3 awatary
+                .map(user => {
+                    // Używamy inline styles dla mini-awatarów w podzadaniu
+                    return renderAvatarHTML(user, 'avatar')
+                        .replace('class="avatar"', 'class="avatar" style="width:20px; height:20px; font-size:10px; margin-left:-6px; border:1px solid var(--bg-secondary);"');
+                })
+                .join('');
+            
+            const avatarsContainer = `<div class="task-assignees" style="margin-left: auto;">${assigneesHTML}</div>`;
+
+            // --- SKŁADANIE CAŁOŚCI ---
+            // Dodajemy atrybut data-subtask-id i data-parent-id dla obsługi kliknięć (modal)
+            return `
+                <div class="subtask-visual-card ${isCompleted ? 'completed' : ''}" 
+                     ${customStyle}
+                     data-subtask-id="${subtask.id}"
+                     data-parent-id="${parentTask.id}"
+                     onclick="event.stopPropagation(); openSubtaskModal('${parentTask.id}', '${subtask.id}')">
+                    
+                    ${checkboxHTML}
+                    ${titleHTML}
+                    ${iconsHTML}
+                    
+                    <div class="subtask-visual-meta">
+                        ${dateHTML}
+                        ${avatarsContainer}
+                    </div>
+                </div>
+            `;
+        }
             function createTaskCardHTML(task, isInteractive, project) {
             const isCompleted = task.status === 'done';
             const priorityClass = task.priority === 'high' ? 'priority-high' : (task.priority === 'low' ? 'priority-low' : '');
@@ -13108,12 +13342,20 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     <div class="task-assignees">${assigneesHTML}</div>
                 </div>
                 
-                <div class="kanban-subtask-list-container collapsed">
-                    <ul class="kanban-subtask-list">
+                <div class="kanban-subtask-list-container collapsed" style="display: none;"> <ul class="kanban-subtask-list">
                         ${subtasksListHTML}
                     </ul>
                 </div>
-                ${multiStatusListHTML} </li>`;
+                ${multiStatusListHTML} 
+                
+                ${
+                    (task.subtasks && task.subtasks.length > 0) 
+                    ? `<div class="subtask-family-container">
+                        ${task.subtasks.map(subtask => createVisualSubtaskCardHTML(subtask, task, project)).join('')}
+                       </div>`
+                    : ''
+                }
+                </li>`;
         }
        // === NOWE FUNKCJE CZATU PROJEKTU ===
 
@@ -25948,6 +26190,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
