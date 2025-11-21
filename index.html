@@ -1348,18 +1348,137 @@
         .kanban-tasks { list-style: none; flex-grow: 1; overflow-y: auto; padding-right: 4px; }
         .kanban-tasks::-webkit-scrollbar { width: 6px; }
         .kanban-tasks::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 3px; }
-         .task-card,
-         .my-day-task-item { /* Dodano .my-day-task-item */
+         /* --- ZMIANA: .task-card jest teraz tylko logicznym kontenerem (przezroczystym) --- */
+         .task-card {
+            background-color: transparent; /* Tło przezroczyste */
+            border: none;                 /* Brak ramki */
+            box-shadow: none;             /* Brak cienia */
+            padding: 0;                   /* Brak paddingu */
+            margin-bottom: 4px;           /* Odstęp między rodzinami zadań */
+            position: relative;
+            cursor: default;              /* Kursor domyślny na kontenerze */
+            transition: all 0.2s;
+         }
+
+         /* --- NOWA KLASA: To jest teraz wizualny "biały kafelek" głównego zadania --- */
+         .task-card-main-content,
+         .my-day-task-item { 
             background-color: var(--bg-secondary);
             border-radius: var(--border-radius);
-            padding: 12px; /* <<< ZMIANA: Usunięto 36px z lewej */
-            margin-bottom: 12px;
+            padding: 12px; 
             box-shadow: var(--shadow-sm);
-            cursor: pointer;
-            transition: all 0.2s;
+            cursor: pointer; /* Kursor łapki tylko na kafelku */
             position: relative;
-            border: 1px solid var(--accent-primary); /* Ogólna niebieska obwódka */
+            border: 1px solid var(--accent-primary);
+            z-index: 2; /* Ważne: musi być nad linią łączącą */
          }
+         
+         /* Przeniesienie styli priorytetów na wewnętrzny content */
+         .task-card-main-content.priority-high {
+            border-top: 4px solid var(--priority-high-border);
+            padding-top: 8px; 
+        }
+        .task-card-main-content.priority-low {
+             border-top: 6px solid var(--priority-low-border);
+             padding-top: 6px; 
+        }
+        
+        /* Hover działa na wewnętrzny element */
+        .task-card-main-content:hover { box-shadow: var(--shadow-md); }
+        
+        /* Style drag & drop */
+        .task-card.dragging .task-card-main-content { opacity: 0.5; transform: rotate(3deg); }
+
+
+        /* --- NOWE STYLE DLA DRZEWA PODZADAŃ --- */
+        
+        /* Kontener na rodzinę podzadań */
+        .subtask-family-container {
+            margin-left: 24px; /* Wcięcie główne */
+            padding-left: 12px; /* Odstęp od linii pionowej */
+            border-left: 2px solid var(--border-color); /* PIONOWA LINIA "DRZEWA" */
+            padding-top: 8px;
+            padding-bottom: 4px;
+        }
+
+        /* Wizualny kafelek podzadania */
+        .subtask-visual-card {
+            position: relative;
+            background-color: var(--bg-secondary);
+            border-radius: var(--border-radius);
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            
+            /* Efekt mgły (zgodnie z życzeniem) */
+            opacity: 0.75; 
+            transition: all 0.2s;
+        }
+
+        /* Pozioma linia łącząca ("gałąź") */
+        .subtask-visual-card::before {
+            content: '';
+            position: absolute;
+            left: -14px; /* Wychodzi w lewo do pionowej linii */
+            top: 50%;
+            width: 14px;
+            height: 2px;
+            background-color: var(--border-color);
+        }
+
+        .subtask-visual-card:hover {
+            opacity: 1; /* Odzyskaj kolor */
+            transform: translateX(2px); /* Lekki ruch w prawo */
+            box-shadow: var(--shadow-md);
+            border-color: var(--accent-primary);
+            z-index: 5;
+        }
+
+        /* Styl przekreślenia dla ukończonych podzadań */
+        .subtask-visual-card.completed h5 {
+            text-decoration: line-through;
+            color: var(--text-secondary);
+        }
+
+        /* Checkbox w podzadaniu */
+        .subtask-visual-card .subtask-card-checkbox {
+            position: absolute;
+            left: 8px;
+            top: 10px;
+            width: 14px;
+            height: 14px;
+            cursor: pointer;
+        }
+        
+        /* Tytuł podzadania */
+        .subtask-visual-card h5 {
+            font-size: 13px;
+            font-weight: 600;
+            margin: 0 0 6px 0;
+            padding-left: 20px; /* Miejsce na checkbox */
+            color: var(--text-primary);
+        }
+
+        /* Ikony w podzadaniu */
+        .subtask-visual-icons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 4px;
+            margin-bottom: 4px;
+            padding-left: 20px;
+        }
+
+        /* Stopka podzadania */
+        .subtask-visual-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-left: 20px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
 
          /* === NOWA REGUŁA: Karta z dwoma rzędami ikon (Unikanie nakładania awatarów) === */
          .task-card.has-double-row-icons {
@@ -12898,7 +13017,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const isCompleted = subtask.isCompleted;
             
             // Dziedziczenie koloru tła od rodzica
-            let customStyle = '';
+           let customStyle = '';
             if (parentTask.backgroundColor) {
                 customStyle = `style="background-color: ${parentTask.backgroundColor};"`;
             }
@@ -13002,14 +13121,13 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
             const avatarsContainer = `<div class="task-assignees" style="margin-left: auto;">${assigneesHTML}</div>`;
 
-            // --- SKŁADANIE CAŁOŚCI ---
+           // --- SKŁADANIE CAŁOŚCI ---
             // Dodajemy atrybut data-subtask-id i data-parent-id dla obsługi kliknięć (modal)
             return `
                 <div class="subtask-visual-card ${isCompleted ? 'completed' : ''}" 
                      ${customStyle}
                      data-subtask-id="${subtask.id}"
-                     data-parent-id="${parentTask.id}"
-                     onclick="event.stopPropagation(); openSubtaskModal('${parentTask.id}', '${subtask.id}')">
+                     data-parent-id="${parentTask.id}"> 
                     
                     ${checkboxHTML}
                     ${titleHTML}
@@ -13319,35 +13437,37 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // Składanie ikon (ZAMIENIAMY multiUserIcon na multiStatusIcon jeśli istnieje)
             const finalMultiIcon = multiStatusIcon || multiUserIcon; 
-            
-            // === ZMIANA UKŁADU IKON (Jeden rząd pod tytułem) ===
-            // Kolejność: Multi -> Podzadania -> Cykliczność -> Wysiłek -> Załączniki -> Komentarze -> Budżet
             const allIcons = `${finalMultiIcon}${subtaskIcon}${recurringIcon}${effortIcon}${attachmentIcon}${commentIcon}${budgetIcon}`;
-
-            // Opakowujemy w kontener (jeśli są jakiekolwiek ikony)
             const iconsHTML = allIcons ? `<div class="task-card-icons">${allIcons}</div>` : '';
-            
-            // Usuwamy klasę doubleRowClass, bo już jej nie potrzebujemy
             const doubleRowClass = '';
 
-            return `<li class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass} ${assignmentClass} ${coverImageClass}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}" ${customStyle}>
-                ${coverImageHTML}
-                <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} ${tooltipText}>
-                ${projectNameHTML}
-                <h4 title="${task.title}">${task.title}</h4>
+            // === ZMIANA STRUKTURY HTML ===
+            // 1. Główny <li> (task-card) jest teraz przezroczystym kontenerem.
+            // 2. Wnętrze zadania (tło, ramka) przeniesione do <div class="task-card-main-content">.
+            // 3. style (customStyle) przenosimy do wewnętrznego diva, aby kolorował tylko kartę, a nie cały kontener z podzadaniami.
+            // 4. Klasy priorytetów (priorityClass) też przenosimy do środka.
+
+            return `<li class="task-card ${isCompleted ? 'completed' : ''}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}">
                 
-                ${iconsHTML}
-                
-                <div class="task-meta">
-                    <div class="task-details">${startDateHTML}${dueDateHTML}</div>
-                    <div class="task-assignees">${assigneesHTML}</div>
+                <div class="task-card-main-content ${priorityClass} ${assignmentClass} ${coverImageClass}" ${customStyle}>
+                    ${coverImageHTML}
+                    <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} ${tooltipText}>
+                    ${projectNameHTML}
+                    <h4 title="${task.title}">${task.title}</h4>
+                    
+                    ${iconsHTML}
+                    
+                    <div class="task-meta">
+                        <div class="task-details">${startDateHTML}${dueDateHTML}</div>
+                        <div class="task-assignees">${assigneesHTML}</div>
+                    </div>
+
+                     ${multiStatusListHTML} 
                 </div>
-                
-                <div class="kanban-subtask-list-container collapsed" style="display: none;"> <ul class="kanban-subtask-list">
-                        ${subtasksListHTML}
-                    </ul>
+                <div class="kanban-subtask-list-container collapsed" style="display: none;">
+                    <ul class="kanban-subtask-list">${subtasksListHTML}</ul>
                 </div>
-                ${multiStatusListHTML} 
+               
                 
                 ${
                     (task.subtasks && task.subtasks.length > 0) 
@@ -19874,11 +19994,28 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return; // Zakończ
             }
             // === KONIEC NOWEGO KODU ===
-            // 5. Sprawdź kliknięcie na GŁÓWNY checkbox zadania
+           // 5. Sprawdź kliknięcie na GŁÓWNY checkbox zadania
             if (e.target.matches('.task-card-checkbox')) {
                 handleTaskCheckboxClick(e.target, e);
                 return;
             }
+
+            // === NOWY WARUNEK: Kliknięcie na kafelek PODZADANIA (Wizualny) ===
+            const subtaskVisualCard = e.target.closest('.subtask-visual-card');
+            if (subtaskVisualCard) {
+                // Jeśli kliknięto w checkbox wewnątrz tego kafelka, to jest on już obsłużony
+                // przez warunek nr 2 (.kanban-subtask-checkbox), więc tutaj ignorujemy.
+                if (e.target.closest('.kanban-subtask-checkbox')) return;
+
+                const parentId = subtaskVisualCard.dataset.parentId;
+                const subId = subtaskVisualCard.dataset.subtaskId;
+                
+                if (parentId && subId) {
+                    openSubtaskModal(parentId, subId);
+                }
+                return;
+            }
+            // === KONIEC NOWEGO WARUNKU ===
             
             // 6. Sprawdź kliknięcie na kafelek Sondażu
             const pollCard = e.target.closest('.poll-card');
@@ -26191,6 +26328,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
