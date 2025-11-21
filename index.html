@@ -13474,56 +13474,80 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
             // === KONIEC MODYFIKACJI ===
             
-            // +++ NOWA LOGIKA DLA IKONY BUDŻETU +++
-            let budgetIcon = '';
+            // === NOWA LOGIKA AGREGACJI DLA IKON (BUDŻET I WYSIŁEK) ===
+            const hasSubtasks = task.subtasks && task.subtasks.length > 0;
+            
+            // 1. Obliczanie całkowitego budżetu (Własny lub Suma z podzadań)
+            let totalBudgetValue = 0;
+            if (hasSubtasks) {
+                // Sumuj budżet ze wszystkich podzadań
+                totalBudgetValue = task.subtasks.reduce((acc, sub) => {
+                    const subTotal = (sub.budgetItems || []).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                    return acc + subTotal;
+                }, 0);
+            } else {
+                // Weź własny budżet
+                totalBudgetValue = (task.budgetItems || []).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+            }
 
-            if (task.budgetItems && task.budgetItems.length > 0) {
-                 const totalBudgetValue = task.budgetItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+            // 2. Obliczanie całkowitego wysiłku (Własny lub Suma z podzadań)
+            let totalEstimated = 0;
+            let totalActual = 0;
+            
+            if (hasSubtasks) {
+                task.subtasks.forEach(sub => {
+                    totalEstimated += parseFloat(sub.effort) || 0;
+                    totalActual += parseFloat(sub.actualEffort) || 0;
+                });
+            } else {
+                totalEstimated = parseFloat(task.estimation) || 0;
+                // Fallback dla actual: jeśli brak, użyj estimated (chyba że to nowe pole)
+                totalActual = task.actualEffort !== undefined ? parseFloat(task.actualEffort) : totalEstimated;
+            }
+            // === KONIEC AGREGACJI ===
+
+            
+            // +++ GENEROWANIE IKONY BUDŻETU +++
+            let budgetIcon = '';
+            if (totalBudgetValue > 0) {
                  const { project } = findTask(task.id);
                  const currency = project?.budget?.currency || '';
-                 const formattedTotal = totalBudgetValue.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                 // Formatowanie liczby (np. 1 200)
+                 const formattedTotal = totalBudgetValue.toLocaleString('pl-PL', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
                  budgetIcon = `
-                    <div class="task-detail task-detail-budget" title="Przypisany budżet: ${formattedTotal} ${currency}">
+                    <div class="task-detail task-detail-budget" title="Całkowity budżet: ${formattedTotal} ${currency}">
                          ${SVG_BUDGET_ICON}
                     </div>
                  `;
             }
-            
-            // +++ KONIEC NOWEJ LOGIKI +++
-            
-            // +++ POCZĄTEK ZMODYFIKOWANEJ LOGIKI DLA WYSIŁKU (Szacowany/Rzeczywisty) +++
+
+            // +++ GENEROWANIE IKONY WYSIŁKU +++
             let effortIcon = '';
-            // Używamy projektu, który został przekazany do funkcji (jeśli istnieje) lub znajdujemy go
             const effortProject = project || findProject(task.projectId);
             const estimationType = effortProject ? effortProject.estimationType : 'none';
 
             if (estimationType !== 'none') {
-                // Typ jest 'points' or 'hours', więc pokazujemy ikonę
-                const unit = (estimationType === 'points') ? 'pkt' : 'g';
-                
-                // Pobierz obie wartości, domyślnie 0, jeśli null/undefined
-                const estimated = task.estimation ?? 0;
-                
-                // Użyj zmigrowanej wartości z `actualEffort`. Jeśli jest null/undefined, użyj 'estimated'.
-                const actual = task.actualEffort ?? estimated; 
-                
-                // Ustal kolor ikony i tekstu
-                let color = "currentColor"; // Domyślny (szary)
-                if (actual > estimated) {
-                    color = "var(--danger-primary)"; // Czerwony, jeśli przekroczono
-                } else if (actual > 0 && actual < estimated) {
-                    color = "var(--success-primary)"; // Zielony, jeśli poniżej (ale nie 0)
-                }
+                // Sprawdź czy są jakiekolwiek wartości do wyświetlenia
+                if (totalEstimated > 0 || totalActual > 0) {
+                    const unit = (estimationType === 'points') ? 'pkt' : 'g';
+                    
+                    // Ustal kolor ikony i tekstu
+                    let color = "currentColor"; 
+                    if (totalActual > totalEstimated) {
+                        color = "var(--danger-primary)"; 
+                    } else if (totalActual > 0 && totalActual < totalEstimated) {
+                        color = "var(--success-primary)"; 
+                    }
 
-                // Zbuduj HTML
-                effortIcon = `
-                <div class="task-detail" title="Szacowany / Rzeczywisty Wysiłek">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${color}">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                    </svg>
-                    <span style="color: ${color}; font-weight: 500;">${estimated}/${actual}${unit}</span>
-                </div>`;
+                    effortIcon = `
+                    <div class="task-detail" title="Szacowany / Rzeczywisty Wysiłek">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${color}">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                        </svg>
+                        <span style="color: ${color}; font-weight: 500;">${totalEstimated}/${totalActual}${unit}</span>
+                    </div>`;
+                }
             }
             // +++ KONIEC ZMODYFIKOWANEJ LOGIKI +++
 
@@ -26618,6 +26642,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
