@@ -9112,7 +9112,7 @@ let state = {
             // Komentarze
             commentInput: document.getElementById('subtask-new-comment'),
             commentsList: document.getElementById('subtask-comments-list'),
-
+            completedCheckbox: document.getElementById('subtask-modal-completed-checkbox'),
             saveBtn: document.querySelector('#subtask-modal button[type="submit"]')
         };
         // === NOWY LISTENER: Obsługa zakładek w modalu podzadania ===
@@ -23739,7 +23739,9 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          timestamp: Date.now()
                      };
                  }
-
+                // DODANO: Logika statusu z nowej zakładki
+             const isChecked = subtaskModal.completedCheckbox.checked;
+             const currentUserId = state.currentUser.uid;
                  // Przesyłanie plików (Staged Files)
                  let newAttachments = [];
                  if (subtaskStagedFiles.length > 0) {
@@ -23764,6 +23766,13 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      newAttachments = await Promise.all(uploadPromises);
                  }
 
+                // === NOWE: Odczyt statusu z checkboxa ===
+                 // Zakładamy, że referencja subtaskModal.completedCheckbox została dodana w poprzednim kroku (w obiekcie subtaskModal)
+                 // Jeśli nie, używamy document.getElementById('subtask-modal-completed-checkbox')
+                 const completedCheckboxEl = subtaskModal.completedCheckbox || document.getElementById('subtask-modal-completed-checkbox');
+                 const isChecked = completedCheckboxEl.checked;
+                 const currentUserId = state.currentUser.uid;
+
                  // --- 2. Konstrukcja/Aktualizacja Obiektu Podzadania ---
                  let updatedSubtasks = [...(mainTask.subtasks || [])];
                  let currentUpdatedSubtask = null; // Do użycia po zapisie
@@ -23776,23 +23785,35 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                              const updatedComments = newCommentObj ? [...(s.comments || []), newCommentObj] : (s.comments || []);
                              const updatedAtts = [...(s.attachments || []), ...newAttachments];
                              
-                             // Logika completedBy: filtrujemy ID, które nie są już przypisane
-                             const currentCompletedBy = (s.completedBy || []).filter(id => selectedAssignees.includes(id));
-                             // Przelicz isCompleted
+                             // 1. Najpierw filtrujemy completedBy, usuwając osoby, które nie są już przypisane
+                             let currentCompletedBy = (s.completedBy || []).filter(id => selectedAssignees.includes(id));
+
+                             // 2. Aktualizujemy completedBy na podstawie checkboxa dla AKTUALNEGO użytkownika
+                             if (isChecked) {
+                                 // Jeśli zaznaczono i usera nie ma na liście -> dodaj
+                                 if (!currentCompletedBy.includes(currentUserId)) {
+                                     currentCompletedBy.push(currentUserId);
+                                 }
+                             } else {
+                                 // Jeśli odznaczono -> usuń usera z listy
+                                 currentCompletedBy = currentCompletedBy.filter(id => id !== currentUserId);
+                             }
+
+                             // 3. Przelicz isCompleted (czy WSZYSCY przypisani są w completedBy)
                              const isNowCompleted = (selectedAssignees.length > 0) && (selectedAssignees.every(id => currentCompletedBy.includes(id)));
 
                              currentUpdatedSubtask = {
                                  ...s,
                                  title,
                                  description,
-                                 startDate,   // Zapisz złożoną datę startu
-                                 dueDate,     // Zapisz złożony termin
+                                 startDate,
+                                 dueDate,
                                  effort,
                                  actualEffort,
                                  budgetItems,
                                  assignees: selectedAssignees,
-                                 completedBy: currentCompletedBy,
-                                 isCompleted: isNowCompleted,
+                                 completedBy: currentCompletedBy, // Zaktualizowana lista
+                                 isCompleted: isNowCompleted,     // Zaktualizowany status
                                  comments: updatedComments,
                                  attachments: updatedAtts
                              };
@@ -23802,18 +23823,25 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      });
                  } else {
                      // === TWORZENIE NOWEGO ===
+                     
+                     // Jeśli tworzymy nowe i zaznaczyliśmy "Ukończone", to znaczy, że twórca je ukończył
+                     const newCompletedBy = isChecked ? [currentUserId] : [];
+                     
+                     // Przelicz isCompleted
+                     const isNowCompleted = (selectedAssignees.length > 0) && (selectedAssignees.every(id => newCompletedBy.includes(id)));
+
                      const newSubtask = {
                          id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
                          title,
                          description,
-                         startDate,   // Zapisz złożoną datę startu
-                         dueDate,     // Zapisz złożony termin
+                         startDate,
+                         dueDate,
                          effort,
                          actualEffort,
                          budgetItems,
                          assignees: selectedAssignees,
-                         isCompleted: false,
-                         completedBy: [],
+                         isCompleted: isNowCompleted, // Ustawiony status
+                         completedBy: newCompletedBy, // Ustawiona lista
                          comments: newCommentObj ? [newCommentObj] : [],
                          attachments: newAttachments,
                          createdBy: state.currentUser.uid,
@@ -26222,13 +26250,21 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                     </div>
 
                     <div id="subtask-tab-content-assignees" class="task-modal-tab-content">
-                        <div class="form-group">
-                            <label>Przypisani członkowie:</label>
-                            <div id="subtask-modal-assignees-list" style="margin-top: 8px;"></div>
-                        </div>
-                    </div>
+                         </div>
 
                     <div id="subtask-tab-content-status" class="task-modal-tab-content">
+                        <div class="form-group">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 500;">Status realizacji</label>
+                            <div class="form-group-checkbox">
+                                <input type="checkbox" id="subtask-modal-completed-checkbox">
+                                <label for="subtask-modal-completed-checkbox">Oznacz jako ukończone</label>
+                            </div>
+                            <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
+                                Zaznacz to pole, aby oznaczyć podzadanie jako wykonane. Jeśli jesteś przypisany, oznaczysz swoją część.
+                            </p>
+                        </div>
+                    </div>
+                    <div id="subtask-tab-content-attachments" class="task-modal-tab-content">
                         <div id="subtask-multi-status-container" style="display: none; padding: 12px; background-color: var(--bg-tertiary); border-radius: var(--border-radius); border: 1px solid var(--border-color);">
                             <h4 style="font-size: 13px; margin-bottom: 8px; color: var(--text-secondary);">Twoja część podzadania (Tryb Wieloosobowy)</h4>
                             <div id="subtask-multi-action-area"></div>
@@ -26927,6 +26963,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
