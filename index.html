@@ -13940,7 +13940,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
 
             // Checkbox (Działa niezależnie, ale jest zablokowany przez logikę canIComplete)
-            const canIComplete = isSubtaskAssignee; // Tylko przypisany może odznaczyć (chyba że override w listenerze)
+            const canIComplete = isSubtaskAssignee || isProjectOwner || isProjectAdmin;
             const checkboxHTML = `
                 <input type="checkbox" 
                        class="subtask-card-checkbox kanban-subtask-checkbox" 
@@ -16053,14 +16053,16 @@ if (editorTaskDescription) {
         // === KONIEC NOWEJ, BRAKUJĄCEJ FUNKCJI ===
        // === PRZENIESIONE FUNKCJE (NAPRAWA BŁĘDU ReferenceError) ===
 
-        function createSubtaskItemHTML(subtask, canDelete) {
+        // Dodano parametr isOverride = false
+        function createSubtaskItemHTML(subtask, canDelete, isOverride = false) {
             const assigneesHTML = (subtask.assignees || [])
                 .map(userId => findUser(userId))
                 .filter(Boolean)
                 .map(user => renderAvatarHTML(user)) 
                 .join('');
             
-            const canIComplete = (subtask.assignees || []).includes(state.currentUser.uid);
+            // Uprawnienie ma Przypisany LUB Admin/Właściciel (Override)
+            const canIComplete = (subtask.assignees || []).includes(state.currentUser.uid) || isOverride;
             const isCompletedByMe = (subtask.completedBy || []).includes(state.currentUser.uid);
 
             const deleteBtnHTML = canDelete ? `
@@ -16135,7 +16137,12 @@ if (editorTaskDescription) {
             }
 
             const { project } = findTask(task.id);
-            const canDelete = project && (task.createdBy === state.currentUser.uid || project.ownerId === state.currentUser.uid);
+            // Rozszerzona weryfikacja uprawnień (Właściciel LUB Admin LUB Twórca zadania)
+            const isOwnerOrAdmin = project && (project.ownerId === state.currentUser.uid || (project.admins || []).includes(state.currentUser.uid));
+            const canDelete = isOwnerOrAdmin || (task.createdBy === state.currentUser.uid);
+            
+            // Nowa flaga Override (dla checkboxa)
+            const isOverride = isOwnerOrAdmin;
 
             // === LOGIKA SORTOWANIA ===
             let displaySubtasks = [...(task.subtasks || [])];
@@ -25103,15 +25110,46 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      }
                      // === KONIEC BLOKADY ===
 
+                     // Sprawdź uprawnienia Admina/Właściciela
+                     const isOverride = project.ownerId === currentUserId || (project.admins || []).includes(currentUserId);
+
                      let newCompletedBy = [...(s.completedBy || [])];
+                     let isNowCompleted = s.isCompleted;
+
                      if (checkbox.checked) {
-                         if (!newCompletedBy.includes(currentUserId)) {
-                             newCompletedBy.push(currentUserId);
+                         // ZAZNACZANIE
+                         if (isOverride) {
+                             // Admin wymusza ukończenie: 
+                             // 1. Ustawiamy flagę isCompleted na TRUE
+                             // 2. Opcjonalnie: Możemy dodać wszystkich assignees do completedBy, aby było spójnie
+                             if (s.assignees.length > 0) {
+                                 newCompletedBy = [...s.assignees]; // Wszyscy "ukończyli"
+                             } else {
+                                 // Jeśli nikt nie był przypisany, dodaj admina
+                                 if (!newCompletedBy.includes(currentUserId)) newCompletedBy.push(currentUserId);
+                             }
+                             isNowCompleted = true;
+                         } else {
+                             // Zwykły użytkownik
+                             if (!newCompletedBy.includes(currentUserId)) {
+                                 newCompletedBy.push(currentUserId);
+                             }
+                             // Sprawdź czy wszyscy
+                             isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
                          }
                      } else {
-                         newCompletedBy = newCompletedBy.filter(id => id !== currentUserId);
+                         // ODZNACZANIE
+                         if (isOverride) {
+                             // Admin cofa ukończenie: Resetujemy wszystko
+                             newCompletedBy = []; // Czyścimy listę
+                             isNowCompleted = false;
+                         } else {
+                             // Zwykły użytkownik
+                             newCompletedBy = newCompletedBy.filter(id => id !== currentUserId);
+                             isNowCompleted = false; // Jeśli ktoś cofnął, to na pewno nie jest już completed
+                         }
                      }
-                     const isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
+                     
                      changedSubtask = { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
                      return changedSubtask;
                  }
@@ -25156,6 +25194,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
              const canDelete = mainTask.createdBy === state.currentUser.uid ||
                                project.ownerId === state.currentUser.uid ||
+                               (project.admins || []).includes(state.currentUser.uid) || // <--- DODANO ADMINA
                                (subtaskToDelete.assignees || []).includes(state.currentUser.uid);
 
              if (!canDelete) {
@@ -28137,6 +28176,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
