@@ -13762,30 +13762,38 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             `;
         }
             function createTaskCardHTML(task, isInteractive, project) {
+            // === NOWA LOGIKA: Privacy Guard (Ograniczenie widoczności) ===
+            const currentUserId = state.currentUser.uid;
+            // Używamy findProject jeśli project nie jest przekazany bezpośrednio
+            const taskProject = project || findProject(task.projectId) || findCompletedProject(task.projectId);
+            
+            const isOwner = taskProject && taskProject.ownerId === currentUserId;
+            const isAdmin = taskProject && (taskProject.admins || []).includes(currentUserId);
+            const isCreator = task.createdBy === currentUserId;
+            const isAssignee = (task.assignees || []).includes(currentUserId);
+            
+            const hasAccess = isOwner || isAdmin || isCreator || isAssignee;
+            const accessTooltip = !hasAccess ? 'title="Brak dostępu do szczegółów"' : '';
+            // === KONIEC ===
+
             const isCompleted = task.status === 'done';
             const priorityClass = task.priority === 'high' ? 'priority-high' : (task.priority === 'low' ? 'priority-low' : '');
             const projectNameHTML = task.projectName ? `<span class="task-project-name">${task.projectName}</span>` : '';
 
-            // ▼▼▼ ZMIANA: Ręczne kolorowanie tła (usunięto automatyczne) ▼▼▼
             let customStyle = '';
             if (task.backgroundColor) {
                 customStyle = `style="background-color: ${task.backgroundColor};"`;
             }
             
             const assignmentClass = ''; 
-            // ▲▲▲ KONIEC ZMIANY ▲▲▲
 
-            // --- POCZĄTEK NOWEJ LOGIKI OKŁADKI (KROK 5) ---
             let coverImageHTML = '';
             let coverImageClass = '';
             if (task.coverImage && task.coverImage.url) {
                 coverImageHTML = `<div class="task-cover-image" style="background-image: url('${task.coverImage.url}')"></div>`;
-                coverImageClass = 'has-cover-image'; // Dodajemy klasę do <li>
+                coverImageClass = 'has-cover-image'; 
             }
-            // --- KONIEC NOWEJ LOGIKI OKŁADKI ---
 
-            // === POCZĄTEK ZMIANY: Logika uprawnień Checkboxa ===
-            const taskProject = project || findProject(task.projectId);
             const canComplete = canUserCompleteTask(state.currentUser.uid, task, taskProject);
             const isOverride = (taskProject && (taskProject.ownerId === state.currentUser.uid || (taskProject.admins || []).includes(state.currentUser.uid)));
             
@@ -13802,7 +13810,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             } else if (isInteractive && isOverride && task.type === 'multi') {
                 tooltipText = `title="Jako admin/właściciel, ukończysz to zadanie za wszystkich przypisanych."`;
             }
-            // === KONIEC ZMIANY ===
 
             const taskAssignees = (task.assignees || [])
                 .map(assigneeId => findUser(assigneeId))
@@ -13819,7 +13826,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                  assigneesHTML += `<div class="avatar" style="width: 24px; height: 24px; font-size: 12px; margin-left: -10px; background-color: var(--bg-tertiary); color: var(--text-secondary); border-color: var(--bg-secondary);" title="+${remainingCount} więcej">+${remainingCount}</div>`;
             }
 
-            // === NOWA LOGIKA: Data Rozpoczęcia (Z FALLBACKIEM) ===
             let startDateHTML = '';
             let startDateToRender = task.startDate; 
 
@@ -13837,7 +13843,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         <span>${new Date(startDateToRender).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
                     </div>`;
             }
-            // === KONIEC NOWEJ LOGIKI ===
 
             const isOverdue = task.dueDate && new Date(task.dueDate).getTime() < Date.now() && task.status !== 'done';
             const overdueClass = isOverdue ? 'overdue' : '';
@@ -13854,12 +13859,68 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         ${linkIconHTML}
                     </div>` : '';
 
-            const multiUserIcon = task.type === 'multi' ? `
-    <div class="task-detail" title="Zadanie wieloosobowe">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-    </div>` : '';
+            let multiUserIcon = '';
+            // === ZMIANA: Pusty string dla multiStatusListHTML jeśli brak dostępu ===
+            let multiStatusListHTML = '';
+
+            if (task.type === 'multi' && task.assignees && task.assignees.length > 0) {
+                const completedCount = (task.completedBy || []).length;
+                const totalCount = task.assignees.length;
+                const isAllDone = completedCount === totalCount;
+
+                // === PRIVACY GUARD ===
+                const toggleClass = hasAccess ? 'js-toggle-multi-status' : '';
+                const cursorStyle = hasAccess ? 'cursor: pointer;' : 'cursor: default; opacity: 0.7;';
+                const tooltip = hasAccess ? `title="Postęp zespołu: ${completedCount}/${totalCount} (Kliknij, aby rozwinąć)"` : accessTooltip;
+
+                multiUserIcon = `
+                <div class="task-detail ${toggleClass}" ${tooltip} style="${cursorStyle}">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${isAllDone ? 'var(--success-primary)' : 'currentColor'}">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 0 16.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                    </svg>
+                    <span style="font-weight: 600; font-size: 11px;">${completedCount}/${totalCount}</span>
+                </div>`;
+
+                // Generuj listę tylko jeśli jest dostęp
+                if (hasAccess) {
+                    const listItems = task.assignees.map(userId => {
+                        const user = findUser(userId);
+                        if (!user) return '';
+                        const isUserDone = (task.completedBy || []).includes(userId);
+                        const iconPending = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="16" height="16" role="img" aria-label="Oczekuje" style="margin-left: auto;"><circle cx="25" cy="25" r="20" fill="none" stroke="#e6e6e6" stroke-width="4"/><circle cx="25" cy="25" r="20" fill="none" stroke="#2b2b2b" stroke-width="4" stroke-linecap="round" stroke-dasharray="60 100"><animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 25 25" to="360 25 25" dur="0.9s" repeatCount="indefinite"/></circle></svg>`;
+                        const iconDone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" style="margin-left: auto; color: var(--success-primary);"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 12l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+                        return `
+                        <li style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 11px;">
+                            <div style="display:flex; align-items:center; gap:6px;">${renderAvatarHTML(user, 'member-pill-avatar')} ${user.name}</div>
+                            ${isUserDone ? iconDone : iconPending}
+                        </li>`;
+                    }).join('');
+
+                    let actionButton = '';
+                    const currentUserId = state.currentUser.uid;
+                    if (task.assignees.includes(currentUserId)) {
+                        const amIDone = (task.completedBy || []).includes(currentUserId);
+                        if (!amIDone) {
+                            actionButton = `
+                            <button class="btn btn-primary btn-sm js-card-complete-my-part" data-task-id="${task.id}" style="width: 100%; margin-top: 8px; padding: 4px; font-size: 11px;">
+                                ✓ Ukończ moją część
+                            </button>`;
+                        } else {
+                             actionButton = `
+                             <div style="margin-top: 8px; font-size: 11px; color: var(--success-primary); text-align: center; font-weight: 600;">
+                                Twoja część ukończona
+                             </div>`;
+                        }
+                    }
+
+                    multiStatusListHTML = `
+                    <div class="kanban-multi-status-container collapsed">
+                        <ul style="list-style: none; padding: 0; margin: 0;">${listItems}</ul>
+                        ${actionButton}
+                    </div>`;
+                }
+            }
 
             const recurringIcon = task.recurrence ? `
     <div class="task-detail recurring" title="Zadanie cykliczne">
@@ -13868,32 +13929,36 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         </svg>
     </div>` : '';
 
-            // === MODYFIKACJA LOGIKI SUBZADAŃ ===
             let subtaskIcon = '';
+            // === ZMIANA: Pusty string dla subtasksListHTML jeśli brak dostępu ===
             let subtasksListHTML = ''; 
             if (task.subtasks && task.subtasks.length > 0) {
                 const completedCount = task.subtasks.filter(s => s.isCompleted).length;
                 const totalCount = task.subtasks.length;
                 const allDone = completedCount === totalCount;
                 
+                // === PRIVACY GUARD ===
+                const toggleClass = hasAccess ? 'js-toggle-subtasks' : '';
+                const cursorStyle = hasAccess ? '' : 'cursor: default; opacity: 0.7;';
+                const tooltip = hasAccess ? `title="Pokaż/Ukryj podzadania: ${completedCount}/${totalCount}"` : accessTooltip;
+
                 subtaskIcon = `
-                <div class="task-detail subtasks js-toggle-subtasks" title="Pokaż/Ukryj podzadania: ${completedCount}/${totalCount}">
+                <div class="task-detail subtasks ${toggleClass}" ${tooltip} style="${cursorStyle}">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="${allDone ? 'var(--success-primary)' : 'currentColor'}">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                     </svg>
                     <span>${completedCount}/${totalCount}</span>
                 </div>`;
                 
-                subtasksListHTML = (task.subtasks || [])
-                    .map(subtask => createKanbanSubtaskHTML(subtask)) 
-                    .join('');
+                if (hasAccess) {
+                    subtasksListHTML = (task.subtasks || [])
+                        .map(subtask => createKanbanSubtaskHTML(subtask)) 
+                        .join('');
+                }
             }
-            // === KONIEC MODYFIKACJI ===
             
-            // === NOWA LOGIKA AGREGACJI DLA IKON (BUDŻET I WYSIŁEK) ===
             const hasSubtasks = task.subtasks && task.subtasks.length > 0;
             
-            // 1. Obliczanie całkowitego budżetu (Własny lub Suma z podzadań)
             let totalBudgetValue = 0;
             if (hasSubtasks) {
                 totalBudgetValue = task.subtasks.reduce((acc, sub) => {
@@ -13904,7 +13969,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 totalBudgetValue = (task.budgetItems || []).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
             }
 
-            // 2. Obliczanie całkowitego wysiłku (Własny lub Suma z podzadań)
             let totalEstimated = 0;
             let totalActual = 0;
             
@@ -13917,23 +13981,24 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 totalEstimated = parseFloat(task.estimation) || 0;
                 totalActual = task.actualEffort !== undefined ? parseFloat(task.actualEffort) : totalEstimated;
             }
-            // === KONIEC AGREGACJI ===
 
-            // +++ GENEROWANIE IKONY BUDŻETU +++
             let budgetIcon = '';
             if (totalBudgetValue > 0) {
                  const { project } = findTask(task.id);
                  const currency = project?.budget?.currency || '';
                  const formattedTotal = totalBudgetValue.toLocaleString('pl-PL', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
+                 // === PRIVACY GUARD ===
+                 const tooltip = hasAccess ? `title="Całkowity budżet: ${formattedTotal} ${currency}"` : `title="Budżet (Brak uprawnień do podglądu kwoty)"`;
+                 const style = hasAccess ? 'transform: scale(0.9);' : 'transform: scale(0.9); opacity: 0.7;';
+
                  budgetIcon = `
-                    <div class="task-detail task-detail-budget" title="Całkowity budżet: ${formattedTotal} ${currency}">
+                    <div class="task-detail task-detail-budget" ${tooltip} style="${style}">
                          ${SVG_BUDGET_ICON}
                     </div>
                  `;
             }
 
-            // +++ GENEROWANIE IKONY WYSIŁKU +++
             let effortIcon = '';
             const effortProject = project || findProject(task.projectId);
             const estimationType = effortProject ? effortProject.estimationType : 'none';
@@ -13948,124 +14013,75 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         color = "var(--success-primary)"; 
                     }
 
+                    // === PRIVACY GUARD ===
+                    // Ukryj wartości jeśli brak dostępu
+                    const displayValue = hasAccess ? `${totalEstimated}/${totalActual}${unit}` : `-/-`;
+                    const tooltip = hasAccess ? `title="Szacowany / Rzeczywisty Wysiłek"` : accessTooltip;
+
                     effortIcon = `
-                    <div class="task-detail" title="Szacowany / Rzeczywisty Wysiłek">
+                    <div class="task-detail" ${tooltip}>
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${color}">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                         </svg>
-                        <span style="color: ${color}; font-weight: 500;">${totalEstimated}/${totalActual}${unit}</span>
+                        <span style="color: ${color}; font-weight: 500;">${displayValue}</span>
                     </div>`;
                 }
             }
 
-            // === NOWA LOGIKA: Ikona i lista dla zadań MULTI (na kafelku) ===
-            let multiStatusIcon = '';
-            let multiStatusListHTML = '';
-
-            if (task.type === 'multi' && task.assignees && task.assignees.length > 0) {
-                const completedCount = (task.completedBy || []).length;
-                const totalCount = task.assignees.length;
-                const isAllDone = completedCount === totalCount;
-
-                multiStatusIcon = `
-                <div class="task-detail js-toggle-multi-status" title="Postęp zespołu: ${completedCount}/${totalCount} (Kliknij, aby rozwinąć)" style="cursor: pointer;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${isAllDone ? 'var(--success-primary)' : 'currentColor'}">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 0 16.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-                    </svg>
-                    <span style="font-weight: 600; font-size: 11px;">${completedCount}/${totalCount}</span>
-                </div>`;
-
-                const listItems = task.assignees.map(userId => {
-                    const user = findUser(userId);
-                    if (!user) return '';
-                    const isUserDone = (task.completedBy || []).includes(userId);
-                    const iconPending = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="16" height="16" role="img" aria-label="Oczekuje" style="margin-left: auto;"><circle cx="25" cy="25" r="20" fill="none" stroke="#e6e6e6" stroke-width="4"/><circle cx="25" cy="25" r="20" fill="none" stroke="#2b2b2b" stroke-width="4" stroke-linecap="round" stroke-dasharray="60 100"><animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 25 25" to="360 25 25" dur="0.9s" repeatCount="indefinite"/></circle></svg>`;
-                    const iconDone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" style="margin-left: auto; color: var(--success-primary);"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 12l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-
-                    return `
-                    <li style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 11px;">
-                        <div style="display:flex; align-items:center; gap:6px;">${renderAvatarHTML(user, 'member-pill-avatar')} ${user.name}</div>
-                        ${isUserDone ? iconDone : iconPending}
-                    </li>`;
-                }).join('');
-
-                let actionButton = '';
-                const currentUserId = state.currentUser.uid;
-                if (task.assignees.includes(currentUserId)) {
-                    const amIDone = (task.completedBy || []).includes(currentUserId);
-                    if (!amIDone) {
-                        actionButton = `
-                        <button class="btn btn-primary btn-sm js-card-complete-my-part" data-task-id="${task.id}" style="width: 100%; margin-top: 8px; padding: 4px; font-size: 11px;">
-                            ✓ Ukończ moją część
-                        </button>`;
-                    } else {
-                         actionButton = `
-                         <div style="margin-top: 8px; font-size: 11px; color: var(--success-primary); text-align: center; font-weight: 600;">
-                            Twoja część ukończona
-                         </div>`;
-                    }
-                }
-
-                multiStatusListHTML = `
-                <div class="kanban-multi-status-container collapsed">
-                    <ul style="list-style: none; padding: 0; margin: 0;">${listItems}</ul>
-                    ${actionButton}
-                </div>`;
-            }
-            // === KONIEC NOWEJ LOGIKI ===
-            
-            // === NOWA LOGIKA: LISTA KONTROLNA (Checklist) na kafelku ===
             let checklistIcon = '';
+            // === ZMIANA: Pusty string dla checklistListHTML jeśli brak dostępu ===
             let checklistListHTML = '';
             
             if (task.checklist && task.checklist.length > 0) {
                 const total = task.checklist.length;
                 const done = task.checklist.filter(i => i.isCompleted).length;
                 
-                // 1. IKONA (Niebieska, skaluje się po najechaniu dzięki klasie js-toggle-checklist)
+                // === PRIVACY GUARD ===
+                const toggleClass = hasAccess ? 'js-toggle-checklist' : '';
+                const style = hasAccess ? 'color: var(--accent-primary);' : 'color: var(--text-secondary); opacity: 0.7;';
+                const tooltip = hasAccess ? `title="Lista kontrolna: ${done}/${total} (Kliknij, aby rozwinąć)"` : accessTooltip;
+
                 checklistIcon = `
-                <div class="task-detail js-toggle-checklist" title="Lista kontrolna: ${done}/${total}" style="color: var(--accent-primary);">
+                <div class="task-detail ${toggleClass}" ${tooltip} style="${style}">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.746 3.746 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 1.043 3.296 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
                     </svg>
                     <span style="font-weight: 600; font-size: 11px;">${done}/${total}</span>
                 </div>`;
 
-                // 2. LISTA (Ukryty kontener)
-                const checklistItemsHTML = task.checklist.map(item => {
-                    // Pobierz awatar przypisanego (jeśli jest)
-                    let avatarHTML = '';
-                    if (item.assigneeId) {
-                        const assignee = findUser(item.assigneeId);
-                        if (assignee) {
-                            // Używamy mini-awatara
-                            avatarHTML = renderAvatarHTML(assignee, 'member-pill-avatar')
-                                .replace('class="avatar member-pill-avatar"', 'class="avatar" style="width:16px;height:16px;font-size:9px;"');
+                if (hasAccess) {
+                    const checklistItemsHTML = task.checklist.map(item => {
+                        let avatarHTML = '';
+                        if (item.assigneeId) {
+                            const assignee = findUser(item.assigneeId);
+                            if (assignee) {
+                                avatarHTML = renderAvatarHTML(assignee, 'member-pill-avatar')
+                                    .replace('class="avatar member-pill-avatar"', 'class="avatar" style="width:16px;height:16px;font-size:9px;"');
+                            }
                         }
-                    }
 
-                    const statusIcon = item.isCompleted 
-                        ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" style="color: var(--success-primary); flex-shrink: 0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" d="M5 13l4 4L19 7" fill="none"/></svg>` 
-                        : `<div style="width: 12px; height: 12px; border: 1px solid var(--border-color); border-radius: 3px; flex-shrink: 0;"></div>`;
+                        const statusIcon = item.isCompleted 
+                            ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" style="color: var(--success-primary); flex-shrink: 0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" d="M5 13l4 4L19 7" fill="none"/></svg>` 
+                            : `<div style="width: 12px; height: 12px; border: 1px solid var(--border-color); border-radius: 3px; flex-shrink: 0;"></div>`;
 
-                    const textStyle = item.isCompleted ? 'text-decoration: line-through; color: var(--text-secondary);' : 'color: var(--text-primary);';
+                        const textStyle = item.isCompleted ? 'text-decoration: line-through; color: var(--text-secondary);' : 'color: var(--text-primary);';
 
-                    return `
-                    <li style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border-color); font-size: 11px;">
-                        <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
-                            ${statusIcon}
-                            <span style="${textStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name}</span>
-                        </div>
-                        ${avatarHTML}
-                    </li>`;
-                }).join('');
+                        return `
+                        <li style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border-color); font-size: 11px;">
+                            <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
+                                ${statusIcon}
+                                <span style="${textStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name}</span>
+                            </div>
+                            ${avatarHTML}
+                        </li>`;
+                    }).join('');
 
-                checklistListHTML = `
-                <div class="kanban-checklist-container collapsed">
-                    <ul style="list-style: none; padding: 0; margin: 0;">${checklistItemsHTML}</ul>
-                </div>`;
+                    checklistListHTML = `
+                    <div class="kanban-checklist-container collapsed">
+                        <ul style="list-style: none; padding: 0; margin: 0;">${checklistItemsHTML}</ul>
+                    </div>`;
+                }
             }
-            // === KONIEC NOWEJ LOGIKI CHECKLIST ===
 
             let commentIcon = '';
             if (task.comments && task.comments.length > 0) {
@@ -14095,12 +14111,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </div>`;
             }
 
-            // Składanie ikon (Dodano checklistIcon)
             const finalMultiIcon = multiStatusIcon || multiUserIcon; 
             const allIcons = `${finalMultiIcon}${subtaskIcon}${checklistIcon}${recurringIcon}${effortIcon}${attachmentIcon}${commentIcon}${budgetIcon}`;
             const iconsHTML = allIcons ? `<div class="task-card-icons">${allIcons}</div>` : '';
 
-            // Wstawiamy checklistListHTML do kafelka (obok innych kontenerów)
             return `<li class="task-card ${isCompleted ? 'completed' : ''}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}">
                 
                 <div class="task-card-main-content ${priorityClass} ${assignmentClass} ${coverImageClass}" ${customStyle}>
@@ -14116,7 +14130,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         <div class="task-assignees">${assigneesHTML}</div>
                     </div>
 
-                    ${multiStatusListHTML} 
+                     ${multiStatusListHTML} 
                 </div>
                 
                 <div class="kanban-subtask-list-container collapsed" style="display: none;">
@@ -14126,8 +14140,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 ${checklistListHTML}
                 
                 ${
-                    (task.subtasks && task.subtasks.length > 0) 
-                    /* Kafelki: Widoczne jeśli ustawienie włączone, ukryte jeśli wyłączone */
+                    (task.subtasks && task.subtasks.length > 0 && hasAccess) 
+                    /* Kafelki: Widoczne jeśli ustawienie włączone ORAZ jest dostęp, ukryte jeśli wyłączone */
                     ? `<div class="subtask-family-container ${state.ui.expandSubtasksByDefault ? '' : 'collapsed'}">
                         ${task.subtasks.map(subtask => createVisualSubtaskCardHTML(subtask, task, taskProject)).join('')}
                        </div>`
@@ -27517,6 +27531,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
