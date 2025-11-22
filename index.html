@@ -10996,7 +10996,8 @@ let state = {
         }
        
 // NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU (WERSJA NAPRAWIONA)
-function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null, adminIds = []) {
+// ZMIANA: Dodano parametr 'shouldLockOwner' (domyślnie true), aby kontrolować blokowanie właściciela
+function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null, adminIds = [], shouldLockOwner = true) {
     containerElement.innerHTML = ''; // Zawsze czyścimy kontener na starcie
 
     const activeGroupId = state.ui.activeGroupId;
@@ -11032,12 +11033,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             source = 'legacy';
         }
         
-        // [DEBUG] Logujemy decyzję dla zalogowanego użytkownika (żeby nie spamować konsoli dla wszystkich)
-        if (user.uid === state.currentUser.uid) {
-             console.log(`[DEBUG User: ${user.name}] Found Subgroup: "${subgroup}" (Source: ${source})`);
-             console.log(`[DEBUG User: ${user.name}] Raw groupInfo:`, user.groupInfo);
-        }
-
         if (!acc[subgroup]) {
             acc[subgroup] = [];
         }
@@ -11069,15 +11064,16 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         
         usersDiv.className = `department-users ${shouldExpand ? '' : 'collapsed'}`;
         
-        // USUNIĘTO style inline (display, flexDirection, gap, padding)
-        // Są one teraz obsłużone w CSS w klasie .department-users
-        
         if (shouldExpand) headerDiv.classList.add('active');
 
         // === ZMIANA: Dodajemy index do pętli forEach ===
         usersBySubgroup[subgroup].forEach((user, index) => {
             const isSelected = selectedMemberIds.includes(user.id);
             const isOwner = user.id === projectOwnerId || (!projectOwnerId && user.id === state.currentUser.uid);
+            
+            // === NOWA LOGIKA: Sprawdź czy blokować właściciela ===
+            const isDisabled = isOwner && shouldLockOwner; 
+
             const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
             
             let crownHTML = '';
@@ -11096,7 +11092,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
             
             const pill = document.createElement('div');
-            pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isOwner ? 'disabled' : ''}`;
+            // === ZMIANA: Używamy zmiennej isDisabled zamiast isOwner ===
+            pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}`;
             
             // === ZMIANA: Style dla wiersza listy ===
             pill.style.width = '100%'; // Rozciągnij na całą szerokość
@@ -15413,7 +15410,8 @@ function handleTaskFormChange(e) {
                 subtaskModal.assigneesList, 
                 selectedAssignees, 
                 project.ownerId, 
-                project.admins || []
+                project.admins || [],
+                false // <--- NOWY PARAMETR: Nie blokuj właściciela/twórcy
             );
             
             // Włącz wyszukiwarkę dla tej listy
@@ -16103,7 +16101,7 @@ function handleTaskFormChange(e) {
                 newTaskModal.assigneeSingleSelect.value = state.currentUser.uid;
             }
 
-            // 2. Wygeneruj listę w nowym stylu (pionowa, numerowana)
+           // 2. Wygeneruj listę w nowym stylu (pionowa, numerowana)
             newTaskModal.assigneeMultiList.innerHTML = membersOptions.map((u, index) => {
                 const isCurrentUser = u.id === state.currentUser.uid;
                 const avatarHTML = renderAvatarHTML(u, 'member-pill-avatar'); // Używamy helpera
@@ -16111,8 +16109,9 @@ function handleTaskFormChange(e) {
                 // Style dla wiersza (takie same jak w modalu projektu)
                 const rowStyle = 'width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px;';
                 
+                // ZMIANA: Usunięto klasę 'disabled', aby można było odznaczyć samego siebie
                 return `
-                <div class="member-pill ${isCurrentUser ? 'selected disabled' : ''}" data-user-id="${u.id}" title="${u.name || u.email}" style="${rowStyle}">
+                <div class="member-pill ${isCurrentUser ? 'selected' : ''}" data-user-id="${u.id}" title="${u.name || u.email}" style="${rowStyle}">
                     <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
                     ${avatarHTML}
                     <span style="margin-left: 8px;">${u.name || u.email}</span>
@@ -16342,8 +16341,9 @@ newTaskModal.projectGroup.style.display = 'block';
             // Wypełnianie listy uczestników
             // Używamy tej samej funkcji co przy tworzeniu projektu.
             // Domyślnie zaznaczamy wszystkich członków projektu.
-            const allMemberIds = project.members || [];
-            buildTeamMembersAccordion(newPollModal.assigneesContainer, allMemberIds, project.ownerId);
+           const allMemberIds = project.members || [];
+            // Przekazujemy false (nie blokuj)
+            buildTeamMembersAccordion(newPollModal.assigneesContainer, allMemberIds, project.ownerId, [], false);
 
             // Zapisujemy ID projektu w modalu do późniejszego wykorzystania
             newPollModal.overlay.dataset.projectId = projectId;
@@ -27517,6 +27517,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
