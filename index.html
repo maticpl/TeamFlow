@@ -23441,8 +23441,19 @@ async function openManageGroupModal() {
 // Listener do dodawania nowej podgrupy
 manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    
+    // Zabezpieczenie przycisku przed wielokrotnym kliknięciem
+    const submitBtn = manageGroupModal.addSubgroupForm.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Dodawanie...';
+
     const newName = manageGroupModal.newSubgroupNameInput.value.trim();
-    if (!newName) return;
+    
+    if (!newName) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Dodaj dział';
+        return;
+    }
 
     // Używamy aktywnej grupy
     const groupRef = doc(groupsRef, state.ui.activeGroupId); 
@@ -23451,13 +23462,19 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
         const groupSnap = await getDoc(groupRef);
         if (groupSnap.exists()) {
             const subgroups = groupSnap.data().subgroups || [];
+            
+            // Sprawdzenie lokalne dla szybkiej informacji zwrotnej
             if (subgroups.includes(newName)) {
                 showNotification("Podgrupa o tej nazwie już istnieje.", "Informacja");
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Dodaj dział';
                 return;
             }
             
-            // 1. Zapisz w Firebase
-            await updateDoc(groupRef, { subgroups: [...subgroups, newName] });
+            // 1. Zapisz w Firebase używając arrayUnion (Gwarancja unikalności w bazie)
+            await updateDoc(groupRef, { 
+                subgroups: arrayUnion(newName) 
+            });
             
             // 2. Wyczyść pole input
             manageGroupModal.newSubgroupNameInput.value = ''; 
@@ -23481,10 +23498,16 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             // c) Dodaj go do listy natychmiastowo
             list.appendChild(li);
             // === KONIEC NOWEJ LOGIKI ===
+            
+            showNotification("Dział został dodany.", "Sukces");
         }
     } catch (error) {
         console.error("Błąd dodawania podgrupy:", error);
         showNotification("Wystąpił błąd podczas dodawania.", "Błąd");
+    } finally {
+        // Odblokuj przycisk
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Dodaj dział';
     }
 });
 
@@ -27756,6 +27779,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
