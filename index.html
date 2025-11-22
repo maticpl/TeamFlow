@@ -10677,6 +10677,7 @@ let state = {
                     startView: 'auto',         // Domyślny widok startowy
                     showConfetti: true,        // Domyślnie włączone
                     confirmDelete: true,       // Domyślnie włączone
+                    expandSubtasksByDefault: true, // <--- NOWE: Domyślnie włączone
                     ...defaultCompletedFilters
                 };
                 // === KONIEC ZMIANY ===
@@ -14118,8 +14119,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         <div class="task-assignees">${assigneesHTML}</div>
                     </div>
 
-                     ${multiStatusListHTML} 
+                    ${multiStatusListHTML} 
                 </div>
+                
                 <div class="kanban-subtask-list-container collapsed" style="display: none;">
                     <ul class="kanban-subtask-list">${subtasksListHTML}</ul>
                 </div>
@@ -14128,7 +14130,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 
                 ${
                     (task.subtasks && task.subtasks.length > 0) 
-                    ? `<div class="subtask-family-container">
+                    /* Kafelki: Widoczne jeśli ustawienie włączone, ukryte jeśli wyłączone */
+                    ? `<div class="subtask-family-container ${state.ui.expandSubtasksByDefault ? '' : 'collapsed'}">
                         ${task.subtasks.map(subtask => createVisualSubtaskCardHTML(subtask, task, taskProject)).join('')}
                        </div>`
                     : ''
@@ -17707,7 +17710,8 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         
         // 4. Potwierdzenia
         if (prefs.confirmDelete !== undefined) state.ui.confirmDelete = prefs.confirmDelete;
-
+        // 4b. Rozwijanie podzadań (NOWE)
+            if (prefs.expandSubtasksByDefault !== undefined) state.ui.expandSubtasksByDefault = prefs.expandSubtasksByDefault;
         // === NOWE: 5. Tryb Kompaktowy ===
         if (prefs.compactMode !== undefined) {
             state.ui.compactMode = prefs.compactMode;
@@ -23549,6 +23553,14 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 state.ui.startCollapsed = settingsStartCollapsed.checked;
                 messages.push("Ustawienie paska bocznego");
             }
+
+            // === NOWE: 7. Rozwijanie podzadań ===
+            const dbExpandSubtasks = currentPrefs.expandSubtasksByDefault !== undefined ? currentPrefs.expandSubtasksByDefault : true;
+            if (settingsExpandSubtasks && settingsExpandSubtasks.checked !== dbExpandSubtasks) {
+                updates['preferences.expandSubtasksByDefault'] = settingsExpandSubtasks.checked;
+                state.ui.expandSubtasksByDefault = settingsExpandSubtasks.checked;
+                messages.push("Domyślne rozwijanie podzadań");
+            }
             
             // Zapisz też UI state do localStorage
             saveUiState();
@@ -23578,6 +23590,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 if (updates['preferences.startView']) newPrefs.startView = updates['preferences.startView'];
                 if (updates['preferences.showConfetti'] !== undefined) newPrefs.showConfetti = updates['preferences.showConfetti'];
                 if (updates['preferences.confirmDelete'] !== undefined) newPrefs.confirmDelete = updates['preferences.confirmDelete'];
+                if (updates['preferences.expandSubtasksByDefault'] !== undefined) newPrefs.expandSubtasksByDefault = updates['preferences.expandSubtasksByDefault']; // <--- NOWE
 
                 state.currentUser.preferences = newPrefs;
             }
@@ -23608,6 +23621,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
         // === NOWE REFERENCJE DLA INTERFEJSU ===
         const settingsCompactMode = document.getElementById('settings-compact-mode');
         const settingsStartCollapsed = document.getElementById('settings-start-collapsed');
+        const settingsExpandSubtasks = document.getElementById('settings-expand-subtasks'); // <--- NOWE
         // === KONIEC ===
 
         // === NOWA FUNKCJA: Aplikowanie ustawień interfejsu ===
@@ -23653,6 +23667,14 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             settingsConfirmDelete.addEventListener('change', (e) => {
                 state.ui.confirmDelete = e.target.checked;
                 saveUiState();
+            });
+        }
+       // Listener dla nowej opcji: Domyślne rozwijanie podzadań
+        if (settingsExpandSubtasks) {
+            settingsExpandSubtasks.addEventListener('change', (e) => {
+                state.ui.expandSubtasksByDefault = e.target.checked;
+                saveUiState();
+                render(); // Przerenderuj widok, aby natychmiast zwinąć/rozwinąć kafelki
             });
         }
         // === KONIEC NAPRAWY ===
@@ -23751,6 +23773,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             // === NOWE ===
             if (settingsCompactMode) settingsCompactMode.checked = (state.ui.compactMode === true);
             if (settingsStartCollapsed) settingsStartCollapsed.checked = (state.ui.startCollapsed === true);
+            if (settingsExpandSubtasks) settingsExpandSubtasks.checked = (state.ui.expandSubtasksByDefault !== false); // Domyślnie true
             // === KONIEC ===
             
             // Reset do zakładki profilu przy każdym otwarciu
@@ -26305,6 +26328,11 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                                 <input type="checkbox" id="settings-start-collapsed">
                                 <label for="settings-start-collapsed">Zawsze uruchamiaj ze zwiniętym paskiem bocznym</label>
                             </div>
+
+                            <div class="form-group-checkbox" style="margin-top: 8px;">
+                                <input type="checkbox" id="settings-expand-subtasks" checked>
+                                <label for="settings-expand-subtasks">Zawsze uruchamiaj z rozwiniętymi podzadaniami</label>
+                            </div>
                         </div>
                         </div>
                 </div>
@@ -27473,6 +27501,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
