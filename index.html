@@ -5038,11 +5038,12 @@
 
        /* 1. Styl dla klikalnych triggerów (ikony "2/5", "1/3" multi oraz listy kontrolnej) */
         /* Główne zadanie ORAZ Podzadania */
+        /* 1. Styl dla klikalnych triggerów (Główne zadanie ORAZ Podzadania) */
         .task-card-icons .js-toggle-subtasks,
         .task-card-icons .js-toggle-multi-status,
         .task-card-icons .js-toggle-checklist,
-        .subtask-visual-icons .js-toggle-multi-status, /* NOWE */
-        .subtask-visual-icons .js-toggle-checklist {   /* NOWE */
+        .subtask-visual-icons .js-toggle-multi-status, /* <--- NAPRAWA DLA PODZADAŃ */
+        .subtask-visual-icons .js-toggle-checklist {   /* <--- NAPRAWA DLA PODZADAŃ */
             cursor: pointer;
             transition: transform 0.2s;
         }
@@ -5050,10 +5051,15 @@
         .task-card-icons .js-toggle-subtasks:hover,
         .task-card-icons .js-toggle-multi-status:hover,
         .task-card-icons .js-toggle-checklist:hover,
-        .subtask-visual-icons .js-toggle-multi-status:hover, /* NOWE */
-        .subtask-visual-icons .js-toggle-checklist:hover {   /* NOWE */
-            transform: scale(1.8); 
+        .subtask-visual-icons .js-toggle-multi-status:hover, /* <--- NAPRAWA DLA PODZADAŃ */
+        .subtask-visual-icons .js-toggle-checklist:hover {   /* <--- NAPRAWA DLA PODZADAŃ */
+            transform: scale(1.2); 
             color: var(--accent-primary); 
+        }
+
+        /* Styl ukrywania dla rodziny podzadań (Kafelki) */
+        .subtask-family-container.collapsed {
+            display: none;
         }
 
         /* 2. Główny kontener na listę podzadań, statusów multi ORAZ listy kontrolnej */
@@ -20730,65 +20736,102 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
             // === NOWA LOGIKA: Sprawdzenie triggerów podzadań ORAZ zadań multi ===
             
-           // 1a. IKONA PODZADAŃ (Aktualizacja: zamykaj też checklistę)
+           // ... (kod powyżej bez zmian, np. ignorowanie my-day-list) ...
+
+            // 1a. IKONA PODZADAŃ (Przełączanie widoku: Lista <-> Kafelki)
             const subtaskToggleBtn = e.target.closest('.js-toggle-subtasks');
             if (subtaskToggleBtn) {
                 e.preventDefault(); 
                 e.stopPropagation();
                 const taskCard = subtaskToggleBtn.closest('.task-card');
                 if (taskCard) {
+                    // 1. Przełącz wewnętrzną listę tekstową
                     const subtaskContainer = taskCard.querySelector('.kanban-subtask-list-container');
                     if (subtaskContainer) {
                         subtaskContainer.classList.toggle('collapsed');
-                        
-                        // Zwiń inne kontenery (dla porządku)
-                        const multiContainer = taskCard.querySelector('.kanban-multi-status-container');
-                        if (multiContainer) multiContainer.classList.add('collapsed');
-                        
-                        const checklistContainer = taskCard.querySelector('.kanban-checklist-container'); // <--- DODANO
-                        if (checklistContainer) checklistContainer.classList.add('collapsed'); // <--- DODANO
                     }
+
+                    // 2. Przełącz wizualne kafelki podzadań (NOWOŚĆ)
+                    const familyContainer = taskCard.querySelector('.subtask-family-container');
+                    if (familyContainer) {
+                        familyContainer.classList.toggle('collapsed');
+                    }
+                    
+                    // 3. Zwiń inne kontenery dla porządku
+                    const multiContainer = taskCard.querySelector('.kanban-multi-status-container');
+                    if (multiContainer) multiContainer.classList.add('collapsed');
+                    
+                    const checklistContainer = taskCard.querySelector('.kanban-checklist-container');
+                    if (checklistContainer) checklistContainer.classList.add('collapsed');
                 }
                 return; 
             }
 
-            // 1b. IKONA STATUSU MULTI (Aktualizacja: zamykaj też checklistę)
+            // 1b. IKONA STATUSU MULTI (Obsługa Zadania i Podzadania)
             const multiStatusToggleBtn = e.target.closest('.js-toggle-multi-status');
             if (multiStatusToggleBtn) {
                 e.preventDefault();
                 e.stopPropagation();
+                
+                // Sprawdź kontekst: Podzadanie czy Zadanie Główne
+                const subtaskCard = multiStatusToggleBtn.closest('.subtask-visual-card');
                 const taskCard = multiStatusToggleBtn.closest('.task-card');
-                if (taskCard) {
+
+                if (subtaskCard) {
+                    // --- KLIKNIĘTO W PODZADANIU ---
+                    const multiContainer = subtaskCard.querySelector('.kanban-multi-status-container');
+                    if (multiContainer) {
+                        multiContainer.classList.toggle('collapsed');
+                        // Zwiń checklistę w tym samym podzadaniu
+                        const checklistContainer = subtaskCard.querySelector('.kanban-checklist-container');
+                        if (checklistContainer) checklistContainer.classList.add('collapsed');
+                    }
+                } else if (taskCard) {
+                    // --- KLIKNIĘTO W ZADANIU GŁÓWNYM ---
                     const multiContainer = taskCard.querySelector('.kanban-multi-status-container');
                     if (multiContainer) {
                         multiContainer.classList.toggle('collapsed');
-                        
-                        // Zwiń inne kontenery
+                        // Zwiń inne w zadaniu głównym
                         const subtaskContainer = taskCard.querySelector('.kanban-subtask-list-container');
                         if (subtaskContainer) subtaskContainer.classList.add('collapsed');
+                        const checklistContainer = taskCard.querySelector('.kanban-checklist-container');
+                        if (checklistContainer) checklistContainer.classList.add('collapsed');
                         
-                        const checklistContainer = taskCard.querySelector('.kanban-checklist-container'); // <--- DODANO
-                        if (checklistContainer) checklistContainer.classList.add('collapsed'); // <--- DODANO
+                        // Upewnij się, że kafelki są widoczne (jeśli lista jest zamknięta) - opcjonalne, dla spójności
+                        // const familyContainer = taskCard.querySelector('.subtask-family-container');
+                        // if (familyContainer) familyContainer.classList.remove('collapsed');
                     }
                 }
                 return;
             }
             
-            // 1c. [NOWOŚĆ] IKONA LISTY KONTROLNEJ (Otwieranie listy)
+            // 1c. IKONA LISTY KONTROLNEJ (Obsługa Zadania i Podzadania)
             const checklistToggleBtn = e.target.closest('.js-toggle-checklist');
             if (checklistToggleBtn) {
                 e.preventDefault();
                 e.stopPropagation();
+
+                // Sprawdź kontekst: Podzadanie czy Zadanie Główne
+                const subtaskCard = checklistToggleBtn.closest('.subtask-visual-card');
                 const taskCard = checklistToggleBtn.closest('.task-card');
-                if (taskCard) {
+
+                if (subtaskCard) {
+                    // --- KLIKNIĘTO W PODZADANIU ---
+                    const checklistContainer = subtaskCard.querySelector('.kanban-checklist-container');
+                    if (checklistContainer) {
+                        checklistContainer.classList.toggle('collapsed');
+                        // Zwiń status multi w tym samym podzadaniu
+                        const multiContainer = subtaskCard.querySelector('.kanban-multi-status-container');
+                        if (multiContainer) multiContainer.classList.add('collapsed');
+                    }
+                } else if (taskCard) {
+                    // --- KLIKNIĘTO W ZADANIU GŁÓWNYM ---
                     const checklistContainer = taskCard.querySelector('.kanban-checklist-container');
                     if (checklistContainer) {
                         checklistContainer.classList.toggle('collapsed');
-                        
-                        // Zwiń inne kontenery
+                        // Zwiń inne w zadaniu głównym
                         const subtaskContainer = taskCard.querySelector('.kanban-subtask-list-container');
                         if (subtaskContainer) subtaskContainer.classList.add('collapsed');
-                        
                         const multiContainer = taskCard.querySelector('.kanban-multi-status-container');
                         if (multiContainer) multiContainer.classList.add('collapsed');
                     }
@@ -20796,7 +20839,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return;
             }
 
-            // 1d. PRZYCISK "Ukończ moją część" (Twoja logika przeniesiona tutaj)
+            // 1d. PRZYCISK "Ukończ moją część"
             const cardCompleteBtn = e.target.closest('.js-card-complete-my-part');
             if (cardCompleteBtn) {
                 e.preventDefault();
@@ -20805,27 +20848,23 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 const { task, project } = findTask(taskId);
                 
                 if (task && project) {
-                    
-                    // === TWOJA BLOKADA: Sprawdź listę kontrolną przed ukończeniem ===
+                    // Blokada listy kontrolnej
                     if (task.checklist && task.checklist.length > 0) {
                         const allChecklistDone = task.checklist.every(i => i.isCompleted);
                         if (!allChecklistDone) {
                             showNotification("Nie można ukończyć Twojej części. Ukończ najpierw wszystkie pozycje z listy kontrolnej.", "Błąd");
-                            return; // PRZERYWAMY AKCJĘ
+                            return;
                         }
                     }
-                    // === KONIEC BLOKADY ===
 
                     const currentUserId = state.currentUser.uid;
                     let updatedTask = { ...task };
                     const oldStatus = updatedTask.status;
 
-                    // Dodaj usera do completedBy
                     if (!updatedTask.completedBy.includes(currentUserId)) {
                         updatedTask.completedBy.push(currentUserId);
                     }
 
-                    // Logika auto-kompletowania subzadań
                     if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
                         updatedTask.subtasks = updatedTask.subtasks.map(s => {
                             if (s.assignees.includes(currentUserId) && !s.completedBy.includes(currentUserId)) {
@@ -20837,7 +20876,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                         });
                     }
                     
-                    // Sprawdź czy wszyscy ukończyli
                     const allDone = updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
                     if (allDone) {
                         updatedTask.status = 'done';
@@ -20845,7 +20883,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                         updatedTask.status = 'inprogress';
                     }
 
-                    // Aktywność i Zapis
                     if (updatedTask.status !== oldStatus) {
                          if (updatedTask.status === 'done') showConfetti();
                          updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
@@ -27436,6 +27473,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
