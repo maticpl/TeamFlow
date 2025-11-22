@@ -6425,6 +6425,77 @@ body.compact-mode .comment-item {
             justify-content: space-between;
             margin-top: 2px;
         }
+        /* STYLE DLA LISTY KONTROLNEJ W PODZADANIU */
+        .checklist-item-row {
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 10px;
+            margin-bottom: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+        }
+        .checklist-item-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .checklist-checkbox {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+        .checklist-input-name {
+            flex: 1;
+            font-size: 13px;
+            padding: 6px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+        .checklist-input-date {
+            width: 130px;
+            font-size: 12px;
+            padding: 6px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+        .checklist-delete-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 18px;
+            cursor: pointer;
+            line-height: 1;
+        }
+        .checklist-delete-btn:hover {
+            color: var(--danger-primary);
+        }
+        .checklist-assignee-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        /* Styl dla pigułki przypisanego w liście kontrolnej */
+        .checklist-assignee-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 8px;
+            background-color: var(--accent-primary);
+            color: var(--text-on-accent);
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        /* Ukrywamy wyszukiwarkę, jeśli ktoś jest przypisany */
+        .checklist-search-wrapper.has-assignee .member-search-input {
+            display: none;
+        }
+        .checklist-search-wrapper.has-assignee .member-search-results {
+            display: none !important;
+        }
     </style>
 
 </head>
@@ -9075,6 +9146,13 @@ let state = {
             // Komentarze
             commentInput: document.getElementById('subtask-new-comment'),
             commentsList: document.getElementById('subtask-comments-list'),
+            
+            // Lista kontrolna
+            checklistToggle: document.getElementById('subtask-checklist-toggle'),
+            checklistWrapper: document.getElementById('subtask-checklist-wrapper'),
+            checklistItemsList: document.getElementById('subtask-checklist-items'),
+            addChecklistItemBtn: document.getElementById('add-checklist-item-btn'),
+            checklistError: document.getElementById('subtask-checklist-error'),
 
             saveBtn: document.querySelector('#subtask-modal button[type="submit"]')
         };
@@ -9273,6 +9351,143 @@ let state = {
         // === KONIEC NOWEGO KODU ===
         
     }; // <--- KONIEC BLOKU DO WYCIĘCIA
+       // Funkcja pomocnicza do renderowania wiersza listy kontrolnej
+        function addChecklistItemUI(itemData = {}) {
+            const li = document.createElement('li');
+            li.className = 'checklist-item-row';
+            
+            // Generowanie unikalnych ID
+            const uniqueId = Date.now() + Math.random().toString(36).substr(2, 5);
+            const searchInputId = `checklist-search-${uniqueId}`;
+            const resultsListId = `checklist-results-${uniqueId}`;
+            
+            const isCompleted = itemData.isCompleted || false;
+            const name = itemData.name || '';
+            const date = itemData.date || '';
+            const assigneeId = itemData.assigneeId || null;
+            
+            let assigneePillHTML = '';
+            let wrapperClass = 'checklist-search-wrapper';
+            
+            if (assigneeId) {
+                const user = findUser(assigneeId);
+                if (user) {
+                    assigneePillHTML = `
+                        <div class="checklist-assignee-pill" data-user-id="${user.id}">
+                            ${renderAvatarHTML(user, 'avatar-comment')}
+                            <span>${user.name || user.email}</span>
+                            <span class="remove-checklist-assignee" style="cursor:pointer; margin-left:4px;">&times;</span>
+                        </div>
+                    `;
+                    wrapperClass += ' has-assignee';
+                }
+            }
+
+            li.innerHTML = `
+                <div class="checklist-item-header">
+                    <input type="checkbox" class="checklist-checkbox" ${isCompleted ? 'checked' : ''}>
+                    <input type="text" class="checklist-input-name" placeholder="Treść zadania..." value="${name}" required>
+                    <input type="date" class="checklist-input-date" value="${date}">
+                    <button type="button" class="checklist-delete-btn">&times;</button>
+                </div>
+                <div class="checklist-assignee-row">
+                    <div class="${wrapperClass}" style="flex: 1; position: relative;">
+                         <input type="text" id="${searchInputId}" class="member-search-input" placeholder="Przypisz osobę..." style="padding: 4px 8px 4px 30px; font-size: 12px; height: 28px; background-size: 14px; background-position: 8px center;">
+                         <ul id="${resultsListId}" class="member-search-results" style="top: 30px;"></ul>
+                         <div class="checklist-assignee-container">${assigneePillHTML}</div>
+                    </div>
+                </div>
+            `;
+            
+            subtaskModal.checklistItemsList.appendChild(li);
+            
+            // Konfiguracja wyszukiwarki dla tego wiersza
+            const searchInput = li.querySelector(`#${searchInputId}`);
+            const resultsList = li.querySelector(`#${resultsListId}`);
+            const pillContainer = li.querySelector('.checklist-assignee-container');
+            const wrapper = li.querySelector('.checklist-search-wrapper');
+
+            // Używamy setupUserSearch, ale musimy dostosować logikę dodawania ("pill" vs custom HTML)
+            // Napiszemy dedykowany mini-setup dla tego przypadku
+            
+            searchInput.addEventListener('input', (e) => {
+                const term = e.target.value.toLowerCase().trim();
+                if (term.length < 1) {
+                    resultsList.classList.remove('visible');
+                    return;
+                }
+                const matches = state.users.filter(u => (u.name || '').toLowerCase().includes(term) || (u.email || '').toLowerCase().includes(term));
+                
+                if (matches.length === 0) {
+                    resultsList.innerHTML = '<li style="padding:4px; font-size:11px;">Brak wyników</li>';
+                } else {
+                    resultsList.innerHTML = matches.map(u => `
+                        <li class="member-search-item" style="cursor:pointer;" data-user-id="${u.id}">
+                           <div class="member-search-info" style="font-size:11px;">
+                               ${renderAvatarHTML(u, 'avatar-comment')} ${u.name || u.email}
+                           </div>
+                        </li>
+                    `).join('');
+                }
+                resultsList.classList.add('visible');
+            });
+            
+            // Obsługa wyboru z listy
+            resultsList.addEventListener('click', (e) => {
+                const item = e.target.closest('.member-search-item');
+                if (item) {
+                    const userId = item.dataset.userId;
+                    const user = findUser(userId);
+                    if (user) {
+                        pillContainer.innerHTML = `
+                            <div class="checklist-assignee-pill" data-user-id="${user.id}">
+                                ${renderAvatarHTML(user, 'avatar-comment')}
+                                <span>${user.name || user.email}</span>
+                                <span class="remove-checklist-assignee" style="cursor:pointer; margin-left:4px;">&times;</span>
+                            </div>
+                        `;
+                        wrapper.classList.add('has-assignee');
+                        searchInput.value = '';
+                        resultsList.classList.remove('visible');
+                    }
+                }
+            });
+            
+            // Obsługa usuwania przypisania
+            pillContainer.addEventListener('click', (e) => {
+                if (e.target.classList.contains('remove-checklist-assignee')) {
+                    pillContainer.innerHTML = '';
+                    wrapper.classList.remove('has-assignee');
+                }
+            });
+
+            // Zamykanie po kliknięciu poza
+            document.addEventListener('click', (e) => {
+                if (!wrapper.contains(e.target)) {
+                    resultsList.classList.remove('visible');
+                }
+            });
+        }
+        
+        // Listener przycisku "Dodaj element listy"
+        subtaskModal.addChecklistItemBtn.addEventListener('click', () => {
+            addChecklistItemUI();
+        });
+        
+        // Listener usuwania wiersza
+        subtaskModal.checklistItemsList.addEventListener('click', (e) => {
+            if (e.target.classList.contains('checklist-delete-btn')) {
+                e.target.closest('li').remove();
+            }
+        });
+        
+        // Listener przełącznika "Włącz listę"
+        subtaskModal.checklistToggle.addEventListener('change', () => {
+            subtaskModal.checklistWrapper.style.display = subtaskModal.checklistToggle.checked ? 'block' : 'none';
+            if(subtaskModal.checklistToggle.checked && subtaskModal.checklistItemsList.children.length === 0) {
+                addChecklistItemUI(); // Dodaj jeden pusty wiersz na start
+            }
+        });
         function initializeCalendar() {
             if (calendarInstance) {
                 calendarInstance.destroy();
@@ -13290,7 +13505,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${color}" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
                 </div>`;
             }
-
+            // 5. Lista Kontrolna (Niebieska)
+            let checklistIcon = '';
+            if (subtask.checklist && subtask.checklist.length > 0) {
+                const total = subtask.checklist.length;
+                const done = subtask.checklist.filter(i => i.isCompleted).length;
+                // Niebieski kolor: var(--accent-primary)
+                checklistIcon = `<div class="task-detail" title="Lista kontrolna: ${done}/${total}" style="color: var(--accent-primary);">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
+                    </svg>
+                </div>`;
+            }
             iconsHTML = `<div class="subtask-visual-icons">${effortIcon}${attIcon}${commIcon}${budgetIcon}</div>`;
 
             // --- STOPKA (DATY I AWATARY) ---
@@ -14677,6 +14903,10 @@ function handleTaskFormChange(e) {
             subtaskModal.budgetDetails.style.display = 'none';
             subtaskModal.attachmentsList.innerHTML = '';
             subtaskModal.commentsList.innerHTML = '';
+            // Reset Listy Kontrolnej
+            subtaskModal.checklistItemsList.innerHTML = '';
+            subtaskModal.checklistWrapper.style.display = 'none';
+            subtaskModal.checklistToggle.checked = false;
             
             // Wyczyść i ukryj komunikaty błędów dat
             if(subtaskModal.startError) subtaskModal.startError.style.display = 'none';
@@ -14843,7 +15073,14 @@ function handleTaskFormChange(e) {
                         subtaskModal.commentsList.appendChild(li);
                     });
                 }
-
+                // Lista Kontrolna: Wczytaj dane
+                if (subtask.checklist && subtask.checklist.length > 0) {
+                    subtaskModal.checklistToggle.checked = true;
+                    subtaskModal.checklistWrapper.style.display = 'block';
+                    subtask.checklist.forEach(item => {
+                        addChecklistItemUI(item);
+                    });
+                }
             // === NOWA LOGIKA: Renderowanie zakładki STATUS w podzadaniu ===
                 const statusContainer = document.getElementById('subtask-multi-status-container');
                 const singleInfo = document.getElementById('subtask-single-status-info');
@@ -15056,6 +15293,19 @@ function handleTaskFormChange(e) {
             let subtaskChanged = false;
             updatedMainTask.subtasks = updatedMainTask.subtasks.map(sub => {
                 if (sub.id === subtaskId) {
+                    // === NOWA BLOKADA: Lista kontrolna ===
+                    // Sprawdzamy, czy użytkownik próbuje zaznaczyć (dodać siebie do completedBy)
+                    const isChecking = !(sub.completedBy || []).includes(currentUserId);
+                    
+                    if (isChecking && sub.checklist && sub.checklist.length > 0) {
+                        const allChecklistDone = sub.checklist.every(i => i.isCompleted);
+                        if (!allChecklistDone) {
+                            showNotification("Nie można ukończyć Twojej części. Ukończ najpierw listę kontrolną.", "Błąd");
+                            return sub; // Przerwij i zwróć bez zmian
+                        }
+                    }
+                    // === KONIEC BLOKADY ===
+
                     subtaskChanged = true;
                     let newCompletedBy = [...(sub.completedBy || [])];
                     
@@ -23626,8 +23876,10 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              subtaskModal.saveBtn.disabled = true;
              subtaskModal.saveBtn.textContent = 'Zapisywanie...';
 
-             try {
+             
+                 try {
                  // --- 1. Zbieranie danych ---
+                 subtaskModal.checklistError.style.display = 'none'; // Reset błędu listy kontrolnej
                  const description = subtaskModal.descriptionInput.value;
                  
                  // Składanie daty rozpoczęcia (YYYY-MM-DD + T + HH:MM)
@@ -23653,6 +23905,52 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  if (selectedAssignees.length === 0) {
                      throw new Error("Podzadanie musi być przypisane do co najmniej jednej osoby.");
                  }
+
+                 // === NOWA LOGIKA: ZBIERANIE LISTY KONTROLNEJ ===
+                 let checklistData = [];
+                 if (subtaskModal.checklistToggle.checked) {
+                     const rows = Array.from(subtaskModal.checklistItemsList.querySelectorAll('.checklist-item-row'));
+                     
+                     for (const row of rows) {
+                         const name = row.querySelector('.checklist-input-name').value.trim();
+                         const isCompleted = row.querySelector('.checklist-checkbox').checked;
+                         const dateVal = row.querySelector('.checklist-input-date').value;
+                         const pill = row.querySelector('.checklist-assignee-pill');
+                         const assigneeId = pill ? pill.dataset.userId : null;
+                         
+                         if (name) {
+                             // Walidacja daty (musi być w zakresie podzadania)
+                             if (dateVal) {
+                                 const itemTime = new Date(dateVal).getTime();
+                                 // Uproszczona walidacja (tylko dni)
+                                 const subStart = startDate ? new Date(startDate.split('T')[0]).getTime() : 0;
+                                 const subDue = dueDate ? new Date(dueDate.split('T')[0]).getTime() : Infinity;
+                                 
+                                 if (itemTime < subStart || itemTime > subDue) {
+                                     throw new Error(`Data zadania z listy "${name}" wykracza poza ramy czasowe podzadania.`);
+                                 }
+                             }
+                             
+                             checklistData.push({
+                                 id: `chk_${Date.now()}_${Math.random().toString(36).substr(2,5)}`,
+                                 name,
+                                 isCompleted,
+                                 date: dateVal,
+                                 assigneeId
+                             });
+                             
+                             // Propagacja użytkownika do listy głównej (selectedAssignees)
+                             // Jeśli użytkownik jest na liście kontrolnej, musi być w podzadaniu
+                             if (assigneeId && !selectedAssignees.includes(assigneeId)) {
+                                 selectedAssignees.push(assigneeId);
+                             }
+                         }
+                     }
+                     
+                     // Opcjonalnie: można rzucić błąd, jeśli lista włączona ale pusta
+                     // if (checklistData.length === 0) ...
+                 }
+                 // === KONIEC NOWEJ LOGIKI ===
 
                  // Budżet
                  let budgetItems = [];
@@ -23737,7 +24035,9 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                                  completedBy: currentCompletedBy,
                                  isCompleted: isNowCompleted,
                                  comments: updatedComments,
-                                 attachments: updatedAtts
+                                 attachments: updatedAtts,
+                                 checklist: checklistData, // <--- DODANO NOWE POLE
+                                 type: selectedAssignees.length > 1 ? 'multi' : 'single' // <--- DODANO TYP
                              };
                              return currentUpdatedSubtask;
                          }
@@ -23745,9 +24045,6 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      });
                  } else {
                      // === TWORZENIE NOWEGO ===
-                     // Ustalamy typ na podstawie liczby przypisanych osób
-                     const subtaskType = selectedAssignees.length > 1 ? 'multi' : 'single';
-
                      const newSubtask = {
                          id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
                          title,
@@ -23758,11 +24055,12 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          actualEffort,
                          budgetItems,
                          assignees: selectedAssignees,
-                         type: subtaskType, // <--- NOWE POLE
+                         type: selectedAssignees.length > 1 ? 'multi' : 'single', // <--- DODANO TYP
                          isCompleted: false,
                          completedBy: [],
                          comments: newCommentObj ? [newCommentObj] : [],
                          attachments: newAttachments,
+                         checklist: checklistData, // <--- DODANO NOWE POLE
                          createdBy: state.currentUser.uid,
                          createdAt: Date.now()
                      };
@@ -23871,7 +24169,18 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
              updatedTask.subtasks = updatedTask.subtasks.map(s => {
                  if (s.id === subtaskId) {
-                     let newCompletedBy = [...(s.completedBy || [])]; 
+                     // === NOWA BLOKADA: Lista kontrolna ===
+                     if (checkbox.checked && s.checklist && s.checklist.length > 0) {
+                         const allChecklistDone = s.checklist.every(i => i.isCompleted);
+                         if (!allChecklistDone) {
+                             showNotification("Nie można ukończyć podzadania. Ukończ najpierw wszystkie pozycje z listy kontrolnej.", "Błąd");
+                             checkbox.checked = false; // Cofnij wizualnie
+                             return s; // Zwróć bez zmian
+                         }
+                     }
+                     // === KONIEC BLOKADY ===
+
+                     let newCompletedBy = [...(s.completedBy || [])];
                      if (checkbox.checked) {
                          if (!newCompletedBy.includes(currentUserId)) {
                              newCompletedBy.push(currentUserId);
@@ -26103,9 +26412,13 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px;height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" /></svg>
                             <span>Komentarze</span>
                         </button>
+                    <button type="button" class="task-modal-tab" data-tab="checklist" title="Lista kontrolna">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px;height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" /></svg>
+                            <span>Lista</span>
+                        </button>
                     </div>
                 </div>
-
+                
                 <div class="task-modal-tabs-content" style="flex-grow: 1; overflow-y: auto; padding: 24px;">
                     
                     <div id="subtask-tab-content-description" class="task-modal-tab-content active">
@@ -26210,6 +26523,22 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                                 </div>
                             <p style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Komentarze zostaną zapisane po kliknięciu "Zapisz podzadanie".</p>
                             <ul id="subtask-comments-list" class="comments-list"></ul>
+                        </div>
+                    </div>
+
+                    <div id="subtask-tab-content-checklist" class="task-modal-tab-content">
+                        <div class="form-group-checkbox">
+                            <input type="checkbox" id="subtask-checklist-toggle">
+                            <label for="subtask-checklist-toggle">Włącz listę kontrolną</label>
+                        </div>
+                        <div id="subtask-checklist-wrapper" style="display: none; margin-top: 12px;">
+                            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">
+                                Wszystkie elementy listy muszą zostać odhaczone, aby można było ukończyć to podzadanie.
+                            </p>
+                            <ul id="subtask-checklist-items" style="list-style: none; padding: 0; margin-bottom: 12px;">
+                                </ul>
+                            <button type="button" id="add-checklist-item-btn" class="btn btn-secondary" style="font-size: 12px;">+ Dodaj element listy</button>
+                            <p id="subtask-checklist-error" class="error-message" style="margin-top: 8px; display: none;"></p>
                         </div>
                     </div>
 
@@ -26880,6 +27209,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
