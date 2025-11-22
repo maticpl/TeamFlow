@@ -23614,12 +23614,62 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  }
 
                  // --- 3. Zapis do Firestore ---
-                 const updatedTask = { ...mainTask, subtasks: updatedSubtasks };
+                 
+                 // === NOWA LOGIKA: Automatyczne dodawanie osób do zadania głównego i projektu ===
+                 
+                 // Kopia list do modyfikacji
+                 let updatedMainAssignees = [...(mainTask.assignees || [])];
+                 let updatedProjectMembers = [...(project.members || [])];
+                 let mainTaskChanged = false;
+                 let projectMembersChanged = false;
+
+                 selectedAssignees.forEach(userId => {
+                     // A. Sprawdź i dodaj do zadania głównego
+                     if (!updatedMainAssignees.includes(userId)) {
+                         updatedMainAssignees.push(userId);
+                         mainTaskChanged = true;
+                     }
+                     // B. Sprawdź i dodaj do członków projektu
+                     if (!updatedProjectMembers.includes(userId)) {
+                         updatedProjectMembers.push(userId);
+                         projectMembersChanged = true;
+                     }
+                 });
+
+                 // Jeśli dodano osoby do zadania głównego, sprawdź czy zmienił się typ na 'multi'
+                 let updatedMainType = mainTask.type;
+                 if (mainTaskChanged) {
+                     updatedMainType = updatedMainAssignees.length > 1 ? 'multi' : 'single';
+                 }
+                 // === KONIEC NOWEJ LOGIKI ===
+
+                 // Tworzymy zaktualizowany obiekt zadania głównego, uwzględniając nowe podzadania ORAZ nowych wykonawców
+                 const updatedTask = { 
+                     ...mainTask, 
+                     subtasks: updatedSubtasks,
+                     assignees: updatedMainAssignees, // Zaktualizowana lista wykonawców
+                     type: updatedMainType            // Zaktualizowany typ zadania
+                 };
                  
                  const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                  const allTasks = project.tasks.map(t => t.id === mainTaskId ? updatedTask : t);
                  
-                 await updateDoc(projectDocRef, { tasks: allTasks });
+                 // Przygotuj payload do aktualizacji
+                 const updatePayload = { tasks: allTasks };
+                 
+                 // Jeśli dodano nowych członków do projektu, dodaj ich do payloadu
+                 if (projectMembersChanged) {
+                     updatePayload.members = updatedProjectMembers;
+                 }
+
+                 // Wykonaj aktualizację w Firestore (zadania + opcjonalnie członkowie)
+                 await updateDoc(projectDocRef, updatePayload);
+
+                 // Jeśli zaktualizowano członków projektu, odświeżamy też stan lokalny, aby UI od razu to widziało
+                 // (onSnapshot i tak to zrobi, ale dla spójności wewnątrz tej funkcji)
+                 if (projectMembersChanged) {
+                     project.members = updatedProjectMembers;
+                 }
 
                  // --- 4. Finalizacja ---
                  closeModal(subtaskModal.overlay);
@@ -26658,6 +26708,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
