@@ -14844,6 +14844,75 @@ function handleTaskFormChange(e) {
                     });
                 }
 
+            // === NOWA LOGIKA: Renderowanie zakładki STATUS w podzadaniu ===
+                const statusContainer = document.getElementById('subtask-multi-status-container');
+                const singleInfo = document.getElementById('subtask-single-status-info');
+                
+                // Ustal typ (dla istniejącego bierzemy z obiektu, dla nowego liczymy dynamicznie lub domyślnie single)
+                // W trybie edycji selectedAssignees jest już ustawione
+                const isMulti = selectedAssignees.length > 1;
+
+                if (isMulti) {
+                    statusContainer.style.display = 'block';
+                    singleInfo.style.display = 'none';
+                    
+                    // 1. Generuj listę uczestników
+                    const usersListHTML = selectedAssignees.map(userId => {
+                        const user = findUser(userId);
+                        if (!user) return '';
+                        
+                        // Sprawdź czy user ukończył (dla nowego subtask jest undefined, więc bezpiecznie [])
+                        const isDone = (subtask && subtask.completedBy || []).includes(userId);
+                        
+                        const iconPending = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="20" height="20" style="margin-left: auto;"><circle cx="25" cy="25" r="20" fill="none" stroke="#e6e6e6" stroke-width="4"/><circle cx="25" cy="25" r="20" fill="none" stroke="#2b2b2b" stroke-width="4" stroke-linecap="round" stroke-dasharray="60 100"><animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 25 25" to="360 25 25" dur="0.9s" repeatCount="indefinite"/></circle></svg>`;
+                        const iconDone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" style="margin-left: auto; color: var(--success-primary);"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 12l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+                        return `
+                        <div class="member-pill" style="width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px; cursor: default; background-color: var(--bg-secondary);">
+                            ${renderAvatarHTML(user, 'member-pill-avatar')}
+                            <span style="margin-left: 8px; font-size: 13px;">${user.name || user.email}</span>
+                            ${isDone ? iconDone : iconPending}
+                        </div>`;
+                    }).join('');
+
+                    // 2. Przycisk akcji dla obecnego użytkownika
+                    const currentUserId = state.currentUser.uid;
+                    let actionButton = '';
+                    
+                    if (selectedAssignees.includes(currentUserId)) {
+                        const isMyPartDone = (subtask && subtask.completedBy || []).includes(currentUserId);
+                        
+                        if (isMyPartDone) {
+                            actionButton = `
+                                <div style="margin-top: 12px; font-size: 12px; color: var(--success-primary); font-weight: 600; text-align: center;">
+                                    ✓ Ukończyłeś/aś swoją część
+                                </div>
+                                <button class="btn btn-secondary btn-sm js-subtask-toggle-my-part" data-main-task-id="${mainTaskId}" data-subtask-id="${subtaskId}" style="width: 100%; margin-top: 8px; font-size: 12px;">Cofnij ukończenie</button>
+                            `;
+                        } else {
+                            actionButton = `
+                                <button class="btn btn-primary js-subtask-toggle-my-part" data-main-task-id="${mainTaskId}" data-subtask-id="${subtaskId}" style="width: 100%; margin-top: 12px; justify-content: center;">
+                                    ✓ Oznacz moją część jako wykonaną
+                                </button>
+                            `;
+                        }
+                    } else {
+                        actionButton = `<p style="font-size: 12px; color: var(--text-secondary); text-align: center; margin-top: 12px;">Nie jesteś przypisany do tego podzadania.</p>`;
+                    }
+
+                    statusContainer.innerHTML = `
+                        <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; text-transform: uppercase;">Postęp zespołu:</span>
+                        ${usersListHTML}
+                        ${actionButton}
+                    `;
+
+                } else {
+                    // Tryb Single
+                    statusContainer.style.display = 'none';
+                    singleInfo.style.display = 'block';
+                }
+                // === KONIEC NOWEJ LOGIKI ===
+
             } else {
                 // --- TRYB TWORZENIA ---
                 subtaskModal.modalTitle.textContent = 'Dodaj podzadanie';
@@ -14965,6 +15034,79 @@ function handleTaskFormChange(e) {
                 e.target.closest('li.budget-item').remove();
             }
         });
+
+        // === NOWY LISTENER: Obsługa statusu wieloosobowego w MODALU PODZADANIA ===
+        document.getElementById('subtask-modal').addEventListener('click', async (e) => {
+            const btn = e.target.closest('.js-subtask-toggle-my-part');
+            if (!btn) return;
+            e.preventDefault();
+
+            const mainTaskId = btn.dataset.mainTaskId;
+            const subtaskId = btn.dataset.subtaskId;
+            const currentUserId = state.currentUser.uid;
+
+            const { task: mainTask, project } = findTask(mainTaskId);
+            if (!mainTask || !project) return;
+
+            // Klonujemy zadanie główne
+            let updatedMainTask = { ...mainTask };
+            const oldStatus = updatedMainTask.status;
+
+            // Znajdujemy i modyfikujemy podzadanie
+            let subtaskChanged = false;
+            updatedMainTask.subtasks = updatedMainTask.subtasks.map(sub => {
+                if (sub.id === subtaskId) {
+                    subtaskChanged = true;
+                    let newCompletedBy = [...(sub.completedBy || [])];
+                    
+                    // Toggle obecności usera
+                    if (newCompletedBy.includes(currentUserId)) {
+                        newCompletedBy = newCompletedBy.filter(id => id !== currentUserId);
+                    } else {
+                        newCompletedBy.push(currentUserId);
+                    }
+
+                    // Sprawdź czy Wszyscy ukończyli
+                    const allAssigneesDone = (sub.assignees.length > 0) && 
+                                             (sub.assignees.every(id => newCompletedBy.includes(id)));
+
+                    return { 
+                        ...sub, 
+                        completedBy: newCompletedBy, 
+                        isCompleted: allAssigneesDone 
+                    };
+                }
+                return sub;
+            });
+
+            if (!subtaskChanged) return;
+
+            // Zapisz do Firebase
+            const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+            
+            try {
+                btn.disabled = true; // Zablokuj na chwilę
+                await updateDoc(projectDocRef, { tasks: updatedMainTask.tasks || project.tasks.map(t => t.id === mainTaskId ? updatedMainTask : t) });
+                
+                // WAŻNE: Sprawdź autouzupełnianie głównego zadania (to samo co w handleSubtaskToggle)
+                // Musimy wywołać te funkcje, żeby sprawdzić czy zmiana w podzadaniu nie kończy głównego zadania
+                // lub części usera w głównym zadaniu.
+                await checkAndCompleteMainTask(updatedMainTask, project);
+                await checkSubtasksAndCompleteMyPart(updatedMainTask, project);
+
+                // Odśwież modal podzadania (żeby zaktualizować listę statusów i przycisk)
+                openSubtaskModal(mainTaskId, subtaskId);
+                
+                showNotification("Status podzadania zaktualizowany.", "Sukces");
+
+            } catch (error) {
+                console.error("Błąd aktualizacji statusu podzadania:", error);
+                showNotification("Wystąpił błąd.", "Błąd");
+                btn.disabled = false;
+            }
+        });
+        // === KONIEC NOWEGO LISTENERA ===
+        
         // === KONIEC NOWEJ, BRAKUJĄCEJ FUNKCJI ===
        // === PRZENIESIONE FUNKCJE (NAPRAWA BŁĘDU ReferenceError) ===
 
@@ -23592,6 +23734,9 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      });
                  } else {
                      // === TWORZENIE NOWEGO ===
+                     // Ustalamy typ na podstawie liczby przypisanych osób
+                     const subtaskType = selectedAssignees.length > 1 ? 'multi' : 'single';
+
                      const newSubtask = {
                          id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
                          title,
@@ -23602,6 +23747,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          actualEffort,
                          budgetItems,
                          assignees: selectedAssignees,
+                         type: subtaskType, // <--- NOWE POLE
                          isCompleted: false,
                          completedBy: [],
                          comments: newCommentObj ? [newCommentObj] : [],
@@ -25934,6 +26080,10 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px;height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
                             <span>Osoby</span>
                         </button>
+                        <button type="button" class="task-modal-tab" data-tab="status" title="Status">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px;height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                            <span>Status</span>
+                        </button>
                         <button type="button" class="task-modal-tab" data-tab="attachments" title="Załączniki">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px;height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.4l-7.693 7.693a2.25 2.25 0 003.182 3.182l7.693-7.693a.75.75 0 011.06 1.06l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32" /></svg>
                             <span>Załączniki</span>
@@ -26019,6 +26169,17 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                         <div class="form-group">
                             <label>Przypisani członkowie:</label>
                             <div id="subtask-modal-assignees-list" style="margin-top: 8px;"></div>
+                        </div>
+                    </div>
+
+                    <div id="subtask-tab-content-status" class="task-modal-tab-content">
+                        <div class="form-group">
+                            <label>Status podzadania</label>
+                            <div id="subtask-multi-status-container" style="display: none; margin-top: 8px; padding: 12px; background-color: var(--bg-tertiary); border-radius: var(--border-radius); border: 1px solid var(--border-color);">
+                                </div>
+                            <p id="subtask-single-status-info" style="font-size: 13px; color: var(--text-secondary); display: none;">
+                                To podzadanie jest jednoosobowe. Użyj przycisku "Zapisz" lub checkboxa na liście, aby je ukończyć.
+                            </p>
                         </div>
                     </div>
 
@@ -26708,6 +26869,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
