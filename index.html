@@ -6618,6 +6618,114 @@ body.compact-mode .comment-item {
             font-weight: 500;
             color: var(--text-primary);
         }
+        Tak, możemy to zrobić. Wprowadzenie pełnego edytora tekstu (WYSIWYG) w czystym JavaScript wymaga stworzenia paska narzędzi, który będzie operował na kontenerze z atrybutem contenteditable.
+
+Zastosujemy rozwiązanie, które "ukrywa" oryginalne pola textarea, a w ich miejsce wstawia edytor wizualny. Zawartość edytora będzie automatycznie synchronizowana z ukrytym polem textarea, dzięki czemu reszta Twojej logiki zapisu (Firebase) zadziała bez zmian.
+
+Oto plan wdrożenia:
+
+CSS: Style dla paska narzędzi, przycisków i obszaru edycji (wygląd, tabelki).
+
+JS (Klasa): Stworzę klasę SimpleRichTextEditor, która zamieni zwykłe pole tekstowe na edytor.
+
+JS (Inicjalizacja): Uruchomię edytory dla okien: Nowe Zadanie, Edycja Zadania, Podzadanie.
+
+JS (Aktualizacja danych): Zmodyfikuję funkcje otwierające modale, aby wczytywały dane do edytora wizualnego.
+
+KROK 1: CSS - Style dla edytora
+Dodaj te style do sekcji <style> w pliku index.html.
+
+Kod PO Zmianie (Dodaj na końcu sekcji CSS):
+
+CSS
+
+        /* === STYLE DLA EDYTORA TEKSTU (RICH TEXT) === */
+        .rte-container {
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            background-color: var(--bg-primary);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100%; /* Wypełnij dostępną przestrzeń */
+            min-height: 200px;
+        }
+
+        .rte-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            padding: 8px;
+            background-color: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+            align-items: center;
+        }
+
+        .rte-btn {
+            background: none;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            padding: 4px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+        }
+        .rte-btn:hover {
+            background-color: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+        .rte-btn svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+        
+        .rte-select {
+            padding: 2px 4px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 12px;
+            height: 26px;
+        }
+
+        .rte-editor {
+            flex-grow: 1;
+            padding: 12px;
+            overflow-y: auto;
+            background-color: var(--bg-secondary);
+            outline: none;
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--text-primary);
+            min-height: 150px;
+        }
+        
+        /* Style dla elementów wewnątrz edytora */
+        .rte-editor ul, .rte-editor ol {
+            padding-left: 20px;
+            margin-bottom: 10px;
+        }
+        .rte-editor table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+        .rte-editor th, .rte-editor td {
+            border: 1px solid var(--border-color);
+            padding: 6px;
+            min-width: 50px;
+        }
+        .rte-editor blockquote {
+            border-left: 3px solid var(--accent-primary);
+            margin: 0 0 10px 0;
+            padding-left: 10px;
+            color: var(--text-secondary);
+        }
     </style>
 
 </head>
@@ -8257,7 +8365,139 @@ body.compact-mode .comment-item {
         const templatesRef = collection(db, `artifacts/${appId}/public/data/projectTemplates`);
         const pollsRef = collection(db, `artifacts/${appId}/public/data/polls`); // <-- NOWA LINIA
 
+    // ============================
+    // 4. KLASA EDYTORA TEKSTU (Rich Text Editor)
+    // ============================
+    class SimpleRichTextEditor {
+        constructor(textareaId) {
+            this.textarea = document.getElementById(textareaId);
+            if (!this.textarea) return;
 
+            this.container = document.createElement('div');
+            this.container.className = 'rte-container';
+
+            // 1. Tworzenie paska narzędzi
+            this.toolbar = document.createElement('div');
+            this.toolbar.className = 'rte-toolbar';
+            this.createToolbar();
+
+            // 2. Tworzenie obszaru edycji
+            this.editor = document.createElement('div');
+            this.editor.className = 'rte-editor';
+            this.editor.contentEditable = true;
+            
+            // Przepisz początkową wartość
+            this.editor.innerHTML = this.textarea.value;
+
+            // 3. Synchronizacja (Editor -> Textarea)
+            this.editor.addEventListener('input', () => {
+                this.textarea.value = this.editor.innerHTML;
+                // Wywołaj event 'input' na textarea, aby inni słuchacze (np. autosave) wiedzieli o zmianie
+                this.textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+
+            // 4. Podmiana w DOM
+            this.textarea.style.display = 'none';
+            this.textarea.parentNode.insertBefore(this.container, this.textarea);
+            this.container.appendChild(this.toolbar);
+            this.container.appendChild(this.editor);
+            this.container.appendChild(this.textarea); // Przenieś textarea do kontenera
+        }
+
+        createToolbar() {
+            // Definicje przycisków
+            const tools = [
+                { cmd: 'bold', icon: '<path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4h-5.6L8 12l.4 2h5.2a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6V4zm4 3v4h3.5a2.5 2.5 0 0 0 0-5H10zm0 8v4h3.5a2.5 2.5 0 0 0 0-5H10z"/>', title: 'Pogrubienie' },
+                { cmd: 'italic', icon: '<path d="M10 4h4l-4 16H6L10 4z"/>', title: 'Kursywa' }, // Uproszczona
+                { cmd: 'underline', icon: '<path d="M8 3v9a4 4 0 1 0 8 0V3h-2v9a2 2 0 1 1-4 0V3H8z M6 19h12v2H6z"/>', title: 'Podkreślenie' },
+                { separator: true },
+                { cmd: 'insertUnorderedList', icon: '<path d="M8 6h13M8 12h13M8 18h13M3 6h2v2H3V6zm0 6h2v2H3v-2zm0 6h2v2H3v-2z"/>', title: 'Lista punktowana' },
+                { cmd: 'insertOrderedList', icon: '<path d="M8 6h13M8 12h13M8 18h13M3 6h2v2H3V6zm0 6h2v2H3v-2zm0 6h2v2H3v-2z"/>', title: 'Lista numerowana' }, // Uproszczona ikona
+                { separator: true },
+                { cmd: 'justifyLeft', icon: '<path d="M3 6h18M3 12h12M3 18h18"/>', title: 'Do lewej' },
+                { cmd: 'justifyCenter', icon: '<path d="M3 6h18M6 12h12M3 18h18"/>', title: 'Do środka' },
+                { cmd: 'justifyRight', icon: '<path d="M3 6h18M9 12h12M3 18h18"/>', title: 'Do prawej' },
+                { separator: true },
+                { custom: 'createTable', icon: '<path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v5h16V6H4zm0 7v5h16v-5H4z"/>', title: 'Wstaw tabelę' }
+            ];
+
+            // Select dla rozmiaru
+            const sizeSelect = document.createElement('select');
+            sizeSelect.className = 'rte-select';
+            ['3', '1', '2', '4', '5', '6', '7'].forEach(size => { // 3 to default
+                const opt = document.createElement('option');
+                opt.value = size;
+                opt.text = size === '3' ? 'Normalny' : (size > 3 ? `Duży ${size-2}` : `Mały ${size}`);
+                if(size === '3') opt.selected = true;
+                sizeSelect.appendChild(opt);
+            });
+            sizeSelect.onchange = () => document.execCommand('fontSize', false, sizeSelect.value);
+            this.toolbar.appendChild(sizeSelect);
+            
+            // Select dla czcionki (podstawowy)
+            const fontSelect = document.createElement('select');
+            fontSelect.className = 'rte-select';
+            ['Inter', 'Arial', 'Courier New', 'Georgia', 'Times New Roman'].forEach(font => {
+                const opt = document.createElement('option');
+                opt.value = font;
+                opt.text = font;
+                fontSelect.appendChild(opt);
+            });
+            fontSelect.onchange = () => document.execCommand('fontName', false, fontSelect.value);
+            this.toolbar.appendChild(fontSelect);
+
+
+            tools.forEach(tool => {
+                if (tool.separator) {
+                    const sep = document.createElement('div');
+                    sep.style.width = '1px';
+                    sep.style.height = '20px';
+                    sep.style.backgroundColor = 'var(--border-color)';
+                    sep.style.margin = '0 4px';
+                    this.toolbar.appendChild(sep);
+                    return;
+                }
+
+                const btn = document.createElement('button');
+                btn.className = 'rte-btn';
+                btn.type = 'button'; // Ważne, żeby nie submitowało formularza
+                btn.title = tool.title;
+                btn.innerHTML = `<svg viewBox="0 0 24 24">${tool.icon}</svg>`;
+
+                if (tool.custom === 'createTable') {
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        const html = `
+                            <table border="1" style="width:100%; border-collapse:collapse; margin-top:8px;">
+                                <tbody>
+                                    <tr><td>Komórka 1</td><td>Komórka 2</td></tr>
+                                    <tr><td>Komórka 3</td><td>Komórka 4</td></tr>
+                                </tbody>
+                            </table><br>`;
+                        document.execCommand('insertHTML', false, html);
+                    };
+                } else {
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        document.execCommand(tool.cmd, false, null);
+                    };
+                }
+                this.toolbar.appendChild(btn);
+            });
+        }
+        
+        // Metoda do ustawiania treści z zewnątrz (np. przy otwieraniu modala)
+        setContent(html) {
+            this.editor.innerHTML = html;
+            this.textarea.value = html;
+        }
+        
+        // Metoda do czyszczenia
+        clear() {
+            this.editor.innerHTML = '';
+            this.textarea.value = '';
+        }
+    }
     // ============================
     // 4. GŁÓWNA LOGIKA APLIKACJI (wszystko wewnątrz DOMContentLoaded)
     // ============================
@@ -9481,6 +9721,18 @@ let state = {
         // === KONIEC NOWEGO KODU ===
         
     }; // <--- KONIEC BLOKU DO WYCIĘCIA
+       // --- INICJALIZACJA EDYTORÓW RICH TEXT ---
+    let editorTaskDescription = null;
+    let editorNewTaskDescription = null;
+    let editorSubtaskDescription = null;
+    let editorTemplateDescription = null;
+
+    // Inicjalizujemy je od razu
+    editorTaskDescription = new SimpleRichTextEditor('modal-task-description');
+    editorNewTaskDescription = new SimpleRichTextEditor('new-task-description');
+    editorSubtaskDescription = new SimpleRichTextEditor('subtask-description');
+    // Opcjonalnie dla edytora szablonów:
+    editorTemplateDescription = new SimpleRichTextEditor('template-edit-description');
        // Funkcja pomocnicza do renderowania wiersza listy kontrolnej
         function addChecklistItemUI(itemData = {}) {
             const li = document.createElement('li');
@@ -14845,7 +15097,18 @@ function handleTaskFormChange(e) {
             // === KONIEC ZMIANY ===
 
             taskModal.priority.value = task.priority;
-           taskModal.description.value = task.description || '';
+           // Aktualizuj też edytor wizualny
+if (editorTaskDescription) {
+    editorTaskDescription.setContent(task.description || '');
+    // Zarządzanie stanem zablokowania (read-only)
+    editorTaskDescription.editor.contentEditable = canEdit;
+    editorTaskDescription.container.style.opacity = canEdit ? '1' : '0.7';
+    // Ukryj pasek narzędzi w trybie tylko do odczytu dla estetyki
+    editorTaskDescription.toolbar.style.display = canEdit ? 'flex' : 'none';
+} else {
+    // Fallback
+    taskModal.description.value = task.description || '';
+}
 
             // Checkbox ukończenia - logika specjalna
             if (taskModal.completed) {
@@ -15221,6 +15484,13 @@ function handleTaskFormChange(e) {
 
             // Reset formularza i interfejsu
             subtaskModal.form.reset();
+            
+            // === NOWE: Reset edytora wizualnego ===
+            if (typeof editorSubtaskDescription !== 'undefined' && editorSubtaskDescription) {
+                editorSubtaskDescription.clear();
+            }
+            // === KONIEC ===
+
             subtaskModal.budgetDetails.style.display = 'none';
             subtaskModal.attachmentsList.innerHTML = '';
             subtaskModal.commentsList.innerHTML = '';
@@ -15342,7 +15612,15 @@ function handleTaskFormChange(e) {
                 
                 // Dane podstawowe
                 subtaskModal.titleInput.value = subtask.title;
-                subtaskModal.descriptionInput.value = subtask.description || '';
+                
+                // === NOWE: Wczytanie opisu do edytora wizualnego ===
+                if (typeof editorSubtaskDescription !== 'undefined' && editorSubtaskDescription) {
+                    editorSubtaskDescription.setContent(subtask.description || '');
+                } else {
+                    // Fallback do zwykłego textarea, jeśli edytor nie istnieje
+                    subtaskModal.descriptionInput.value = subtask.description || '';
+                }
+                // === KONIEC ===
                 
                 // Rozbijanie daty startu (jeśli istnieje)
                 if (subtask.startDate) {
@@ -15438,8 +15716,13 @@ function handleTaskFormChange(e) {
                         // Sprawdź czy user ukończył (dla nowego subtask jest undefined, więc bezpiecznie [])
                         const isDone = (subtask && subtask.completedBy || []).includes(userId);
                         
-                        const iconPending = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="20" height="20" style="margin-left: auto;"><circle cx="25" cy="25" r="20" fill="none" stroke="#e6e6e6" stroke-width="4"/><circle cx="25" cy="25" r="20" fill="none" stroke="#2b2b2b" stroke-width="4" stroke-linecap="round" stroke-dasharray="60 100"><animateTransform attributeName="transform" attributeType="XML" type="rotate" from="0 25 25" to="360 25 25" dur="0.9s" repeatCount="indefinite"/></circle></svg>`;
-                        const iconDone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" style="margin-left: auto; color: var(--success-primary);"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 12l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                        // NOWA IKONA (Statyczne szare kółko z ptaszkiem, 14px)
+                        // Zmieniamy kolor na var(--text-secondary) i dodajemy lekką przezroczystość
+                        const iconPending = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" style="color: var(--text-secondary); opacity: 0.7;"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 12l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+                        // PS. W poprzednim kodzie iconDone dla podzadania był inny (sam ptaszek bez kółka). 
+                        // Dla spójności z nowym iconPending, podmieniam też iconDone na wersję z kółkiem (zielonym).
+                        const iconDone = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" style="color: var(--success-primary);"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 12l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
                         return `
                         <div class="member-pill" style="width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px; cursor: default; background-color: var(--bg-secondary);">
@@ -15499,6 +15782,47 @@ function handleTaskFormChange(e) {
                 subtaskModal.startDateDate.value = today;
                 // Jeśli zadanie główne ma daty, walidator przypilnuje zakresów
             }
+            
+            // Inicjalizacja wzmianek (Tribute) w polu komentarza
+            // Używamy tej samej logiki co w głównym zadaniu
+            if (typeof Tribute !== 'undefined' && !window.subtaskTributeInstance) {
+                 try {
+                    window.subtaskTributeInstance = new Tribute({
+                        trigger: '@',
+                        values: (text, cb) => {
+                            const users = project.members.map(findUser).filter(Boolean).map(u => ({
+                                name: u.name || u.email,
+                                value: (u.name || u.email).replace(/[^a-zA-Z0-9]/g, ''),
+                                avatarHTML: renderAvatarHTML(u, 'avatar-mention')
+                            }));
+                            cb(users);
+                        },
+                        lookup: 'name',
+                        itemTemplate: item => `${item.original.avatarHTML} <span>${item.original.name}</span>`,
+                        selectTemplate: item => `@${item.original.value}`,
+                        allowSpaces: false,
+                        menuItemLimit: 5
+                    });
+                    window.subtaskTributeInstance.attach(subtaskModal.commentInput);
+                } catch (e) { console.error("Tribute subtask init error", e); }
+            }
+
+            // Zbuduj listę osób (używamy stylu akordeonu)
+            // Używamy existing helper function buildTeamMembersAccordion
+            // Przekazujemy kontener subtaskModal.assigneesList
+            buildTeamMembersAccordion(
+                subtaskModal.assigneesList, 
+                selectedAssignees, 
+                project.ownerId, 
+                project.admins || [],
+                false // <--- NOWY PARAMETR: Nie blokuj właściciela/twórcy
+            );
+            
+            // Włącz wyszukiwarkę dla tej listy
+            setupUserSearch(subtaskModal.memberSearchInput, subtaskModal.memberSearchResults, subtaskModal.assigneesList);
+
+            openModal(subtaskModal.overlay);
+        }
 
             // Inicjalizacja wzmianek (Tribute) w polu komentarza
             // Używamy tej samej logiki co w głównym zadaniu
@@ -16379,6 +16703,9 @@ function handleTaskFormChange(e) {
             // --- KONIEC RESETU ---
 
             newTaskModal.form.reset();
+if (editorNewTaskDescription) {
+    editorNewTaskDescription.clear(); // Wyczyść edytor przy nowym zadaniu
+}
             // === NOWA LOGIKA: Ustawienie domyślnej daty i godziny (dla 3 pól) ===
             const defaultDateStr = getLocalDateString(); // Pobiera dzisiejszą datę YYYY-MM-DD
             
@@ -27779,6 +28106,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
