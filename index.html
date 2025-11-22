@@ -13444,10 +13444,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 customStyle = `style="background-color: ${parentTask.backgroundColor};"`;
             }
 
-            // Checkbox (używamy klasy .kanban-subtask-checkbox, aby działał istniejący listener)
-            // Dodajemy data-subtask-id, aby listener wiedział co odznaczyć
-            // Uwaga: Listener w mainie szuka .kanban-subtask-checkbox wewnątrz .task-card.
-            // Musimy zapewnić, że struktura to umożliwia.
+            // Checkbox
             const canIComplete = (subtask.assignees || []).includes(state.currentUser.uid);
             const checkboxHTML = `
                 <input type="checkbox" 
@@ -13461,7 +13458,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // Tytuł
             const titleHTML = `<h5>${subtask.title}</h5>`;
 
-            // --- GENEROWANIE IKON (KOPIA LOGIKI Z TASK CARD) ---
+            // --- GENEROWANIE IKON ---
             let iconsHTML = '';
             
             // 1. Budżet
@@ -13491,12 +13488,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </div>`;
             }
 
-           // 4. Wysiłek
+            // 4. Wysiłek
             let effortIcon = '';
-            // Dodano sprawdzenie 'project &&'
             if (project && project.estimationType !== 'none' && (subtask.effort > 0 || subtask.actualEffort > 0)) {
                 const est = subtask.effort || 0;
-                const act = subtask.actualEffort || est; // Fallback
+                const act = subtask.actualEffort || est; 
                 let color = "currentColor";
                 if (act > est) color = "var(--danger-primary)";
                 else if (act < est) color = "var(--success-primary)";
@@ -13505,7 +13501,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${color}" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
                 </div>`;
             }
-            // 5. Lista Kontrolna (Niebieska)
+
+            // 5. Lista Kontrolna (Niebieska) - NOWOŚĆ
             let checklistIcon = '';
             if (subtask.checklist && subtask.checklist.length > 0) {
                 const total = subtask.checklist.length;
@@ -13513,49 +13510,82 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // Niebieski kolor: var(--accent-primary)
                 checklistIcon = `<div class="task-detail" title="Lista kontrolna: ${done}/${total}" style="color: var(--accent-primary);">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
                     </svg>
                 </div>`;
             }
-            iconsHTML = `<div class="subtask-visual-icons">${effortIcon}${attIcon}${commIcon}${budgetIcon}</div>`;
+
+            // 6. Ikona Wieloosobowa - NOWOŚĆ
+            let multiUserIcon = '';
+            if ((subtask.assignees && subtask.assignees.length > 1)) {
+                const completedCount = (subtask.completedBy || []).length;
+                const totalCount = subtask.assignees.length;
+                const isAllDone = completedCount === totalCount;
+                
+                multiUserIcon = `<div class="task-detail" title="Postęp zespołu: ${completedCount}/${totalCount}">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="${isAllDone ? 'var(--success-primary)' : 'currentColor'}" style="width:14px;height:14px;">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span style="font-size: 10px; margin-left:2px;">${completedCount}/${totalCount}</span>
+                </div>`;
+            }
+
+            iconsHTML = `<div class="subtask-visual-icons">${multiUserIcon}${checklistIcon}${effortIcon}${attIcon}${commIcon}${budgetIcon}</div>`;
 
             // --- STOPKA (DATY I AWATARY) ---
             
-            // Daty
+            // Daty (ZMODYFIKOWANE: Pełne daty, dwie linie)
             let dateHTML = '';
-            if (subtask.startDate || subtask.dueDate) {
-                const startStr = subtask.startDate ? new Date(subtask.startDate).toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit'}) : '';
-                const dueStr = subtask.dueDate ? new Date(subtask.dueDate).toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit'}) : '';
-                
-                // Sprawdź opóźnienie
-                const isOverdue = subtask.dueDate && new Date(subtask.dueDate).getTime() < Date.now() && !isCompleted;
-                const dueStyle = isOverdue ? 'color: var(--danger-primary); font-weight: 700;' : '';
-
-                dateHTML = `
-                    <div class="subtask-visual-date">
-                        ${startStr ? `<span title="Start">${startStr}</span>` : ''}
-                        ${(startStr && dueStr) ? '<span>-</span>' : ''}
-                        ${dueStr ? `<span title="Koniec" style="${dueStyle}">${dueStr}</span>` : ''}
-                    </div>
-                `;
+            let dateStartRow = '';
+            let dateEndRow = '';
+            
+            if (subtask.startDate) {
+                // Format pełnej daty i godziny
+                const startFull = new Date(subtask.startDate).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'});
+                dateStartRow = `
+                    <div class="task-detail" style="margin-bottom: 2px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;">
+                          <path d="M5 3v18" />
+                          <path d="M5 4l10 5-10 5" />
+                        </svg>
+                        <span>${startFull}</span>
+                    </div>`;
+            }
+            
+            if (subtask.dueDate) {
+                 const dueFull = new Date(subtask.dueDate).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'});
+                 const isOverdue = new Date(subtask.dueDate).getTime() < Date.now() && !isCompleted;
+                 const dueStyle = isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : 'font-weight: 600;';
+                 
+                 dateEndRow = `
+                    <div class="task-detail ${isOverdue ? 'overdue' : ''}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;">
+                          <path d="M5 3v18" />
+                          <path d="M5 4h9l-2 3 2 3H5" />
+                        </svg>
+                        <span style="${dueStyle}">${dueFull}</span>
+                    </div>`;
+            }
+            
+            if (dateStartRow || dateEndRow) {
+                dateHTML = `<div class="subtask-visual-date" style="display: block;">${dateStartRow}${dateEndRow}</div>`;
             }
 
             // Awatary
             const assigneesHTML = (subtask.assignees || [])
                 .map(uid => findUser(uid))
                 .filter(Boolean)
-                .slice(0, 3) // Max 3 awatary
+                .slice(0, 3) 
                 .map(user => {
-                    // Używamy inline styles dla mini-awatarów w podzadaniu
                     return renderAvatarHTML(user, 'avatar')
                         .replace('class="avatar"', 'class="avatar" style="width:20px; height:20px; font-size:10px; margin-left:-6px; border:1px solid var(--bg-secondary);"');
                 })
                 .join('');
             
-            const avatarsContainer = `<div class="task-assignees" style="margin-left: auto;">${assigneesHTML}</div>`;
+            // Wyrównanie do dołu (flex-end) jest ważne, jeśli daty zajmują 2 linie
+            const avatarsContainer = `<div class="task-assignees" style="margin-left: auto; align-self: flex-end;">${assigneesHTML}</div>`;
 
            // --- SKŁADANIE CAŁOŚCI ---
-            // Dodajemy atrybut data-subtask-id i data-parent-id dla obsługi kliknięć (modal)
             return `
                 <div class="subtask-visual-card ${isCompleted ? 'completed' : ''}" 
                      ${customStyle}
@@ -13566,8 +13596,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     ${titleHTML}
                     ${iconsHTML}
                     
-                    <div class="subtask-visual-meta">
-                        ${dateHTML}
+                    <div class="subtask-visual-meta" style="align-items: flex-end;"> ${dateHTML}
                         ${avatarsContainer}
                     </div>
                 </div>
@@ -27209,6 +27238,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
