@@ -4193,12 +4193,51 @@
         .subtask-item {
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 10px 8px;
+            gap: 8px; /* Zmniejszono gap, aby zmieścić więcej elementów */
+            padding: 8px 8px;
             background-color: var(--bg-primary);
             border-radius: var(--border-radius);
             border-left: 4px solid var(--border-color);
-            transition: background-color 0.2s; /* Dodano płynne przejście */
+            transition: background-color 0.2s;
+            position: relative;
+        }
+        
+        /* Nowy styl dla uchwytu do przeciągania */
+        .subtask-drag-handle {
+            cursor: grab;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            padding: 2px;
+            opacity: 0.5;
+        }
+        .subtask-drag-handle:hover {
+            opacity: 1;
+            color: var(--text-primary);
+        }
+
+        /* Styl dla daty w podzadaniu */
+        .subtask-item-date {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-left: auto; /* Przesuwa datę przed awatary */
+            margin-right: 8px;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .subtask-item-date.overdue {
+            color: var(--danger-primary);
+            font-weight: 600;
+        }
+
+        /* Poprawka dla kontenera awatarów, aby nie używał margin-left: auto */
+        .subtask-assignees {
+            display: flex;
+            align-items: center;
+            /* margin-left: auto; <--- USUNIĘTE (data przejmuje tę rolę) */
+            padding-left: 0;
         }
         .subtask-item:hover {
              background-color: var(--bg-tertiary); /* Efekt hover */
@@ -15628,25 +15667,47 @@ function handleTaskFormChange(e) {
        // === PRZENIESIONE FUNKCJE (NAPRAWA BŁĘDU ReferenceError) ===
 
         function createSubtaskItemHTML(subtask, canDelete) {
-            // Generowanie awatarów (bez zmian w logice, upewniamy się że renderAvatarHTML jest użyte)
             const assigneesHTML = (subtask.assignees || [])
                 .map(userId => findUser(userId))
                 .filter(Boolean)
-                .map(user => renderAvatarHTML(user)) // Klasa 'avatar' jest domyślna, CSS modala sformatuje rozmiar
+                .map(user => renderAvatarHTML(user)) 
                 .join('');
             
             const canIComplete = (subtask.assignees || []).includes(state.currentUser.uid);
             const isCompletedByMe = (subtask.completedBy || []).includes(state.currentUser.uid);
 
-            // Przycisk usuwania
             const deleteBtnHTML = canDelete ? `
                 <button type="button" class="subtask-action-btn delete" title="Usuń podzadanie">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                 </button>` : '';
 
+            // === NOWE: Formatowanie daty i status opóźnienia ===
+            let dateHTML = '';
+            if (subtask.dueDate) {
+                const dateObj = new Date(subtask.dueDate);
+                const dateStr = dateObj.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
+                const isOverdue = !subtask.isCompleted && dateObj.getTime() < new Date().setHours(0,0,0,0);
+                
+                dateHTML = `
+                    <span class="subtask-item-date ${isOverdue ? 'overdue' : ''}" title="Termin wykonania">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:12px;height:12px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0h18" /></svg>
+                        ${dateStr}
+                    </span>
+                `;
+            }
+
+            // === NOWE: Uchwyt do przeciągania (6 kropek) ===
+            const dragHandleHTML = `
+                <div class="subtask-drag-handle" title="Przesuń, aby zmienić kolejność">
+                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:16px;">
+                      <path fill-rule="evenodd" d="M3 6a3 3 0 013-3h2.25a3 3 0 013 3v2.25a3 3 0 01-3 3H6a3 3 0 01-3-3V6zm9.75 0a3 3 0 013-3H18a3 3 0 013 3v2.25a3 3 0 01-3 3h-2.25a3 3 0 01-3-3V6zM3 15.75a3 3 0 013-3h2.25a3 3 0 013 3V18a3 3 0 01-3 3H6a3 3 0 01-3-3v-2.25zm9.75 0a3 3 0 013-3H18a3 3 0 013 3V18a3 3 0 01-3 3h-2.25a3 3 0 01-3-3v-2.25z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+            `;
+
             return `
                 <li class="subtask-item ${subtask.isCompleted ? 'completed' : ''}" data-subtask-id="${subtask.id}">
-                    <input type="checkbox" 
+                    ${dragHandleHTML} <input type="checkbox" 
                            class="subtask-checkbox" 
                            data-subtask-id="${subtask.id}" 
                            ${isCompletedByMe ? 'checked' : ''} 
@@ -15654,7 +15715,7 @@ function handleTaskFormChange(e) {
                            title="${canIComplete ? 'Oznacz swoją część' : 'Nie jesteś przypisany/a'}">
                     <span class="subtask-item-title">${subtask.title}</span>
                     
-                    <div class="subtask-assignees">${assigneesHTML}</div>
+                    ${dateHTML} <div class="subtask-assignees">${assigneesHTML}</div>
                     
                     <div class="subtask-actions">
                         <button type="button" class="subtask-action-btn edit" title="Edytuj podzadanie">
@@ -15666,27 +15727,74 @@ function handleTaskFormChange(e) {
             `;
         }
 
+        // Zmienna globalna na instancję Sortable dla subzadań
+        let subtaskSortableInstance = null;
+
         function renderSubtaskListInMainModal(task) {
             const subtasksCounter = document.getElementById('subtasks-counter');
-            if (!subtasksCounter) {
-                console.warn("Nie znaleziono elementu 'subtasks-counter'");
-            } else {
+            if (subtasksCounter) {
                 subtasksCounter.textContent = `(${(task.subtasks || []).length})`;
             }
             subtasksListMain.innerHTML = '';
+            
             if (!task.subtasks || task.subtasks.length === 0) {
                  subtasksListMain.innerHTML = '<li style="color: var(--text-secondary); font-style: italic; padding: 8px 0;">Brak podzadań.</li>';
                  return;
             }
 
-            // Musimy znaleźć projekt, aby sprawdzić, czy użytkownik jest właścicielem
             const { project } = findTask(task.id);
             const canDelete = project && (task.createdBy === state.currentUser.uid || project.ownerId === state.currentUser.uid);
 
+            // === 1. Sortowanie Wyświetlania (Opcjonalne, ale zgodne z prośbą) ===
+            // Używamy kopii, aby nie mutować oryginalnej tablicy w pamięci (kolejność w bazie jest ważniejsza)
+            // Jednak, aby Drag&Drop miał sens, musimy renderować W KOLEJNOŚCI Z BAZY.
+            // Jeśli posortujemy tu po dacie, a w bazie jest inaczej, to przy pierwszym ruchu element "przeskoczy".
+            // KOMPROMIS: Wyświetlamy tak jak jest w bazie (użytkownik sam sobie posortuje ręcznie).
+            // Jeśli bardzo chcesz wymusić sortowanie po dacie na start, trzeba by to zrobić przy migracji.
+            // Tutaj zostawiam kolejność tablicy (task.subtasks), co pozwala na manualne układanie.
+            
             const subtasksHTML = (task.subtasks || [])
                 .map(subtask => createSubtaskItemHTML(subtask, canDelete))
                 .join('');
             subtasksListMain.innerHTML = subtasksHTML;
+
+            // === 2. Inicjalizacja SortableJS (Drag & Drop) ===
+            if (subtaskSortableInstance) {
+                subtaskSortableInstance.destroy();
+            }
+
+            // Tylko jeśli użytkownik może edytować (np. twórca/admin), pozwalamy przesuwać
+            // (Tutaj używamy uproszczenia - jeśli widzi listę w trybie edycji, może przesuwać)
+            
+            subtaskSortableInstance = new Sortable(subtasksListMain, {
+                animation: 150,
+                handle: '.subtask-drag-handle', // Przesuwanie tylko za uchwyt
+                ghostClass: 'sortable-ghost',
+                onEnd: async (evt) => {
+                    // 1. Pobierz nową kolejność ID z DOM
+                    const newOrderIds = Array.from(subtasksListMain.children).map(li => li.dataset.subtaskId);
+                    
+                    // 2. Przebuduj tablicę subtasks w oparciu o nową kolejność
+                    // (Znajdź obiekt subzadania w oryginalnej tablicy dla każdego ID)
+                    const newSubtasksArray = newOrderIds.map(id => task.subtasks.find(s => s.id === id)).filter(Boolean);
+                    
+                    // 3. Zaktualizuj obiekt task lokalnie
+                    task.subtasks = newSubtasksArray;
+                    
+                    // 4. Zapisz do Firestore
+                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                    // Musimy zaktualizować całą listę zadań w projekcie
+                    const allTasks = project.tasks.map(t => t.id === task.id ? task : t);
+                    
+                    try {
+                        await updateDoc(projectDocRef, { tasks: allTasks });
+                        console.log('Kolejność podzadań zaktualizowana.');
+                    } catch (error) {
+                        console.error('Błąd zapisu kolejności podzadań:', error);
+                        showNotification('Nie udało się zapisać kolejności.', 'Błąd');
+                    }
+                }
+            });
         }
 
         // === KONIEC PRZENIESIONYCH FUNKCJI ===
@@ -27567,6 +27675,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
