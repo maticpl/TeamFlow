@@ -6618,113 +6618,150 @@ body.compact-mode .comment-item {
             font-weight: 500;
             color: var(--text-primary);
         }
-        Tak, możemy to zrobić. Wprowadzenie pełnego edytora tekstu (WYSIWYG) w czystym JavaScript wymaga stworzenia paska narzędzi, który będzie operował na kontenerze z atrybutem contenteditable.
-
-Zastosujemy rozwiązanie, które "ukrywa" oryginalne pola textarea, a w ich miejsce wstawia edytor wizualny. Zawartość edytora będzie automatycznie synchronizowana z ukrytym polem textarea, dzięki czemu reszta Twojej logiki zapisu (Firebase) zadziała bez zmian.
-
-Oto plan wdrożenia:
-
-CSS: Style dla paska narzędzi, przycisków i obszaru edycji (wygląd, tabelki).
-
-JS (Klasa): Stworzę klasę SimpleRichTextEditor, która zamieni zwykłe pole tekstowe na edytor.
-
-JS (Inicjalizacja): Uruchomię edytory dla okien: Nowe Zadanie, Edycja Zadania, Podzadanie.
-
-JS (Aktualizacja danych): Zmodyfikuję funkcje otwierające modale, aby wczytywały dane do edytora wizualnego.
-
-KROK 1: CSS - Style dla edytora
-Dodaj te style do sekcji <style> w pliku index.html.
-
-Kod PO Zmianie (Dodaj na końcu sekcji CSS):
-
-CSS
+        
 
         /* === STYLE DLA EDYTORA TEKSTU (RICH TEXT) === */
+        /* === ULEPSZONE STYLE DLA EDYTORA TEKSTU (RICH TEXT) === */
         .rte-container {
             border: 1px solid var(--border-color);
             border-radius: var(--border-radius);
-            background-color: var(--bg-primary);
+            background-color: var(--bg-secondary); /* Tło kontenera */
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            height: 100%; /* Wypełnij dostępną przestrzeń */
-            min-height: 200px;
+            height: 100%;
+            min-height: 250px; /* Trochę wyższy start */
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        /* Efekt skupienia na całym edytorze */
+        .rte-container:focus-within {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
         }
 
         .rte-toolbar {
             display: flex;
             flex-wrap: wrap;
-            gap: 4px;
-            padding: 8px;
-            background-color: var(--bg-tertiary);
+            gap: 6px; /* Większy odstęp między elementami */
+            padding: 8px 12px;
+            background-color: var(--bg-primary); /* Odrobinę ciemniejsze tło dla paska */
             border-bottom: 1px solid var(--border-color);
             align-items: center;
         }
 
         .rte-btn {
-            background: none;
-            border: 1px solid transparent;
-            border-radius: 4px;
+            width: 32px;  /* Kwadratowe przyciski */
+            height: 32px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px; /* Ładne zaokrąglenie */
             cursor: pointer;
-            padding: 4px;
-            color: var(--text-primary);
+            padding: 0;
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: background-color 0.2s;
+            transition: all 0.2s ease;
         }
+
         .rte-btn:hover {
-            background-color: var(--bg-secondary);
-            border-color: var(--border-color);
+            background-color: var(--bg-tertiary);
+            color: var(--accent-primary);
+            border-color: var(--accent-primary);
+            transform: translateY(-1px);
         }
+        
+        /* Styl dla aktywnego przycisku (opcjonalnie, jeśli dodasz logikę JS) */
+        .rte-btn:active {
+            background-color: var(--accent-primary);
+            color: white;
+        }
+
         .rte-btn svg {
             width: 16px;
             height: 16px;
-            fill: currentColor;
+            fill: currentColor; /* Ikona przyjmuje kolor tekstu */
+            pointer-events: none;
         }
         
         .rte-select {
-            padding: 2px 4px;
-            border-radius: 4px;
+            padding: 0 8px;
+            height: 32px; /* Wysokość taka sama jak przyciski */
+            border-radius: 6px;
             border: 1px solid var(--border-color);
             background-color: var(--bg-secondary);
             color: var(--text-primary);
-            font-size: 12px;
-            height: 26px;
+            font-size: 13px;
+            font-family: var(--font-family);
+            cursor: pointer;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        
+        .rte-select:hover, .rte-select:focus {
+            border-color: var(--accent-primary);
         }
 
         .rte-editor {
             flex-grow: 1;
-            padding: 12px;
+            padding: 16px;
             overflow-y: auto;
             background-color: var(--bg-secondary);
-            outline: none;
+            outline: none; /* Usuwamy niebieską obwódkę przeglądarki */
             font-size: 14px;
-            line-height: 1.5;
+            line-height: 1.6;
             color: var(--text-primary);
             min-height: 150px;
         }
         
+        /* Separator w pasku narzędzi */
+        .rte-toolbar > div[style*="width: 1px"] {
+            background-color: var(--border-color) !important;
+            height: 24px !important; /* Dopasowanie wysokości */
+            margin: 0 4px !important;
+        }
+        
         /* Style dla elementów wewnątrz edytora */
         .rte-editor ul, .rte-editor ol {
-            padding-left: 20px;
-            margin-bottom: 10px;
+            padding-left: 24px;
+            margin-bottom: 12px;
+        }
+        .rte-editor p {
+            margin-bottom: 8px;
         }
         .rte-editor table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
+            font-size: 13px;
         }
         .rte-editor th, .rte-editor td {
             border: 1px solid var(--border-color);
-            padding: 6px;
+            padding: 8px;
             min-width: 50px;
         }
+        .rte-editor th {
+            background-color: var(--bg-tertiary);
+            font-weight: 600;
+        }
         .rte-editor blockquote {
-            border-left: 3px solid var(--accent-primary);
-            margin: 0 0 10px 0;
-            padding-left: 10px;
+            border-left: 4px solid var(--accent-primary);
+            margin: 12px 0;
+            padding: 8px 16px;
+            background-color: var(--bg-primary);
             color: var(--text-secondary);
+            border-radius: 0 var(--border-radius) var(--border-radius) 0;
+            font-style: italic;
+        }
+        
+        /* Placeholder (symulowany, jeśli edytor jest pusty) */
+        .rte-editor:empty::before {
+            content: attr(data-placeholder);
+            color: var(--text-secondary);
+            opacity: 0.6;
+            pointer-events: none;
+            display: block; /* Dla Firefoxa */
         }
     </style>
 
@@ -8462,7 +8499,7 @@ CSS
                 btn.className = 'rte-btn';
                 btn.type = 'button'; // Ważne, żeby nie submitowało formularza
                 btn.title = tool.title;
-                btn.innerHTML = `<svg viewBox="0 0 24 24">${tool.icon}</svg>`;
+                btn.innerHTML = `<svg viewBox="0 0 24 24" style="width:18px; height:18px;">${tool.icon}</svg>`;
 
                 if (tool.custom === 'createTable') {
                     btn.onclick = (e) => {
@@ -28067,6 +28104,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
