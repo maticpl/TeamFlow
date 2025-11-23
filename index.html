@@ -8167,21 +8167,16 @@ body.compact-mode .comment-item {
 
                     <div id="tab-new-task-assignees" class="task-modal-tab-content">
                         <div class="form-group">
-                            <label>Typ zadania</label>
-                            <div class="task-type-selection">
-                                <input type="radio" id="task-type-single" name="task-type" value="single" checked>
-                                <label for="task-type-single">Jednoosobowe</label>
-                                <input type="radio" id="task-type-multi" name="task-type" value="multi">
-                                <label for="task-type-multi">Wieloosobowe</label>
+                            <label>Wyszukaj i przypisz</label>
+                            <div class="member-search-container">
+                                <input type="text" id="new-task-member-search" class="member-search-input" placeholder="Wpisz nazwę lub e-mail...">
+                                <ul id="new-task-member-search-results" class="member-search-results"></ul>
                             </div>
                         </div>
-                        <div class="form-group" id="new-task-assignee-single-wrapper">
-                            <label for="new-task-assignee-select">Przypisz do</label>
-                            <select id="new-task-assignee-select"></select>
-                        </div>
-                        <div class="form-group" id="new-task-assignee-multi-wrapper" style="display: none;">
-                            <label>Wybierz osoby</label>
-                            <div id="new-task-assignee-multi-list" class="members-selection-pills"></div>
+                        <div class="form-group">
+                            <label>Lista członków:</label>
+                            <div id="new-task-assignees-list" class="attachments-list" style="max-height: 300px; overflow-y: auto; padding: 8px; border: 1px solid var(--border-color); border-radius: var(--border-radius);">
+                            </div>
                         </div>
                     </div>
 
@@ -9405,14 +9400,13 @@ let state = {
             projectSelect: document.getElementById('new-task-project'),
             title: document.getElementById('new-task-title'),
             description: document.getElementById('new-task-description'),
-            // === POCZĄTEK ZMIANY ===
-            taskTypeSelection: document.querySelector('.task-type-selection').closest('.form-group'),
-            // === KONIEC ZMIANY ===
-            taskTypeRadios: document.querySelectorAll('input[name="task-type"]'),
-            assigneeSingleWrapper: document.getElementById('new-task-assignee-single-wrapper'),
-            assigneeSingleSelect: document.getElementById('new-task-assignee-select'),
-            assigneeMultiWrapper: document.getElementById('new-task-assignee-multi-wrapper'),
-            assigneeMultiList: document.getElementById('new-task-assignee-multi-list'),
+            
+            // === NOWE REFERENCJE (ZGODNE Z PROJEKTEM/PODZADANIEM) ===
+            assigneesList: document.getElementById('new-task-assignees-list'),
+            memberSearchInput: document.getElementById('new-task-member-search'),
+            memberSearchResults: document.getElementById('new-task-member-search-results'),
+            // === KONIEC ===
+            
             // dueDate: document.getElementById('new-task-dueDate'), // USUNIĘTE
             startDateDate: document.getElementById('new-task-startDate-date'), // DODANE
             startDateHour: document.getElementById('new-task-startDate-hour'), // DODANE
@@ -16882,11 +16876,9 @@ if (editorNewTaskDescription) {
             newTaskModal.dueDateMinute.value = "00";
             // === KONIEC ZMIANY ===
             // Domyślnie wszystko jest widoczne, logika poniżej może ukryć.
+            // Domyślnie wszystko jest widoczne, logika poniżej może ukryć.
             newTaskModal.projectGroup.style.display = 'block';
-            newTaskModal.assigneeSingleWrapper.style.display = 'block';
-            newTaskModal.assigneeMultiWrapper.style.display = 'none';
-newTaskModal.taskTypeSelection.style.display = 'block'; 
-            document.getElementById('task-type-single').checked = true;
+            // USUNIĘTO: Logikę pokazywania/ukrywania wrapperów single/multi i resetowania radio
 
             // NOWA LOGIKA: Inicjalizacja Tippy.js i ustawienie domyślnej zakładki
             
@@ -16896,68 +16888,64 @@ newTaskModal.taskTypeSelection.style.display = 'block';
                 // 2. Klikamy po drobnym opóźnieniu, aby upewnić się, że modal jest w DOM i CSS jest zastosowany
                 setTimeout(() => {
                     defaultTab.click();
-                    
-                    // NOWA LOGIKA: Natychmiastowe otwarcie selektora daty/czasu (kalendarza)
-                    // KOMENTARZ: Usunięto automatyczne wywołanie showPicker()
                 }, 50);
             }
             
             let targetProject;
             const inboxProject = state.projects.find(p => p.isInbox && p.ownerId === state.currentUser.uid);
-const isTargetingInbox = isSpecial || (isFab && state.ui.currentView === 'my-day');
-if (isSpecial) {
-                // CZERWONY FAB: Zawsze kieruje do Inboxa, jest jednoosobowe, ukrywa wybór.
-if (inboxProject) {
+            const isTargetingInbox = isSpecial || (isFab && state.ui.currentView === 'my-day');
+            
+            // ZMIENNA POMOCNICZA: Kogo zaznaczyć domyślnie?
+            let initialAssignees = [];
+
+            if (isSpecial) {
+                // CZERWONY FAB: Zawsze kieruje do Inboxa
+                if (inboxProject) {
                     newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}">${inboxProject.name}</option>`;
-newTaskModal.projectGroup.style.display = 'none';
+                    newTaskModal.projectGroup.style.display = 'none';
                     targetProject = inboxProject;
                 }
 
-                const currentUser = findUser(state.currentUser.uid);
-if (currentUser) {
-                    // Wymuś przypisanie do siebie i ukryj wybór.
-newTaskModal.assigneeSingleSelect.innerHTML = `<option value="${currentUser.id}">${currentUser.name || currentUser.email}</option>`;
-                    newTaskModal.assigneeSingleSelect.value = currentUser.id; 
-                    newTaskModal.assigneeSingleWrapper.style.display = 'none';
-                    newTaskModal.taskTypeSelection.style.display = 'none';
-}
+                // Wymuś przypisanie do siebie (tylko ja zaznaczony)
+                initialAssignees = [state.currentUser.uid];
 
                 const tomorrow = new Date();
-tomorrow.setDate(tomorrow.getDate() + 1);
+                tomorrow.setDate(tomorrow.getDate() + 1);
                 tomorrow.setHours(10, 0, 0, 0);
 
                 const pad = (num) => num.toString().padStart(2, '0');
-                // ZMIANA: Ustawiamy 3 pola zamiast jednego
                 const formattedDate = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`;
                 newTaskModal.dueDateDate.value = formattedDate; // Jutro
                 newTaskModal.dueDateHour.value = "10"; // Godzina 10
                 newTaskModal.dueDateMinute.value = "00"; // Minuta 00
-                // USUNIĘTE: newTaskModal.dueDate.value = formattedDate;
+
             } else {
                 // ZWYKŁY FAB lub przycisk "Dodaj nowe zadanie"
+                // Domyślnie zaznaczamy tylko aktualnego użytkownika
+                initialAssignees = [state.currentUser.uid];
+
                 const inProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
-if (inProjectView) {
+                if (inProjectView) {
                     // 1. Jesteśmy w widoku PROJEKTU - domyślnie wybierz ten projekt.
-targetProject = findProject(state.currentProjectId);
+                    targetProject = findProject(state.currentProjectId);
                     if (targetProject) {
                         newTaskModal.projectSelect.innerHTML = `<option value="${targetProject.id}" selected>${targetProject.name}</option>`;
-newTaskModal.projectGroup.style.display = 'none';
+                        newTaskModal.projectGroup.style.display = 'none';
                     }
                 
                 } else if (isTargetingInbox && inboxProject) {
                     // 2. Jesteśmy na PULPICIE/MÓJ DZIEŃ (FAB), mamy Inboxa - domyślnie wybierz Inboxa.
-targetProject = inboxProject;
+                    targetProject = inboxProject;
                     newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}" selected>${inboxProject.name}</option>`;
                     newTaskModal.projectGroup.style.display = 'none';
-} else {
+                } else {
                     // 3. Jesteśmy na PULPICIE/MÓJ DZIEŃ (przycisk na górze) lub w widoku 'all-projects'
-                    // Wyświetl pełną listę projektów z domyślnym wyborem (albo Inbox, albo pierwszy non-Inbox).
-const nonInbox = state.projects.filter(p => !p.isInbox);
+                    const nonInbox = state.projects.filter(p => !p.isInbox);
                     const preselect = (inboxProject && inboxProject.id) || (nonInbox[0] && nonInbox[0].id) || '';
-newTaskModal.projectSelect.innerHTML = state.projects
-                      .map(p => `<option value="${p.id}" ${p.id === preselect ? 'selected' : ''}>${p.name}</option>`)
-                      .join('');
-newTaskModal.projectGroup.style.display = 'block';
+                    newTaskModal.projectSelect.innerHTML = state.projects
+                        .map(p => `<option value="${p.id}" ${p.id === preselect ? 'selected' : ''}>${p.name}</option>`)
+                        .join('');
+                    newTaskModal.projectGroup.style.display = 'block';
                     targetProject = findProject(preselect);
                 }
             }
@@ -16968,10 +16956,25 @@ newTaskModal.projectGroup.style.display = 'block';
             }
             setupEffortTab(targetProject, null, newTaskModal);
 
-            // Poprawne uzupełnienie listy przypisanych osób dla wybranego projektu (jeśli nie jest to flow specjalny)
-            if (!isSpecial) {
-                populateAssigneesForProject(targetProject.id);
+            // === NOWA LOGIKA BUDOWANIA LISTY OSÓB ===
+            // Zastępuje populateAssigneesForProject
+            if (targetProject) {
+                buildTeamMembersAccordion(
+                    newTaskModal.assigneesList,          // Kontener
+                    initialAssignees,                    // Zaznaczeni (Domyślnie Ja)
+                    targetProject.ownerId,               // Właściciel (dla ikony korony)
+                    targetProject.admins || [],          // Admini
+                    false                                // false = nie blokuj właściciela (można odznaczyć)
+                );
+                
+                // Aktywacja wyszukiwarki dla tego modala
+                setupUserSearch(
+                    newTaskModal.memberSearchInput, 
+                    newTaskModal.memberSearchResults, 
+                    newTaskModal.assigneesList
+                );
             }
+            // === KONIEC NOWEJ LOGIKI ===
 
             // <<<===== POCZĄTEK POPRAWKI BŁĘDU =====>>>
             // Definiujemy zmienne TUTAJ, aby były dostępne dla obu poniższych sekcji
@@ -20907,20 +20910,24 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
         });
 
-        newTaskModal.taskTypeRadios.forEach(radio => {
-            radio.addEventListener('change', () => {
-                const isMulti = radio.value === 'multi';
-                newTaskModal.assigneeSingleWrapper.style.display = isMulti ? 'none' : 'block';
-                newTaskModal.assigneeMultiWrapper.style.display = isMulti ? 'block' : 'none';
-            });
-        });
+        // === NOWY LISTENER: Obsługa akordeonu i pigułek w Nowym Zadaniu ===
+        newTaskModal.assigneesList.addEventListener('click', (e) => {
+            const header = e.target.closest('.department-header');
+            const pill = e.target.closest('.member-pill:not(.disabled)');
 
-        newTaskModal.assigneeMultiList.addEventListener('click', (e) => {
-            const pill = e.target.closest('.member-pill');
-            if (pill && !pill.classList.contains('disabled')) {
+            if (header) {
+                // Rozwijanie/zwijanie działu
+                const usersContainer = header.nextElementSibling;
+                if (usersContainer && usersContainer.classList.contains('department-users')) {
+                    header.classList.toggle('active');
+                    usersContainer.classList.toggle('collapsed');
+                }
+            } else if (pill) {
+                // Zaznaczanie/odznaczanie osoby
                 pill.classList.toggle('selected');
             }
         });
+        // === KONIEC ===
        // --- NOWY LISTENER: Obsługa checkboxa "Wszyscy członkowie" ---
         // (Ten listener został dodany w poprzednim kroku i znajduje się w odpowiednim miejscu)
         projectFilterModal.assigneeListContainer.addEventListener('change', (e) => {
@@ -20975,15 +20982,15 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
              return;
         }
 
-        const taskType = document.querySelector('input[name="task-type"]:checked').value;
-        let assignees = [];
-        if (taskType === 'single') {
-            const singleAssignee = newTaskModal.assigneeSingleSelect.value;
-            if (singleAssignee) assignees.push(singleAssignee);
-        } else {
-            assignees = Array.from(newTaskModal.assigneeMultiList.querySelectorAll('.member-pill.selected'))
+        // === NOWA LOGIKA POBIERANIA OSÓB ===
+        // Pobierz wszystkich zaznaczonych z nowego kontenera
+        const assignees = Array.from(newTaskModal.assigneesList.querySelectorAll('.member-pill.selected'))
                            .map(pill => pill.dataset.userId);
-        }
+
+        // Dynamicznie ustal typ na podstawie liczby osób
+        // 0 lub 1 osoba = 'single', więcej = 'multi'
+        const taskType = assignees.length > 1 ? 'multi' : 'single';
+        // === KONIEC ===
         
         // === NOWA LOGIKA: Łączenie daty i czasu z 3 pól ===
         // Data Rozpoczęcia
@@ -28605,6 +28612,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
