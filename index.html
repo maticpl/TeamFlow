@@ -18708,112 +18708,89 @@ registerTeamToggle.addEventListener('change', () => {
 // Listener do dynamicznego sprawdzania grupy i wczytywania podgrup
 /*
 registerGroupNameInput.addEventListener('blur', async () => {
-    const groupName = registerGroupNameInput.value.trim();
-    const action = document.querySelector('input[name="group-action"]:checked').value;
-    
-    // Sprawdzamy podgrupy tylko, gdy użytkownik chce dołączyć do grupy
-    if (action !== 'join' || !groupName) {
-        registerSubgroupSection.style.display = 'none';
-        return;
-    }
-
-    try {
-        const q = query(groupsRef, where("name", "==", groupName));
-        const querySnapshot = await getDocs(q);
-        
-        if (querySnapshot.empty) {
-            registerSubgroupSection.style.display = 'none';
-            // Opcjonalnie: można tu dodać informację dla użytkownika, że grupa nie istnieje
-            return;
-        }
-
-        const groupDoc = querySnapshot.docs[0];
-        const groupData = groupDoc.data();
-        
-        if (groupData.subgroups && groupData.subgroups.length > 0) {
-            registerSubgroupSelect.innerHTML = '<option value="">-- Wybierz podgrupę --</option>';
-            groupData.subgroups.forEach(subgroup => {
-                const option = document.createElement('option');
-                option.value = subgroup;
-                option.textContent = subgroup;
-                registerSubgroupSelect.appendChild(option);
-            });
-            // Dodajemy opcję stworzenia nowej podgrupy
-            registerSubgroupSelect.innerHTML += '<option value="__CREATE_NEW__">Inna (utwórz nową)</option>';
-            registerSubgroupSection.style.display = 'block';
-        } else {
-            // Grupa istnieje, ale nie ma podgrup - dajemy od razu opcję stworzenia nowej
-            registerSubgroupSelect.innerHTML = '<option value="">Brak podgrup (opcjonalnie)</option><option value="__CREATE_NEW__">Utwórz nową podgrupę</option>';
-            registerSubgroupSection.style.display = 'block';
-        }
-    } catch (error) {
+    // ... (stara logika rejestracji - skrócona dla czytelności, pozostaje zakomentowana) ...
         console.error("Błąd wczytywania podgrup:", error);
         registerSubgroupSection.style.display = 'none';
     }
 });
+*/
+
 // === NOWY LISTENER: Dodawanie komentarza w podzadaniu (LIVE) ===
-        if (subtaskModal.addCommentBtn) {
-            subtaskModal.addCommentBtn.addEventListener('click', async (e) => {
-                e.preventDefault(); // Zapobiega submitowaniu formularza
-                const text = subtaskModal.commentInput.value.trim();
-                if (!text) return;
+// (ODKOMENTOWANO i PRZYWRÓCONO DO DZIAŁANIA)
+if (subtaskModal.addCommentBtn) {
+    subtaskModal.addCommentBtn.addEventListener('click', async (e) => {
+        e.preventDefault(); // Zapobiega submitowaniu formularza
+        const text = subtaskModal.commentInput.value.trim();
+        if (!text) return;
 
-                const mainTaskId = subtaskModal.overlay.dataset.mainTaskId;
-                const subtaskId = subtaskModal.subtaskIdInput.value; // Może być pusty, jeśli to nowe podzadanie
-                const user = state.currentUser;
+        const mainTaskId = subtaskModal.overlay.dataset.mainTaskId;
+        const subtaskId = subtaskModal.subtaskIdInput.value; // Może być pusty, jeśli to nowe podzadanie
+        const user = state.currentUser;
 
-                const newComment = {
-                    id: `comm_${Date.now()}`,
-                    userId: user.uid,
-                    text: text,
-                    timestamp: Date.now()
-                };
+        const newComment = {
+            id: `comm_${Date.now()}`,
+            userId: user.uid,
+            text: text,
+            timestamp: Date.now()
+        };
 
-                // SCENARIUSZ 1: Edycja istniejącego podzadania (Zapisz do bazy od razu)
-                if (subtaskId) {
-                    const { task: mainTask, project } = findTask(mainTaskId);
-                    if (!mainTask || !project) return;
+        // SCENARIUSZ 1: Edycja istniejącego podzadania (Zapisz do bazy od razu)
+        if (subtaskId) {
+            const {
+                task: mainTask,
+                project
+            } = findTask(mainTaskId);
+            if (!mainTask || !project) return;
 
-                    // Zaktualizuj lokalnie
-                    const updatedSubtasks = mainTask.subtasks.map(s => {
-                        if (s.id === subtaskId) {
-                            return { ...s, comments: [...(s.comments || []), newComment] };
-                        }
-                        return s;
-                    });
-                    const updatedMainTask = { ...mainTask, subtasks: updatedSubtasks };
-
-                    try {
-                        subtaskModal.addCommentBtn.disabled = true;
-                        subtaskModal.addCommentBtn.textContent = '...';
-
-                        const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                        
-                        // Zapisz do Firestore
-                        await updateDoc(projectDocRef, { tasks: project.tasks.map(t => t.id === mainTaskId ? updatedMainTask : t) });
-                        
-                        // Odśwież widok listy komentarzy
-                        const currentSubtask = updatedSubtasks.find(s => s.id === subtaskId);
-                        renderSubtaskComments(currentSubtask.comments);
-                        
-                        subtaskModal.commentInput.value = ''; // Wyczyść input
-
-                    } catch (error) {
-                        console.error("Błąd zapisu komentarza podzadania:", error);
-                        showNotification("Nie udało się dodać komentarza.", "Błąd");
-                    } finally {
-                        subtaskModal.addCommentBtn.disabled = false;
-                        subtaskModal.addCommentBtn.textContent = 'Dodaj';
-                    }
-
-                } else {
-                    // SCENARIUSZ 2: Tworzenie nowego podzadania (Dodaj do tymczasowej listy)
-                    subtaskStagedComments.push(newComment);
-                    renderSubtaskComments(subtaskStagedComments); // Pokaż na liście
-                    subtaskModal.commentInput.value = '';
+            // Zaktualizuj lokalnie
+            const updatedSubtasks = mainTask.subtasks.map(s => {
+                if (s.id === subtaskId) {
+                    return { ...s,
+                        comments: [...(s.comments || []), newComment]
+                    };
                 }
+                return s;
             });
+            const updatedMainTask = { ...mainTask,
+                subtasks: updatedSubtasks
+            };
+
+            try {
+                subtaskModal.addCommentBtn.disabled = true;
+                subtaskModal.addCommentBtn.textContent = '...';
+
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+
+                // Zapisz do Firestore
+                await updateDoc(projectDocRef, {
+                    tasks: project.tasks.map(t => t.id === mainTaskId ? updatedMainTask : t)
+                });
+
+                // Odśwież widok listy komentarzy
+                const currentSubtask = updatedSubtasks.find(s => s.id === subtaskId);
+                renderSubtaskComments(currentSubtask.comments);
+
+                subtaskModal.commentInput.value = ''; // Wyczyść input
+
+            } catch (error) {
+                console.error("Błąd zapisu komentarza podzadania:", error);
+                showNotification("Nie udało się dodać komentarza.", "Błąd");
+            } finally {
+                subtaskModal.addCommentBtn.disabled = false;
+                subtaskModal.addCommentBtn.textContent = 'Dodaj';
+            }
+
+        } else {
+            // SCENARIUSZ 2: Tworzenie nowego podzadania (Dodaj do tymczasowej listy)
+            subtaskStagedComments.push(newComment);
+            renderSubtaskComments(subtaskStagedComments); // Pokaż na liście
+            subtaskModal.commentInput.value = '';
         }
+    });
+}
+
+// Pozostały stary kod rejestracji (nadal zakomentowany, jeśli nie jest używany)
+/*
 // Listener do pokazywania pola na nową podgrupę
 registerSubgroupSelect.addEventListener('change', () => {
     if (registerSubgroupSelect.value === '__CREATE_NEW__') {
@@ -28530,6 +28507,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
