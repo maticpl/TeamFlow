@@ -9639,6 +9639,7 @@ let state = {
             // Komentarze
             commentInput: document.getElementById('subtask-new-comment'),
             commentsList: document.getElementById('subtask-comments-list'),
+            addCommentBtn: document.getElementById('subtask-add-comment-btn'),
             
             // Lista kontrolna
             checklistToggle: document.getElementById('subtask-checklist-toggle'),
@@ -15594,6 +15595,33 @@ if (editorTaskDescription) {
         }
        // Zmienna tymczasowa dla plików podzadania (podobnie jak w new task)
         let subtaskStagedFiles = [];
+        let subtaskStagedComments = []; // <--- NOWA ZMIENNA
+
+        // === NOWA FUNKCJA POMOCNICZA: Renderowanie komentarzy w podzadaniu ===
+        function renderSubtaskComments(comments = []) {
+            subtaskModal.commentsList.innerHTML = '';
+            // Sortujemy od najstarszych do najnowszych
+            const sortedComments = [...comments].sort((a, b) => b.timestamp - a.timestamp); 
+            
+            sortedComments.forEach(c => {
+                const user = findUser(c.userId);
+                const li = document.createElement('li');
+                li.className = 'comment-item';
+                
+                const textContent = typeof parseMentions === 'function' ? parseMentions(c.text) : c.text;
+                const dateStr = new Date(c.timestamp).toLocaleString('pl-PL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+                li.innerHTML = `
+                    <div class="comment-author">
+                        ${renderAvatarHTML(user, 'avatar-comment')}
+                        <span>${user ? (user.name || user.email) : 'Ktoś'}</span>
+                        <small style="color: var(--text-secondary); margin-left: auto;">${dateStr}</small>
+                    </div>
+                    <p>${textContent}</p>
+                `;
+                subtaskModal.commentsList.appendChild(li);
+            });
+        }
 
         function openSubtaskModal(mainTaskId, subtaskId = null) {
             const { task: mainTask, project } = findTask(mainTaskId);
@@ -15604,6 +15632,7 @@ if (editorTaskDescription) {
 
             subtaskModal.overlay.dataset.mainTaskId = mainTaskId;
             subtaskStagedFiles = []; // Reset plików tymczasowych
+            subtaskStagedComments = []; // <--- RESETUJEMY KOMENTARZE TYMCZASOWE
 
             // Reset formularza i interfejsu
             subtaskModal.form.reset();
@@ -15800,17 +15829,7 @@ if (editorTaskDescription) {
                 }
                 
                 // Komentarze: Wyświetl historię
-                if (subtask.comments) {
-                    subtask.comments.forEach(c => {
-                        const user = findUser(c.userId);
-                        const li = document.createElement('li');
-                        li.className = 'comment-item';
-                        // Używamy parseMentions (jeśli dostępna) lub zwykłego tekstu
-                        const textContent = typeof parseMentions === 'function' ? parseMentions(c.text) : c.text;
-                        li.innerHTML = `<small><strong>${user ? user.name : 'Ktoś'}</strong>: ${textContent}</small>`;
-                        subtaskModal.commentsList.appendChild(li);
-                    });
-                }
+                renderSubtaskComments(subtask.comments || []); // <--- UŻYCIE NOWEJ FUNKCJI
                 // Lista Kontrolna: Wczytaj dane
                 if (subtask.checklist && subtask.checklist.length > 0) {
                     subtaskModal.checklistToggle.checked = true;
@@ -18732,7 +18751,69 @@ registerGroupNameInput.addEventListener('blur', async () => {
         registerSubgroupSection.style.display = 'none';
     }
 });
+// === NOWY LISTENER: Dodawanie komentarza w podzadaniu (LIVE) ===
+        if (subtaskModal.addCommentBtn) {
+            subtaskModal.addCommentBtn.addEventListener('click', async (e) => {
+                e.preventDefault(); // Zapobiega submitowaniu formularza
+                const text = subtaskModal.commentInput.value.trim();
+                if (!text) return;
 
+                const mainTaskId = subtaskModal.overlay.dataset.mainTaskId;
+                const subtaskId = subtaskModal.subtaskIdInput.value; // Może być pusty, jeśli to nowe podzadanie
+                const user = state.currentUser;
+
+                const newComment = {
+                    id: `comm_${Date.now()}`,
+                    userId: user.uid,
+                    text: text,
+                    timestamp: Date.now()
+                };
+
+                // SCENARIUSZ 1: Edycja istniejącego podzadania (Zapisz do bazy od razu)
+                if (subtaskId) {
+                    const { task: mainTask, project } = findTask(mainTaskId);
+                    if (!mainTask || !project) return;
+
+                    // Zaktualizuj lokalnie
+                    const updatedSubtasks = mainTask.subtasks.map(s => {
+                        if (s.id === subtaskId) {
+                            return { ...s, comments: [...(s.comments || []), newComment] };
+                        }
+                        return s;
+                    });
+                    const updatedMainTask = { ...mainTask, subtasks: updatedSubtasks };
+
+                    try {
+                        subtaskModal.addCommentBtn.disabled = true;
+                        subtaskModal.addCommentBtn.textContent = '...';
+
+                        const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                        
+                        // Zapisz do Firestore
+                        await updateDoc(projectDocRef, { tasks: project.tasks.map(t => t.id === mainTaskId ? updatedMainTask : t) });
+                        
+                        // Odśwież widok listy komentarzy
+                        const currentSubtask = updatedSubtasks.find(s => s.id === subtaskId);
+                        renderSubtaskComments(currentSubtask.comments);
+                        
+                        subtaskModal.commentInput.value = ''; // Wyczyść input
+
+                    } catch (error) {
+                        console.error("Błąd zapisu komentarza podzadania:", error);
+                        showNotification("Nie udało się dodać komentarza.", "Błąd");
+                    } finally {
+                        subtaskModal.addCommentBtn.disabled = false;
+                        subtaskModal.addCommentBtn.textContent = 'Dodaj';
+                    }
+
+                } else {
+                    // SCENARIUSZ 2: Tworzenie nowego podzadania (Dodaj do tymczasowej listy)
+                    subtaskStagedComments.push(newComment);
+                    renderSubtaskComments(subtaskStagedComments); // Pokaż na liście
+                    subtaskModal.commentInput.value = '';
+                }
+            });
+        }
 // Listener do pokazywania pola na nową podgrupę
 registerSubgroupSelect.addEventListener('change', () => {
     if (registerSubgroupSelect.value === '__CREATE_NEW__') {
@@ -24959,17 +25040,33 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      });
                  }
 
-                 // Komentarz (Nowy)
-                 const newCommentText = subtaskModal.commentInput.value.trim();
-                 let newCommentObj = null;
-                 if (newCommentText) {
-                     newCommentObj = {
-                         id: `comm_${Date.now()}`,
-                         userId: state.currentUser.uid,
-                         text: newCommentText,
-                         timestamp: Date.now()
-                     };
+                 // --- ZMODYFIKOWANA LOGIKA KOMENTARZY ---
+                 // Zamiast pobierać z inputa, pobieramy z tymczasowej listy (dla nowego) 
+                 // lub ignorujemy (dla edycji, bo już zapisane przyciskiem Dodaj).
+                 
+                 let commentsToSave = [];
+                 
+                 if (subtaskId) {
+                     // EDYCJA: Komentarze są już w bazie (obsłużone przez przycisk Dodaj). 
+                     // Pobieramy aktualne komentarze z obiektu (aby ich nie stracić przy nadpisywaniu obiektu)
+                     const currentSubtaskObj = mainTask.subtasks.find(s => s.id === subtaskId);
+                     commentsToSave = currentSubtaskObj ? (currentSubtaskObj.comments || []) : [];
+                 } else {
+                     // NOWE: Bierzemy komentarze z listy tymczasowej
+                     commentsToSave = [...subtaskStagedComments];
+                     
+                     // Opcjonalnie: Jeśli w inpucie został tekst, a użytkownik nie kliknął "Dodaj", dodaj go teraz automatycznie
+                     const leftoverText = subtaskModal.commentInput.value.trim();
+                     if (leftoverText) {
+                         commentsToSave.push({
+                             id: `comm_${Date.now()}_last`,
+                             userId: state.currentUser.uid,
+                             text: leftoverText,
+                             timestamp: Date.now()
+                         });
+                     }
                  }
+                 // --- KONIEC ZMIANY ---
 
                  // Przesyłanie plików (Staged Files)
                  let newAttachments = [];
@@ -25003,8 +25100,8 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      // === EDYCJA ISTNIEJĄCEGO ===
                      updatedSubtasks = updatedSubtasks.map(s => {
                          if (s.id === subtaskId) {
-                             // Scalanie tablic (komentarze, załączniki)
-                             const updatedComments = newCommentObj ? [...(s.comments || []), newCommentObj] : (s.comments || []);
+                            // ZMIANA: Używamy commentsToSave zamiast scalania newCommentObj
+                             const updatedComments = commentsToSave; 
                              const updatedAtts = [...(s.attachments || []), ...newAttachments];
                              
                              // Logika completedBy: filtrujemy ID, które nie są już przypisane
@@ -25048,7 +25145,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          type: selectedAssignees.length > 1 ? 'multi' : 'single', // <--- DODANO TYP
                          isCompleted: false,
                          completedBy: [],
-                         comments: newCommentObj ? [newCommentObj] : [],
+                         comments: commentsToSave,
                          attachments: newAttachments,
                          checklist: checklistData, // <--- DODANO NOWE POLE
                          createdBy: state.currentUser.uid,
@@ -27734,9 +27831,8 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                         <div class="task-modal-section comments">
                             <div class="comment-input-area">
                                 <textarea id="subtask-new-comment" placeholder="Napisz komentarz..." rows="1"></textarea>
-                                <button type="button" class="btn btn-primary" id="subtask-add-comment-btn" style="display:none;">Dodaj</button> 
+                                <button type="button" class="btn btn-primary" id="subtask-add-comment-btn">Dodaj</button> 
                                 </div>
-                            <p style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Komentarze zostaną zapisane po kliknięciu "Zapisz podzadanie".</p>
                             <ul id="subtask-comments-list" class="comments-list"></ul>
                         </div>
                     </div>
@@ -28424,6 +28520,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
