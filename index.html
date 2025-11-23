@@ -12565,12 +12565,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 return true;
             });
         }
-        // --- ZMODYFIKOWANA FUNKCJA (Wersja 2): Renderowanie wykresu budżetu (CSS) ---
+        // --- ZMODYFIKOWANA FUNKCJA (Wersja 3 - Live Calculation): Renderowanie wykresu budżetu (CSS) ---
     function renderProjectBudgetChartCSS(project, container) {
         container.innerHTML = ''; // Wyczyść kontener
 
         const budgetData = project.budget; // Dane z definicji budżetu (np. 15 000)
-        const summaryData = project.budgetSummary; // Dane z obliczeń (Wydane, Zarezerwowane)
+        
+        // === NAPRAWA: Zamiast czytać z bazy, liczymy na żywo z zadań ===
+        // Dzięki temu uwzględniamy zmiany zrobione przez AI, nawet jeśli AI nie zaktualizowało sumy w bazie.
+        // Używamy tej samej logiki co tabela na dole.
+        const summaryData = calculateProjectBudgetSummary(project.tasks); 
+        // === KONIEC NAPRAWY ===
 
         if (!budgetData || typeof budgetData !== 'object' || budgetData.amount === undefined) {
             container.innerHTML = '<p style="color: var(--text-secondary); font-size: 14px;">Brak zdefiniowanego budżetu dla tego projektu.</p>';
@@ -18012,10 +18017,10 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
     // Wyczyść błędy walidacji przy każdej aktualizacji sumy (bo użytkownik coś zmienia)
     modalRefs.budgetErrorP.textContent = '';
 }
-     /**
-     * NOWA FUNKCJA (Wersja 3 - Full Additive):
-     * Oblicza zagregowany budżet, sumując ZARÓWNO zadania główne, JAK I podzadania.
-     * Zgodne z logiką tabeli szczegółowej.
+    /**
+     * NOWA FUNKCJA (Wersja 4 - Ultimate Fix):
+     * Oblicza budżet metodą pełnego sumowania (Addytywną).
+     * Sumuje niezależnie pozycje przypisane do Zadania Głównego ORAZ pozycje Podzadań.
      */
     function calculateProjectBudgetSummary(tasks = []) {
         let totalReserved = 0;
@@ -18023,7 +18028,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         const itemsReserved = {}; 
         const itemsSpent = {};    
 
-        // Funkcja pomocnicza
+        // Funkcja pomocnicza do dodawania kwot
         const addToSummary = (name, amount, isSpent) => {
             const val = parseFloat(amount) || 0;
             if (val <= 0 || !name) return;
@@ -18038,22 +18043,19 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         };
 
         tasks.forEach(task => {
-            // 1. PROCESUJ ZADANIE GŁÓWNE (Main Task)
-            // Zawsze sprawdzamy, czy zadanie główne ma przypisane koszty
+            // 1. KOSZTY ZADANIA GŁÓWNEGO
             if (task.budgetItems && Array.isArray(task.budgetItems) && task.budgetItems.length > 0) {
                 const isMainSpent = task.status === 'done';
-                
                 task.budgetItems.forEach(item => {
                     addToSummary(item.name, item.amount, isMainSpent);
                 });
             }
 
-            // 2. PROCESUJ PODZADANIA (Subtasks)
-            // Niezależnie od zadania głównego, sprawdzamy czy są kosztowe podzadania
+            // 2. KOSZTY PODZADAŃ
             if (task.subtasks && Array.isArray(task.subtasks) && task.subtasks.length > 0) {
                 task.subtasks.forEach(sub => {
                     if (sub.budgetItems && Array.isArray(sub.budgetItems) && sub.budgetItems.length > 0) {
-                        // Dla podzadań status zależy od flagi 'isCompleted'
+                        // Status kosztu zależy WYŁĄCZNIE od ukończenia podzadania
                         const isSubSpent = sub.isCompleted === true;
                         
                         sub.budgetItems.forEach(item => {
@@ -18064,22 +18066,25 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             }
         });
 
-        // Zwróć wynik (lub null, jeśli brak danych)
-        if (totalReserved > 0 || totalSpent > 0) {
-            const round = (val) => parseFloat(val.toFixed(2));
-
-            for (const itemName in itemsReserved) itemsReserved[itemName] = round(itemsReserved[itemName]);
-            for (const itemName in itemsSpent) itemsSpent[itemName] = round(itemsSpent[itemName]);
-
-            return { 
-                totalReserved: round(totalReserved), 
-                totalSpent: round(totalSpent), 
-                itemsReserved: itemsReserved, 
-                itemsSpent: itemsSpent 
-            };
-        } else {
-            return null; 
+        // Jeśli brak jakichkolwiek kosztów, zwróć pusty obiekt (zamiast null, żeby render nie wybuchł)
+        // Chociaż w renderProjectBudgetChartCSS używamy ?. więc null jest OK, 
+        // ale dla bezpieczeństwa zwracamy zera jeśli funkcja tego oczekuje.
+        // Tutaj jednak oryginalnie zwracaliśmy null lub obiekt.
+        
+        if (totalReserved === 0 && totalSpent === 0) {
+            return null;
         }
+
+        const round = (val) => parseFloat(val.toFixed(2));
+        for (const itemName in itemsReserved) itemsReserved[itemName] = round(itemsReserved[itemName]);
+        for (const itemName in itemsSpent) itemsSpent[itemName] = round(itemsSpent[itemName]);
+
+        return { 
+            totalReserved: round(totalReserved), 
+            totalSpent: round(totalSpent), 
+            itemsReserved: itemsReserved, 
+            itemsSpent: itemsSpent 
+        };
     }
         // === POCZĄTEK ZMIANY: Nowe funkcje pomocnicze ===
         
@@ -28794,6 +28799,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
