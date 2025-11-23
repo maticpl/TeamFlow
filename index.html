@@ -13723,17 +13723,33 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 if (estimationType !== 'none') {
                     let estimationSum = 0;
                     let actualSum = 0;
+                    
                     tasksInColumn.forEach(task => {
-                        // === ZMIANA: Obsługa obu nazw pól (naprawa dla AI) ===
-                        // Sprawdzamy 'estimation' (standard) LUB 'effort' (AI/nowe), a na końcu 0
-                        const estimatedValue = task.estimation ?? task.effort ?? 0;
-                        
-                        // actualEffort zazwyczaj jest spójne, ale dla bezpieczeństwa fallback do estymacji
-                        const actualValue = task.actualEffort ?? estimatedValue;
-                        
-                        estimationSum += parseFloat(estimatedValue) || 0;
-                        actualSum += parseFloat(actualValue) || 0;
+                        let taskEst = 0;
+                        let taskAct = 0;
+
+                        // Sprawdź, czy zadanie ma podzadania
+                        if (task.subtasks && task.subtasks.length > 0) {
+                            // WARIANT A: Sumuj z podzadań
+                            task.subtasks.forEach(sub => {
+                                taskEst += parseFloat(sub.effort) || 0;
+                                taskAct += parseFloat(sub.actualEffort) || 0;
+                            });
+                        } else {
+                            // WARIANT B: Pobierz z głównego zadania
+                            // Obsługa 'estimation' (standard) oraz 'effort' (AI)
+                            taskEst = parseFloat(task.estimation ?? task.effort ?? 0);
+                            
+                            // Rzeczywisty wysiłek (jeśli brak, przyjmij estymację jak w reszcie apki)
+                            // Używamy task.actualEffort, a jak null/undefined to bierzemy taskEst
+                            const rawActual = task.actualEffort !== undefined && task.actualEffort !== null ? task.actualEffort : taskEst;
+                            taskAct = parseFloat(rawActual);
+                        }
+
+                        estimationSum += taskEst;
+                        actualSum += taskAct;
                     });
+
                     if (estimationSum > 0 || actualSum > 0) {
                         let color = "var(--text-secondary)";
                         if (actualSum > estimationSum) color = "var(--danger-primary)";
@@ -28594,6 +28610,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
