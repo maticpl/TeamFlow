@@ -18012,20 +18012,18 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
     // Wyczyść błędy walidacji przy każdej aktualizacji sumy (bo użytkownik coś zmienia)
     modalRefs.budgetErrorP.textContent = '';
 }
-      /**
-     * NOWA FUNKCJA (REFRAKTORYZACJA ETAPU 2 - FIX PODZADAŃ):
-     * Oblicza zagregowany budżet (Wydane i Zarezerwowane) na podstawie zadań projektu.
-     * Naprawiono: Teraz uwzględnia budżet zaszyty w podzadaniach i ich indywidualny status.
-     * @param {Array<object>} tasks - Lista zadań projektu.
-     * @returns {object} Obiekt budgetSummary { totalReserved, totalSpent, itemsReserved, itemsSpent } lub null.
+     /**
+     * NOWA FUNKCJA (Wersja 3 - Full Additive):
+     * Oblicza zagregowany budżet, sumując ZARÓWNO zadania główne, JAK I podzadania.
+     * Zgodne z logiką tabeli szczegółowej.
      */
     function calculateProjectBudgetSummary(tasks = []) {
         let totalReserved = 0;
         let totalSpent = 0;
-        const itemsReserved = {}; // Obiekt na rezerwacje dla pozycji
-        const itemsSpent = {};    // Obiekt na wydatki dla pozycji
+        const itemsReserved = {}; 
+        const itemsSpent = {};    
 
-        // Funkcja pomocnicza do dodawania kwot do liczników
+        // Funkcja pomocnicza
         const addToSummary = (name, amount, isSpent) => {
             const val = parseFloat(amount) || 0;
             if (val <= 0 || !name) return;
@@ -18040,15 +18038,22 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         };
 
         tasks.forEach(task => {
-            // 1. SPRAWDŹ PODZADANIA: Czy zadanie ma podzadania z pozycjami budżetowymi?
-            // Jeśli tak, budżet jest sumą podzadań, a status zależy od konkretnego podzadania.
-            const hasSubtasksWithBudget = task.subtasks && Array.isArray(task.subtasks) && task.subtasks.some(s => s.budgetItems && s.budgetItems.length > 0);
+            // 1. PROCESUJ ZADANIE GŁÓWNE (Main Task)
+            // Zawsze sprawdzamy, czy zadanie główne ma przypisane koszty
+            if (task.budgetItems && Array.isArray(task.budgetItems) && task.budgetItems.length > 0) {
+                const isMainSpent = task.status === 'done';
+                
+                task.budgetItems.forEach(item => {
+                    addToSummary(item.name, item.amount, isMainSpent);
+                });
+            }
 
-            if (hasSubtasksWithBudget) {
-                // Iteruj przez podzadania
+            // 2. PROCESUJ PODZADANIA (Subtasks)
+            // Niezależnie od zadania głównego, sprawdzamy czy są kosztowe podzadania
+            if (task.subtasks && Array.isArray(task.subtasks) && task.subtasks.length > 0) {
                 task.subtasks.forEach(sub => {
-                    if (sub.budgetItems && Array.isArray(sub.budgetItems)) {
-                        // Dla podzadań decyduje status 'isCompleted' samego podzadania
+                    if (sub.budgetItems && Array.isArray(sub.budgetItems) && sub.budgetItems.length > 0) {
+                        // Dla podzadań status zależy od flagi 'isCompleted'
                         const isSubSpent = sub.isCompleted === true;
                         
                         sub.budgetItems.forEach(item => {
@@ -18056,33 +18061,15 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                         });
                     }
                 });
-            } 
-            // 2. SPRAWDŹ ZADANIE GŁÓWNE: Jeśli nie ma budżetu w podzadaniach, sprawdź zadanie główne.
-            // (Unikamy podwójnego liczenia: jeśli liczyliśmy z podzadań, ignorujemy main budgetItems, 
-            // chyba że logika aplikacji pozwala na hybrydę - tutaj zakładamy, że subtasks nadpisują parenta w trybie summary).
-            else if (task.budgetItems && Array.isArray(task.budgetItems) && task.budgetItems.length > 0) {
-                
-                // Dla zadania głównego decyduje status 'done'
-                const isMainSpent = task.status === 'done';
-
-                task.budgetItems.forEach(item => {
-                    addToSummary(item.name, item.amount, isMainSpent);
-                });
             }
         });
 
-        // Zwróć obiekt tylko jeśli cokolwiek zostało zarezerwowane LUB wydane
+        // Zwróć wynik (lub null, jeśli brak danych)
         if (totalReserved > 0 || totalSpent > 0) {
-            // Funkcja pomocnicza do zaokrąglania
             const round = (val) => parseFloat(val.toFixed(2));
 
-            // Zaokrąglij sumy w obiektach 'items'
-            for (const itemName in itemsReserved) {
-                itemsReserved[itemName] = round(itemsReserved[itemName]);
-            }
-            for (const itemName in itemsSpent) {
-                itemsSpent[itemName] = round(itemsSpent[itemName]);
-            }
+            for (const itemName in itemsReserved) itemsReserved[itemName] = round(itemsReserved[itemName]);
+            for (const itemName in itemsSpent) itemsSpent[itemName] = round(itemsSpent[itemName]);
 
             return { 
                 totalReserved: round(totalReserved), 
@@ -18091,7 +18078,7 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                 itemsSpent: itemsSpent 
             };
         } else {
-            return null; // Zwróć null, jeśli budżet jest nietknięty
+            return null; 
         }
     }
         // === POCZĄTEK ZMIANY: Nowe funkcje pomocnicze ===
@@ -28807,6 +28794,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
