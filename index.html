@@ -7798,9 +7798,19 @@ body.compact-mode .comment-item {
                         </div>
                         
                         <div id="tab-content-assignees" class="task-modal-tab-content">
-                            <div id="modal-task-assignees-list" style="display: flex;"></div>
-                            <div id="modal-task-assignees-edit" class="members-selection-pills" style="display: none;"></div>
+                            <div class="form-group">
+                                <label>Wyszukaj i przypisz</label>
+                                <div class="member-search-container">
+                                    <input type="text" id="modal-task-member-search" class="member-search-input" placeholder="Wpisz nazwę lub e-mail...">
+                                    <ul id="modal-task-member-search-results" class="member-search-results"></ul>
+                                </div>
                             </div>
+                            <div class="form-group">
+                                <label>Przypisani członkowie:</label>
+                                <div id="modal-task-assignees-accordion" class="attachments-list" style="max-height: 300px; overflow-y: auto; padding: 8px; border: 1px solid var(--border-color); border-radius: var(--border-radius);">
+                                </div>
+                            </div>
+                        </div>
                         
                         <div id="tab-content-status" class="task-modal-tab-content">
                             <label for="modal-task-status">Status Zadania</label>
@@ -9804,7 +9814,13 @@ let state = {
         deleteBtn: document.getElementById('delete-task-btn'),
         editBtn: document.getElementById('edit-task-btn'),
         titleInput: document.getElementById('modal-task-title-input'),
-        assigneesEdit: document.getElementById('modal-task-assignees-edit'),
+        
+        // === NOWE REFERENCJE (AKORDEON) ===
+        assigneesContainer: document.getElementById('modal-task-assignees-accordion'),
+        memberSearchInput: document.getElementById('modal-task-member-search'),
+        memberSearchResults: document.getElementById('modal-task-member-search-results'),
+        // === KONIEC ===
+        
         commentsList: document.getElementById('comments-list'),
         newCommentText: document.getElementById('new-comment-text'),
         addCommentBtn: document.getElementById('add-comment-btn'),
@@ -15423,39 +15439,33 @@ if (editorTaskDescription) {
                 document.getElementById('modal-task-nth-day-options').style.display = 'none';
             }
 
-            // Osoby przypisane (Zawsze pokazujemy nową listę, z blokadą dla read-only)
+            // === NOWA LOGIKA: Budowanie listy (Akordeon) ===
             
-            // Zawsze ukryj starą listę i pokaż nową
-            taskModal.assigneesList.style.display = 'none';
-            taskModal.assigneesEdit.style.display = 'block';
+            // Jeśli użytkownik nie ma uprawnień edycji, chcemy zablokować interakcję.
+            // Funkcja buildTeamMembersAccordion ma parametr 'shouldLockOwner', ale tutaj
+            // musimy zablokować WSZYSTKICH, jeśli !canEdit.
+            // Rozwiążemy to, dodając klasę 'disabled-container' do rodzica lub obsługując to w listenerze.
+            // Tutaj użyjemy standardowego budowania, a listener zablokuje kliknięcia.
+
+            buildTeamMembersAccordion(
+                taskModal.assigneesContainer,      // Kontener
+                task.assignees || [],              // Zaznaczeni
+                project.ownerId,                   // Właściciel
+                project.admins || [],              // Admini
+                false                              // false = nie blokuj właściciela "twardo" w HTML (logika canEdit jest nadrzędna)
+            );
+
+            // Włączamy wyszukiwarkę (tylko jeśli można edytować, dla estetyki można ukryć input w read-only)
+            if (canEdit) {
+                taskModal.memberSearchInput.style.display = 'block';
+                setupUserSearch(taskModal.memberSearchInput, taskModal.memberSearchResults, taskModal.assigneesContainer);
+            } else {
+                taskModal.memberSearchInput.style.display = 'none';
+            }
             
-            // 1. Pobierz i posortuj alfabetycznie
-            const membersOptions = (project.members || [])
-                .map(memberId => findUser(memberId))
-                .filter(Boolean)
-                .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
-
-            // 2. Wygeneruj listę numerowaną
-            taskModal.assigneesEdit.innerHTML = membersOptions.map((user, index) => {
-                const isSelected = task.assignees.includes(user.id);
-                const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
-                
-                // === ZMIANA: Dodanie klasy disabled, jeśli nie można edytować ===
-                // To zapobiegnie zmianie stanu po kliknięciu (dzięki listenerowi :not(.disabled))
-                const disabledClass = !canEdit ? 'disabled' : '';
-                
-                // Style dla wiersza
-                // Dla read-only (disabled) zmieniamy kursor na default, żeby nie sugerował klikalności
-                const cursorStyle = !canEdit ? 'cursor: default;' : '';
-                const rowStyle = `width: 100%; justify-content: flex-start; border-radius: 4px; margin-bottom: 4px; ${cursorStyle}`;
-
-                return `
-                    <div class="member-pill ${isSelected ? 'selected' : ''} ${disabledClass}" data-user-id="${user.id}" title="${user.name || user.email}" style="${rowStyle}">
-                        <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
-                        ${avatarHTML} 
-                        <span style="margin-left: 8px;">${user.name || user.email}</span>
-                    </div> `;
-            }).join('');
+            // Oznaczamy kontener, czy jest edytowalny (dla listenera)
+            taskModal.assigneesContainer.dataset.editable = canEdit ? "true" : "false";
+            // === KONIEC ===
            
 
             // === NOWA LOGIKA: Status ukończenia dla zadań wieloosobowych (w zakładce Status) ===
@@ -16532,7 +16542,7 @@ if (editorTaskDescription) {
                 return;
             }
 
-            const newAssignees = Array.from(taskModal.assigneesEdit.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
+            const newAssignees = Array.from(taskModal.assigneesContainer.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
           
 
             const newType = newAssignees.length > 1 ? 'multi' : 'single';
@@ -20028,9 +20038,23 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
 
         // --- KONIEC NOWYCH FUNKCJI ---
 
-        taskModal.assigneesEdit.addEventListener('click', (e) => {
+        // === NOWY LISTENER: Obsługa akordeonu w Edycji Zadania ===
+        taskModal.assigneesContainer.addEventListener('click', (e) => {
+            // Sprawdź, czy tryb edycji jest aktywny (zapisany w dataset w openTaskModal)
+            const isEditable = taskModal.assigneesContainer.dataset.editable === "true";
+
+            const header = e.target.closest('.department-header');
             const pill = e.target.closest('.member-pill:not(.disabled)');
-            if (pill) {
+
+            if (header) {
+                // Rozwijanie działa zawsze (nawet w trybie tylko do odczytu)
+                const usersContainer = header.nextElementSibling;
+                if (usersContainer && usersContainer.classList.contains('department-users')) {
+                    header.classList.toggle('active');
+                    usersContainer.classList.toggle('collapsed');
+                }
+            } else if (pill && isEditable) {
+                // Zaznaczanie działa TYLKO w trybie edycji
                 pill.classList.toggle('selected');
             }
         });
@@ -21169,11 +21193,37 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // --- AKTUALIZACJA LOGIKI (Wersja 2): Obliczanie i zapis budgetSummary ---
             const newBudgetSummary = calculateProjectBudgetSummary(updatedTasksList);
 
-            // Zapisz JEDNOCZEŚNIE nową listę zadań i nowy budgetSummary
-            await updateDoc(doc(projectsRef, project.id), {
-                tasks: updatedTasksList,
-                budgetSummary: newBudgetSummary // Zapisz obliczony obiekt (lub null)
+            // === NOWA LOGIKA: Automatyczne dodanie nowych osób do członków PROJEKTU ===
+            let updatedProjectMembers = [...(project.members || [])];
+            let membersChanged = false;
+
+            assignees.forEach(userId => {
+                if (!updatedProjectMembers.includes(userId)) {
+                    updatedProjectMembers.push(userId);
+                    membersChanged = true;
+                }
             });
+
+            // Przygotuj obiekt aktualizacji
+            const updatePayload = {
+                tasks: updatedTasksList,
+                budgetSummary: newBudgetSummary
+            };
+
+            // Jeśli doszli nowi członkowie, dodaj ich do aktualizacji
+            if (membersChanged) {
+                updatePayload.members = updatedProjectMembers;
+            }
+            // === KONIEC NOWEJ LOGIKI ===
+
+            // Zapisz w Firestore
+            await updateDoc(doc(projectsRef, project.id), updatePayload);
+            
+            // Aktualizacja lokalnego stanu (aby UI od razu widziało nowych członków w nagłówku)
+            if (membersChanged) {
+                project.members = updatedProjectMembers;
+            }
+            
             console.log(`[Budget v2] Zaktualizowano budgetSummary dla projektu ${project.id} po dodaniu nowego zadania ${newTask.id}.`);
             // --- KONIEC AKTUALIZACJI ---
         
@@ -28612,6 +28662,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
