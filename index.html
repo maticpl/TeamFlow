@@ -25459,15 +25459,23 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                  const allTasks = project.tasks.map(t => t.id === mainTaskId ? updatedTask : t);
                  
+                 // --- NOWA LOGIKA: Przeliczenie budżetu projektu ---
+                 // Ponieważ zmieniliśmy podzadanie (które może mieć budżet), musimy zaktualizować globalne podsumowanie
+                 const newBudgetSummary = calculateProjectBudgetSummary(allTasks);
+                 // --- KONIEC ---
+
                  // Przygotuj payload do aktualizacji
-                 const updatePayload = { tasks: allTasks };
+                 const updatePayload = { 
+                     tasks: allTasks,
+                     budgetSummary: newBudgetSummary // <--- NAPRAWA: Zapisz nowe podsumowanie
+                 };
                  
                  // Jeśli dodano nowych członków do projektu, dodaj ich do payloadu
                  if (projectMembersChanged) {
                      updatePayload.members = updatedProjectMembers;
                  }
 
-                 // Wykonaj aktualizację w Firestore (zadania + opcjonalnie członkowie)
+                 // Wykonaj aktualizację w Firestore (zadania + opcjonalnie członkowie + budżet)
                  await updateDoc(projectDocRef, updatePayload);
 
                  // Jeśli zaktualizowano członków projektu, odświeżamy też stan lokalny, aby UI od razu to widziało
@@ -25585,7 +25593,15 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              const updatedTasks = project.tasks.map(t => (t.id === mainTaskId ? updatedTask : t));
 
              try {
-                await updateDoc(projectDocRef, { tasks: updatedTasks });
+                // --- NAPRAWA: Przeliczenie budżetu przy zmianie statusu podzadania ---
+                const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
+                
+                // Zapisz zadania ORAZ zaktualizowany budżet
+                await updateDoc(projectDocRef, { 
+                    tasks: updatedTasks,
+                    budgetSummary: newBudgetSummary
+                });
+                // --- KONIEC NAPRAWY ---
                  
                  // Zamiast odświeżać modal, od razu renderujemy zmienioną listę subzadań
                  renderSubtaskListInMainModal(updatedTask);
@@ -25633,9 +25649,17 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      const updatedTasks = project.tasks.map(t => (t.id === mainTaskId ? updatedTask : t));
 
                      try {
-                         await updateDoc(projectDocRef, { tasks: updatedTasks });
+                         // --- NAPRAWA: Przeliczenie budżetu po usunięciu podzadania ---
+                         const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
+                         
+                         await updateDoc(projectDocRef, { 
+                             tasks: updatedTasks,
+                             budgetSummary: newBudgetSummary 
+                         });
+                         // --- KONIEC NAPRAWY ---
+
                          renderSubtaskListInMainModal(updatedTask); // Odśwież listę
-                         await checkAndCompleteMainTask(mainTaskId);
+                         await checkAndCompleteMainTask(updatedTask, project); // Poprawka przy okazji: przekazujemy obiekt updatedTask
                      } catch (error) {
                          console.error("Błąd usuwania subzadania:", error);
                          showNotification("Błąd podczas usuwania podzadania.", "Błąd");
@@ -28783,6 +28807,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
