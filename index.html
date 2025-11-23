@@ -13050,12 +13050,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
 
         // === KONIEC NOWYCH FUNKCJI ===
-       /**
-     * ZMODYFIKOWANA FUNKCJA (Wersja 2): Renderuje tabelę zadań obciążających budżet.
-     * @param {object} project - Obiekt projektu.
-     * @param {string} containerId - ID elementu, w którym ma być renderowana tabela.
+     /**
+     * ZMODYFIKOWANA FUNKCJA (Wersja 3 - Obsługa Podzadań): 
+     * Renderuje tabelę zadań I PODZADAŃ obciążających budżet.
      */
-       
     function renderProjectBudgetTasksTable(project, containerId) {
         const container = document.getElementById(containerId);
         if (!container) return;
@@ -13065,13 +13063,44 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
              return value.toLocaleString('pl-PL', { style: 'currency', currency: currency, minimumFractionDigits: 2 });
         }
 
-        // Używamy zmigrowanych zadań
-        const tasksWithCosts = (project.tasks || [])
-            .map(migrateTask) // Upewnij się, że zadania mają pole 'status'
-            .filter(task => task.budgetItems && task.budgetItems.length > 0)
-            .sort((a, b) => a.title.localeCompare(b.title));
+        // 1. ZBIERANIE WSZYSTKICH ENCJI KOSZTOWYCH (Zadania główne + Podzadania)
+        let budgetEntities = [];
 
-        if (tasksWithCosts.length === 0) {
+        (project.tasks || []).forEach(task => {
+            // A. Sprawdź zadanie główne (tylko jeśli ma własne pozycje, nie licząc podzadań)
+            if (task.budgetItems && task.budgetItems.length > 0) {
+                budgetEntities.push({
+                    type: 'task',
+                    id: task.id,
+                    title: task.title,
+                    isCompleted: task.status === 'done',
+                    budgetItems: task.budgetItems,
+                    parentId: null // To jest root
+                });
+            }
+
+            // B. Sprawdź podzadania
+            if (task.subtasks && task.subtasks.length > 0) {
+                task.subtasks.forEach(sub => {
+                    if (sub.budgetItems && sub.budgetItems.length > 0) {
+                        budgetEntities.push({
+                            type: 'subtask',
+                            id: sub.id,
+                            title: sub.title,
+                            isCompleted: sub.isCompleted === true, // Status podzadania
+                            budgetItems: sub.budgetItems,
+                            parentId: task.id, // Potrzebne do otwarcia modala
+                            parentTitle: task.title // Do wyświetlenia kontekstu
+                        });
+                    }
+                });
+            }
+        });
+
+        // Sortowanie alfabetyczne po tytule
+        budgetEntities.sort((a, b) => a.title.localeCompare(b.title));
+
+        if (budgetEntities.length === 0) {
             container.innerHTML = '<p style="color: var(--text-secondary); padding: 12px; font-style: italic;">Brak zadań obciążających budżet w tym projekcie.</p>';
             return;
         }
@@ -13080,7 +13109,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             <table>
                 <thead>
                     <tr>
-                        <th>Zadanie</th>
+                        <th>Zadanie / Podzadanie</th>
                         <th>Pozycja Budżetowa</th>
                         <th>Status Kosztu</th>
                         <th style="text-align: right;">Kwota</th>
@@ -13092,13 +13121,25 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         let totalReserved = 0;
         let totalSpent = 0;
 
-        tasksWithCosts.forEach(task => {
-            const isDone = task.status === 'done';
+        budgetEntities.forEach(entity => {
+            const isDone = entity.isCompleted;
             const statusText = isDone 
                 ? '<span style="color: var(--success-primary); font-weight: 500;">Wydatkowane</span>' 
                 : '<span style="color: var(--text-secondary);">Zarezerwowane</span>';
 
-            task.budgetItems.forEach((item, index) => {
+            // Przygotowanie atrybutów data- do klikania
+            // Jeśli to podzadanie, dodajemy data-subtask-id
+            const dataAttrs = entity.type === 'subtask' 
+                ? `data-task-id="${entity.parentId}" data-subtask-id="${entity.id}"`
+                : `data-task-id="${entity.id}"`;
+
+            // Wizualne rozróżnienie podzadania
+            let displayName = entity.title;
+            if (entity.type === 'subtask') {
+                displayName = `<span style="color:var(--text-primary);">${entity.title}</span> <br><small style="color:var(--text-secondary); font-weight:normal;">(w: ${entity.parentTitle})</small>`;
+            }
+
+            entity.budgetItems.forEach((item, index) => {
                 const amount = parseFloat(item.amount) || 0;
 
                 if (isDone) {
@@ -13107,14 +13148,13 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     totalReserved += amount;
                 }
 
-                // ZMODYFIKOWANA LINIA: Dodano klasę i atrybut data-task-id ORAZ data-label
-                const taskNameHTML = index === 0 
-                    ? `<td style="vertical-align: top;" data-label="Zadanie:"><strong class="clickable-task-name" data-task-id="${task.id}">${task.title}</strong></td>`
+                const entityNameHTML = index === 0 
+                    ? `<td style="vertical-align: top;" data-label="Zadanie:"><strong class="clickable-task-name" ${dataAttrs} style="cursor: pointer; color: var(--accent-primary);">${displayName}</strong></td>`
                     : `<td style="border-top: 1px dashed var(--border-color);"></td>`;
 
                 tableHTML += `
                     <tr class="task-cost-row">
-                        ${taskNameHTML}
+                        ${entityNameHTML}
                         <td data-label="Pozycja Budżetowa:">${item.name}</td>
                         <td data-label="Status Kosztu:">${statusText}</td>
                         <td data-label="Kwota:" style="text-align: right;">${formatCurrency(amount)}</td>
@@ -13123,7 +13163,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             });
         });
 
-        // NOWA STOPKA (TFOOT)
+        // STOPKA (TFOOT)
         tableHTML += `
                 </tbody>
                 <tfoot>
@@ -20895,22 +20935,31 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             closeModal(projectFilterModal.overlay);
             render(); // Wymuś pełne ponowne renderowanie
         });
-       // NOWY LISTENER: Obsługa kliknięć w tabeli kosztów w modalu szczegółów projektu
+       // ZMODYFIKOWANY LISTENER: Obsługa kliknięć w tabeli kosztów (Zadania i Podzadania)
     projectDetailsModal.overlay.addEventListener('click', (e) => {
+        // Szukamy elementu z klasą clickable-task-name
         const clickableTask = e.target.closest('.clickable-task-name');
 
-        // Sprawdź, czy kliknięto na nazwę zadania
-        if (clickableTask && clickableTask.dataset.taskId) {
+        if (clickableTask) {
             const taskId = clickableTask.dataset.taskId;
+            const subtaskId = clickableTask.dataset.subtaskId; // Może być undefined
 
-            // Zamknij obecny modal (szczegółów projektu)
-            closeModal(projectDetailsModal.overlay);
+            if (taskId) {
+                // 1. Zamknij modal szczegółów projektu
+                closeModal(projectDetailsModal.overlay);
 
-            // Otwórz modal klikniętego zadania
-            // Używamy setTimeout, aby uniknąć "przeskoku" tła modala
-            setTimeout(() => {
-                openTaskModal(taskId);
-            }, 150); // Małe opóźnienie dla płynnego przejścia
+                // 2. Otwórz odpowiedni modal z opóźnieniem
+                setTimeout(() => {
+                    if (subtaskId) {
+                        // To jest podzadanie - otwórz modal podzadania
+                        // Przekazujemy ID rodzica (taskId) i ID podzadania (subtaskId)
+                        openSubtaskModal(taskId, subtaskId, 'budget'); // Otwórz od razu na zakładce budżetu
+                    } else {
+                        // To jest zadanie główne
+                        openTaskModal(taskId, 'taskBudget'); // Otwórz od razu na zakładce budżetu
+                    }
+                }, 150);
+            }
         }
     });
        // NOWY LISTENER: Obsługa kliknięć w tabeli kosztów w modalu szczegółów projektu
@@ -28710,6 +28759,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
