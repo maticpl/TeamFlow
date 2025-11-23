@@ -16756,16 +16756,42 @@ if (editorTaskDescription) {
 
             try {
                 // --- AKTUALIZACJA LOGIKI (Wersja 2): Obliczanie i zapis budgetSummary ---
-            // Przekaż zaktualizowaną listę zadań 'tasks' do NOWEJ funkcji obliczającej
-            const newBudgetSummary = calculateProjectBudgetSummary(tasks);
+                const newBudgetSummary = calculateProjectBudgetSummary(tasks);
 
-            // Zaktualizuj dokument projektu, zapisując listę zadań i NOWY obiekt budgetSummary
-            await updateDoc(projectDocRef, {
-                tasks: tasks,
-                budgetSummary: newBudgetSummary // Zapisz obliczony obiekt (lub null)
-            });
-            console.log(`[Budget v2] Zaktualizowano budgetSummary dla projektu ${project.id} po edycji zadania ${taskId}.`);
-            // --- KONIEC AKTUALIZACJI ---
+                // === NOWA LOGIKA: Automatyczne dodanie nowych osób do członków PROJEKTU (EDYCJA) ===
+                let updatedProjectMembers = [...(project.members || [])];
+                let membersChanged = false;
+
+                // newAssignees jest zdefiniowane na początku funkcji saveTaskFromModal
+                newAssignees.forEach(userId => {
+                    if (!updatedProjectMembers.includes(userId)) {
+                        updatedProjectMembers.push(userId);
+                        membersChanged = true;
+                    }
+                });
+
+                // Przygotuj obiekt aktualizacji
+                const updatePayload = {
+                    tasks: tasks,
+                    budgetSummary: newBudgetSummary
+                };
+
+                // Jeśli doszli nowi członkowie, dodaj ich do aktualizacji
+                if (membersChanged) {
+                    updatePayload.members = updatedProjectMembers;
+                }
+                // === KONIEC NOWEJ LOGIKI ===
+
+                // Zaktualizuj dokument projektu (atomowo)
+                await updateDoc(projectDocRef, updatePayload);
+                
+                // Zaktualizuj stan lokalny, aby UI od razu widziało nowych członków
+                if (membersChanged) {
+                    project.members = updatedProjectMembers;
+                }
+                
+                console.log(`[Budget v2 & Members] Zaktualizowano projekt ${project.id} po edycji zadania ${taskId}.`);
+                // --- KONIEC AKTUALIZACJI ---
                 
                 // === NOWA LOGIKA - POWIADOMIENIA PRZY EDYCJI ZADANIA ===
                 const newlyAssigned = newAssignees.filter(id => !oldAssignees.includes(id));
@@ -28662,6 +28688,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
