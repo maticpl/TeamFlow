@@ -6947,18 +6947,39 @@ body.compact-mode .comment-item {
             transform: scale(1.5);
         }
 
-        /* 1. STAN KRYTYCZNY (Pulsowanie + Czerwony Glow) */
+        /* 1. STAN KRYTYCZNY (Efekt Sonaru) */
         .radar-node.critical {
             fill: var(--danger-primary) !important;
             stroke: #fff;
-            animation: critical-pulse 1.5s infinite;
-            filter: drop-shadow(0 0 6px var(--danger-primary));
+            /* Czas trwania MUSI być identyczny jak prędkość skanera (.radar-sweep) */
+            animation: radar-ping 4s linear infinite; 
+            /* Domyślny stan (pomiędzy uderzeniami): nieco mniejszy i ciemniejszy */
+            r: 6px; 
+            filter: drop-shadow(0 0 2px var(--danger-primary));
         }
 
-        @keyframes critical-pulse {
-            0% { r: 6px; fill-opacity: 1; stroke-width: 1px; }
-            50% { r: 10px; fill-opacity: 0.8; stroke-width: 3px; }
-            100% { r: 6px; fill-opacity: 1; stroke-width: 1px; }
+        @keyframes radar-ping {
+            /* Moment uderzenia skanera (Start) */
+            0% { 
+                r: 10px; /* Nagłe powiększenie */
+                fill-opacity: 1; 
+                stroke-width: 3px;
+                filter: drop-shadow(0 0 12px var(--danger-primary)); /* Mocny błysk */
+            }
+            /* Szybkie wygaszanie (ogon) */
+            10% {
+                r: 8px;
+                fill-opacity: 0.9;
+                stroke-width: 2px;
+                filter: drop-shadow(0 0 6px var(--danger-primary));
+            }
+            /* Stan spoczynku przez resztę obrotu */
+            30%, 100% { 
+                r: 6px; 
+                fill-opacity: 0.8; 
+                stroke-width: 1px;
+                filter: drop-shadow(0 0 2px var(--danger-primary));
+            }
         }
 
        /* 2. STAN "GNICIA" (Stagnation - Szare, małe, zakurzone) */
@@ -11818,23 +11839,56 @@ function drawRadarChart(allProjects) {
 
             placedNodes.push({ x: tx, y: ty, r: nodeSize });
 
-            // E. Render
+            // E. Renderowanie Elementu SVG
             const node = document.createElementNS(svgNS, "circle");
-            node.setAttribute("cx", tx);
+            node.setAttribute("cx", tx); // tx i ty to współrzędne obliczone przez algorytm spiralny
             node.setAttribute("cy", ty);
-            node.setAttribute("r", nodeSize);
+            
+            // Domyślny promień (CSS może go nadpisać w animacji, ale ustawiamy bazę)
+            node.setAttribute("r", nodeSize); 
             node.classList.add("radar-node");
             
+            // Stylizacja Kolorów i Logika Sonaru
             if (isCompleted) {
                 node.classList.add("completed");
             } else if (isCritical) {
                 node.classList.add("critical");
+                
+                // === LOGIKA SYNCHRONIZACJI SONARU ===
+                const sweepDuration = 4; // Sekundy (musi pasować do CSS .radar-sweep)
+                
+                // 1. Oblicz kąt zadania względem środka (w radianach)
+                // Math.atan2 zwraca kąt od -PI do PI względem osi X (godzina 3:00)
+                let angle = Math.atan2(ty - center, tx - center);
+                
+                // 2. Skaner startuje z godziny 12:00 (-PI/2). 
+                // Musimy przesunąć układ odniesienia tak, aby 12:00 było zerem.
+                // Kąt w JS rośnie zgodnie z zegarem (y idzie w dół).
+                
+                // Przesuwamy o 90 stopni (PI/2), aby 12:00 stało się 0.
+                let normalizedAngle = angle + (Math.PI / 2);
+                
+                // Normalizujemy do zakresu 0 - 2*PI (0 - 360 stopni)
+                if (normalizedAngle < 0) {
+                    normalizedAngle += 2 * Math.PI;
+                }
+                
+                // 3. Obliczamy opóźnienie
+                // Stosunek kąta do pełnego koła * czas trwania
+                const delay = (normalizedAngle / (2 * Math.PI)) * sweepDuration;
+                
+                // 4. Aplikujemy opóźnienie
+                node.style.animationDelay = `${delay}s`;
+                // =====================================
+                
             } else {
+                // Aktywne, zdrowe (niebieski/zielony)
                 if (task.status === 'inprogress') node.setAttribute("fill", "var(--accent-primary)");
                 else node.setAttribute("fill", "var(--success-primary)");
             }
 
-            if (!isCompleted) {
+            // Logika "Gnicia" (Stale)
+            if (!isCompleted && !isCritical) { // Dodano !isCritical, żeby nie szarzyć pulsujących
                 let daysSinceActivity = 0;
                 if (task.activityLog && task.activityLog.length > 0) {
                     const lastLog = task.activityLog.sort((a, b) => b.timestamp - a.timestamp)[0];
@@ -29533,6 +29587,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
