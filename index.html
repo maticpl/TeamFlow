@@ -6900,20 +6900,21 @@ body.compact-mode .comment-item {
             overflow: visible; /* Pozwól cieniom wychodzić poza obrys */
         }
 
-        /* Tarcza - dodajemy "techniczny" wygląd */
+        /* Tarcza - ZWIĘKSZONA WIDOCZNOŚĆ */
         .radar-ring {
             fill: none;
             stroke: var(--accent-primary);
-            stroke-width: 1;
-            stroke-opacity: 0.2;
-            stroke-dasharray: 2 4; /* Kropkowane linie jak na sonarze */
+            stroke-width: 1.5px; /* Grubsza linia */
+            stroke-opacity: 0.5; /* Dużo wyższa widoczność (było 0.2) */
+            stroke-dasharray: 4 4; /* Rzadsze kropkowanie dla lepszej czytelności */
         }
         
-        /* Oś X/Y */
+        /* Oś X/Y - ZWIĘKSZONA WIDOCZNOŚĆ */
         .radar-axis {
             stroke: var(--accent-primary);
-            stroke-width: 1;
-            stroke-opacity: 0.15;
+            stroke-width: 2px; /* Wyraźna granica sektorów */
+            stroke-opacity: 0.4; /* Wyższa widoczność (było 0.15) */
+            /* Usunięto dasharray - linia ciągła dla osi wygląda solidniej */
         }
 
         /* --- SKANER (The Sweep) --- */
@@ -11625,7 +11626,7 @@ function renderRadarFilters(allProjects) {
 }
 
 /**
- * Rysuje wykres SVG Omni-Radaru (Wersja 5.0 - Full Physics / No Overlap).
+ * Rysuje wykres SVG Omni-Radaru (Wersja 6.0 - Avatar Images).
  */
 function drawRadarChart(allProjects) {
     const container = document.getElementById('radar-chart-container');
@@ -11642,13 +11643,16 @@ function drawRadarChart(allProjects) {
     svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
     svg.classList.add("radar-svg");
 
-    // --- DEFINICJE GRADIENTÓW ---
+    // --- DEFINICJE (Gradienty i Maski) ---
     const defs = document.createElementNS(svgNS, "defs");
     defs.innerHTML = `
         <radialGradient id="radar-glow" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
             <stop offset="0%" stop-color="var(--accent-primary)" stop-opacity="0.1" />
             <stop offset="100%" stop-color="var(--bg-primary)" stop-opacity="0" />
         </radialGradient>
+        <clipPath id="radar-avatar-clip">
+            <circle cx="0" cy="0" r="14" />
+        </clipPath>
     `;
     svg.appendChild(defs);
 
@@ -11713,9 +11717,6 @@ function drawRadarChart(allProjects) {
     const anglePerProject = (2 * Math.PI) / count;
     const projectLabels = [];
     const userPositions = {};
-    
-    // === GLOBALNA MAPA KOLIZJI (Zadania + Awatary) ===
-    // Przechowujemy {x, y, r} każdego narysowanego elementu
     const placedNodes = [];
 
     activeProjects.forEach((project, index) => {
@@ -11739,7 +11740,7 @@ function drawRadarChart(allProjects) {
             text: project.name
         });
 
-        // Rysowanie Zadań
+        // Zadania
         const tasks = project.tasks || [];
         const now = new Date().getTime();
 
@@ -11749,16 +11750,16 @@ function drawRadarChart(allProjects) {
             // A. Pozycja
             let distRatio = 0.95;
             let isCritical = false;
-            let daysDiff = 0;
+            let diffDays = 0;
 
             if (task.dueDate) {
                 const due = new Date(task.dueDate).getTime();
-                daysDiff = (due - now) / (1000 * 60 * 60 * 24);
-                if (daysDiff < 0) {
+                diffDays = (due - now) / (1000 * 60 * 60 * 24);
+                if (diffDays < 0) {
                     distRatio = 0.1 + (Math.random() * 0.05);
                     if (!isCompleted) isCritical = true;
-                } else if (daysDiff <= 60) {
-                    distRatio = 0.2 + (daysDiff / 60) * 0.7;
+                } else if (diffDays <= 60) {
+                    distRatio = 0.2 + (diffDays / 60) * 0.7;
                 }
             } else {
                 distRatio = 0.85 + (Math.random() * 0.1);
@@ -11815,10 +11816,9 @@ function drawRadarChart(allProjects) {
                 }
             }
 
-            // Zapisz pozycję (Zadanie zajmuje miejsce)
             placedNodes.push({ x: tx, y: ty, r: nodeSize });
 
-            // E. Render SVG
+            // E. Render
             const node = document.createElementNS(svgNS, "circle");
             node.setAttribute("cx", tx);
             node.setAttribute("cy", ty);
@@ -11834,7 +11834,6 @@ function drawRadarChart(allProjects) {
                 else node.setAttribute("fill", "var(--success-primary)");
             }
 
-            // Stale logic
             if (!isCompleted) {
                 let daysSinceActivity = 0;
                 if (task.activityLog && task.activityLog.length > 0) {
@@ -11856,7 +11855,7 @@ function drawRadarChart(allProjects) {
 
             svg.appendChild(node);
 
-            // F. Dane dla Awatarów
+            // F. Agregacja dla Awatarów
             if (!isCompleted) {
                 (task.assignees || []).forEach(userId => {
                     if (!userPositions[userId]) {
@@ -11871,36 +11870,31 @@ function drawRadarChart(allProjects) {
         });
     });
 
-    // 6. Rysowanie Awatarów (Z ANTYKOLIZJĄ)
+    // 6. Rysowanie Awatarów (Wersja ze ZDJĘCIAMI)
     Object.values(userPositions).forEach(pos => {
         if (!pos.userObj) return;
         
-        // 1. Oblicz idealną pozycję (średnia)
         const idealX = pos.xSum / pos.count;
         const idealY = pos.ySum / pos.count;
 
         let ax = idealX;
         let ay = idealY;
         
-        const avatarRadius = 14; // Promień awatara
+        const avatarRadius = 14; 
         
-        // 2. Antykolizja dla Awatara
-        // Sprawdzamy kolizję z ZADANIAMI (już są w placedNodes) oraz INNYMI AWATARAMI (będą dodawane w trakcie pętli)
+        // Antykolizja dla Awatara
         let collision = true;
         let iter = 0;
-        const maxIter = 150; // Trochę więcej prób, bo awatar jest duży
+        const maxIter = 150; 
         let angleOffset = 0;
         let radiusOffset = 0;
 
         while (collision && iter < maxIter) {
             collision = false;
-            
             for (const other of placedNodes) {
                 const dx = ax - other.x;
                 const dy = ay - other.y;
                 const dist = Math.sqrt(dx*dx + dy*dy);
-                
-                // Minimalny odstęp: Promień awatara + Promień obiektu + Bufor (np. 5px)
                 const minSpace = avatarRadius + other.r + 5;
 
                 if (dist < minSpace) {
@@ -11911,44 +11905,66 @@ function drawRadarChart(allProjects) {
 
             if (collision) {
                 iter++;
-                angleOffset += 0.6; // Szersza spirala
-                radiusOffset += 4;  // Szybsze odpychanie
-                
+                angleOffset += 0.6;
+                radiusOffset += 4;
                 const spiralX = Math.cos(angleOffset) * radiusOffset;
                 const spiralY = Math.sin(angleOffset) * radiusOffset;
-                
                 ax = idealX + spiralX;
                 ay = idealY + spiralY;
             }
         }
         
-        // 3. Zapisz pozycję awatara jako "zajętą", żeby kolejny na niego nie wszedł
         placedNodes.push({ x: ax, y: ay, r: avatarRadius });
 
-        // 4. Renderowanie
+        // --- RENDEROWANIE AWATARA (ZDJĘCIE LUB INICJAŁY) ---
         const g = document.createElementNS(svgNS, "g");
         g.classList.add("radar-avatar-group");
+        // Używamy translate, aby pozycjonować grupę, a w środku używamy (0,0)
+        g.setAttribute("transform", `translate(${ax}, ${ay})`);
         g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
 
-        // Opcjonalnie: Linia łącząca z idealnym środkiem (jeśli został mocno wypchnięty)
-        // if (iter > 10) { ... rysuj linię od idealX,idealY do ax,ay ... }
+        if (pos.userObj.photoURL) {
+            // === OPCJA 1: ZDJĘCIE ===
+            const image = document.createElementNS(svgNS, "image");
+            image.setAttribute("href", pos.userObj.photoURL);
+            // Pozycjonujemy obrazek tak, by środek był w (0,0) grupy
+            image.setAttribute("x", -14);
+            image.setAttribute("y", -14);
+            image.setAttribute("width", 28);
+            image.setAttribute("height", 28);
+            // Przycinamy do koła używając zdefiniowanego wcześniej clipPath
+            image.setAttribute("clip-path", "url(#radar-avatar-clip)");
+            g.appendChild(image);
+        } else {
+            // === OPCJA 2: INICJAŁY (FALLBACK) ===
+            const circle = document.createElementNS(svgNS, "circle");
+            circle.setAttribute("cx", 0);
+            circle.setAttribute("cy", 0);
+            circle.setAttribute("r", 14);
+            circle.style.fill = pos.userObj.avatarColor || "var(--bg-secondary)";
+            
+            const initials = (pos.userObj.name || pos.userObj.email).substring(0, 2).toUpperCase();
+            const text = document.createElementNS(svgNS, "text");
+            text.setAttribute("x", 0);
+            text.setAttribute("y", 4); // Centrowanie pionowe
+            text.textContent = initials;
+            text.classList.add("radar-avatar-text");
+            
+            g.appendChild(circle);
+            g.appendChild(text);
+        }
 
-        const avatarCircle = document.createElementNS(svgNS, "circle");
-        avatarCircle.setAttribute("cx", ax);
-        avatarCircle.setAttribute("cy", ay);
-        avatarCircle.setAttribute("r", avatarRadius);
-        avatarCircle.classList.add("radar-avatar-circle");
-        avatarCircle.style.fill = pos.userObj.avatarColor || "var(--bg-secondary)";
+        // OBRYS (Stroke) - Zawsze dodajemy na wierzch, żeby zdjęcie miało ładną ramkę
+        const strokeCircle = document.createElementNS(svgNS, "circle");
+        strokeCircle.setAttribute("cx", 0);
+        strokeCircle.setAttribute("cy", 0);
+        strokeCircle.setAttribute("r", 14);
+        strokeCircle.setAttribute("fill", "none");
+        strokeCircle.classList.add("radar-avatar-circle"); // Ta klasa ma zdefiniowany stroke w CSS
+        // Usuwamy fill z klasy CSS, bo tutaj jest none
+        strokeCircle.style.fill = "none"; 
         
-        const initials = (pos.userObj.name || pos.userObj.email).substring(0, 2).toUpperCase();
-        const text = document.createElementNS(svgNS, "text");
-        text.setAttribute("x", ax);
-        text.setAttribute("y", ay + 5); 
-        text.textContent = initials;
-        text.classList.add("radar-avatar-text");
-
-        g.appendChild(avatarCircle);
-        g.appendChild(text);
+        g.appendChild(strokeCircle);
         svg.appendChild(g);
     });
 
@@ -29517,6 +29533,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
