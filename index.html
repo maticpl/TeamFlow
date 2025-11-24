@@ -6882,17 +6882,113 @@ body.compact-mode .comment-item {
             z-index: 100;
         }
 
-        /* Animacja pulsowania dla zadań krytycznych (w centrum) */
-        .radar-node.critical {
-            animation: radar-pulse 2s infinite;
-            stroke: var(--danger-primary);
-            stroke-width: 2px;
+        /* === STYLE OMNI-RADARU (HIGH TEMP VERSION) === */
+        
+        /* Kontener z lekkim gradientem głębi */
+        #radar-chart-container {
+            background: radial-gradient(circle at center, rgba(79, 70, 229, 0.05) 0%, rgba(255,255,255,0) 70%);
         }
 
-        @keyframes radar-pulse {
-            0% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.3); opacity: 0.8; }
-            100% { transform: scale(1); opacity: 1; }
+        .radar-svg {
+            width: 100%;
+            height: 100%;
+            max-width: 800px;
+            max-height: 800px;
+            overflow: visible; /* Pozwól cieniom wychodzić poza obrys */
+        }
+
+        /* Tarcza - dodajemy "techniczny" wygląd */
+        .radar-ring {
+            fill: none;
+            stroke: var(--accent-primary);
+            stroke-width: 1;
+            stroke-opacity: 0.2;
+            stroke-dasharray: 2 4; /* Kropkowane linie jak na sonarze */
+        }
+        
+        /* Oś X/Y */
+        .radar-axis {
+            stroke: var(--accent-primary);
+            stroke-width: 1;
+            stroke-opacity: 0.15;
+        }
+
+        /* --- SKANER (The Sweep) --- */
+        .radar-sweep {
+            transform-origin: center;
+            animation: radar-spin 4s linear infinite;
+            fill: url(#radar-sweep-gradient); /* Użyjemy gradientu SVG */
+            pointer-events: none;
+        }
+
+        @keyframes radar-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* --- WĘZŁY (ZADANIA) --- */
+        .radar-node {
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            stroke-width: 1.5px;
+            stroke: #fff;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); /* Cień 3D */
+        }
+
+        .radar-node:hover {
+            stroke: var(--text-primary);
+            stroke-width: 3px;
+            z-index: 100;
+            filter: drop-shadow(0 0 8px var(--accent-primary)); /* Świecenie przy hover */
+            transform: scale(1.5);
+        }
+
+        /* 1. STAN KRYTYCZNY (Pulsowanie + Czerwony Glow) */
+        .radar-node.critical {
+            fill: var(--danger-primary) !important;
+            stroke: #fff;
+            animation: critical-pulse 1.5s infinite;
+            filter: drop-shadow(0 0 6px var(--danger-primary));
+        }
+
+        @keyframes critical-pulse {
+            0% { r: 6px; fill-opacity: 1; stroke-width: 1px; }
+            50% { r: 10px; fill-opacity: 0.8; stroke-width: 3px; }
+            100% { r: 6px; fill-opacity: 1; stroke-width: 1px; }
+        }
+
+        /* 2. STAN "GNICIA" (Stagnation - Szare, małe, zakurzone) */
+        .radar-node.stale {
+            fill: #9ca3af !important; /* Szary */
+            stroke: #d1d5db;
+            opacity: 0.6;
+            /* Brak animacji, wyglądają na martwe */
+        }
+        
+        /* --- AWATARY NA RADARZE --- */
+        .radar-avatar-group {
+            transition: transform 0.5s ease-out;
+            cursor: pointer;
+        }
+        .radar-avatar-circle {
+            stroke: var(--accent-primary);
+            stroke-width: 2px;
+            fill: var(--bg-secondary);
+            filter: drop-shadow(0 2px 5px rgba(0,0,0,0.3));
+        }
+        .radar-avatar-text {
+            font-size: 10px;
+            font-weight: 700;
+            fill: var(--text-primary);
+            text-anchor: middle;
+            pointer-events: none;
+        }
+        /* Linia łącząca awatar z centrum (opcjonalne, "grawitacja") */
+        .radar-avatar-tether {
+            stroke: var(--accent-primary);
+            stroke-width: 1;
+            stroke-opacity: 0.2;
+            stroke-dasharray: 2 2;
         }
         /* Transform-origin musi być ustawione w JS lub przez atrybut dla SVG, tutaj pomocniczo */
         .radar-node { transform-box: fill-box; transform-origin: center; }
@@ -11512,181 +11608,294 @@ function renderRadarFilters(allProjects) {
 }
 
 /**
- * Rysuje wykres SVG Omni-Radaru.
+ * Rysuje wykres SVG Omni-Radaru (Wersja 2.0 - High Temp).
  */
 function drawRadarChart(allProjects) {
     const container = document.getElementById('radar-chart-container');
     if (!container) return;
     container.innerHTML = '';
 
-    // 1. Konfiguracja przestrzeni
+    // 1. Konfiguracja
     const size = 700; 
     const center = size / 2;
-    const radius = size / 2 - 60; // Margines na etykiety
+    const radius = size / 2 - 80; // Większy margines na etykiety i awatary
 
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
     svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
     svg.classList.add("radar-svg");
 
-    // 2. Filtruj wybrane projekty
+    // --- DEFINICJE GRADIENTÓW (Skaner) ---
+    const defs = document.createElementNS(svgNS, "defs");
+    defs.innerHTML = `
+        <linearGradient id="radar-sweep-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="var(--accent-primary)" stop-opacity="0" />
+            <stop offset="100%" stop-color="var(--success-primary)" stop-opacity="0.3" />
+        </linearGradient>
+        <filter id="glow">
+            <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+            <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+    `;
+    svg.appendChild(defs);
+
+    // 2. Filtrowanie projektów
     const activeProjects = allProjects.filter(p => state.ui.radarSelectedProjectIds.includes(p.id));
     const count = activeProjects.length;
 
     if (count === 0) {
-        container.innerHTML = '<p class="no-tasks-message">Brak danych do wyświetlenia.</p>';
+        container.innerHTML = '<p class="no-tasks-message">Wybierz projekty, aby uruchomić radar.</p>';
         return;
     }
 
-    // 3. Tło (Koncentryczne kręgi czasu)
-    // Promień 0 = TERAZ. Promień 100% = Daleka przyszłość.
-    const rings = [
-        { r: 0.2, label: 'Pilne (Dziś)' },
-        { r: 0.5, label: '7 dni' },
-        { r: 0.8, label: '30 dni' },
-        { r: 1.0, label: '' } // Krawędź
-    ];
-
-    rings.forEach(ring => {
-        const rPx = radius * ring.r;
+    // 3. Tło Radaru
+    const rings = [0.2, 0.4, 0.6, 0.8, 1.0];
+    rings.forEach(r => {
         const circle = document.createElementNS(svgNS, "circle");
         circle.setAttribute("cx", center);
         circle.setAttribute("cy", center);
-        circle.setAttribute("r", rPx);
+        circle.setAttribute("r", radius * r);
         circle.classList.add("radar-ring");
         svg.appendChild(circle);
-
-        if (ring.label) {
-            const text = document.createElementNS(svgNS, "text");
-            text.setAttribute("x", center);
-            text.setAttribute("y", center - rPx - 5);
-            text.textContent = ring.label;
-            text.classList.add("radar-label");
-            svg.appendChild(text);
-        }
     });
+
+    // --- Ramię Skanera (The Sweep) ---
+    // Tworzymy wycinek koła, który będzie się obracał
+    const sweepPath = document.createElementNS(svgNS, "path");
+    // Rysujemy trójkąt/sektor wychodzący ze środka
+    const d = `M ${center} ${center} L ${center} ${center - radius} A ${radius} ${radius} 0 0 1 ${center + radius*0.5} ${center - radius*0.8} Z`;
+    // Powyższe to uproszczenie, dla pełnego efektu radaru używamy prostej linii z gradientem
+    // Ale w CSS zrobiliśmy to jako element obracający się. Zróbmy tu po prostu linię z gradientem.
+    
+    const sweepCircle = document.createElementNS(svgNS, "circle");
+    sweepCircle.setAttribute("cx", center);
+    sweepCircle.setAttribute("cy", center);
+    sweepCircle.setAttribute("r", radius);
+    sweepCircle.setAttribute("fill", "url(#radar-sweep-gradient)");
+    // Używamy maski, aby pokazać tylko "stożek"? 
+    // Prostsza metoda: Obracająca się linia z poświatą
+    const scanLine = document.createElementNS(svgNS, "line");
+    scanLine.setAttribute("x1", center);
+    scanLine.setAttribute("y1", center);
+    scanLine.setAttribute("x2", center);
+    scanLine.setAttribute("y2", center - radius);
+    scanLine.setAttribute("stroke", "var(--success-primary)");
+    scanLine.setAttribute("stroke-width", "2");
+    scanLine.setAttribute("stroke-linecap", "round");
+    scanLine.style.filter = "drop-shadow(0 0 5px var(--success-primary))";
+    scanLine.classList.add("radar-sweep");
+    svg.appendChild(scanLine);
+
 
     // 4. Sektory Projektów
     const anglePerProject = (2 * Math.PI) / count;
-    
+    const projectLabels = []; // Przechowujemy, żeby narysować na wierzchu
+
+    // Zmienne do obliczania pozycji awatarów
+    const userPositions = {}; // { userId: { xSum: 0, ySum: 0, count: 0, userObj: {} } }
+
     activeProjects.forEach((project, index) => {
-        // Startujemy od góry (-PI/2)
         const startAngle = (index * anglePerProject) - (Math.PI / 2);
-        const endAngle = startAngle + anglePerProject;
         
-        // Linia podziału (oś)
-        const xLine = center + radius * Math.cos(startAngle);
-        const yLine = center + radius * Math.sin(startAngle);
-        
+        // Oś
         const line = document.createElementNS(svgNS, "line");
         line.setAttribute("x1", center);
         line.setAttribute("y1", center);
-        line.setAttribute("x2", xLine);
-        line.setAttribute("y2", yLine);
+        line.setAttribute("x2", center + radius * Math.cos(startAngle));
+        line.setAttribute("y2", center + radius * Math.sin(startAngle));
         line.classList.add("radar-axis");
         svg.appendChild(line);
 
-        // Etykieta Projektu (na środku łuku sektora)
+        // Etykieta
         const labelAngle = startAngle + (anglePerProject / 2);
-        const labelDist = radius + 30;
-        const lx = center + labelDist * Math.cos(labelAngle);
-        const ly = center + labelDist * Math.sin(labelAngle);
+        const labelDist = radius + 25;
+        projectLabels.push({
+            x: center + labelDist * Math.cos(labelAngle),
+            y: center + labelDist * Math.sin(labelAngle),
+            text: project.name
+        });
 
-        const pLabel = document.createElementNS(svgNS, "text");
-        pLabel.setAttribute("x", lx);
-        pLabel.setAttribute("y", ly);
-        pLabel.textContent = project.name.length > 15 ? project.name.substring(0,12)+'...' : project.name;
-        pLabel.classList.add("radar-label", "radar-project-label");
-        svg.appendChild(pLabel);
-
-        // 5. Zadania w Projekcie
+        // 5. Rysowanie Zadań (Nodes)
         const tasks = (project.tasks || []).filter(t => t.status !== 'done');
         const now = new Date().getTime();
 
         tasks.forEach(task => {
-            // Oblicz promień (czas)
+            // A. Pozycja (Promień - Czas)
             let distRatio = 1.0;
+            let isCritical = false;
             
             if (task.dueDate) {
                 const due = new Date(task.dueDate).getTime();
                 const diffDays = (due - now) / (1000 * 60 * 60 * 24);
                 
                 if (diffDays < 0) {
-                    distRatio = 0.05; // Opóźnione -> samo centrum
-                } else if (diffDays <= 60) {
-                    // Mapowanie 0-60 dni na 10%-100% promienia
-                    // 0 dni = 0.1, 60 dni = 1.0
-                    distRatio = 0.1 + (diffDays / 60) * 0.9;
+                    distRatio = 0.1; // CRITICAL: W samym środku!
+                    isCritical = true;
+                } else if (diffDays <= 30) {
+                    distRatio = 0.2 + (diffDays / 30) * 0.8;
                 } else {
-                    distRatio = 1.0; // Powyżej 60 dni -> krawędź
+                    distRatio = 0.95; // Krawędź
                 }
-            } else {
-                distRatio = 0.95; // Brak daty -> blisko krawędzi
             }
 
-            const rTask = distRatio * radius;
-
-            // Oblicz kąt (losowy rozrzut wewnątrz sektora, ale stały dla danego ID)
-            // Używamy prostego hasha z ID, aby pozycja była deterministyczna (nie skakała przy odświeżaniu)
+            // B. Kąt (Rozrzut w sektorze)
+            // Hash ID dla stałej pozycji
             let hash = 0;
             for (let i = 0; i < task.id.length; i++) hash = task.id.charCodeAt(i) + ((hash << 5) - hash);
-            const normalizedHash = (Math.abs(hash) % 100) / 100; // 0.0 - 1.0
+            const normalizedHash = (Math.abs(hash) % 100) / 100;
             
-            // Margines 15% z boków sektora, żeby kropki nie leżały na liniach
-            const sectorPadding = anglePerProject * 0.15;
+            const sectorPadding = anglePerProject * 0.2;
             const availableArc = anglePerProject - (2 * sectorPadding);
-            
             const taskAngle = startAngle + sectorPadding + (normalizedHash * availableArc);
 
-            // Współrzędne
+            const rTask = distRatio * radius;
             const tx = center + rTask * Math.cos(taskAngle);
             const ty = center + rTask * Math.sin(taskAngle);
 
-            // Stylizacja kropki
+            // C. Logika "Gnicia" (Stagnation)
+            // Sprawdź ostatnią aktywność w activityLog
+            let daysSinceActivity = 0;
+            if (task.activityLog && task.activityLog.length > 0) {
+                const lastLog = task.activityLog.sort((a, b) => b.timestamp - a.timestamp)[0];
+                daysSinceActivity = (now - lastLog.timestamp) / (1000 * 60 * 60 * 24);
+            } else {
+                // Jeśli brak logów, użyj daty utworzenia
+                // (Tu zakładamy, że task.createdAt istnieje, w kodzie dodaliśmy to w createProject)
+                // Dla starszych zadań bez pola, 0
+                daysSinceActivity = 0; 
+            }
+            
+            const isStale = daysSinceActivity > 7; // Martwe od tygodnia
+
+            // D. Logika Wielkości (Budżet / Wysiłek)
+            let nodeSize = 5; // Baza
+            const est = parseFloat(task.estimation || task.effort || 0);
+            if (est > 0) {
+                // Skalowanie: 5pkt -> r=7, 20pkt -> r=12
+                nodeSize = 5 + Math.min(est / 2, 10);
+            }
+            // Jeśli ma budżet, boostujemy wielkość
+            if (task.budgetItems && task.budgetItems.length > 0) {
+                nodeSize += 3;
+            }
+
+            // E. Renderowanie
             const node = document.createElementNS(svgNS, "circle");
             node.setAttribute("cx", tx);
             node.setAttribute("cy", ty);
-            
-            // Rozmiar zależny od estymacji/budżetu (jeśli jest)
-            let nodeRadius = 6;
-            if (task.estimation && parseFloat(task.estimation) > 5) nodeRadius = 9;
-            if (task.priority === 'high') nodeRadius += 2;
-            
-            node.setAttribute("r", nodeRadius);
+            node.setAttribute("r", nodeSize);
             node.classList.add("radar-node");
-
-            // Kolory
-            if (task.dueDate && new Date(task.dueDate).getTime() < now) {
-                node.setAttribute("fill", "var(--danger-primary)"); // Czerwony (Opóźnione)
-                node.classList.add("critical"); // Pulsowanie
-            } else if (task.status === 'inprogress') {
-                node.setAttribute("fill", "var(--accent-primary)"); // Niebieski (W trakcie)
+            
+            // Kolory i Klasy
+            if (isCritical) {
+                node.classList.add("critical");
+            } else if (isStale) {
+                node.classList.add("stale");
             } else {
-                node.setAttribute("fill", "var(--success-primary)"); // Zielony (Do zrobienia - bezpieczne)
+                // Standardowy kolor (niebieski dla inprogress, zielony dla todo - odwrócenie logiki dla lepszej widoczności na radarze)
+                if (task.status === 'inprogress') node.setAttribute("fill", "var(--accent-primary)");
+                else node.setAttribute("fill", "var(--success-primary)");
             }
 
-            // Interakcja
             node.dataset.taskId = task.id;
-            // Tippy obsłuży tooltipa
-            node.setAttribute("data-tippy-content", `<strong>${task.title}</strong><br>Termin: ${task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'Brak'}`);
+            
+            // Tooltip
+            const statusText = isStale ? "ZASTÓJ" : (isCritical ? "OPÓŹNIONE" : task.status);
+            node.setAttribute("data-tippy-content", `<strong>${task.title}</strong><br>Status: ${statusText}<br>Ostatnia akcja: ${Math.floor(daysSinceActivity)} dni temu`);
 
             svg.appendChild(node);
+
+            // F. Agregacja danych dla Awatarów
+            (task.assignees || []).forEach(userId => {
+                if (!userPositions[userId]) {
+                    const user = findUser(userId);
+                    userPositions[userId] = { xSum: 0, ySum: 0, count: 0, userObj: user };
+                }
+                // Ważymy pozycję: zadania krytyczne (blisko środka) przyciągają mocniej?
+                // Na razie prosta średnia arytmetyczna pozycji X,Y
+                userPositions[userId].xSum += tx;
+                userPositions[userId].ySum += ty;
+                userPositions[userId].count++;
+            });
         });
     });
 
-    // Kliknięcie w kropkę otwiera modal
+    // 6. Rysowanie Awatarów (Warstwa ludzka)
+    Object.values(userPositions).forEach(pos => {
+        if (!pos.userObj) return;
+        
+        const avgX = pos.xSum / pos.count;
+        const avgY = pos.ySum / pos.count;
+
+        // Grupa dla awatara
+        const g = document.createElementNS(svgNS, "g");
+        g.classList.add("radar-avatar-group");
+        
+        // Linia "uwięzi" do środka (opcjonalna)
+        /*
+        const tether = document.createElementNS(svgNS, "line");
+        tether.setAttribute("x1", center);
+        tether.setAttribute("y1", center);
+        tether.setAttribute("x2", avgX);
+        tether.setAttribute("y2", avgY);
+        tether.classList.add("radar-avatar-tether");
+        svg.appendChild(tether); // Dodaj przed awatarem
+        */
+
+        // Kółko tła (zdjęcie lub inicjały)
+        // SVG nie obsługuje łatwo <img> w kółku bez <pattern>, więc zrobimy uproszczenie:
+        // Kółko z inicjałami lub kolorem.
+        
+        const avatarCircle = document.createElementNS(svgNS, "circle");
+        avatarCircle.setAttribute("cx", avgX);
+        avatarCircle.setAttribute("cy", avgY);
+        avatarCircle.setAttribute("r", 14);
+        avatarCircle.classList.add("radar-avatar-circle");
+        // Kolor tła awatara
+        avatarCircle.style.fill = pos.userObj.avatarColor || "var(--bg-secondary)";
+        
+        // Inicjały
+        const initials = (pos.userObj.name || pos.userObj.email).substring(0, 2).toUpperCase();
+        const text = document.createElementNS(svgNS, "text");
+        text.setAttribute("x", avgX);
+        text.setAttribute("y", avgY + 4); // Centrowanie w pionie
+        text.textContent = initials;
+        text.classList.add("radar-avatar-text");
+
+        g.appendChild(avatarCircle);
+        g.appendChild(text);
+        
+        // Tooltip dla awatara
+        g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
+        
+        svg.appendChild(g);
+    });
+
+    // 7. Rysowanie Etykiet Projektów (na wierzchu)
+    projectLabels.forEach(lbl => {
+        const text = document.createElementNS(svgNS, "text");
+        text.setAttribute("x", lbl.x);
+        text.setAttribute("y", lbl.y);
+        text.textContent = lbl.text.length > 15 ? lbl.text.substring(0, 15) + '...' : lbl.text;
+        text.classList.add("radar-label", "radar-project-label");
+        svg.appendChild(text);
+    });
+
+    // Listenery
     svg.addEventListener('click', (e) => {
-        const target = e.target.closest('.radar-node');
-        if (target && target.dataset.taskId) {
-            openTaskModal(target.dataset.taskId);
+        const node = e.target.closest('.radar-node');
+        if (node && node.dataset.taskId) {
+            openTaskModal(node.dataset.taskId);
         }
     });
 
     container.appendChild(svg);
-    // Inicjalizacja dymków
     tippy('.radar-node', { allowHTML: true, theme: 'light' });
+    tippy('.radar-avatar-group', { allowHTML: true, theme: 'light' });
 }
-// === KONIEC LOGIKI OMNI-RADARU ===
         // NOWA FUNKCJA DO RENDEROWANIA WIDOKU WSZYSTKICH PROJEKTÓW
         function renderAllProjectsView() {
             kanbanBoardEl.className = 'all-projects-view';
@@ -12401,6 +12610,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // ==================================
                 
                 projectMembersHeaderEl.style.display = isMyDayView ? 'none' : 'flex';
+            }
+            
+            // Dodatkowe czyszczenie: Jeśli nie jesteśmy w radarze, ukryj jego kontener
+            const radarEl = document.getElementById('radar-view');
+            if (state.ui.currentView !== 'radar' && radarEl) {
+                radarEl.style.display = 'none';
+            }
+            
+            // Dodatkowe czyszczenie dla kalendarza (upewnienie się)
+            if (state.ui.currentView === 'radar') {
+                 if(calendarViewEl) calendarViewEl.style.display = 'none';
+                 if(kanbanBoardEl) kanbanBoardEl.style.display = 'none';
             }
             
             // Dodatkowe czyszczenie: Jeśli nie jesteśmy w radarze, ukryj jego kontener
@@ -29216,6 +29437,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
