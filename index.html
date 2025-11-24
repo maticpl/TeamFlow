@@ -11608,7 +11608,7 @@ function renderRadarFilters(allProjects) {
 }
 
 /**
- * Rysuje wykres SVG Omni-Radaru (Wersja 2.0 - High Temp).
+ * Rysuje wykres SVG Omni-Radaru (Wersja 3.0 - Smart Scatter / Antykolizja).
  */
 function drawRadarChart(allProjects) {
     const container = document.getElementById('radar-chart-container');
@@ -11618,27 +11618,20 @@ function drawRadarChart(allProjects) {
     // 1. Konfiguracja
     const size = 700; 
     const center = size / 2;
-    const radius = size / 2 - 80; // Większy margines na etykiety i awatary
+    const radius = size / 2 - 80; 
 
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
     svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
     svg.classList.add("radar-svg");
 
-    // --- DEFINICJE GRADIENTÓW (Skaner) ---
+    // --- DEFINICJE GRADIENTÓW ---
     const defs = document.createElementNS(svgNS, "defs");
     defs.innerHTML = `
         <linearGradient id="radar-sweep-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stop-color="var(--accent-primary)" stop-opacity="0" />
             <stop offset="100%" stop-color="var(--success-primary)" stop-opacity="0.3" />
         </linearGradient>
-        <filter id="glow">
-            <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
-            <feMerge>
-                <feMergeNode in="coloredBlur"/>
-                <feMergeNode in="SourceGraphic"/>
-            </feMerge>
-        </filter>
     `;
     svg.appendChild(defs);
 
@@ -11651,7 +11644,7 @@ function drawRadarChart(allProjects) {
         return;
     }
 
-    // 3. Tło Radaru
+    // 3. Tło Radaru (Kręgi)
     const rings = [0.2, 0.4, 0.6, 0.8, 1.0];
     rings.forEach(r => {
         const circle = document.createElementNS(svgNS, "circle");
@@ -11662,21 +11655,7 @@ function drawRadarChart(allProjects) {
         svg.appendChild(circle);
     });
 
-    // --- Ramię Skanera (The Sweep) ---
-    // Tworzymy wycinek koła, który będzie się obracał
-    const sweepPath = document.createElementNS(svgNS, "path");
-    // Rysujemy trójkąt/sektor wychodzący ze środka
-    const d = `M ${center} ${center} L ${center} ${center - radius} A ${radius} ${radius} 0 0 1 ${center + radius*0.5} ${center - radius*0.8} Z`;
-    // Powyższe to uproszczenie, dla pełnego efektu radaru używamy prostej linii z gradientem
-    // Ale w CSS zrobiliśmy to jako element obracający się. Zróbmy tu po prostu linię z gradientem.
-    
-    const sweepCircle = document.createElementNS(svgNS, "circle");
-    sweepCircle.setAttribute("cx", center);
-    sweepCircle.setAttribute("cy", center);
-    sweepCircle.setAttribute("r", radius);
-    sweepCircle.setAttribute("fill", "url(#radar-sweep-gradient)");
-    // Używamy maski, aby pokazać tylko "stożek"? 
-    // Prostsza metoda: Obracająca się linia z poświatą
+    // Skaner (Sweep Line)
     const scanLine = document.createElementNS(svgNS, "line");
     scanLine.setAttribute("x1", center);
     scanLine.setAttribute("y1", center);
@@ -11689,18 +11668,19 @@ function drawRadarChart(allProjects) {
     scanLine.classList.add("radar-sweep");
     svg.appendChild(scanLine);
 
-
-    // 4. Sektory Projektów
+    // 4. Rysowanie Sektorów i Zbieranie Zadań
     const anglePerProject = (2 * Math.PI) / count;
-    const projectLabels = []; // Przechowujemy, żeby narysować na wierzchu
-
-    // Zmienne do obliczania pozycji awatarów
-    const userPositions = {}; // { userId: { xSum: 0, ySum: 0, count: 0, userObj: {} } }
+    const projectLabels = []; 
+    const userPositions = {}; 
+    
+    // Tablica przechowująca już narysowane kropki do detekcji kolizji
+    // Format: { x, y, r }
+    const placedNodes = [];
 
     activeProjects.forEach((project, index) => {
         const startAngle = (index * anglePerProject) - (Math.PI / 2);
         
-        // Oś
+        // Oś podziału
         const line = document.createElementNS(svgNS, "line");
         line.setAttribute("x1", center);
         line.setAttribute("y1", center);
@@ -11709,7 +11689,7 @@ function drawRadarChart(allProjects) {
         line.classList.add("radar-axis");
         svg.appendChild(line);
 
-        // Etykieta
+        // Etykieta Projektu
         const labelAngle = startAngle + (anglePerProject / 2);
         const labelDist = radius + 25;
         projectLabels.push({
@@ -11718,84 +11698,151 @@ function drawRadarChart(allProjects) {
             text: project.name
         });
 
-        // 5. Rysowanie Zadań (Nodes)
-        const tasks = (project.tasks || []).filter(t => t.status !== 'done');
+        // Zbieranie zadań (bez podziału na 'done' tutaj, filtrowanie w pętli)
+        const tasks = project.tasks || [];
         const now = new Date().getTime();
 
         tasks.forEach(task => {
+            const isCompleted = task.status === 'done';
+            
             // A. Pozycja (Promień - Czas)
             let distRatio = 1.0;
             let isCritical = false;
+            let diffDays = 0;
             
             if (task.dueDate) {
                 const due = new Date(task.dueDate).getTime();
-                const diffDays = (due - now) / (1000 * 60 * 60 * 24);
+                diffDays = (due - now) / (1000 * 60 * 60 * 24);
                 
-                if (diffDays < 0) {
-                    distRatio = 0.1; // CRITICAL: W samym środku!
-                    isCritical = true;
-                } else if (diffDays <= 30) {
-                    distRatio = 0.2 + (diffDays / 30) * 0.8;
+                if (isCompleted) {
+                    // Ukończone trzymamy na orbicie odpowiadającej terminowi, ale nie alarmujemy
+                    if (diffDays < 0) distRatio = 0.2; // Było dawno
+                    else if (diffDays <= 30) distRatio = 0.3 + (diffDays / 30) * 0.7;
+                    else distRatio = 1.0;
                 } else {
-                    distRatio = 0.95; // Krawędź
+                    // Aktywne
+                    if (diffDays < 0) {
+                        distRatio = 0.08; // CRITICAL: Samo centrum
+                        isCritical = true;
+                    } else if (diffDays <= 60) {
+                        distRatio = 0.15 + (diffDays / 60) * 0.85;
+                    } else {
+                        distRatio = 0.98;
+                    }
+                }
+            } else {
+                distRatio = 0.92; // Brak daty
+            }
+
+            // B. Kąt (Pozycja w sektorze)
+            // Używamy hasha z ID jako bazy
+            let seed = 0;
+            for (let i = 0; i < task.id.length; i++) seed += task.id.charCodeAt(i);
+            const baseRandom = (Math.abs(Math.sin(seed * 9999)) % 1); // 0.0 - 1.0
+            
+            const sectorPadding = anglePerProject * 0.1; // 10% marginesu
+            const availableArc = anglePerProject - (2 * sectorPadding);
+            
+            // C. Wielkość węzła
+            let nodeSize = 5; 
+            const est = parseFloat(task.estimation || task.effort || 0);
+            if (est > 0) nodeSize = 5 + Math.min(est / 2, 8);
+            if (task.priority === 'high') nodeSize += 2;
+            if (isCompleted) nodeSize = Math.max(3, nodeSize - 1);
+
+            // D. ALGORYTM ANTYKOLIZYJNY (Smart Scatter)
+            // Próbujemy znaleźć pozycję, która nie koliduje z innymi
+            // Próbujemy 15 razy, przesuwając lekko kąt
+            let finalX = 0;
+            let finalY = 0;
+            let placed = false;
+            const maxAttempts = 15;
+            
+            // Promień na wykresie (odległość od środka)
+            // Dodajemy minimalny "jitter" do promienia, żeby nie tworzyły idealnych okręgów
+            const rTaskBase = distRatio * radius;
+            
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                // Modyfikujemy kąt w każdej próbie
+                // Próba 0: oryginalny hash. Próba 1+: przesunięcie w lewo/prawo.
+                // Spread rośnie z każdą próbą.
+                const offset = attempt === 0 ? 0 : (attempt % 2 === 0 ? 1 : -1) * (attempt * 0.05); 
+                
+                // Normalizujemy offset do zakresu 0-1 w ramach dostępnego łuku
+                let adjustedRandom = baseRandom + offset;
+                
+                // Odbij od ścianek sektora, jeśli wyjdzie poza zakres
+                if (adjustedRandom < 0) adjustedRandom = Math.abs(adjustedRandom);
+                if (adjustedRandom > 1) adjustedRandom = 1 - (adjustedRandom - 1);
+
+                const taskAngle = startAngle + sectorPadding + (adjustedRandom * availableArc);
+                
+                // Dodajemy też mikro-losowość do promienia (jitter), żeby nie stały w idealnej linii
+                const rJitter = (attempt * 2) * (attempt % 2 === 0 ? 1 : -1);
+                const rFinal = Math.max(10, rTaskBase + rJitter); // Minimum 10px od środka
+
+                const tx = center + rFinal * Math.cos(taskAngle);
+                const ty = center + rFinal * Math.sin(taskAngle);
+
+                // Sprawdź kolizję z już narysowanymi
+                let collision = false;
+                for (const otherNode of placedNodes) {
+                    const dx = tx - otherNode.x;
+                    const dy = ty - otherNode.y;
+                    const distance = Math.sqrt(dx*dx + dy*dy);
+                    const minDistance = nodeSize + otherNode.r + 2; // +2px marginesu
+
+                    if (distance < minDistance) {
+                        collision = true;
+                        break;
+                    }
+                }
+
+                if (!collision) {
+                    finalX = tx;
+                    finalY = ty;
+                    placed = true;
+                    break; // Znaleziono miejsce!
                 }
             }
 
-            // B. Kąt (Rozrzut w sektorze)
-            // Hash ID dla stałej pozycji
-            let hash = 0;
-            for (let i = 0; i < task.id.length; i++) hash = task.id.charCodeAt(i) + ((hash << 5) - hash);
-            const normalizedHash = (Math.abs(hash) % 100) / 100;
-            
-            const sectorPadding = anglePerProject * 0.2;
-            const availableArc = anglePerProject - (2 * sectorPadding);
-            const taskAngle = startAngle + sectorPadding + (normalizedHash * availableArc);
+            // Jeśli po wszystkich próbach nadal kolizja, trudno - rysujemy na ostatniej pozycji
+            if (!placed) {
+                 // Fallback do pozycji bazowej
+                 const taskAngle = startAngle + sectorPadding + (baseRandom * availableArc);
+                 finalX = center + rTaskBase * Math.cos(taskAngle);
+                 finalY = center + rTaskBase * Math.sin(taskAngle);
+            }
 
-            const rTask = distRatio * radius;
-            const tx = center + rTask * Math.cos(taskAngle);
-            const ty = center + rTask * Math.sin(taskAngle);
+            // Zapisz pozycję dla następnych iteracji
+            placedNodes.push({ x: finalX, y: finalY, r: nodeSize });
+
+            // --- KONIEC ALGORYTMU ANTYKOLIZYJNEGO ---
 
             // C. Logika "Gnicia" (Stagnation)
-            // Sprawdź ostatnią aktywność w activityLog
             let daysSinceActivity = 0;
             if (task.activityLog && task.activityLog.length > 0) {
                 const lastLog = task.activityLog.sort((a, b) => b.timestamp - a.timestamp)[0];
                 daysSinceActivity = (now - lastLog.timestamp) / (1000 * 60 * 60 * 24);
-            } else {
-                // Jeśli brak logów, użyj daty utworzenia
-                // (Tu zakładamy, że task.createdAt istnieje, w kodzie dodaliśmy to w createProject)
-                // Dla starszych zadań bez pola, 0
-                daysSinceActivity = 0; 
             }
-            
-            const isStale = daysSinceActivity > 7; // Martwe od tygodnia
+            const isStale = !isCompleted && daysSinceActivity > 7;
 
-            // D. Logika Wielkości (Budżet / Wysiłek)
-            let nodeSize = 5; // Baza
-            const est = parseFloat(task.estimation || task.effort || 0);
-            if (est > 0) {
-                // Skalowanie: 5pkt -> r=7, 20pkt -> r=12
-                nodeSize = 5 + Math.min(est / 2, 10);
-            }
-            // Jeśli ma budżet, boostujemy wielkość
-            if (task.budgetItems && task.budgetItems.length > 0) {
-                nodeSize += 3;
-            }
-
-            // E. Renderowanie
+            // E. Renderowanie Elementu SVG
             const node = document.createElementNS(svgNS, "circle");
-            node.setAttribute("cx", tx);
-            node.setAttribute("cy", ty);
+            node.setAttribute("cx", finalX);
+            node.setAttribute("cy", finalY);
             node.setAttribute("r", nodeSize);
             node.classList.add("radar-node");
             
             // Kolory i Klasy
-            if (isCritical) {
-                node.classList.add("critical");
+            if (isCompleted) {
+                node.classList.add("completed"); // Styl "ducha"
+            } else if (isCritical) {
+                node.classList.add("critical"); // Pulsowanie
             } else if (isStale) {
-                node.classList.add("stale");
+                node.classList.add("stale"); // Szare
             } else {
-                // Standardowy kolor (niebieski dla inprogress, zielony dla todo - odwrócenie logiki dla lepszej widoczności na radarze)
+                // Aktywne, zdrowe
                 if (task.status === 'inprogress') node.setAttribute("fill", "var(--accent-primary)");
                 else node.setAttribute("fill", "var(--success-primary)");
             }
@@ -11803,78 +11850,57 @@ function drawRadarChart(allProjects) {
             node.dataset.taskId = task.id;
             
             // Tooltip
-            const statusText = isStale ? "ZASTÓJ" : (isCritical ? "OPÓŹNIONE" : task.status);
-            node.setAttribute("data-tippy-content", `<strong>${task.title}</strong><br>Status: ${statusText}<br>Ostatnia akcja: ${Math.floor(daysSinceActivity)} dni temu`);
+            const statusText = isCompleted ? "UKOŃCZONE" : (isStale ? "ZASTÓJ" : (isCritical ? "OPÓŹNIONE" : task.status));
+            node.setAttribute("data-tippy-content", `<strong>${task.title}</strong><br>Status: ${statusText}<br>Termin: ${task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'Brak'}`);
 
             svg.appendChild(node);
 
-            // F. Agregacja danych dla Awatarów
-            (task.assignees || []).forEach(userId => {
-                if (!userPositions[userId]) {
-                    const user = findUser(userId);
-                    userPositions[userId] = { xSum: 0, ySum: 0, count: 0, userObj: user };
-                }
-                // Ważymy pozycję: zadania krytyczne (blisko środka) przyciągają mocniej?
-                // Na razie prosta średnia arytmetyczna pozycji X,Y
-                userPositions[userId].xSum += tx;
-                userPositions[userId].ySum += ty;
-                userPositions[userId].count++;
-            });
+            // F. Agregacja dla Awatarów (Tylko zadania aktywne przyciągają awatara)
+            if (!isCompleted) {
+                (task.assignees || []).forEach(userId => {
+                    if (!userPositions[userId]) {
+                        const user = findUser(userId);
+                        userPositions[userId] = { xSum: 0, ySum: 0, count: 0, userObj: user };
+                    }
+                    userPositions[userId].xSum += finalX;
+                    userPositions[userId].ySum += finalY;
+                    userPositions[userId].count++;
+                });
+            }
         });
     });
 
-    // 6. Rysowanie Awatarów (Warstwa ludzka)
+    // 6. Rysowanie Awatarów
     Object.values(userPositions).forEach(pos => {
         if (!pos.userObj) return;
         
         const avgX = pos.xSum / pos.count;
         const avgY = pos.ySum / pos.count;
 
-        // Grupa dla awatara
         const g = document.createElementNS(svgNS, "g");
         g.classList.add("radar-avatar-group");
-        
-        // Linia "uwięzi" do środka (opcjonalna)
-        /*
-        const tether = document.createElementNS(svgNS, "line");
-        tether.setAttribute("x1", center);
-        tether.setAttribute("y1", center);
-        tether.setAttribute("x2", avgX);
-        tether.setAttribute("y2", avgY);
-        tether.classList.add("radar-avatar-tether");
-        svg.appendChild(tether); // Dodaj przed awatarem
-        */
+        g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
 
-        // Kółko tła (zdjęcie lub inicjały)
-        // SVG nie obsługuje łatwo <img> w kółku bez <pattern>, więc zrobimy uproszczenie:
-        // Kółko z inicjałami lub kolorem.
-        
         const avatarCircle = document.createElementNS(svgNS, "circle");
         avatarCircle.setAttribute("cx", avgX);
         avatarCircle.setAttribute("cy", avgY);
-        avatarCircle.setAttribute("r", 14);
+        avatarCircle.setAttribute("r", 12);
         avatarCircle.classList.add("radar-avatar-circle");
-        // Kolor tła awatara
         avatarCircle.style.fill = pos.userObj.avatarColor || "var(--bg-secondary)";
         
-        // Inicjały
         const initials = (pos.userObj.name || pos.userObj.email).substring(0, 2).toUpperCase();
         const text = document.createElementNS(svgNS, "text");
         text.setAttribute("x", avgX);
-        text.setAttribute("y", avgY + 4); // Centrowanie w pionie
+        text.setAttribute("y", avgY + 4); 
         text.textContent = initials;
         text.classList.add("radar-avatar-text");
 
         g.appendChild(avatarCircle);
         g.appendChild(text);
-        
-        // Tooltip dla awatara
-        g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
-        
         svg.appendChild(g);
     });
 
-    // 7. Rysowanie Etykiet Projektów (na wierzchu)
+    // 7. Etykiety Projektów
     projectLabels.forEach(lbl => {
         const text = document.createElementNS(svgNS, "text");
         text.setAttribute("x", lbl.x);
@@ -29437,6 +29463,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
