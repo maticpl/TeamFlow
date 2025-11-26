@@ -9955,6 +9955,9 @@ let state = {
             checklistItemsList: document.getElementById('subtask-checklist-items'),
             addChecklistItemBtn: document.getElementById('add-checklist-item-btn'),
             checklistError: document.getElementById('subtask-checklist-error'),
+            
+            // NOWE: Referencja do selecta statusu
+            statusSelect: document.getElementById('subtask-status-select'),
 
             saveBtn: document.getElementById('subtask-save-btn') // ZMIANA: Bezpośrednie ID
         };
@@ -16771,6 +16774,11 @@ if (editorTaskDescription) {
                 
                 // Komentarze: Wyświetl historię
                 renderSubtaskComments(subtask.comments || []); // <--- UŻYCIE NOWEJ FUNKCJI
+                // === NOWE: Ustawienie statusu w select ===
+                // Jeśli podzadanie nie ma pola status, dedukujemy je z isCompleted
+                const currentStatus = subtask.status || (subtask.isCompleted ? 'done' : 'todo');
+                subtaskModal.statusSelect.value = currentStatus;
+                // === KONIEC ===
                 // Lista Kontrolna: Wczytaj dane
                 if (subtask.checklist && subtask.checklist.length > 0) {
                     subtaskModal.checklistToggle.checked = true;
@@ -16857,6 +16865,11 @@ if (editorTaskDescription) {
                 // --- TRYB TWORZENIA ---
                 subtaskModal.modalTitle.textContent = 'Dodaj podzadanie';
                 subtaskModal.subtaskIdInput.value = '';
+                
+                // === NOWE: Domyślny status ===
+                subtaskModal.statusSelect.value = 'todo';
+                // === KONIEC ===
+
                 // Domyślnie przypisz tych samych co w zadaniu głównym
                 selectedAssignees = mainTask.assignees || [];
                 
@@ -26151,7 +26164,10 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  // Wysiłek
                  const effort = subtaskModal.effortInput.value ? parseFloat(subtaskModal.effortInput.value) : null;
                  const actualEffort = subtaskModal.actualEffortInput.value ? parseFloat(subtaskModal.actualEffortInput.value) : null;
-                 
+                 // === NOWE: Pobranie statusu ===
+                 const newStatus = subtaskModal.statusSelect.value;
+                 const isNowCompletedByStatus = (newStatus === 'done');
+                 // === KONIEC ===
                  // Osoby (z "eleganckiej" listy pigułek)
                  const selectedAssignees = Array.from(subtaskModal.assigneesList.querySelectorAll('.member-pill.selected'))
                                                .map(pill => pill.dataset.userId);
@@ -26298,26 +26314,42 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                              const updatedAtts = [...(s.attachments || []), ...newAttachments];
                              
                              // Logika completedBy: filtrujemy ID, które nie są już przypisane
-                             const currentCompletedBy = (s.completedBy || []).filter(id => selectedAssignees.includes(id));
-                             // Przelicz isCompleted
-                             const isNowCompleted = (selectedAssignees.length > 0) && (selectedAssignees.every(id => currentCompletedBy.includes(id)));
+                             let currentCompletedBy = (s.completedBy || []).filter(id => selectedAssignees.includes(id));
+                             
+                             // === NOWE: Synchronizacja statusu z completedBy ===
+                             // Jeśli ustawiono ręcznie na 'done', oznaczamy wszystkich jako ukończonych
+                             if (newStatus === 'done') {
+                                 currentCompletedBy = [...selectedAssignees];
+                             } 
+                             // Jeśli zmieniono z 'done' na 'todo/inprogress', a było w pełni ukończone, 
+                             // opcjonalnie można wyczyścić completedBy, ale bezpieczniej zostawić indywidualne odhaczenia.
+                             // Jednak dla spójności z logiką "przeniesienia", jeśli przenoszę do 'Todo', 
+                             // to zazwyczaj oznacza reset. Dla bezpieczeństwa - zostawmy stan indywidualny,
+                             // chyba że wprost wymuszamy 'todo'.
+                             
+                             // Obliczamy isCompleted na podstawie SELECTA, a nie tylko checkboxów
+                             const isNowCompleted = (newStatus === 'done');
 
                              currentUpdatedSubtask = {
                                  ...s,
                                  title,
                                  description,
-                                 startDate,   // Zapisz złożoną datę startu
-                                 dueDate,     // Zapisz złożony termin
+                                 startDate,
+                                 dueDate,
                                  effort,
                                  actualEffort,
                                  budgetItems,
                                  assignees: selectedAssignees,
                                  completedBy: currentCompletedBy,
-                                 isCompleted: isNowCompleted,
+                                 
+                                 // ZAPISUJEMY NOWE POLA
+                                 status: newStatus,        // Zapisz status (todo/inprogress/done)
+                                 isCompleted: isNowCompleted, // Zapisz flagę zgodności
+                                 
                                  comments: commentsToSave,
                                  attachments: updatedAtts,
-                                 checklist: checklistData, // <--- DODANO NOWE POLE
-                                 type: selectedAssignees.length > 1 ? 'multi' : 'single' // <--- DODANO TYP
+                                 checklist: checklistData,
+                                 type: selectedAssignees.length > 1 ? 'multi' : 'single'
                              };
                              return currentUpdatedSubtask;
                          }
@@ -26336,8 +26368,11 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          budgetItems,
                          assignees: selectedAssignees,
                          type: selectedAssignees.length > 1 ? 'multi' : 'single', // <--- DODANO TYP
-                         isCompleted: false,
-                         completedBy: [],
+                         // === NOWE ===
+                         status: newStatus,
+                         isCompleted: (newStatus === 'done'),
+                         completedBy: (newStatus === 'done') ? selectedAssignees : [],
+                         // === KONIEC ===
                          comments: commentsToSave,
                          attachments: newAttachments,
                          checklist: checklistData, // <--- DODANO NOWE POLE
@@ -29027,13 +29062,16 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
                     <div id="subtask-tab-content-status" class="task-modal-tab-content">
                         <div class="form-group">
-                            <label>Status podzadania</label>
+                            <label for="subtask-status-select">Status podzadania</label>
+                            <select id="subtask-status-select" style="margin-bottom: 12px; font-weight: 500;">
+                                <option value="todo">Do realizacji</option>
+                                <option value="inprogress">W trakcie realizacji</option>
+                                <option value="done">Wykonane</option>
+                            </select>
+                            
                             <div id="subtask-multi-status-container" style="display: none; margin-top: 8px; padding: 12px; background-color: var(--bg-tertiary); border-radius: var(--border-radius); border: 1px solid var(--border-color);">
-                                </div>
-                            <p id="subtask-single-status-info" style="font-size: 13px; color: var(--text-secondary); display: none;">
-                                To podzadanie jest jednoosobowe. Użyj przycisku checkboxa na kafelku, aby je ukończyć.
-                            </p>
-                        </div>
+                            </div>
+                            </div>
                     </div>
 
                     <div id="subtask-tab-content-attachments" class="task-modal-tab-content">
@@ -29737,6 +29775,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
