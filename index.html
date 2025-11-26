@@ -14636,8 +14636,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // 2. Zadania Główne (wraz z zagnieżdżonymi podzadaniami o tym samym statusie)
                 columnContentHTML += tasksInColumn.map(task => {
                     totalRenderedTasks++;
-                    // Przekazujemy status kolumny jako targetStatus, aby createTaskCardHTML wiedziało, co ukryć
-                    return createTaskCardHTML(task, isInteractive, project, colData.status); 
+                    // Przekazujemy status kolumny ORAZ jej ID (customColumnId), aby precyzyjnie filtrować podzadania
+                    return createTaskCardHTML(task, isInteractive, project, colData.status, colData.customColumnId); 
                 }).join('');
 
                 // 3. Podzadania Niezależne (Standalone)
@@ -15561,16 +15561,28 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     ? `<div class="subtask-family-container ${state.ui.expandSubtasksByDefault ? '' : 'collapsed'}">
                         ${task.subtasks
                             .filter(sub => {
-                                // === NOWA LOGIKA FILTROWANIA ===
-                                // Oblicz status podzadania (lub domyślny todo/done)
+                                // === NOWA LOGIKA FILTROWANIA (POPRAWIONA) ===
+                                // Oblicz status podzadania
                                 const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
                                 
-                                // Wyjątek: Jeśli zadanie główne jest w kolumnie DONE,
-                                // chcemy widzieć całą historię (wszystkie podzadania), niezależnie od ich statusu.
+                                // Wyjątek: Jeśli zadanie główne jest w kolumnie DONE, pokazujemy wszystko
                                 if (task.status === 'done') return true;
 
-                                // W przeciwnym razie: Pokaż podzadanie tylko, jeśli ma ten sam status co rodzic
-                                return subStatus === parentStatusForFamily;
+                                // 1. Sprawdź zgodność statusu (np. 'inprogress' === 'inprogress')
+                                if (subStatus !== parentStatusForFamily) return false;
+
+                                // 2. Sprawdź zgodność Kolumny Niestandardowej (Dla Kanbanu)
+                                // Jeśli renderujemy w konkretnej kolumnie (targetCustomColumnId jest zdefiniowane)
+                                // i status to 'inprogress', musimy sprawdzić czy ID kolumny się zgadza.
+                                if (subStatus === 'inprogress' && targetCustomColumnId !== undefined) {
+                                     const subColId = sub.customColumnId || null;
+                                     const targetColId = targetCustomColumnId || null; // Może być null dla domyślnej "W trakcie"
+                                     
+                                     // Jeśli ID się różnią (np. podzadanie ma 'col_1', a my jesteśmy w 'null'), ukryj podzadanie
+                                     if (subColId !== targetColId) return false;
+                                }
+
+                                return true;
                             })
                             .map(subtask => createVisualSubtaskCardHTML(subtask, task, taskProject, 'nested')).join('')}
                        </div>`
@@ -29848,6 +29860,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
