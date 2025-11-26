@@ -20680,43 +20680,35 @@ newTaskModal.budgetItemsList.addEventListener('input', (e) => {
                 const attachmentToDelete = (task.attachments || []).find(att => att.id === attachmentId);
                 if (!attachmentToDelete) return;
 
-                showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć załącznik: "${attachmentToDelete.name}"?`, async (confirmed) => {
-                    if (confirmed) {
-                        try {
-                            const fileRef = ref(storage, attachmentToDelete.path);
-                            await deleteObject(fileRef);
+                showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć podzadanie: "${subtaskToDelete.title}"?`, async (confirmed) => {
+                 if (confirmed) {
+                     const updatedTask = {
+                         ...mainTask,
+                         subtasks: (mainTask.subtasks || []).filter(s => s.id !== subtaskId)
+                     };
 
-                            // --- NOWA LOGIKA: Sprawdź, czy usuwany załącznik był powiązany z okładką ---
-                            let updatedTaskFields = {};
-                            const updatedAttachments = task.attachments.filter(att => att.id !== attachmentId);
-                            updatedTaskFields.attachments = updatedAttachments;
+                     const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                     const updatedTasks = project.tasks.map(t => (t.id === mainTaskId ? updatedTask : t));
 
-                            // Jeśli usunięty załącznik był oryginałem okładki, usuń również okładkę
-                            if (task.coverImage && task.coverImage.originalPath === attachmentToDelete.path) {
-                                try {
-                                    const coverRef = ref(storage, task.coverImage.path);
-                                    await deleteObject(coverRef);
-                                } catch (coverDeleteError) {
-                                    console.warn("Nie udało się usunąć pliku bannera (mógł już nie istnieć):", coverDeleteError);
-                                }
-                                updatedTaskFields.coverImage = null; // Usuń okładkę z zadania
-                            }
-                            // --- KONIEC NOWEJ LOGIKI ---
+                     try {
+                         // --- NAPRAWA: Przeliczenie budżetu po usunięciu podzadania ---
+                         const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
+                         
+                         await updateDoc(projectDocRef, { 
+                             tasks: updatedTasks,
+                             budgetSummary: newBudgetSummary 
+                         });
+                         // --- KONIEC NAPRAWY ---
 
-                            const updatedTasks = project.tasks.map(t => t.id === taskId ? { ...t, ...updatedTaskFields } : t);
-                            const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                            await updateDoc(projectDocRef, {
-                                tasks: updatedTasks
-                            });
-
-                            showNotification("Załącznik został usunięty.", "Sukces");
-                            openTaskModal(taskId); // Odśwież modal
-                        } catch (error) {
-                            console.error("Błąd usuwania załącznika:", error);
-                            showNotification("Wystąpił błąd podczas usuwania załącznika.", "Błąd");
-                        }
-                    }
-                }, true);
+                         renderSubtaskListInMainModal(updatedTask); // Odśwież listę
+                         await checkAndCompleteMainTask(updatedTask, project); // Poprawka przy okazji: przekazujemy obiekt updatedTask
+                     } catch (error) {
+                         console.error("Błąd usuwania subzadania:", error);
+                         showNotification("Błąd podczas usuwania podzadania.", "Błąd");
+                     }
+                 }
+             }, true); // <-- DODANO BRAKUJĄCY NAWIAS )
+        }
             
             // 2. NOWA LOGIKA: Ustawianie okładki
             } else if (setCoverBtn) {
@@ -29977,6 +29969,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
