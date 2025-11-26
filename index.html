@@ -14656,17 +14656,19 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             
                             // Sprawdzamy dopasowanie do bieżącej kolumny
                             let matches = false;
-                            if (colData.status === 'inprogress') {
-                                if (colData.customColumnId === null) {
-                                    // Domyślna kolumna "W trakcie" łapie wszystkie podzadania 'inprogress'
-                                    // (ponieważ podzadania nie mają customColumnId)
-                                    matches = (subStatus === 'inprogress');
-                                } else {
-                                    // Kolumny niestandardowe: na razie podzadania tam nie trafiają
-                                    matches = false; 
-                                }
+                            
+                            if (colData.isCustom) {
+                                // === NAPRAWA: Obsługa kolumn niestandardowych ===
+                                // Podzadanie musi mieć status 'inprogress' ORAZ pasujące ID kolumny
+                                matches = (subStatus === 'inprogress' && sub.customColumnId === colData.id);
+                                
+                            } else if (colData.status === 'inprogress') {
+                                // === NAPRAWA: Domyślna kolumna "W trakcie" ===
+                                // Podzadanie ma status 'inprogress' ORAZ NIE MA customColumnId (jest null lub undefined)
+                                matches = (subStatus === 'inprogress' && !sub.customColumnId);
+                                
                             } else {
-                                // Kolumny "todo" lub "done"
+                                // Kolumny "todo" lub "done" (tutaj ignorujemy customColumnId, bo te statusy czyszczą ID)
                                 matches = (subStatus === colData.status);
                             }
 
@@ -24431,15 +24433,19 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 
                 updatedMainTask.subtasks = updatedMainTask.subtasks.map(s => {
                     if (s.id === subtask.id) {
-                        // Aktualizujemy status podzadania
                         return { 
                             ...s, 
                             status: newStatus,
-                            isCompleted: (newStatus === 'done'), // Synchronizacja flagi legacy
-                            // Jeśli status to done, upewnij się, że użytkownik jest w completedBy
+                            // === NAPRAWA: Aktualizuj customColumnId ===
+                            // Jeśli kolumna to 'todo' lub 'done', customColumnId musi być NULL.
+                            // Jeśli to 'inprogress', przyjmuje wartość z dropa (ID lub null dla domyślnej).
+                            customColumnId: (newStatus === 'todo' || newStatus === 'done') ? null : newCustomColumnId,
+                            // === KONIEC NAPRAWY ===
+                            
+                            isCompleted: (newStatus === 'done'),
                             completedBy: (newStatus === 'done' && !s.completedBy.includes(currentUserId)) 
                                 ? [...s.completedBy, currentUserId] 
-                                : (newStatus !== 'done' ? [] : s.completedBy) // Jeśli cofamy, czyścimy completedBy
+                                : (newStatus !== 'done' ? [] : s.completedBy)
                         };
                     }
                     return s;
@@ -26407,7 +26413,9 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                                  
                                  // ZAPISUJEMY NOWE POLA
                                  status: newStatus,
-                                 customColumnId: newCustomColumnId, // <-- DODANO TO POLE
+                                 // === NAPRAWA: Jeśli status to todo/done, czyścimy kolumnę ===
+                                 customColumnId: (newStatus === 'todo' || newStatus === 'done') ? null : newCustomColumnId,
+                                 // === KONIEC NAPRAWY ===
                                  isCompleted: isNowCompleted,
                                  
                                  comments: commentsToSave,
@@ -26434,10 +26442,10 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          type: selectedAssignees.length > 1 ? 'multi' : 'single', // <--- DODANO TYP
                          // === NOWE ===
                          status: newStatus,
-                         customColumnId: newCustomColumnId, // <-- DODANO TO POLE
-                         isCompleted: (newStatus === 'done'),
-                         completedBy: (newStatus === 'done') ? selectedAssignees : [],
+                         // === NAPRAWA ===
+                         customColumnId: (newStatus === 'todo' || newStatus === 'done') ? null : newCustomColumnId,
                          // === KONIEC ===
+                         isCompleted: (newStatus === 'done'),
                          comments: commentsToSave,
                          attachments: newAttachments,
                          checklist: checklistData, // <--- DODANO NOWE POLE
@@ -29840,6 +29848,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
