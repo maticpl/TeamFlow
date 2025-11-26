@@ -14585,13 +14585,29 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
             const tasks = project.tasks || [];
             
-            // === NOWOŚĆ: Generowanie Mapy Numeracji Zadań (WBS) ===
-            // Numerujemy zadania na podstawie ich kolejności w tablicy (czyli kolejności dodania)
+            // === ZMIANA: Generowanie Mapy Numeracji WBS (Chronologicznie) ===
+            // 1. Tworzymy kopię tablicy, aby nie psuć widoku (który może być posortowany wg daty wykonania)
+            const tasksForNumbering = [...tasks];
+
+            // 2. Sortujemy kopię od najstarszego do najnowszego (createdAt)
+            tasksForNumbering.sort((a, b) => {
+                const getTime = (dateObj) => {
+                    if (!dateObj) return 0;
+                    // Obsługa Firestore Timestamp (ma metodę toDate) oraz zwykłych stringów/Date
+                    if (typeof dateObj.toDate === 'function') {
+                        return dateObj.toDate().getTime();
+                    }
+                    return new Date(dateObj).getTime();
+                };
+                return getTime(a.createdAt) - getTime(b.createdAt);
+            });
+
+            // 3. Przypisujemy stałe numery (1, 2, 3...) na podstawie chronologii
             const taskIndexMap = {};
-            tasks.forEach((t, i) => {
+            tasksForNumbering.forEach((t, i) => {
                 taskIndexMap[t.id] = i + 1;
             });
-            // === KONIEC NOWOŚCI ===
+            // === KONIEC ZMIANY ===
 
             const allPolls = state.polls.filter(poll => poll.projectId === project.id);
             const estimationType = project.estimationType || 'none';
@@ -29964,6 +29980,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
