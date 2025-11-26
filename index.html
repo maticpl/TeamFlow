@@ -14760,7 +14760,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
             window.sortableInstances = [];
 
-            if (isInteractive) {
+           if (isInteractive) {
                 const taskLists = kanbanBoardEl.querySelectorAll('.kanban-tasks');
                 taskLists.forEach(list => {
                     const sortable = new Sortable(list, {
@@ -14770,6 +14770,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         chosenClass: 'task-card-chosen',
                         dragClass: 'task-card-drag',
                         
+                        // === NOWE: FILTR DLA PODZADAŃ ===
+                        // Ignoruj element podzadania w logice Sortable (nie przesuwaj rodzica)
+                        filter: '.subtask-visual-card', 
+                        // WAŻNE: Pozwól na natywne zdarzenie dragstart na odfiltrowanym elemencie!
+                        // Dzięki temu nasz listener 'dragstart' (z KROKU 6) zadziała.
+                        preventOnFilter: false, 
+                        // === KONIEC ===
+
                         // === POCZĄTEK MODYFIKACJI (NAPRAWA SCROLLA MOBILNEGO) ===
                         delay: 200, // Opóźnienie 200ms (long press)
                         delayOnTouchOnly: true, // Aktywuj opóźnienie tylko na dotyku
@@ -16773,11 +16781,50 @@ if (editorTaskDescription) {
                 }
                 
                 // Komentarze: Wyświetl historię
-                renderSubtaskComments(subtask.comments || []); // <--- UŻYCIE NOWEJ FUNKCJI
-                // === NOWE: Ustawienie statusu w select ===
-                // Jeśli podzadanie nie ma pola status, dedukujemy je z isCompleted
-                const currentStatus = subtask.status || (subtask.isCompleted ? 'done' : 'todo');
-                subtaskModal.statusSelect.value = currentStatus;
+                renderSubtaskComments(subtask.comments || []); 
+
+                // === NOWE: Generowanie listy statusów (z Custom Columns) ===
+                let statusOptionsHTML = '';
+                
+                // 1. Opcja "Do realizacji"
+                statusOptionsHTML += `<option value="todo">Do realizacji</option>`;
+
+                // 2. Opcja "W trakcie realizacji" (Domyślna)
+                statusOptionsHTML += `<option value="inprogress">W trakcie realizacji</option>`;
+
+                // 3. Opcje dla Custom Columns (z projektu)
+                if (project.customColumns && project.customColumns.length > 0) {
+                    // Sortujemy zgodnie z kolejnością w projekcie
+                    const sortedCols = [...project.customColumns].sort((a, b) => (a.order || 0) - (b.order || 0));
+                    
+                    sortedCols.forEach(col => {
+                        // Jako value używamy prefiksu "CUSTOM_COL:", aby rozróżnić przy zapisie
+                        statusOptionsHTML += `<option value="CUSTOM_COL:${col.id}">${col.title}</option>`;
+                    });
+                }
+
+                // 4. Opcja "Wykonane"
+                statusOptionsHTML += `<option value="done">Wykonane</option>`;
+                
+                // Wstrzyknij opcje do selecta
+                subtaskModal.statusSelect.innerHTML = statusOptionsHTML;
+
+                // Ustalanie aktualnie wybranej wartości
+                let selectedValue = 'todo';
+                
+                // Jeśli to edycja istniejącego
+                if (subtask.status) {
+                    if (subtask.status === 'inprogress' && subtask.customColumnId) {
+                        selectedValue = `CUSTOM_COL:${subtask.customColumnId}`;
+                    } else {
+                        selectedValue = subtask.status;
+                    }
+                } else {
+                    // Fallback dla starych danych
+                    selectedValue = subtask.isCompleted ? 'done' : 'todo';
+                }
+                
+                subtaskModal.statusSelect.value = selectedValue;
                 // === KONIEC ===
                 // Lista Kontrolna: Wczytaj dane
                 if (subtask.checklist && subtask.checklist.length > 0) {
@@ -26162,10 +26209,28 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  // Wysiłek
                  const effort = subtaskModal.effortInput.value ? parseFloat(subtaskModal.effortInput.value) : null;
                  const actualEffort = subtaskModal.actualEffortInput.value ? parseFloat(subtaskModal.actualEffortInput.value) : null;
-                 // === NOWE: Pobranie statusu ===
-                 const newStatus = subtaskModal.statusSelect.value;
+                 
+                 // === NOWE: Pobranie statusu i Custom Column ===
+                 const rawStatusValue = subtaskModal.statusSelect.value;
+                 let newStatus = 'todo';
+                 let newCustomColumnId = null;
+
+                 if (rawStatusValue === 'done') {
+                     newStatus = 'done';
+                 } else if (rawStatusValue === 'todo') {
+                     newStatus = 'todo';
+                 } else if (rawStatusValue === 'inprogress') {
+                     newStatus = 'inprogress';
+                     newCustomColumnId = null; // Czyste "W trakcie"
+                 } else if (rawStatusValue.startsWith('CUSTOM_COL:')) {
+                     // To jest nasza niestandardowa kolumna!
+                     newStatus = 'inprogress'; // Technicznie nadal "W trakcie"
+                     newCustomColumnId = rawStatusValue.replace('CUSTOM_COL:', ''); // Wyciągamy ID
+                 }
+                 
                  const isNowCompletedByStatus = (newStatus === 'done');
                  // === KONIEC ===
+
                  // Osoby (z "eleganckiej" listy pigułek)
                  const selectedAssignees = Array.from(subtaskModal.assigneesList.querySelectorAll('.member-pill.selected'))
                                                .map(pill => pill.dataset.userId);
@@ -26341,8 +26406,9 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                                  completedBy: currentCompletedBy,
                                  
                                  // ZAPISUJEMY NOWE POLA
-                                 status: newStatus,        // Zapisz status (todo/inprogress/done)
-                                 isCompleted: isNowCompleted, // Zapisz flagę zgodności
+                                 status: newStatus,
+                                 customColumnId: newCustomColumnId, // <-- DODANO TO POLE
+                                 isCompleted: isNowCompleted,
                                  
                                  comments: commentsToSave,
                                  attachments: updatedAtts,
@@ -26368,6 +26434,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          type: selectedAssignees.length > 1 ? 'multi' : 'single', // <--- DODANO TYP
                          // === NOWE ===
                          status: newStatus,
+                         customColumnId: newCustomColumnId, // <-- DODANO TO POLE
                          isCompleted: (newStatus === 'done'),
                          completedBy: (newStatus === 'done') ? selectedAssignees : [],
                          // === KONIEC ===
@@ -29773,6 +29840,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
