@@ -14583,8 +14583,16 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         function renderKanbanBoard(project, isInteractive) {
             kanbanBoardEl.innerHTML = '';
             
-            
             const tasks = project.tasks || [];
+            
+            // === NOWOŚĆ: Generowanie Mapy Numeracji Zadań (WBS) ===
+            // Numerujemy zadania na podstawie ich kolejności w tablicy (czyli kolejności dodania)
+            const taskIndexMap = {};
+            tasks.forEach((t, i) => {
+                taskIndexMap[t.id] = i + 1;
+            });
+            // === KONIEC NOWOŚCI ===
+
             const allPolls = state.polls.filter(poll => poll.projectId === project.id);
             const estimationType = project.estimationType || 'none';
             const unit = (estimationType === 'points') ? 'pkt' : 'g';
@@ -14715,8 +14723,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // 2. Zadania Główne (wraz z zagnieżdżonymi podzadaniami o tym samym statusie)
                 columnContentHTML += tasksInColumn.map(task => {
                     totalRenderedTasks++;
-                    // Przekazujemy status kolumny ORAZ jej ID (customColumnId), aby precyzyjnie filtrować podzadania
-                    return createTaskCardHTML(task, isInteractive, project, colData.status, colData.customColumnId); 
+                    
+                    // === ZMIANA: Przekazujemy numer zadania ===
+                    const taskNumber = taskIndexMap[task.id]; 
+                    
+                    return createTaskCardHTML(task, isInteractive, project, colData.status, colData.customColumnId, taskNumber); 
                 }).join('');
 
                 // 3. Podzadania Niezależne (Standalone)
@@ -14761,7 +14772,15 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // Renderowanie znalezionych podzadań w trybie 'standalone'
                 columnContentHTML += standaloneSubtasks.map(item => {
                     totalRenderedTasks++;
-                    return createVisualSubtaskCardHTML(item.sub, item.parent, project, 'standalone');
+                    
+                    // === NOWOŚĆ: Obliczanie numeracji WBS dla standalone ===
+                    const parentNumber = taskIndexMap[item.parent.id];
+                    // Znajdź index podzadania w rodzicu (liczone od 1)
+                    const subIndex = item.parent.subtasks.findIndex(s => s.id === item.sub.id) + 1;
+                    const wbsNumber = `${parentNumber}.${subIndex}`;
+                    
+                    // Przekazujemy numer WBS jako ostatni argument
+                    return createVisualSubtaskCardHTML(item.sub, item.parent, project, 'standalone', wbsNumber);
                 }).join('');
 
                 const totalCount = totalRenderedTasks;
@@ -15075,12 +15094,13 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
 
             const canIComplete = isSubtaskAssignee || isProjectOwner || isProjectAdmin;
-            
+            // === NOWOŚĆ: Formatowanie tytułu ===
+            const titleDisplay = wbsNumber ? `${wbsNumber}. ${subtask.title}` : subtask.title;
             // --- GENEROWANIE NAGŁÓWKA (ZALEŻNIE OD TRYBU) ---
             let headerHTML = '';
             
             if (renderMode === 'standalone') {
-                // TRYB NIEZALEŻNY: Pasek kontekstu + Tytuł
+                // TRYB NIEZALEŻNY
                 const parentTitleSafe = parentTask.title.length > 30 ? parentTask.title.substring(0, 27) + '...' : parentTask.title;
                 
                 headerHTML = `
@@ -15098,11 +15118,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                            ${isCompleted ? 'checked' : ''}
                            ${!canIComplete ? 'disabled' : ''}
                            title="${canIComplete ? 'Zmień status' : 'Brak uprawnień'}">
-                        ${subtask.title}
-                    </h5>
+                        ${titleDisplay} </h5>
                 `;
             } else {
-                // TRYB ZAGNIEŻDŻONY: Klasyczny układ
+                // TRYB ZAGNIEŻDŻONY
                 headerHTML = `
                     <input type="checkbox" 
                            class="subtask-card-checkbox kanban-subtask-checkbox" 
@@ -15111,8 +15130,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                            ${isCompleted ? 'checked' : ''}
                            ${!canIComplete ? 'disabled' : ''}
                            title="${canIComplete ? 'Zmień status' : 'Brak uprawnień'}">
-                    <h5>${subtask.title}</h5>
-                `;
+                    <h5>${titleDisplay}</h5> `;
             }
 
             // --- GENEROWANIE IKON (Bez zmian logicznych, tylko wklejenie) ---
@@ -15246,8 +15264,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </div>
             `;
         }
-            // Dodano piąty argument: targetCustomColumnId
-        function createTaskCardHTML(task, isInteractive, project, targetStatus = null, targetCustomColumnId = undefined) {
+            // ZMIANA: Dodano szósty argument: taskNumber (domyślnie pusty string)
+        function createTaskCardHTML(task, isInteractive, project, targetStatus = null, targetCustomColumnId = undefined, taskNumber = '') {
             // === NOWA LOGIKA: Privacy Guard (Ograniczenie widoczności) ===
             const currentUserId = state.currentUser.uid;
             // Używamy findProject jeśli project nie jest przekazany bezpośrednio
@@ -15612,15 +15630,16 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const allIcons = `${finalMultiIcon}${subtaskIcon}${checklistIcon}${recurringIcon}${effortIcon}${attachmentIcon}${commentIcon}${budgetIcon}`;
             const iconsHTML = allIcons ? `<div class="task-card-icons">${allIcons}</div>` : '';
 
+            // === NOWOŚĆ: Formatowanie tytułu z numerem WBS ===
+            const titleDisplay = taskNumber ? `${taskNumber}. ${task.title}` : task.title;
+
             return `<li class="task-card ${isCompleted ? 'completed' : ''}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}">
                 
                 <div class="task-card-main-content ${priorityClass} ${assignmentClass} ${coverImageClass}" ${customStyle}>
                     ${coverImageHTML}
                     <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} ${tooltipText}>
                     ${projectNameHTML}
-                    <h4 title="${task.title}">${task.title}</h4>
-                    
-                    ${iconsHTML}
+                    <h4 title="${task.title}">${titleDisplay}</h4> ${iconsHTML}
                     
                     <div class="task-meta">
                         <div class="task-details">${startDateHTML}${dueDateHTML}</div>
@@ -15640,31 +15659,31 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     (task.subtasks && task.subtasks.length > 0 && hasAccess) 
                     ? `<div class="subtask-family-container ${state.ui.expandSubtasksByDefault ? '' : 'collapsed'}">
                         ${task.subtasks
-                            .filter(sub => {
+                            // KROK A: Najpierw przypisz oryginalny indeks każdemu podzadaniu
+                            .map((sub, index) => ({ sub, index: index + 1 })) 
+                            
+                            // KROK B: Filtruj widoczność (używając obiektu {sub, index})
+                            .filter(({ sub }) => {
                                 // === NOWA LOGIKA FILTROWANIA (POPRAWIONA) ===
-                                // Oblicz status podzadania
                                 const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
                                 
-                                // Wyjątek: Jeśli zadanie główne jest w kolumnie DONE, pokazujemy wszystko
                                 if (task.status === 'done') return true;
-
-                                // 1. Sprawdź zgodność statusu (np. 'inprogress' === 'inprogress')
                                 if (subStatus !== parentStatusForFamily) return false;
 
-                                // 2. Sprawdź zgodność Kolumny Niestandardowej (Dla Kanbanu)
-                                // Jeśli renderujemy w konkretnej kolumnie (targetCustomColumnId jest zdefiniowane)
-                                // i status to 'inprogress', musimy sprawdzić czy ID kolumny się zgadza.
                                 if (subStatus === 'inprogress' && targetCustomColumnId !== undefined) {
                                      const subColId = sub.customColumnId || null;
-                                     const targetColId = targetCustomColumnId || null; // Może być null dla domyślnej "W trakcie"
-                                     
-                                     // Jeśli ID się różnią (np. podzadanie ma 'col_1', a my jesteśmy w 'null'), ukryj podzadanie
+                                     const targetColId = targetCustomColumnId || null; 
                                      if (subColId !== targetColId) return false;
                                 }
-
                                 return true;
                             })
-                            .map(subtask => createVisualSubtaskCardHTML(subtask, task, taskProject, 'nested')).join('')}
+                            
+                            // KROK C: Renderuj, przekazując obliczony numer WBS
+                            .map(({ sub, index }) => {
+                                // Jeśli zadanie główne ma numer, stwórz "1.1", "1.2". Jeśli nie, pusty string.
+                                const wbsNumber = taskNumber ? `${taskNumber}.${index}` : '';
+                                return createVisualSubtaskCardHTML(sub, task, taskProject, 'nested', wbsNumber);
+                            }).join('')}
                        </div>`
                     : ''
                 }
@@ -29940,6 +29959,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
