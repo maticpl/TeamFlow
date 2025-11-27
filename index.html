@@ -15641,7 +15641,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </div>`;
 
                 if (hasAccess) {
-                    const checklistItemsHTML = task.checklist.map(item => {
+                    // === ZMIANA: Dodano index do mapowania ===
+                    const checklistItemsHTML = task.checklist.map((item, index) => {
                         let avatarHTML = '';
                         if (item.assigneeId) {
                             const assignee = findUser(item.assigneeId);
@@ -15651,21 +15652,27 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             }
                         }
 
-                        const statusIcon = item.isCompleted 
-                            ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" style="color: var(--success-primary); flex-shrink: 0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" d="M5 13l4 4L19 7" fill="none"/></svg>` 
-                            : `<div style="width: 12px; height: 12px; border: 1px solid var(--border-color); border-radius: 3px; flex-shrink: 0;"></div>`;
+                        // === ZMIANA: Zastąpienie ikony interaktywnym checkboxem ===
+                        const checkboxHTML = `<input type="checkbox" 
+                            class="kanban-checklist-item-checkbox" 
+                            data-task-id="${task.id}" 
+                            data-index="${index}"
+                            ${item.isCompleted ? 'checked' : ''}
+                            style="width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; accent-color: var(--success-primary);">`;
 
+                        // Styl tekstu
                         const textStyle = item.isCompleted ? 'text-decoration: line-through; color: var(--text-secondary);' : 'color: var(--text-primary);';
 
                         return `
                         <li style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border-color); font-size: 11px;">
                             <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
-                                ${statusIcon}
+                                ${checkboxHTML}
                                 <span style="${textStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name}</span>
                             </div>
                             ${avatarHTML}
                         </li>`;
                     }).join('');
+                    // === KONIEC ZMIANY ===
 
                     checklistListHTML = `
                     <div class="kanban-checklist-container collapsed">
@@ -23338,6 +23345,58 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return; // Zakończ
             }
             // === KONIEC NOWEGO KODU ===
+
+            // === NOWA LOGIKA: Obsługa CHECKBOXA LISTY KONTROLNEJ (na kafelku) ===
+            if (e.target.matches('.kanban-checklist-item-checkbox')) {
+                e.stopPropagation(); // Zatrzymaj, aby nie otworzyć modala
+                
+                const checkbox = e.target;
+                const taskId = checkbox.dataset.taskId;
+                const itemIndex = parseInt(checkbox.dataset.index, 10);
+                const isChecked = checkbox.checked;
+
+                const { task, project } = findTask(taskId);
+                if (task && project) {
+                    // Klonujemy checklistę, aby nie modyfikować stanu bezpośrednio przed zapisem
+                    const updatedChecklist = [...task.checklist];
+                    
+                    if (updatedChecklist[itemIndex]) {
+                        updatedChecklist[itemIndex] = { 
+                            ...updatedChecklist[itemIndex], 
+                            isCompleted: isChecked 
+                        };
+                        
+                        // Aktualizujemy zadanie
+                        const updatedTask = { ...task, checklist: updatedChecklist };
+                        const updatedTasks = project.tasks.map(t => t.id === taskId ? updatedTask : t);
+                        
+                        const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                        
+                        // Optymistyczna aktualizacja wizualna (przekreślenie tekstu obok)
+                        const textSpan = checkbox.nextElementSibling;
+                        if (textSpan) {
+                            if (isChecked) {
+                                textSpan.style.textDecoration = 'line-through';
+                                textSpan.style.color = 'var(--text-secondary)';
+                                showConfetti(); // Konfetti!
+                            } else {
+                                textSpan.style.textDecoration = 'none';
+                                textSpan.style.color = 'var(--text-primary)';
+                            }
+                        }
+
+                        // Zapisz do bazy
+                        updateDoc(projectDocRef, { tasks: updatedTasks }).catch(err => {
+                            console.error("Błąd zapisu checklisty:", err);
+                            showNotification("Błąd zapisu.", "Błąd");
+                            checkbox.checked = !isChecked; // Cofnij w razie błędu
+                        });
+                    }
+                }
+                return; // Zakończ obsługę
+            }
+            // === KONIEC NOWEJ LOGIKI ===
+
            // 5. Sprawdź kliknięcie na GŁÓWNY checkbox zadania
             if (e.target.matches('.task-card-checkbox')) {
                 handleTaskCheckboxClick(e.target, e);
@@ -30489,6 +30548,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
