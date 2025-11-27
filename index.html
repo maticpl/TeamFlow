@@ -27094,11 +27094,34 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
                 
                 // === ZMIANA: OPTYMISTYCZNA AKTUALIZACJA UI (Renderujemy OD RAZU) ===
-                // Dzięki temu checkbox zaznacza się natychmiast, nie czekając na sieć.
+                // 1. Odśwież listę w modalu (jeśli jest otwarty)
                 renderSubtaskListInMainModal(updatedTask);
 
+                // 2. Odśwież BEZPOŚREDNIO kliknięty element (np. kafelek na Kanbanie)
+                if (checkbox) {
+                    // Znajdź zaktualizowany stan tego konkretnego podzadania w pamięci
+                    const modifiedSubtask = updatedTask.subtasks.find(s => s.id === subtaskId);
+                    
+                    if (modifiedSubtask) {
+                        // A. Ustaw stan checkboxa (czy JA ukończyłem moją część)
+                        const isMyPartDone = modifiedSubtask.completedBy.includes(currentUserId);
+                        checkbox.checked = isMyPartDone;
+
+                        // B. Ustaw styl rodzica (czy podzadanie jest CAŁKOWICIE ukończone - przekreślenie)
+                        const parentCard = checkbox.closest('.subtask-visual-card') || checkbox.closest('.kanban-subtask-item');
+                        if (parentCard) {
+                            if (modifiedSubtask.isCompleted) {
+                                parentCard.classList.add('completed');
+                            } else {
+                                parentCard.classList.remove('completed');
+                            }
+                        }
+                    }
+                }
+                // === KONIEC ZMIANY ===
+
                 // Dopiero teraz wysyłamy dane do Firebase
-                await updateDoc(projectDocRef, { 
+                await updateDoc(projectDocRef, {
                     tasks: updatedTasks,
                     budgetSummary: newBudgetSummary
                 });
@@ -30416,6 +30439,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
