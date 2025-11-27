@@ -17243,24 +17243,20 @@ if (editorTaskDescription) {
 
             // Klonujemy zadanie główne
             let updatedMainTask = { ...mainTask };
-            const oldStatus = updatedMainTask.status;
-
+            
             // Znajdujemy i modyfikujemy podzadanie
             let subtaskChanged = false;
             updatedMainTask.subtasks = updatedMainTask.subtasks.map(sub => {
                 if (sub.id === subtaskId) {
-                    // === NOWA BLOKADA: Lista kontrolna ===
-                    // Sprawdzamy, czy użytkownik próbuje zaznaczyć (dodać siebie do completedBy)
+                    // === BLOKADA: Lista kontrolna ===
                     const isChecking = !(sub.completedBy || []).includes(currentUserId);
-                    
                     if (isChecking && sub.checklist && sub.checklist.length > 0) {
                         const allChecklistDone = sub.checklist.every(i => i.isCompleted);
                         if (!allChecklistDone) {
                             showNotification("Nie można ukończyć Twojej części. Ukończ najpierw listę kontrolną.", "Błąd");
-                            return sub; // Przerwij i zwróć bez zmian
+                            return sub; 
                         }
                     }
-                    // === KONIEC BLOKADY ===
 
                     subtaskChanged = true;
                     let newCompletedBy = [...(sub.completedBy || [])];
@@ -17287,20 +17283,21 @@ if (editorTaskDescription) {
 
             if (!subtaskChanged) return;
 
-            // Zapisz do Firebase
             const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
             
             try {
-                btn.disabled = true; // Zablokuj na chwilę
+                btn.disabled = true; 
+                
+                // Zapisz aktualizację
                 await updateDoc(projectDocRef, { tasks: updatedMainTask.tasks || project.tasks.map(t => t.id === mainTaskId ? updatedMainTask : t) });
                 
-                // WAŻNE: Sprawdź autouzupełnianie głównego zadania (to samo co w handleSubtaskToggle)
-                // Musimy wywołać te funkcje, żeby sprawdzić czy zmiana w podzadaniu nie kończy głównego zadania
-                // lub części usera w głównym zadaniu.
+                // Sprawdź autouzupełnianie
                 await checkAndCompleteMainTask(updatedMainTask, project);
-                await checkSubtasksAndCompleteMyPart(updatedMainTask, project);
+                
+                // === NAPRAWA: Używamy poprawnej nazwy nowej funkcji ===
+                await checkSubtasksAndCompleteParticipants(updatedMainTask, project);
 
-                // Odśwież modal podzadania (żeby zaktualizować listę statusów i przycisk)
+                // Odśwież modal
                 openSubtaskModal(mainTaskId, subtaskId);
                 
                 showNotification("Status podzadania zaktualizowany.", "Sukces");
@@ -30372,6 +30369,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
