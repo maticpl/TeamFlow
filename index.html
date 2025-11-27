@@ -27008,6 +27008,10 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              const currentUserId = state.currentUser.uid;
 
              let subtaskChanged = false;
+             
+             // Zmienne pomocnicze do przechwycenia stanu z wnętrza pętli map
+             let optimisticIsMyPartDone = false;
+             let optimisticIsFullyCompleted = false;
 
              updatedTask.subtasks = updatedTask.subtasks.map(s => {
                  if (s.id === subtaskId) {
@@ -27074,6 +27078,12 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      
                      const newCustomCol = isNowCompleted ? null : s.customColumnId;
 
+                     // === PRZECHWYCENIE STANU DO ZMIENNYCH ZEWNĘTRZNYCH ===
+                     // Sprawdzamy, czy bieżący użytkownik znajduje się w nowej liście completedBy
+                     optimisticIsMyPartDone = newCompletedBy.includes(currentUserId);
+                     optimisticIsFullyCompleted = isNowCompleted;
+                     // ======================================================
+
                      return { 
                          ...s, 
                          completedBy: newCompletedBy, 
@@ -27093,28 +27103,23 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              try {
                 const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
                 
-                // === ZMIANA: OPTYMISTYCZNA AKTUALIZACJA UI (Renderujemy OD RAZU) ===
-                // 1. Odśwież listę w modalu (jeśli jest otwarty)
+                // === ZMIANA: OPTYMISTYCZNA AKTUALIZACJA UI (Poprawiona) ===
+                // 1. Odśwież listę w modalu (jeśli jest otwarty) - to obsługuje listę tekstową
                 renderSubtaskListInMainModal(updatedTask);
 
-                // 2. Odśwież BEZPOŚREDNIO kliknięty element (np. kafelek na Kanbanie)
+                // 2. Odśwież BEZPOŚREDNIO kliknięty element (np. kafelek na Kanbanie lub wiersz w modalu)
+                // Używamy zmiennych przechwyconych z pętli, zamiast szukać w tablicy (eliminacja błędów odświeżania)
                 if (checkbox) {
-                    // Znajdź zaktualizowany stan tego konkretnego podzadania w pamięci
-                    const modifiedSubtask = updatedTask.subtasks.find(s => s.id === subtaskId);
-                    
-                    if (modifiedSubtask) {
-                        // A. Ustaw stan checkboxa (czy JA ukończyłem moją część)
-                        const isMyPartDone = modifiedSubtask.completedBy.includes(currentUserId);
-                        checkbox.checked = isMyPartDone;
+                    // A. Wymuś stan checkboxa (Moja część)
+                    checkbox.checked = optimisticIsMyPartDone;
 
-                        // B. Ustaw styl rodzica (czy podzadanie jest CAŁKOWICIE ukończone - przekreślenie)
-                        const parentCard = checkbox.closest('.subtask-visual-card') || checkbox.closest('.kanban-subtask-item');
-                        if (parentCard) {
-                            if (modifiedSubtask.isCompleted) {
-                                parentCard.classList.add('completed');
-                            } else {
-                                parentCard.classList.remove('completed');
-                            }
+                    // B. Ustaw styl rodzica (Całość ukończona)
+                    const parentCard = checkbox.closest('.subtask-visual-card') || checkbox.closest('.kanban-subtask-item');
+                    if (parentCard) {
+                        if (optimisticIsFullyCompleted) {
+                            parentCard.classList.add('completed');
+                        } else {
+                            parentCard.classList.remove('completed');
                         }
                     }
                 }
@@ -30439,6 +30444,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
