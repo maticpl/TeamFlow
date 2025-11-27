@@ -14298,12 +14298,20 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     if (migratedTask.subtasks && migratedTask.subtasks.length > 0) {
                         migratedTask.subtasks.forEach(sub => {
                             if ((sub.assignees || []).includes(state.currentUser.uid)) {
-                                const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                                // === POPRAWKA LOGIKI STATUSU ===
+                                // Jeśli podzadanie ma customColumnId i nie jest completed, to status MUSI być 'inprogress'
+                                let subStatus = sub.status;
+                                if (!subStatus) {
+                                    if (sub.isCompleted) subStatus = 'done';
+                                    else if (sub.customColumnId) subStatus = 'inprogress';
+                                    else subStatus = 'todo';
+                                }
+                                
                                 mySubtasks.push({
                                     subtask: sub,
                                     parentTask: migratedTask,
                                     project: project,         
-                                    status: subStatus
+                                    status: subStatus // Używamy naprawionego statusu
                                 });
                             }
                         });
@@ -14533,8 +14541,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // === 5. DYNAMICZNE KOLUMNY (Analiza użycia) ===
             const customColumnsMap = new Map(); 
 
-            const processTaskForColumns = (task, project) => {
-                if (task.status === 'inprogress' && task.customColumnId && project.customColumns) {
+            // Funkcja pomocnicza, która przyjmuje status OBLICZONY (nie surowy)
+            const processTaskForColumns = (task, project, computedStatus) => {
+                // Sprawdź czy zadanie jest w niestandardowej kolumnie
+                if (computedStatus === 'inprogress' && task.customColumnId && project.customColumns) {
                     const colDef = project.customColumns.find(c => c.id === task.customColumnId);
                     if (colDef) {
                         const key = `${project.id}_${colDef.id}`;
@@ -14552,12 +14562,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             };
 
+            // Skanuj zadania główne
             myMainTasks.forEach(t => {
                 const project = findProject(t.projectId) || findCompletedProject(t.projectId);
-                if (project) processTaskForColumns(t, project);
+                // Dla zadań głównych status jest wprost w obiekcie
+                if (project) processTaskForColumns(t, project, t.status);
             });
+            
+            // Skanuj podzadania
             mySubtasks.forEach(item => {
-                processTaskForColumns(item.subtask, item.project);
+                // Dla podzadań używamy statusu obliczonego w punkcie 1 (item.status)
+                processTaskForColumns(item.subtask, item.project, item.status);
             });
 
             const customColumnsList = Array.from(customColumnsMap.values()).sort((a, b) => {
@@ -14600,6 +14615,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     if (colDef.type === 'standard') {
                         if (colDef.isDefault) {
                             mainTasksInColumn = mainTasksList.filter(t => t.status === 'inprogress' && !t.customColumnId);
+                            // Filtrujemy podzadania używając item.status
                             subTasksInColumn = subTasksList.filter(item => item.status === 'inprogress' && !item.subtask.customColumnId);
                         } else {
                             mainTasksInColumn = mainTasksList.filter(t => t.status === colDef.status);
@@ -15408,7 +15424,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                      data-subtask-id="${subtask.id}"
                      data-parent-id="${parentTask.id}"
                      data-project-id="${project.id}" 
-                     data-type="subtask">
+                     data-type="subtask"> 
                     
                     ${headerHTML}
                     ${iconsHTML}
@@ -30174,6 +30190,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
