@@ -11795,18 +11795,8 @@ function renderRadarFilters(allProjects) {
     });
 }
 
-// === ZMIENNE STANU DLA INTERAKCJI RADARU ===
-let radarTransform = {
-    scale: 1,
-    panning: false,
-    pointX: 0,
-    pointY: 0,
-    startX: 0,
-    startY: 0
-};
-
 /**
- * Rysuje wykres SVG Omni-Radaru (Wersja 7.0 - Zoom & Pan).
+ * Rysuje wykres SVG Omni-Radaru (Wersja 6.0 - Orbital Archive).
  */
 function drawRadarChart(allProjects) {
     const container = document.getElementById('radar-chart-container');
@@ -11816,16 +11806,13 @@ function drawRadarChart(allProjects) {
     // 1. Konfiguracja Wymiarów
     const size = 800;
     const center = size / 2;
+    // Zmniejszamy nieco promień roboczy, żeby "Orbita Ukończonych" mieściła się w SVG
     const radius = size / 2 - 120; 
 
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");
     svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
     svg.classList.add("radar-svg");
-    
-    // Dodajemy style, aby zapobiec domyślnym akcjom przy przeciąganiu
-    svg.style.cursor = "grab";
-    svg.style.userSelect = "none"; 
 
     // --- DEFINICJE ---
     const defs = document.createElementNS(svgNS, "defs");
@@ -11840,20 +11827,12 @@ function drawRadarChart(allProjects) {
     `;
     svg.appendChild(defs);
 
-    // === NOWOŚĆ: Główna grupa transformacji ===
-    const viewGroup = document.createElementNS(svgNS, "g");
-    viewGroup.id = "radar-view-group";
-    // Ustawiamy transformację początkową
-    setTransform(viewGroup);
-    svg.appendChild(viewGroup);
-
-    // Rysowanie tła
     const bgCircle = document.createElementNS(svgNS, "circle");
     bgCircle.setAttribute("cx", center);
     bgCircle.setAttribute("cy", center);
     bgCircle.setAttribute("r", radius);
     bgCircle.setAttribute("fill", "url(#radar-glow)");
-    viewGroup.appendChild(bgCircle); // Dodajemy do GRUPY, nie bezpośrednio do SVG
+    svg.appendChild(bgCircle);
 
     // 2. Filtrowanie
     const activeProjects = allProjects.filter(p => state.ui.radarSelectedProjectIds.includes(p.id));
@@ -11869,7 +11848,7 @@ function drawRadarChart(allProjects) {
         { r: 0.2, label: 'Dziś / Zaległe' },
         { r: 0.5, label: '7 dni' },
         { r: 0.8, label: '30 dni' },
-        { r: 1.0, label: '' } 
+        { r: 1.0, label: '' } // To jest granica aktywnych
     ];
 
     rings.forEach(ring => {
@@ -11879,7 +11858,7 @@ function drawRadarChart(allProjects) {
         circle.setAttribute("cy", center);
         circle.setAttribute("r", rPx);
         circle.classList.add("radar-ring");
-        viewGroup.appendChild(circle); // Do grupy
+        svg.appendChild(circle);
 
         if (ring.label) {
             const text = document.createElementNS(svgNS, "text");
@@ -11888,35 +11867,36 @@ function drawRadarChart(allProjects) {
             text.textContent = ring.label;
             text.classList.add("radar-label");
             text.style.fontSize = "10px";
-            viewGroup.appendChild(text); // Do grupy
+            svg.appendChild(text);
         }
     });
     
+    // Dodatkowy pierścień dla "Archiwum" (wizualna granica)
     const archiveCircle = document.createElementNS(svgNS, "circle");
     archiveCircle.setAttribute("cx", center);
     archiveCircle.setAttribute("cy", center);
-    archiveCircle.setAttribute("r", radius * 1.15);
+    archiveCircle.setAttribute("r", radius * 1.15); // Trochę szerzej niż 1.0
     archiveCircle.setAttribute("fill", "none");
     archiveCircle.setAttribute("stroke", "var(--text-secondary)");
     archiveCircle.setAttribute("stroke-width", "1");
     archiveCircle.setAttribute("stroke-opacity", "0.1");
     archiveCircle.setAttribute("stroke-dasharray", "2 2");
-    viewGroup.appendChild(archiveCircle); // Do grupy
+    svg.appendChild(archiveCircle);
 
     // 4. Skaner
     const scanLine = document.createElementNS(svgNS, "line");
     scanLine.setAttribute("x1", center);
     scanLine.setAttribute("y1", center);
     scanLine.setAttribute("x2", center);
-    scanLine.setAttribute("y2", center - radius);
+    scanLine.setAttribute("y2", center - radius); // Skaner chodzi tylko po strefie aktywnej
     scanLine.setAttribute("stroke", "var(--success-primary)");
     scanLine.setAttribute("stroke-width", "2");
     scanLine.setAttribute("stroke-linecap", "round");
     scanLine.style.filter = "drop-shadow(0 0 8px var(--success-primary))";
     scanLine.classList.add("radar-sweep");
-    viewGroup.appendChild(scanLine); // Do grupy
+    svg.appendChild(scanLine);
 
-    // 5. Dane i Węzły
+    // 5. Dane
     const anglePerProject = (2 * Math.PI) / count;
     const projectLabels = [];
     const userPositions = {};
@@ -11925,128 +11905,218 @@ function drawRadarChart(allProjects) {
     activeProjects.forEach((project, index) => {
         const startAngle = (index * anglePerProject) - (Math.PI / 2);
         
+        // Oś (przedłużamy ją teraz aż do strefy ukończonych)
         const line = document.createElementNS(svgNS, "line");
         line.setAttribute("x1", center);
         line.setAttribute("y1", center);
         line.setAttribute("x2", center + (radius * 1.2) * Math.cos(startAngle));
         line.setAttribute("y2", center + (radius * 1.2) * Math.sin(startAngle));
         line.classList.add("radar-axis");
-        viewGroup.appendChild(line); // Do grupy
+        svg.appendChild(line);
 
+        // Etykieta (jeszcze dalej)
         const labelAngle = startAngle + (anglePerProject / 2);
-        const labelDist = radius * 1.25;
+        const labelDist = radius * 1.25; // Wypychamy etykiety poza strefę ukończonych
         projectLabels.push({
             x: center + labelDist * Math.cos(labelAngle),
             y: center + labelDist * Math.sin(labelAngle),
             text: project.name
         });
 
-        // --- Rysowanie węzłów (skrócone dla czytelności - logika identyczna jak wcześniej) ---
+        // Rysowanie Zadań I PODZADAŃ (Zunifikowana pętla)
         const tasks = project.tasks || [];
         const now = new Date().getTime();
+
+        // 1. AGREGACJA: Zbieramy wszystkie elementy do narysowania w tym sektorze
         let allItems = [];
         
         tasks.forEach(task => {
-            allItems.push({ type: 'task', data: task, parentTitle: null });
+            // Dodaj zadanie główne
+            allItems.push({ 
+                type: 'task', 
+                data: task, 
+                parentTitle: null 
+            });
+            
+            // Dodaj podzadania jako niezależne byty
             if (task.subtasks && task.subtasks.length > 0) {
                 task.subtasks.forEach(sub => {
-                    allItems.push({ type: 'subtask', data: sub, parentTitle: task.title, parentId: task.id });
+                    allItems.push({ 
+                        type: 'subtask', 
+                        data: sub, 
+                        parentTitle: task.title, 
+                        parentId: task.id // Potrzebne do otwarcia modala rodzica
+                    });
                 });
             }
         });
 
+        // 2. RENDEROWANIE: Iterujemy po wspólnej liście
         allItems.forEach(item => {
             const obj = item.data;
             const isSubtask = item.type === 'subtask';
+            
+            // Ustal status ukończenia (dla podzadań sprawdzamy isCompleted lub status 'done')
             const isCompleted = isSubtask ? (obj.isCompleted || obj.status === 'done') : (obj.status === 'done');
             
-            // (POZYCJONOWANIE - BEZ ZMIAN)
+            // === A. POZYCJA (Logika wspólna dla zadań i podzadań) ===
             let distRatio = 0.95;
             let isCritical = false;
             
             if (isCompleted) {
+                // Ukończone lądują na orbicie zewnętrznej (1.05 - 1.15 promienia)
                 distRatio = 1.05 + (Math.random() * 0.10); 
+                
             } else {
+                // Aktywne wewnątrz tarczy
                 if (obj.dueDate) {
                     const due = new Date(obj.dueDate).getTime();
                     const diffDays = (due - now) / (1000 * 60 * 60 * 24);
-                    if (diffDays < 0) { distRatio = 0.1 + (Math.random() * 0.05); isCritical = true; } 
-                    else if (diffDays <= 60) { distRatio = 0.2 + (diffDays / 60) * 0.75; }
-                    else { distRatio = 0.95; }
+                    
+                    if (diffDays < 0) {
+                        distRatio = 0.1 + (Math.random() * 0.05); // Centrum (Zaległe)
+                        isCritical = true;
+                    } else if (diffDays <= 60) {
+                        distRatio = 0.2 + (diffDays / 60) * 0.75;
+                    } else {
+                        distRatio = 0.95; // Max dla aktywnych z terminem
+                    }
                 } else {
+                    // Bez terminu - dryfują przy krawędzi
                     distRatio = 0.85 + (Math.random() * 0.1);
                 }
+                // Zabezpieczenie
                 if (distRatio > 0.98) distRatio = 0.98;
             }
 
+            // B. Kąt
             let seed = 0;
-            const idStr = obj.id || "temp";
+            const idStr = obj.id || "temp"; // Używamy ID do generowania stabilnej pozycji
             for (let i = 0; i < idStr.length; i++) seed += idStr.charCodeAt(i);
+            // Dodajemy offset dla podzadań, żeby nie lądowały idealnie na rodzicu (jeśli mają podobne daty)
             if (isSubtask) seed += 500; 
 
             const pseudoRandom = (Math.abs(Math.sin(seed)) % 1);
+            
             const sectorPadding = anglePerProject * 0.15; 
             const availableArc = anglePerProject - (2 * sectorPadding);
             const idealAngle = startAngle + sectorPadding + (pseudoRandom * availableArc);
+
             const idealR = distRatio * radius;
             let tx = center + idealR * Math.cos(idealAngle);
             let ty = center + idealR * Math.sin(idealAngle);
 
+            // C. Wielkość
             let nodeSize = 7;
-            if (isCompleted) { nodeSize = isSubtask ? 3 : 4; } 
-            else {
+            if (isCompleted) {
+                nodeSize = isSubtask ? 3 : 4; // Ukończone są małe
+            } else {
                 const est = parseFloat(obj.estimation || obj.effort || 0);
+                // Skalowanie na podstawie wysiłku
                 if (est > 0) nodeSize = 7 + Math.min(est / 2, 10);
                 if (obj.priority === 'high') nodeSize += 3;
+                
+                // Podzadania wizualnie nieco mniejsze od zadań głównych o tej samej wadze
                 if (isSubtask) nodeSize = Math.max(4, nodeSize - 1.5); 
             }
             
-            // Antykolizja (uproszczona w tym widoku kodu)
-            let angleOffset = 0; let radiusOffset = 0; let collision = true; let iter = 0;
-            while (collision && iter < 50) { // Zmniejszam maxIter dla wydajności przy przerysowywaniu
+            // D. Antykolizja (Wspólna dla obu typów - zadania i podzadania robią sobie miejsce)
+            let angleOffset = 0;
+            let radiusOffset = 0;
+            let collision = true;
+            const maxIter = 100;
+            let iter = 0;
+
+            while (collision && iter < maxIter) {
                 collision = false;
                 for (const other of placedNodes) {
-                    const dx = tx - other.x; const dy = ty - other.y;
+                    const dx = tx - other.x;
+                    const dy = ty - other.y;
                     const dist = Math.sqrt(dx*dx + dy*dy);
-                    if (dist < nodeSize + other.r + 4) { collision = true; break; }
+                    // Minimalny odstęp: suma promieni + margines
+                    const minSpace = nodeSize + other.r + 4; 
+
+                    if (dist < minSpace) {
+                        collision = true;
+                        break;
+                    }
                 }
+
                 if (collision) {
-                    iter++; angleOffset += 0.5; radiusOffset += isCompleted ? 0.5 : 2;
-                    tx = (center + idealR * Math.cos(idealAngle)) + Math.cos(angleOffset) * radiusOffset;
-                    ty = (center + idealR * Math.sin(idealAngle)) + Math.sin(angleOffset) * radiusOffset;
+                    iter++;
+                    angleOffset += 0.5;
+                    // Rozpychanie
+                    radiusOffset += isCompleted ? 0.5 : 2;
+                    
+                    const spiralX = Math.cos(angleOffset) * radiusOffset;
+                    const spiralY = Math.sin(angleOffset) * radiusOffset;
+                    tx = (center + idealR * Math.cos(idealAngle)) + spiralX;
+                    ty = (center + idealR * Math.sin(idealAngle)) + spiralY;
                 }
             }
+
+            // Rejestrujemy pozycję węzła (koła lub trójkąta)
             placedNodes.push({ x: tx, y: ty, r: nodeSize });
 
-            // Tworzenie elementu
+            // E. RENDEROWANIE KSZTAŁTU
             let node;
+            
             if (isSubtask) {
+                // === TRÓJKĄT DLA PODZADANIA ===
                 node = document.createElementNS(svgNS, "polygon");
+                
+                // Obliczanie wierzchołków trójkąta równobocznego
                 const r = nodeSize; 
+                // Wierzchołek 1 (Góra)
                 const p1 = `${tx},${ty - r}`;
+                // Wierzchołek 2 (Prawy Dół)
                 const p2 = `${tx + 0.866 * r},${ty + 0.5 * r}`;
+                // Wierzchołek 3 (Lewy Dół)
                 const p3 = `${tx - 0.866 * r},${ty + 0.5 * r}`;
+                
                 node.setAttribute("points", `${p1} ${p2} ${p3}`);
+                
+                // Atrybuty do klikania (otwiera rodzica)
                 node.dataset.taskId = item.parentId; 
                 node.dataset.subtaskId = obj.id;     
+                
             } else {
+                // === KOŁO DLA ZADANIA GŁÓWNEGO ===
                 node = document.createElementNS(svgNS, "circle");
                 node.setAttribute("cx", tx);
                 node.setAttribute("cy", ty);
                 node.setAttribute("r", nodeSize);
+                
+                // Atrybuty do klikania
                 node.dataset.taskId = obj.id;
             }
             
+            // Wspólne klasy i style
             node.classList.add("radar-node");
-            if (isCompleted) node.classList.add("completed");
-            else if (isCritical) node.classList.add("critical");
-            else {
+
+            if (isCompleted) {
+                node.classList.add("completed");
+            } else if (isCritical) {
+                node.classList.add("critical");
+                
+                // Sonar Ping (Animacja pulsująca dla opóźnionych)
+                const sweepDuration = 4;
+                let angle = Math.atan2(ty - center, tx - center);
+                let normalizedAngle = angle + (Math.PI / 2);
+                if (normalizedAngle < 0) normalizedAngle += 2 * Math.PI;
+                const delay = (normalizedAngle / (2 * Math.PI)) * sweepDuration;
+                node.style.animationDelay = `${delay}s`;
+
+            } else {
+                // Kolorowanie (W trakcie = Niebieski, Do zrobienia = Zielony)
+                // Używamy statusu, ale dla podzadań fallback do 'todo'
                 const statusToCheck = obj.status || 'todo';
                 if (statusToCheck === 'inprogress') node.setAttribute("fill", "var(--accent-primary)");
                 else node.setAttribute("fill", "var(--success-primary)");
             }
-            
-            if (!isCompleted && !isSubtask) {
+
+            // Efekt "Stale" (Dla nieaktywnych od dawna)
+            if (!isCompleted && !isSubtask) { // (Dla podzadań pomijamy, bo mogą nie mieć logów)
                 let daysSinceActivity = 0;
                 if (obj.activityLog && obj.activityLog.length > 0) {
                     const lastLog = obj.activityLog.sort((a, b) => b.timestamp - a.timestamp)[0];
@@ -12055,13 +12125,22 @@ function drawRadarChart(allProjects) {
                 if (daysSinceActivity > 7) node.classList.add("stale");
             }
 
+            // Tooltip (Tippy.js)
             const statusLabel = isCompleted ? "UKOŃCZONE" : (obj.status || 'Do realizacji');
             const typeLabel = isSubtask ? `PODZADANIE (w: ${item.parentTitle})` : "ZADANIE";
-            node.setAttribute("data-tippy-content", `<div style="text-align:left"><div style="font-size:10px; color: #aaa;">${typeLabel}</div><strong>${obj.title}</strong><br><span style="font-size:11px;">${statusLabel}</span></div>`);
             
-            viewGroup.appendChild(node); // Do grupy
+            node.setAttribute("data-tippy-content", `
+                <div style="text-align:left">
+                    <div style="font-size:10px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px;">${typeLabel}</div>
+                    <strong style="font-size:13px;">${obj.title}</strong><br>
+                    <span style="font-size:11px;">Status: ${statusLabel}</span><br>
+                    <span style="font-size:11px; color:var(--text-secondary);">${obj.dueDate ? 'Termin: ' + obj.dueDate.split('T')[0] : 'Bez terminu'}</span>
+                </div>
+            `);
 
-            // Agregacja awatarów
+            svg.appendChild(node);
+
+            // F. Agregacja dla Awatarów (Tylko AKTYWNE elementy przyciągają awatara)
             if (!isCompleted) {
                 (obj.assignees || []).forEach(userId => {
                     if (!userPositions[userId]) {
@@ -12070,120 +12149,115 @@ function drawRadarChart(allProjects) {
                     }
                     userPositions[userId].xSum += tx;
                     userPositions[userId].ySum += ty;
+                    // Podzadanie ma mniejszą "masę grawitacyjną" (0.5) niż zadanie główne (1.0)
                     userPositions[userId].count += isSubtask ? 0.5 : 1; 
                 });
             }
         });
-    });
-
+});
     // 6. Rysowanie Awatarów
     Object.values(userPositions).forEach(pos => {
         if (!pos.userObj) return;
+        
         const idealX = pos.xSum / pos.count;
         const idealY = pos.ySum / pos.count;
-        // (Uproszczona antykolizja awatarów - można pominąć dla zwięzłości, bo zoom rozwiąże problem ścisku)
+
+        let ax = idealX;
+        let ay = idealY;
+        const avatarRadius = 14;
         
+        // Antykolizja Awatara
+        let collision = true;
+        let iter = 0;
+        const maxIter = 150; 
+        let angleOffset = 0;
+        let radiusOffset = 0;
+
+        while (collision && iter < maxIter) {
+            collision = false;
+            for (const other of placedNodes) {
+                const dx = ax - other.x;
+                const dy = ay - other.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                const minSpace = avatarRadius + other.r + 5;
+
+                if (dist < minSpace) {
+                    collision = true;
+                    break;
+                }
+            }
+
+            if (collision) {
+                iter++;
+                angleOffset += 0.6;
+                radiusOffset += 4;
+                const spiralX = Math.cos(angleOffset) * radiusOffset;
+                const spiralY = Math.sin(angleOffset) * radiusOffset;
+                ax = idealX + spiralX;
+                ay = idealY + spiralY;
+            }
+        }
+        placedNodes.push({ x: ax, y: ay, r: avatarRadius });
+
+        // Renderowanie
         const g = document.createElementNS(svgNS, "g");
         g.classList.add("radar-avatar-group");
-        g.setAttribute("transform", `translate(${idealX}, ${idealY})`);
-        g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong>`);
+        g.setAttribute("transform", `translate(${ax}, ${ay})`);
+        g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
 
         if (pos.userObj.photoURL) {
             const image = document.createElementNS(svgNS, "image");
             image.setAttribute("href", pos.userObj.photoURL);
-            image.setAttribute("x", -14); image.setAttribute("y", -14);
-            image.setAttribute("width", 28); image.setAttribute("height", 28);
+            image.setAttribute("x", -14);
+            image.setAttribute("y", -14);
+            image.setAttribute("width", 28);
+            image.setAttribute("height", 28);
             image.setAttribute("clip-path", "url(#radar-avatar-clip)");
             g.appendChild(image);
         } else {
             const circle = document.createElementNS(svgNS, "circle");
-            circle.setAttribute("cx", 0); circle.setAttribute("cy", 0);
+            circle.setAttribute("cx", 0);
+            circle.setAttribute("cy", 0);
             circle.setAttribute("r", 14);
             circle.style.fill = pos.userObj.avatarColor || "var(--bg-secondary)";
+            
+            const initials = (pos.userObj.name || pos.userObj.email).substring(0, 2).toUpperCase();
             const text = document.createElementNS(svgNS, "text");
-            text.setAttribute("x", 0); text.setAttribute("y", 4);
-            text.textContent = (pos.userObj.name || "??").substring(0, 2).toUpperCase();
+            text.setAttribute("x", 0);
+            text.setAttribute("y", 4);
+            text.textContent = initials;
             text.classList.add("radar-avatar-text");
-            g.appendChild(circle); g.appendChild(text);
+            g.appendChild(circle);
+            g.appendChild(text);
         }
-        
-        // Dodajemy kółko obrysu
+
         const strokeCircle = document.createElementNS(svgNS, "circle");
-        strokeCircle.setAttribute("cx", 0); strokeCircle.setAttribute("cy", 0);
+        strokeCircle.setAttribute("cx", 0);
+        strokeCircle.setAttribute("cy", 0);
         strokeCircle.setAttribute("r", 14);
         strokeCircle.setAttribute("fill", "none");
         strokeCircle.classList.add("radar-avatar-circle");
+        strokeCircle.style.fill = "none"; 
+        
         g.appendChild(strokeCircle);
-
-        viewGroup.appendChild(g); // Do grupy
+        svg.appendChild(g);
     });
 
-    // 7. Etykiety Projektów
+    // 7. Etykiety
     projectLabels.forEach(lbl => {
         const text = document.createElementNS(svgNS, "text");
         text.setAttribute("x", lbl.x);
         text.setAttribute("y", lbl.y);
-        text.textContent = lbl.text.length > 18 ? lbl.text.substring(0, 16) + '...' : lbl.text;
+        const displayName = lbl.text.length > 18 ? lbl.text.substring(0, 16) + '...' : lbl.text;
+        text.textContent = displayName;
         text.classList.add("radar-label", "radar-project-label");
-        viewGroup.appendChild(text); // Do grupy
+        svg.appendChild(text);
     });
 
-    // === OBSŁUGA ZDARZEŃ INTERAKCJI ===
-
-    // Zoom (Wheel)
-    svg.addEventListener("wheel", (e) => {
-        e.preventDefault();
-        const scaleAmount = -e.deltaY * 0.001;
-        radarTransform.scale += scaleAmount;
-        // Ograniczenia zoomu
-        radarTransform.scale = Math.min(Math.max(0.5, radarTransform.scale), 5);
-        setTransform(viewGroup);
-    });
-
-    // Start Pan (Prawy Przycisk)
-    svg.addEventListener("mousedown", (e) => {
-        // 2 = prawy przycisk
-        if (e.button === 2) {
-            e.preventDefault();
-            radarTransform.panning = true;
-            radarTransform.startX = e.clientX - radarTransform.pointX;
-            radarTransform.startY = e.clientY - radarTransform.pointY;
-            svg.style.cursor = "grabbing";
-        }
-    });
-
-    // Pan Move
-    svg.addEventListener("mousemove", (e) => {
-        if (!radarTransform.panning) return;
-        e.preventDefault();
-        radarTransform.pointX = e.clientX - radarTransform.startX;
-        radarTransform.pointY = e.clientY - radarTransform.startY;
-        setTransform(viewGroup);
-    });
-
-    // End Pan
-    svg.addEventListener("mouseup", () => {
-        radarTransform.panning = false;
-        svg.style.cursor = "grab";
-    });
-
-    svg.addEventListener("mouseleave", () => {
-        radarTransform.panning = false;
-        svg.style.cursor = "grab";
-    });
-
-    // Blokada menu kontekstowego
-    svg.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        return false;
-    });
-
-    // Obsługa kliknięcia w zadanie (musi uwzględniać brak przesuwania)
-    // Dodajemy to do viewGroup, żeby klikało się w elementy, a nie tło
-    viewGroup.addEventListener('click', (e) => {
+    // Listenery
+    svg.addEventListener('click', (e) => {
         const node = e.target.closest('.radar-node');
-        // Klikamy tylko jeśli nie jesteśmy w trakcie przesuwania (mała tolerancja jest ok, ale tutaj upraszczamy)
-        if (node && node.dataset.taskId && !radarTransform.panning) {
+        if (node && node.dataset.taskId) {
             openTaskModal(node.dataset.taskId);
         }
     });
@@ -12191,20 +12265,6 @@ function drawRadarChart(allProjects) {
     container.appendChild(svg);
     tippy('.radar-node', { allowHTML: true, theme: 'light', animation: 'scale' });
     tippy('.radar-avatar-group', { allowHTML: true, theme: 'light' });
-}
-
-// Funkcja pomocnicza do aplikowania transformacji CSS
-function setTransform(element) {
-    // Translate musi uwzględniać scale, aby zoom był "w miejscu" (uproszczone: zoom do środka + pan)
-    // Tutaj prosta wersja: Pan, potem Zoom od środka (lub lewego górnego rogu SVG).
-    // Dla SVG, transform działa w lokalnym układzie współrzędnych.
-    // pointX/Y to przesunięcie w pikselach ekranu.
-    
-    element.style.transform = `translate(${radarTransform.pointX}px, ${radarTransform.pointY}px) scale(${radarTransform.scale})`;
-    // Ważne dla SVG transform-origin:
-    element.style.transformOrigin = "center center";
-    // Płynność (opcjonalnie, może powodować lag przy drag)
-    // element.style.transition = "transform 0.1s linear"; 
 }
         // NOWA FUNKCJA DO RENDEROWANIA WIDOKU WSZYSTKICH PROJEKTÓW
         function renderAllProjectsView() {
@@ -30614,7 +30674,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
-
 
 
 
