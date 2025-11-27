@@ -24787,10 +24787,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         kanbanBoardEl.addEventListener('dragover', (e) => e.preventDefault());
 
         
-        /**
-         * NOWA FUNKCJA: Obsługa upuszczenia zadania (Logika biznesowa)
-         * Wywoływana przez native Drag&Drop oraz Sortable.js (Dashboard)
-         */
         async function handleDroppedTask(droppedId, newStatus, newCustomColumnId) {
             // 1. Spróbuj znaleźć jako Zadanie Główne
             let { task, project } = findTask(droppedId);
@@ -24800,15 +24796,12 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // 2. Jeśli nie znaleziono, szukaj jako Podzadanie wewnątrz wszystkich projektów
             if (!task) {
                 const allProjects = [...state.projects, ...state.completedProjects];
-                // Przeszukaj każdy projekt
                 for (const p of allProjects) {
-                    // Przeszukaj każde zadanie w projekcie
                     for (const t of (p.tasks || [])) {
-                        // Sprawdź czy podzadanie o tym ID istnieje w tablicy subtasks
                         const sub = (t.subtasks || []).find(s => s.id === droppedId);
                         if (sub) {
-                            task = sub; // Znaleziono! 'task' to teraz obiekt podzadania
-                            parentTask = t; // Zapisujemy rodzica
+                            task = sub;
+                            parentTask = t;
                             project = p;
                             isSubtask = true;
                             break;
@@ -24820,7 +24813,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
             if (!task || !project) return;
 
-            // Zabezpieczenie przed edycją w zakończonych projektach
             const isProjectCompleted = state.completedProjects.some(p => p.id === project.id) || 
                                      state.globalUserCompletedProjects.some(p => p.id === project.id);
             
@@ -24833,7 +24825,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             const currentUserId = state.currentUser.uid;
             const isOverride = (project.ownerId === currentUserId || (project.admins || []).includes(currentUserId));
 
-            // === NOWY BLOK: OBSŁUGA PODZADANIA ===
+            // === OBSŁUGA PODZADANIA (PRZESUWANIE KAFELKA PODZADANIA) ===
             if (isSubtask) {
                 const subtask = task;
                 const canEdit = isOverride || (subtask.assignees || []).includes(currentUserId) || subtask.createdBy === currentUserId;
@@ -24843,47 +24835,54 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     render(); return;
                 }
 
-                // Klonujemy zadanie główne (rodzica), aby zaktualizować w nim jedno podzadanie
                 let updatedMainTask = { ...parentTask };
-                
                 updatedMainTask.subtasks = updatedMainTask.subtasks.map(s => {
                     if (s.id === subtask.id) {
+                        
+                        // Logika zachowania postępu:
+                        // Jeśli przenosimy do 'todo', czyścimy postęp.
+                        // Jeśli przenosimy do 'inprogress' lub 'done', zachowujemy istniejący postęp (completedBy).
+                        
+                        let newCompletedBy = s.completedBy || [];
+                        
+                        if (newStatus === 'todo') {
+                            // Reset do zera
+                            newCompletedBy = [];
+                        } else if (newStatus === 'done') {
+                            // Wymuś ukończenie przez obecnego użytkownika (jeśli nie był)
+                            if (!newCompletedBy.includes(currentUserId)) {
+                                newCompletedBy = [...newCompletedBy, currentUserId];
+                            }
+                            // Opcjonalnie: Dla admina w trybie override można by dodać wszystkich, 
+                            // ale przy drag&drop bezpieczniej jest tylko dodać siebie lub zostawić jak jest.
+                        }
+
                         return { 
                             ...s, 
                             status: newStatus,
-                            // === NAPRAWA: Aktualizuj customColumnId ===
-                            // Jeśli kolumna to 'todo' lub 'done', customColumnId musi być NULL.
-                            // Jeśli to 'inprogress', przyjmuje wartość z dropa (ID lub null dla domyślnej).
                             customColumnId: (newStatus === 'todo' || newStatus === 'done') ? null : newCustomColumnId,
-                            // === KONIEC NAPRAWY ===
-                            
                             isCompleted: (newStatus === 'done'),
-                            completedBy: (newStatus === 'done' && !s.completedBy.includes(currentUserId)) 
-                                ? [...s.completedBy, currentUserId] 
-                                : (newStatus !== 'done' ? [] : s.completedBy)
+                            completedBy: newCompletedBy
                         };
                     }
                     return s;
                 });
 
-                // Zapisz zmiany w projekcie
                 const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                
-                // Aktualizujemy listę zadań w projekcie
                 const updatedTasks = project.tasks.map(t => (t.id === parentTask.id ? updatedMainTask : t));
-                // Przeliczamy budżet (bo status podzadania wpływa na 'Wydane'/'Zarezerwowane')
                 const newBudget = calculateProjectBudgetSummary(updatedTasks); 
 
                 await updateDoc(projectDocRef, { tasks: updatedTasks, budgetSummary: newBudget });
                 
-                // Sprawdź czy ta zmiana powinna automatycznie zamknąć zadanie główne (jeśli rodzic to 'single' i wszystko zrobione)
+                // Sprawdź automatyczne zamykanie rodzica
                 await checkAndCompleteMainTask(updatedMainTask, project);
                 
-                return; // WAŻNE: Kończymy funkcję tutaj, nie wykonujemy kodu dla zadań głównych poniżej
+                return;
             }
-            // === KONIEC BLOKU PODZADANIA ===
 
-            // === WALIDACJA STATUSU DONE (DLA ZADAŃ GŁÓWNYCH) ===
+            // === OBSŁUGA ZADANIA GŁÓWNEGO (PRZESUWANIE KAFELKA ZADANIA) ===
+            
+            // Walidacja uprawnień przy przenoszeniu do DONE
             if (newStatus === 'done') {
                 if (!canUserCompleteTask(currentUserId, task, project)) {
                     showNotification("Tylko przypisany, admin lub właściciel może ukończyć to zadanie.", "Błąd");
@@ -24906,7 +24905,6 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 }
             }
 
-            // Sprawdź zmiany
             const statusChanged = task.status !== newStatus;
             const columnChanged = task.customColumnId !== newCustomColumnId;
 
@@ -24918,8 +24916,10 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     customColumnId: newCustomColumnId 
                 };
 
-                // LOGIKA OVERRIDE (Wymuszanie/Cofanie)
+                // --- LOGIKA PRZENOSZENIA ---
+                
                 if (newStatus === 'done' && isOverride) {
+                    // ADMIN PRZENOSI DO DONE: Wymuś ukończenie wszystkiego
                     if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
                         updatedTask.subtasks = updatedTask.subtasks.map(s => ({
                             ...s, isCompleted: true, completedBy: [...s.assignees]
@@ -24928,25 +24928,34 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     if (updatedTask.type === 'multi') {
                         updatedTask.completedBy = [...updatedTask.assignees];
                     }
-                } else if (newStatus !== 'done' && oldStatus === 'done') {
-                    updatedTask.completedBy = []; 
-                    updatedTask.subtasks = (updatedTask.subtasks || []).map(s => ({
-                        ...s, isCompleted: false, completedBy: []
-                    }));
+                } 
+                else if (newStatus !== 'done' && oldStatus === 'done') {
+                    // COFANIE Z DONE (np. do In Progress)
+                    
+                    // === ZMIANA: Delikatny reset ===
+                    // Nie czyścimy completedBy ani subzadań do zera!
+                    // Jedynie zdejmujemy status głównego zadania z 'done'.
+                    // Dzięki temu, jeśli 1 z 2 osób zrobiła swoją część, a zadanie omyłkowo wpadło do Done (np. przez admina),
+                    // to po cofnięciu postęp tej 1 osoby zostanie zachowany.
+                    
+                    // Jedynie w przypadku 'todo' (cofnięcie na sam początek) ma sens pełny reset
+                    if (newStatus === 'todo') {
+                         updatedTask.completedBy = []; 
+                         updatedTask.subtasks = (updatedTask.subtasks || []).map(s => ({
+                            ...s, isCompleted: false, completedBy: []
+                        }));
+                    }
+                    // W przypadku 'inprogress' - zachowujemy stan obecny (nic nie zmieniamy w completedBy/subtasks)
                 }
 
-               // === ZMIANA: Logowanie zmian statusu/kolumny ===
                 if (statusChanged || columnChanged) {
                      const oldLabel = getTaskStatusLabel(task, project);
                      const newLabel = getTaskStatusLabel(updatedTask, project);
-                     
                      updatedTask = addActivity(updatedTask, 'status', oldLabel, newLabel);
                 }
-                // === KONIEC ZMIANY ===
                 
                 if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
                 
-                // ZAPIS DO BAZY
                 await handleTaskCompletion(updatedTask, project);
             }
         }
@@ -26986,140 +26995,119 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              }
         });
 
-        async function handleDroppedTask(droppedId, newStatus, newCustomColumnId) {
-            // 1. Spróbuj znaleźć jako Zadanie Główne
-            let { task, project } = findTask(droppedId);
-            let isSubtask = false;
-            let parentTask = null;
+        async function handleSubtaskToggle(checkbox, mainTaskId) {
+             const subtaskId = checkbox.dataset.subtaskId;
+             const { task: mainTask, project } = findTask(mainTaskId);
+             if (!mainTask || !project) {
+                 console.error("Nie znaleziono zadania głównego lub projektu dla subzadania");
+                 return; 
+             }
 
-            // 2. Jeśli nie znaleziono, szukaj jako Podzadanie wewnątrz wszystkich projektów
-            if (!task) {
-                const allProjects = [...state.projects, ...state.completedProjects];
-                for (const p of allProjects) {
-                    for (const t of (p.tasks || [])) {
-                        const sub = (t.subtasks || []).find(s => s.id === droppedId);
-                        if (sub) {
-                            task = sub;
-                            parentTask = t;
-                            project = p;
-                            isSubtask = true;
-                            break;
-                        }
-                    }
-                    if (isSubtask) break;
-                }
-            }
+             let updatedTask = { ...mainTask };
+             const oldStatus = updatedTask.status; 
+             const currentUserId = state.currentUser.uid;
 
-            if (!task || !project) return;
+             let subtaskChanged = false;
 
-            const isProjectCompleted = state.completedProjects.some(p => p.id === project.id) || 
-                                     state.globalUserCompletedProjects.some(p => p.id === project.id);
-            
-            if (isProjectCompleted) {
-                 showNotification("Nie można modyfikować zadań w zakończonych projektach.", "Błąd");
-                 render(); 
-                 return;
-            }
+             updatedTask.subtasks = updatedTask.subtasks.map(s => {
+                 if (s.id === subtaskId) {
+                     // === BLOKADA: Lista kontrolna ===
+                     if (checkbox.checked && s.checklist && s.checklist.length > 0) {
+                         const allChecklistDone = s.checklist.every(i => i.isCompleted);
+                         if (!allChecklistDone) {
+                             showNotification("Nie można ukończyć podzadania. Ukończ najpierw wszystkie pozycje z listy kontrolnej.", "Błąd");
+                             checkbox.checked = false; 
+                             return s; 
+                         }
+                     }
 
-            const currentUserId = state.currentUser.uid;
-            const isOverride = (project.ownerId === currentUserId || (project.admins || []).includes(currentUserId));
+                     subtaskChanged = true;
 
-            // === OBSŁUGA PODZADANIA ===
-            if (isSubtask) {
-                const subtask = task;
-                const canEdit = isOverride || (subtask.assignees || []).includes(currentUserId) || subtask.createdBy === currentUserId;
+                     const isOverride = project.ownerId === currentUserId || (project.admins || []).includes(currentUserId);
 
-                if (!canEdit) {
-                    showNotification("Brak uprawnień do zmiany statusu tego podzadania.", "Błąd");
-                    render(); return;
-                }
+                     let newCompletedBy = [...(s.completedBy || [])];
+                     let isNowCompleted = s.isCompleted;
 
-                let updatedMainTask = { ...parentTask };
-                updatedMainTask.subtasks = updatedMainTask.subtasks.map(s => {
-                    if (s.id === subtask.id) {
-                        return { 
-                            ...s, 
-                            status: newStatus,
-                            customColumnId: (newStatus === 'todo' || newStatus === 'done') ? null : newCustomColumnId,
-                            isCompleted: (newStatus === 'done'),
-                            completedBy: (newStatus === 'done' && !s.completedBy.includes(currentUserId)) 
-                                ? [...s.completedBy, currentUserId] 
-                                : (newStatus !== 'done' ? [] : s.completedBy)
-                        };
-                    }
-                    return s;
+                     if (checkbox.checked) {
+                         // --- ZAZNACZANIE ---
+                         showConfetti(); 
+
+                         if (isOverride) {
+                             // ADMIN
+                             if (s.assignees.length > 0) {
+                                 const allAssigneesSet = new Set([...newCompletedBy, ...s.assignees]);
+                                 newCompletedBy = Array.from(allAssigneesSet);
+                             } else {
+                                 if (!newCompletedBy.includes(currentUserId)) newCompletedBy.push(currentUserId);
+                             }
+                             isNowCompleted = true; 
+                         } else {
+                             // USER
+                             if (!newCompletedBy.includes(currentUserId)) {
+                                 newCompletedBy.push(currentUserId);
+                             }
+                             const hasAssignees = s.assignees && s.assignees.length > 0;
+                             if (hasAssignees) {
+                                 isNowCompleted = s.assignees.every(id => newCompletedBy.includes(id));
+                             } else {
+                                 isNowCompleted = true;
+                             }
+                         }
+                     } else {
+                         // --- ODZNACZANIE ---
+                         if (isOverride) {
+                             newCompletedBy = []; 
+                             isNowCompleted = false;
+                         } else {
+                             newCompletedBy = newCompletedBy.filter(id => id !== currentUserId);
+                             isNowCompleted = false; 
+                         }
+                     }
+                     
+                     // === NAPRAWA: Synchronizacja statusu tekstowego (Lepsza logika) ===
+                     let newSubStatus = 'todo';
+                     if (isNowCompleted) {
+                         newSubStatus = 'done';
+                     } else if (newCompletedBy.length > 0) {
+                         newSubStatus = 'inprogress'; // Częściowo wykonane
+                     }
+                     
+                     const newCustomCol = isNowCompleted ? null : s.customColumnId;
+
+                     return { 
+                         ...s, 
+                         completedBy: newCompletedBy, 
+                         isCompleted: isNowCompleted,
+                         status: newSubStatus, 
+                         customColumnId: newCustomCol 
+                     };
+                 }
+                 return s;
+             });
+
+             if (!subtaskChanged) return;
+
+             const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+             const updatedTasks = project.tasks.map(t => (t.id === mainTaskId ? updatedTask : t));
+
+             try {
+                const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
+                
+                await updateDoc(projectDocRef, { 
+                    tasks: updatedTasks,
+                    budgetSummary: newBudgetSummary
                 });
+                 
+                 renderSubtaskListInMainModal(updatedTask);
+             
+                 await checkAndCompleteMainTask(updatedTask, project);
+                 await checkSubtasksAndCompleteParticipants(updatedTask, project); 
 
-                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                const updatedTasks = project.tasks.map(t => (t.id === parentTask.id ? updatedMainTask : t));
-                const newBudget = calculateProjectBudgetSummary(updatedTasks); 
-
-                await updateDoc(projectDocRef, { tasks: updatedTasks, budgetSummary: newBudget });
-                await checkAndCompleteMainTask(updatedMainTask, project);
-                
-                return;
-            }
-
-            // === OBSŁUGA ZADANIA GŁÓWNEGO ===
-            if (newStatus === 'done') {
-                if (!canUserCompleteTask(currentUserId, task, project)) {
-                    showNotification("Tylko przypisany, admin lub właściciel może ukończyć to zadanie.", "Błąd");
-                    render(); return;
-                }
-                const block = isTaskBlocked(task);
-                if (block.blocked) {
-                    showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
-                    render(); return;
-                }
-                const allSubtasksDone = !task.subtasks || task.subtasks.length === 0 || task.subtasks.every(s => s.isCompleted);
-                if (!allSubtasksDone && !isOverride) {
-                    showNotification("Nie można ukończyć zadania, dopóki nie zostaną ukończone wszystkie podzadania.", "Błąd");
-                    render(); return;
-                }
-                const allAssigneesDone = task.type === 'single' || task.assignees.every(id => task.completedBy.includes(id));
-                if (!allAssigneesDone && !isOverride) {
-                    showNotification("Nie można przenieść zadania do 'Wykonane', dopóki wszyscy nie ukończą swojej części.", "Błąd");
-                    render(); return;
-                }
-            }
-
-            const statusChanged = task.status !== newStatus;
-            const columnChanged = task.customColumnId !== newCustomColumnId;
-
-            if (statusChanged || columnChanged) {
-                const oldStatus = task.status;
-                let updatedTask = { 
-                    ...task,
-                    status: newStatus,
-                    customColumnId: newCustomColumnId 
-                };
-
-                if (newStatus === 'done' && isOverride) {
-                    if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
-                        updatedTask.subtasks = updatedTask.subtasks.map(s => ({
-                            ...s, isCompleted: true, completedBy: [...s.assignees]
-                        }));
-                    }
-                    if (updatedTask.type === 'multi') {
-                        updatedTask.completedBy = [...updatedTask.assignees];
-                    }
-                } else if (newStatus !== 'done' && oldStatus === 'done') {
-                    // === ZMIANA: Łagodniejszy reset ===
-                    // Czyścimy tylko główne ukończenie, ale zachowujemy postęp podzadań
-                    updatedTask.completedBy = []; 
-                    // USUNIĘTO: updatedTask.subtasks reset
-                }
-
-                if (statusChanged || columnChanged) {
-                     const oldLabel = getTaskStatusLabel(task, project);
-                     const newLabel = getTaskStatusLabel(updatedTask, project);
-                     updatedTask = addActivity(updatedTask, 'status', oldLabel, newLabel);
-                }
-                
-                if (oldStatus !== 'done' && newStatus === 'done') showConfetti();
-                
-                await handleTaskCompletion(updatedTask, project);
-            }
+         } catch (error) {
+             console.error("Błąd zapisu stanu subzadania:", error);
+             showNotification("Wystąpił błąd podczas aktualizacji podzadania.", "Błąd");
+             checkbox.checked = !checkbox.checked;
+         }
         }
 
         async function handleSubtaskDelete(subtaskId, mainTaskId) {
@@ -30420,6 +30408,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
