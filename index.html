@@ -7722,7 +7722,16 @@ body.compact-mode .comment-item {
                             </svg>
                         </button>
                     </div>
-                </div>
+                <button id="open-trash-btn" class="header-btn" title="Kosz usuniętych zadań" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M3 6h18" />
+                          <path d="M8 6l1-2h6l1 2" />
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                          <path d="M10 11v6" />
+                          <path d="M14 11v6" />
+                        </svg>
+                    </button>
+                    </div>
             </header>
             <div id="bulk-action-bar" style="display: none;">
                 <span id="bulk-action-count">Zaznaczono: 0</span>
@@ -12733,6 +12742,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             if (toggleChatBtn) {
                 toggleChatBtn.style.display = shouldShowChatIcons ? 'flex' : 'none';
             }
+            // === NOWE: Widoczność przycisku Kosza ===
+            // Pokaż kosz tylko w widoku projektu (nie Dashboard, nie Mój Dzień)
+            if (trashModal.openBtn) {
+                trashModal.openBtn.style.display = (isProjectView && !isModalOpen) ? 'inline-flex' : 'none';
+            }
+            // === KONIEC ===
             if (toggleChatBtnMobile) {
                 toggleChatBtnMobile.style.display = shouldShowChatIcons ? 'flex' : 'none';
             }
@@ -19204,7 +19219,191 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         }
 
         // === KONIEC NOWYCH FUNKCJI POMOCNICZYCH ===
+        // === NOWE FUNKCJE: OBSŁUGA KOSZA (TRASH BIN) ===
         
+        const trashModal = {
+            overlay: document.getElementById('trash-modal'),
+            list: document.getElementById('trash-list'),
+            openBtn: document.getElementById('open-trash-btn')
+        };
+
+        /**
+         * Otwiera modal kosza dla bieżącego projektu.
+         */
+        function openTrashModal() {
+            const projectId = state.currentProjectId;
+            const project = findProject(projectId);
+
+            if (!project) {
+                showNotification("Kosz dostępny jest tylko w widoku projektu.", "Informacja");
+                return;
+            }
+
+            renderTrashList(project);
+            openModal(trashModal.overlay);
+        }
+
+        /**
+         * Renderuje listę usuniętych zadań w modalu.
+         */
+        function renderTrashList(project) {
+            const deletedTasks = project.deletedTasks || [];
+            
+            trashModal.list.innerHTML = '';
+
+            if (deletedTasks.length === 0) {
+                trashModal.list.innerHTML = '<li style="text-align: center; color: var(--text-secondary); padding: 20px;">Kosz jest pusty.</li>';
+                return;
+            }
+
+            // Sortuj od najnowszych usuniętych
+            deletedTasks.sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
+
+            deletedTasks.forEach(task => {
+                const li = document.createElement('li');
+                li.className = 'trash-item';
+                
+                const deletedDate = task.deletedAt ? new Date(task.deletedAt).toLocaleString('pl-PL') : 'Nieznana data';
+                // Sprawdź uprawnienia (Właściciel projektu lub Administrator)
+                const canRestore = project.ownerId === state.currentUser.uid || (project.admins || []).includes(state.currentUser.uid);
+
+                // Przyciski akcji
+                let actionsHTML = '';
+                if (canRestore) {
+                    actionsHTML = `
+                        <button class="btn-restore js-trash-restore" data-task-id="${task.id}">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px;height:14px;">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                            </svg>
+                            Przywróć
+                        </button>
+                        <button class="btn-delete-forever js-trash-delete-forever" data-task-id="${task.id}" title="Usuń bezpowrotnie">&times;</button>
+                    `;
+                } else {
+                    actionsHTML = `<span style="font-size:11px; color:var(--text-secondary);">Brak uprawnień</span>`;
+                }
+
+                li.innerHTML = `
+                    <div class="trash-item-info">
+                        <span class="trash-item-title">${task.title}</span>
+                        <span class="trash-item-meta">Usunięto: ${deletedDate}</span>
+                    </div>
+                    <div class="trash-item-actions">
+                        ${actionsHTML}
+                    </div>
+                `;
+                trashModal.list.appendChild(li);
+            });
+        }
+
+        /**
+         * Przywraca zadanie z kosza do aktywnych zadań.
+         */
+        async function restoreTask(taskId) {
+            const projectId = state.currentProjectId;
+            const project = findProject(projectId);
+            if (!project) return;
+
+            const taskToRestore = (project.deletedTasks || []).find(t => t.id === taskId);
+            if (!taskToRestore) return;
+
+            // Usuń metadane kosza przed przywróceniem
+            const activeTask = { ...taskToRestore };
+            delete activeTask.deletedAt;
+            delete activeTask.deletedBy;
+            
+            // Ustaw status na 'todo' (bezpieczniej niż przywracać stary status, który mógł być 'inprogress')
+            // lub przywróć stary. Decyzja: Przywracamy stary status, ale jeśli był 'done', to wróci do 'done'.
+            // Bezpieczniej dla logiki:
+            // activeTask.status = activeTask.status; 
+
+            // Aktualizuj tablice
+            const newDeletedTasks = project.deletedTasks.filter(t => t.id !== taskId);
+            const newActiveTasks = [...(project.tasks || []), activeTask];
+
+            const projectDocRef = doc(projectsRef, projectId);
+            
+            try {
+                // Przelicz budżet (teraz uwzględnia przywrócone zadanie)
+                const newBudgetSummary = calculateProjectBudgetSummary(newActiveTasks);
+
+                const batch = writeBatch(db);
+                batch.update(projectDocRef, { 
+                    tasks: newActiveTasks,
+                    deletedTasks: newDeletedTasks,
+                    budgetSummary: newBudgetSummary
+                });
+                
+                await batch.commit();
+                
+                showNotification("Zadanie zostało przywrócone.", "Sukces");
+                // Odśwież widok kosza
+                // (projekt w `state` zaktualizuje się przez onSnapshot, ale dla pewności w renderze kosza używamy findProject)
+                
+                // Mały hack: Musimy poczekać na onSnapshot lub ręcznie zaktualizować lokalnie, żeby renderTrashList zadziałało od razu
+                // Ale ponieważ mamy listener onSnapshot, UI główne się odświeży. 
+                // Modal kosza musimy odświeżyć ręcznie po chwili lub zamknąć.
+                // Tutaj po prostu odświeżymy listę w modalu na bazie lokalnych obliczeń dla płynności,
+                // ale prawdziwe dane przyjdą z bazy.
+                const tempProject = { ...project, deletedTasks: newDeletedTasks };
+                renderTrashList(tempProject);
+
+            } catch (error) {
+                console.error("Błąd przywracania:", error);
+                showNotification("Nie udało się przywrócić zadania.", "Błąd");
+            }
+        }
+
+        /**
+         * Usuwa zadanie trwale z kosza.
+         */
+        async function deleteForever(taskId) {
+            const projectId = state.currentProjectId;
+            const project = findProject(projectId);
+            if (!project) return;
+
+            showConfirmation(
+                "Usuń bezpowrotnie", 
+                "Czy na pewno chcesz trwale usunąć to zadanie? Tej operacji nie można cofnąć.", 
+                async (confirmed) => {
+                    if (confirmed) {
+                        try {
+                            const newDeletedTasks = (project.deletedTasks || []).filter(t => t.id !== taskId);
+                            const projectDocRef = doc(projectsRef, projectId);
+                            
+                            await updateDoc(projectDocRef, {
+                                deletedTasks: newDeletedTasks
+                            });
+                            
+                            // Odśwież listę w modalu
+                            const tempProject = { ...project, deletedTasks: newDeletedTasks };
+                            renderTrashList(tempProject);
+                            
+                        } catch (error) {
+                             console.error("Błąd trwałego usuwania:", error);
+                             showNotification("Wystąpił błąd.", "Błąd");
+                        }
+                    }
+                }, 
+                true
+            );
+        }
+
+        // Listenery dla kosza
+        if (trashModal.openBtn) {
+            trashModal.openBtn.addEventListener('click', openTrashModal);
+        }
+
+        trashModal.list.addEventListener('click', (e) => {
+            const restoreBtn = e.target.closest('.js-trash-restore');
+            const deleteForeverBtn = e.target.closest('.js-trash-delete-forever');
+
+            if (restoreBtn) {
+                restoreTask(restoreBtn.dataset.taskId);
+            } else if (deleteForeverBtn) {
+                deleteForever(deleteForeverBtn.dataset.taskId);
+            }
+        });
         // === ZMODYFIKOWANA FUNKCJA: `setupFirestoreListeners` ===
         
         /**
@@ -24709,8 +24908,25 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
             // === NOWA FUNKCJA WEWNĘTRZNA: Logika usuwania (wyodrębniona) ===
             const performDelete = async () => {
-                // Lista zadań BEZ usuwanego zadania
+                // 1. Znajdź zadanie, które ma być usunięte
+                const taskToDelete = project.tasks.find(t => t.id === taskId);
+                
+                if (!taskToDelete) return;
+
+                // 2. Dodaj znacznik czasu usunięcia i ID osoby usuwającej
+                const archivedTask = {
+                    ...taskToDelete,
+                    deletedAt: Date.now(),
+                    deletedBy: state.currentUser.uid
+                };
+
+                // 3. Lista zadań BEZ usuwanego zadania (aktywne)
                 const updatedTasks = project.tasks.filter(t => t.id !== taskId);
+                
+                // 4. Nowa lista usuniętych zadań (dodajemy do istniejącej lub tworzymy nową)
+                // Używamy arrayUnion w batchu, ale dla spójności lokalnej logiki budżetu liczymy to tutaj
+                const currentDeletedTasks = project.deletedTasks || [];
+                const updatedDeletedTasks = [...currentDeletedTasks, archivedTask];
 
                 // Referencja do dokumentu projektu
                 const projectDocRef = findProject(project.id) ?
@@ -24719,19 +24935,27 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
                 try {
                     // --- AKTUALIZACJA LOGIKI (Wersja 2): Obliczanie budgetSummary przy usuwaniu ---
+                    // Liczymy budżet TYLKO dla aktywnych zadań (updatedTasks)
                     const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
                     // --- KONIEC AKTUALIZACJI ---
 
                     // --- Użycie writeBatch do atomowego zapisu ---
                     const batch = writeBatch(db);
+                    
+                    // Aktualizujemy listę aktywnych zadań
                     batch.update(projectDocRef, { tasks: updatedTasks });
+                    
+                    // Aktualizujemy listę usuniętych zadań (używamy arrayUnion dla bezpieczeństwa)
+                    batch.update(projectDocRef, { deletedTasks: arrayUnion(archivedTask) });
+                    
+                    // Aktualizujemy budżet (bez usuniętego zadania)
                     batch.update(projectDocRef, { budgetSummary: newBudgetSummary });
 
                     await batch.commit();
-                    console.log(`[Budget v2] Zaktualizowano budgetSummary dla projektu ${project.id} po usunięciu zadania ${taskId}.`);
+                    console.log(`[Budget v2] Zaktualizowano budgetSummary dla projektu ${project.id} po przeniesieniu zadania ${taskId} do kosza.`);
 
                     closeModal(taskModal.overlay);
-                    showNotification("Zadanie zostało pomyślnie usunięte.", "Sukces");
+                    showNotification("Zadanie zostało przeniesione do kosza.", "Sukces");
                 } catch (error) {
                     console.error("Błąd podczas usuwania zadania:", error); 
                     showNotification("Wystąpił błąd podczas usuwania zadania.", "Błąd");
@@ -29978,8 +30202,88 @@ welcomeModal.okBtn.addEventListener('click', async () => {
         </form>
     </div>
 </div>
+    <div class="modal-overlay" id="trash-modal">
+    <div class="modal" style="max-width: 600px; height: 70vh;">
+        <div class="modal-header">
+            <h2>Kosz projektu</h2>
+            <button type="button" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="form-modal-content">
+            <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                Zadania znajdujące się w koszu nie są widoczne na tablicy ani w statystykach. Możesz je przywrócić lub usunąć bezpowrotnie.
+            </p>
+            <ul id="trash-list" class="attachments-list" style="overflow-y: auto; flex-grow: 1;">
+                </ul>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close-btn">Zamknij</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Nowe style dla elementów kosza */
+    .trash-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px;
+        background-color: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        margin-bottom: 8px;
+    }
+    .trash-item-info {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .trash-item-title {
+        font-weight: 600;
+        font-size: 14px;
+        text-decoration: line-through; /* Przekreślenie sugeruje usunięcie */
+        color: var(--text-secondary);
+    }
+    .trash-item-meta {
+        font-size: 11px;
+        color: var(--text-secondary);
+    }
+    .trash-item-actions {
+        display: flex;
+        gap: 8px;
+    }
+    .btn-restore {
+        background-color: var(--success-primary);
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .btn-restore:hover {
+        opacity: 0.9;
+    }
+    .btn-delete-forever {
+        background-color: transparent;
+        border: 1px solid var(--danger-primary);
+        color: var(--danger-primary);
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+    .btn-delete-forever:hover {
+        background-color: var(--danger-primary);
+        color: white;
+    }
+</style>
 </body>
 </html>
+
 
 
 
