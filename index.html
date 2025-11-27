@@ -27024,7 +27024,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
              const canDelete = mainTask.createdBy === state.currentUser.uid ||
                                project.ownerId === state.currentUser.uid ||
-                               (project.admins || []).includes(state.currentUser.uid) || // <--- DODANO ADMINA
+                               (project.admins || []).includes(state.currentUser.uid) || 
                                (subtaskToDelete.assignees || []).includes(state.currentUser.uid);
 
              if (!canDelete) {
@@ -27034,6 +27034,17 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
              showConfirmation("Potwierdź usunięcie", `Czy na pewno chcesz usunąć podzadanie: "${subtaskToDelete.title}"?`, async (confirmed) => {
                  if (confirmed) {
+                     // 1. Przygotuj obiekt do archiwizacji w koszu
+                     const archivedSubtask = {
+                         ...subtaskToDelete,
+                         deletedAt: Date.now(),
+                         deletedBy: state.currentUser.uid,
+                         originalParentId: mainTaskId, // Ważne: zachowujemy ID rodzica, aby wiedzieć skąd pochodzi
+                         originalParentTitle: mainTask.title, // Opcjonalnie: tytuł rodzica dla czytelności w koszu
+                         isSubtask: true // Znacznik, że to podzadanie
+                     };
+
+                     // 2. Usuń podzadanie z listy w zadaniu głównym
                      const updatedTask = {
                          ...mainTask,
                          subtasks: (mainTask.subtasks || []).filter(s => s.id !== subtaskId)
@@ -27046,14 +27057,19 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          // --- NAPRAWA: Przeliczenie budżetu po usunięciu podzadania ---
                          const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
                          
+                         // 3. Zapisz zmiany: zaktualizuj zadania, budżet ORAZ dodaj do kosza
                          await updateDoc(projectDocRef, { 
                              tasks: updatedTasks,
-                             budgetSummary: newBudgetSummary 
+                             budgetSummary: newBudgetSummary,
+                             deletedTasks: arrayUnion(archivedSubtask) // Dodajemy do tablicy kosza
                          });
                          // --- KONIEC NAPRAWY ---
 
                          renderSubtaskListInMainModal(updatedTask); // Odśwież listę
-                         await checkAndCompleteMainTask(updatedTask, project); // Poprawka przy okazji: przekazujemy obiekt updatedTask
+                         await checkAndCompleteMainTask(updatedTask, project); 
+                         
+                         showNotification("Podzadanie zostało przeniesione do kosza.", "Sukces");
+
                      } catch (error) {
                          console.error("Błąd usuwania subzadania:", error);
                          showNotification("Błąd podczas usuwania podzadania.", "Błąd");
@@ -30283,6 +30299,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
