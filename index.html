@@ -27275,68 +27275,72 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 // Nie pokazujemy błędu użytkownikowi, tylko logujemy w konsoli
             }
         }
-        /**
-         * NOWA FUNKCJA: Sprawdza, czy wszystkie podzadania użytkownika są ukończone 
-         * i jeśli tak, automatycznie oznacza jego część jako 'done' w zadaniu głównym.
-         * @param {object} mainTask - Obiekt zadania głównego.
+       /**
+         * NOWA FUNKCJA (ZAKTUALIZOWANA): Sprawdza postęp WSZYSTKICH uczestników.
+         * Jeśli użytkownik ukończył wszystkie swoje podzadania, jego część zadania głównego jest zaliczana.
+         * Działa zarówno dla currentUser, jak i dla innych (gdy admin edytuje).
          */
-        async function checkSubtasksAndCompleteMyPart(mainTask, project) {
-            const currentUserId = state.currentUser.uid;
-            
-            if (!mainTask || !project || mainTask.type !== 'multi' || !mainTask.assignees.includes(currentUserId) || mainTask.status === 'done') {
-                return; // Nie ma potrzeby sprawdzania (zadanie jest solo, nie dla mnie, już skończone lub nie istnieje)
+        async function checkSubtasksAndCompleteParticipants(mainTask, project) {
+            if (!mainTask || !project || mainTask.type !== 'multi' || mainTask.status === 'done') {
+                return;
+            }
+
+            let updatedTask = { ...mainTask };
+            let hasChanges = false;
+            const oldStatus = updatedTask.status;
+            const usersWhoCompleted = [];
+
+            // Iterujemy po wszystkich przypisanych do zadania głównego
+            for (const userId of updatedTask.assignees) {
+                // Jeśli ten użytkownik już ma zaliczone zadanie główne, pomijamy
+                if ((updatedTask.completedBy || []).includes(userId)) continue;
+
+                // Znajdź podzadania przypisane do tego konkretnego użytkownika
+                const userSubtasks = (updatedTask.subtasks || []).filter(s => (s.assignees || []).includes(userId));
+
+                // Jeśli użytkownik nie ma żadnych podzadań, pomijamy (nie zaliczamy automatem pustych)
+                if (userSubtasks.length === 0) continue;
+
+                // Sprawdź, czy WSZYSTKIE jego podzadania są przez niego ukończone
+                const allDone = userSubtasks.every(s => (s.completedBy || []).includes(userId));
+
+                if (allDone) {
+                    // Zaliczamy część tego użytkownika!
+                    updatedTask.completedBy = [...(updatedTask.completedBy || []), userId];
+                    hasChanges = true;
+                    usersWhoCompleted.push(userId);
+                }
+            }
+
+            if (!hasChanges) return; // Brak zmian, wychodzimy
+
+            // Przelicz status zadania głównego
+            const isMainTaskNowCompleted = updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
+
+            if (isMainTaskNowCompleted) {
+                updatedTask.status = 'done';
+            } else if (updatedTask.completedBy.length > 0) {
+                updatedTask.status = 'inprogress';
+            }
+
+            // Logowanie zmian statusu
+            if (updatedTask.status !== oldStatus) {
+                if (updatedTask.status === 'done') showConfetti();
+                updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
             }
             
-            const mySubtasks = (mainTask.subtasks || []).filter(s => (s.assignees || []).includes(currentUserId));
-            
-            // Jeśli nie ma przypisanych subzadań, ale jest w tablicy assignees, nie robimy nic
-            if (mySubtasks.length === 0) return; 
+            // Dodajemy log aktywności (technicznie robi to "system" w imieniu użytkownika/admina)
+            // Używamy typu 'completion', ale uwaga: w historii pojawi się, że zrobił to Current User (Admin)
+            updatedTask = addActivity(updatedTask, 'completion'); 
 
-            // === POPRAWIONA LOGIKA SPRAWDZANIA ===
-            // Sprawdź, czy WSZYSTKIE MOJE podzadania (mySubtasks) są ukończone PRZEZ MNIE
-            const allMySubtasksCompleted = mySubtasks.every(s => 
-                (s.completedBy || []).includes(currentUserId)
-            );
-            // === KONIEC POPRAWIONEJ LOGIKI ===
+            // Zapisz zmiany
+            await handleTaskCompletion(updatedTask, project, 'subtask_auto');
             
-            // Sprawdź, czy moja część zadania głównego JEST już ukończona
-            const alreadyCompletedMyPart = (mainTask.completedBy || []).includes(currentUserId);
-            
-            if (allMySubtasksCompleted && !alreadyCompletedMyPart) {
-                // WARUNEK ZACHODZI: Musimy ukończyć moją część
-                
-                let updatedTask = { ...mainTask };
-                const oldStatus = updatedTask.status;
-                
-                // 1. Oznacz moją część jako ukończoną
-                updatedTask.completedBy = [...(updatedTask.completedBy || []), currentUserId];
-                
-                // 2. Przelicz status zadania głównego
-                const isMainTaskNowCompleted = updatedTask.assignees.length > 0 && updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
+            console.log(`[Auto-Complete] System automatycznie ukończył część zadania dla: ${usersWhoCompleted.join(', ')}`);
 
-                if (isMainTaskNowCompleted) {
-                    updatedTask.status = 'done';
-                } else if (updatedTask.completedBy.length > 0) {
-                    updatedTask.status = 'inprogress';
-                }
-                
-                // 3. Dodaj aktywność (jeśli status się zmienił lub jeśli zrobiono auto-kompletowanie)
-                if (updatedTask.status !== oldStatus) {
-                    if (updatedTask.status === 'done') showConfetti();
-                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-                }
-                updatedTask = addActivity(updatedTask, 'completion'); // Dodaj log 'ukończenia'
-                
-                // 4. Zapisz zmiany
-                await handleTaskCompletion(updatedTask, project, 'subtask_auto');
-                
-                // === POPRAWKA BŁĘDU: Użycie mainTask.id zamiast mainTaskId ===
-                console.log(`[Auto-Complete] Użytkownik ${currentUserId} automatycznie ukończył swoją część zadania ${mainTask.id}.`);
-                
-                // 5. Odśwież modal, jeśli jest otwarty
-                if (taskModal.overlay.dataset.taskId === mainTask.id && taskModal.overlay.classList.contains('visible')) {
-                    openTaskModal(mainTask.id);
-                }
+            // Odśwież modal, jeśli jest otwarty i dotyczy tego zadania
+            if (taskModal.overlay.dataset.taskId === mainTask.id && taskModal.overlay.classList.contains('visible')) {
+                openTaskModal(mainTask.id);
             }
         }
         async function checkAndCompleteMainTask(mainTask, project) {
@@ -30371,6 +30375,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
