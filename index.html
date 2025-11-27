@@ -14805,6 +14805,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     // UWAGA: Używamy tasksInColumn, które zawiera przefiltrowane zadania główne dla tej kolumny.
                     const isParentInThisColumn = tasksInColumn.some(t => t.id === parentTask.id);
                     
+                    // === POPRAWKA: Nie pokazuj podzadań jako "wolnych", jeśli rodzic jest już wykonany ===
+                    // Jeśli rodzic jest 'done', to jego podzadania są historyczne i nie powinny wisieć w 'todo'.
+                    if (parentTask.status === 'done') return; 
+                    // === KONIEC POPRAWKI ===
+
                     if (!isParentInThisColumn && parentTask.subtasks && parentTask.subtasks.length > 0) {
                         parentTask.subtasks.forEach(sub => {
                             // Status podzadania (fallback do todo/done jeśli brak pola status)
@@ -22802,13 +22807,15 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
               if (isOverride) {
                   updatedTask.status = 'done';
                   // Wymuś ukończenie wszystkich podzadań
-                  if (!allSubtasksDone) {
-                      updatedTask.subtasks = updatedTask.subtasks.map(s => ({
-                          ...s,
-                          isCompleted: true,
-                          completedBy: [...s.assignees]
-                      }));
-                  }
+                  // === POPRAWKA: Usuwam warunek !allSubtasksDone ===
+                  // Nawet jeśli wydają się skończone, wymuszamy spójność statusu 'done' dla wszystkich
+                  updatedTask.subtasks = (updatedTask.subtasks || []).map(s => ({
+                      ...s,
+                      isCompleted: true,
+                      status: 'done', // <-- DODANO: Jawne ustawienie statusu
+                      completedBy: [...s.assignees]
+                  }));
+
                   // Wymuś ukończenie wszystkich w zadaniu wieloosobowym
                   if (task.type === 'multi') {
                       updatedTask.completedBy = [...task.assignees];
@@ -24922,13 +24929,17 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     // ADMIN PRZENOSI DO DONE: Wymuś ukończenie wszystkiego
                     if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
                         updatedTask.subtasks = updatedTask.subtasks.map(s => ({
-                            ...s, isCompleted: true, completedBy: [...s.assignees]
+                            // === POPRAWKA: Ustawiamy też status tekstowy na 'done' ===
+                            ...s, 
+                            isCompleted: true, 
+                            status: 'done', // <-- DODANO
+                            completedBy: [...s.assignees]
                         }));
                     }
                     if (updatedTask.type === 'multi') {
                         updatedTask.completedBy = [...updatedTask.assignees];
                     }
-                } 
+                }
                 else if (newStatus !== 'done' && oldStatus === 'done') {
                     // COFANIE Z DONE (np. do In Progress)
                     
@@ -30444,6 +30455,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
