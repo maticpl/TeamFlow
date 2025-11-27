@@ -14259,7 +14259,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             totalEl.textContent = grandTotal.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             currencyEl.textContent = currency;
         }
-         function renderMyDashboardView() {
+        function renderMyDashboardView() {
             // ZMIANA: Upewniamy się, że kanbanBoardEl jest widoczny w tym widoku
             kanbanBoardEl.style.display = 'block';
 
@@ -14272,14 +14272,57 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             projectProgressEl.innerHTML = '';
             kanbanBoardEl.style.display = 'block'; 
 
-            const myTasks = getAllMyTasks();
+            // === NOWA LOGIKA: Zbieranie zadań głównych I podzadań dla bieżącego użytkownika ===
+            // Zamiast używać getAllMyTasks(), iterujemy ręcznie, aby wyłapać podzadania
+            
+            let myMainTasks = [];
+            let mySubtasks = [];
+            
+            // Pobieramy projekty globalne (wszystkie dostępne dla użytkownika)
+            const allAccessibleProjects = [...state.globalUserProjects, ...state.globalUserCompletedProjects];
+
+            allAccessibleProjects.forEach(project => {
+                (project.tasks || []).forEach(task => {
+                    const migratedTask = migrateTask(task); // Upewnij się, że struktura jest poprawna
+
+                    // 1. Zadania Główne przypisane do mnie
+                    if (migratedTask.assignees.includes(state.currentUser.uid)) {
+                        myMainTasks.push({
+                            ...migratedTask,
+                            projectId: project.id,
+                            projectName: project.name,
+                            // Dodaję dane grupy dla kontekstu (jeśli potrzebne)
+                            groupId: project.groupId
+                        });
+                    }
+
+                    // 2. Podzadania przypisane do mnie
+                    if (migratedTask.subtasks && migratedTask.subtasks.length > 0) {
+                        migratedTask.subtasks.forEach(sub => {
+                            if ((sub.assignees || []).includes(state.currentUser.uid)) {
+                                // Ustal status podzadania (domyślnie 'todo' jeśli brak)
+                                const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                                
+                                mySubtasks.push({
+                                    subtask: sub,
+                                    parentTask: migratedTask, // Przekazujemy całego rodzica
+                                    project: project,         // Przekazujemy cały projekt
+                                    status: subStatus
+                                });
+                            }
+                        });
+                    }
+                });
+            });
+            // === KONIEC NOWEJ LOGIKI ZBIERANIA DANYCH ===
+
              // === NOWA LINIA: Obliczanie globalnego budżetu ===
             const globalBudgetSummary = calculateGlobalBudgetSummary();
              // === NOWA LINIA: Obliczanie budżetu per osoba ===
             const userBudgetSummary = calculateGlobalUserBudgetSummary();
 
-            // ... (logika sortowania myTasks) ...
-            myTasks.sort((a, b) => {
+            // Sortowanie zadań głównych (tak jak wcześniej)
+            myMainTasks.sort((a, b) => {
                 const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
                 const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
                 if (dateA === Infinity && dateB === Infinity) return 0;
@@ -14288,8 +14331,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - a.dueDate;
             });
 
-            const overdueTasks = getOverdueTasks(myTasks);
-            const todayPlusTomorrow = myTasks.filter(t => {
+            // Logika KPI używa myMainTasks (bo to są zadania "zarządzane" bezpośrednio jako karty)
+            const overdueTasks = getOverdueTasks(myMainTasks);
+            const todayPlusTomorrow = myMainTasks.filter(t => {
                 if (!t.dueDate || t.status === 'done') return false;
                 const dueDate = new Date(t.dueDate);
                 const now = new Date();
@@ -14300,8 +14344,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             });
             const teamOverdueCount = getTeamOverdueCount();
             
-            const todoCount = myTasks.filter(t => t.status === 'todo').length;
-            const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
+            const todoCount = myMainTasks.filter(t => t.status === 'todo').length;
+            const inProgressCount = myMainTasks.filter(t => t.status === 'inprogress').length;
             const totalActiveTasks = todoCount + inProgressCount;
             const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
             const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
@@ -14493,8 +14537,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
 
-            // Funkcja pomocnicza renderowania kolumn
-            const renderMyTasksKanban = (tasks, targetElement) => {
+            // === ZMODYFIKOWANA FUNKCJA POMOCNICZA: Obsługuje osobno zadania główne i podzadania ===
+            // Argumenty: mainTasksList, subTasksList, targetElement
+            const renderMyTasksKanban = (mainTasksList, subTasksList, targetElement) => {
                 targetElement.innerHTML = '';
                 targetElement.style.width = '100%';
                 targetElement.style.overflowX = 'auto';
@@ -14504,7 +14549,19 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     column.className = 'kanban-column';
                     column.dataset.status = statusKey;
                     
-                    let tasksInColumn = tasks.filter(t => t.status === statusKey);
+                    // 1. Filtrowanie GŁÓWNYCH ZADAŃ dla tej kolumny
+                    let mainTasksInColumn = mainTasksList.filter(t => t.status === statusKey);
+                    
+                    // 2. Filtrowanie PODZADAŃ dla tej kolumny
+                    const subTasksInColumn = subTasksList.filter(item => item.status === statusKey);
+
+                    // 3. Wybór podzadań "Standalone" (takich, których rodzic NIE jest w tej kolumnie jako główne zadanie)
+                    // Jeśli rodzic jest w tej samej kolumnie, podzadanie będzie widoczne jako zagnieżdżone.
+                    const standaloneSubtasks = subTasksInColumn.filter(item => {
+                         const isParentInThisColumn = mainTasksInColumn.some(t => t.id === item.parentTask.id);
+                         return !isParentInThisColumn;
+                    });
+
                     let completedFilterHTML = '';
 
                     if (statusKey === 'done') {
@@ -14522,25 +14579,45 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             const now = Date.now();
                             const daysToFilter = parseInt(filterValue.replace('days', ''), 10);
                             const cutoffDate = now - (daysToFilter * 24 * 60 * 60 * 1000);
-                            tasksInColumn = tasksInColumn.filter(t => 
+                            
+                            // Filtrujemy główne zadania
+                            mainTasksInColumn = mainTasksInColumn.filter(t => 
                                 t.completedAt && t.completedAt.toDate().getTime() >= cutoffDate
                             );
+                            
+                            // Filtrowanie podzadań (trudniejsze, bo nie mają completedAt w modelu, 
+                            // można użyć uproszczenia lub po prostu pominąć filtr dla podzadań standalone w tym widoku,
+                            // lub założyć, że jeśli jest 'done', to jest widoczne)
+                            // Dla uproszczenia w tym kroku - filtrujemy tylko główne zadania, podzadania zostają.
                         }
                     }
+                    
+                    const totalCount = mainTasksInColumn.length + standaloneSubtasks.length;
+
+                    // Generowanie HTML
+                    let columnContentHTML = '';
+                    
+                    // A. Główne zadania
+                    columnContentHTML += mainTasksInColumn.map(task => createTaskCardHTML(task, true, null, statusKey)).join('');
+                    
+                    // B. Podzadania (Jako niezależne karty)
+                    columnContentHTML += standaloneSubtasks.map(item => 
+                        createVisualSubtaskCardHTML(item.subtask, item.parentTask, item.project, 'standalone')
+                    ).join('');
 
                     column.innerHTML = `
                         <div class="kanban-column-header">
                             <h3>${STATUSES[statusKey]}</h3>
                             ${completedFilterHTML}
-                            <span class="task-count" style="margin-left: auto;" title="Liczba zadań w kolumnie">${tasksInColumn.length}</span>
+                            <span class="task-count" style="margin-left: auto;" title="Liczba zadań w kolumnie">${totalCount}</span>
                         </div>
-                        <ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true, null, statusKey)).join('')}</ul>`;
+                        <ul class="kanban-tasks">${columnContentHTML}</ul>`;
                     targetElement.appendChild(column);
                 });
             };
 
-            // Renderowanie kafelków zadań
-            renderMyTasksKanban(myTasks, myTasksKanbanEl);
+            // Renderowanie kafelków zadań z użyciem nowych list
+            renderMyTasksKanban(myMainTasks, mySubtasks, myTasksKanbanEl);
 
             // === NOWA LOGIKA: Włączenie Drag & Drop na Dashboardzie ===
             if (window.dashboardSortableInstances) {
@@ -14560,8 +14637,19 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     delay: 200, 
                     delayOnTouchOnly: true,
                     
+                    // === NOWE: FILTR DLA PODZADAŃ (tak samo jak w Project Board) ===
+                    filter: '.subtask-visual-card', 
+                    preventOnFilter: false, 
+                    // === KONIEC ===
+
                     onStart: (evt) => {
-                        draggedTaskId = evt.item.dataset.taskId; 
+                        // === OBSŁUGA PRZECIĄGANIA PODZADANIA ===
+                        const subtaskCard = evt.item.closest('.subtask-visual-card');
+                        if (subtaskCard) {
+                            draggedTaskId = subtaskCard.dataset.subtaskId;
+                        } else {
+                            draggedTaskId = evt.item.dataset.taskId; 
+                        }
                         evt.item.classList.add('dragging');
                     },
                     
@@ -30034,6 +30122,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
