@@ -14538,20 +14538,20 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
 
-            // === 5. DYNAMICZNE KOLUMNY (Analiza użycia) ===
+            // === 5. DYNAMICZNE KOLUMNY (Analiza użycia - Zoptymalizowana) ===
             const customColumnsMap = new Map(); 
 
-            // Funkcja pomocnicza, która przyjmuje status OBLICZONY (nie surowy)
             const processTaskForColumns = (task, project, computedStatus) => {
-                // Sprawdź czy zadanie jest w niestandardowej kolumnie
+                // Uwzględniamy kolumny tylko jeśli zadanie jest w statusie 'inprogress' i ma customColumnId
                 if (computedStatus === 'inprogress' && task.customColumnId && project.customColumns) {
                     const colDef = project.customColumns.find(c => c.id === task.customColumnId);
                     if (colDef) {
+                        // KLUCZOWE: Klucz mapy zawiera ID projektu, aby rozróżnić kolumny o tej samej nazwie/ID w różnych projektach
                         const key = `${project.id}_${colDef.id}`;
                         if (!customColumnsMap.has(key)) {
                             customColumnsMap.set(key, {
-                                id: colDef.id,
-                                title: `${colDef.title} <span style="font-size:10px; display:block; color:var(--text-secondary); font-weight: normal;">(Z projektu: ${project.name})</span>`,
+                                id: colDef.id, // To jest ID kolumny wewnątrz projektu
+                                title: `${colDef.title} <span style="font-size:10px; display:block; color:var(--text-secondary); font-weight: normal;">(Projekt: ${project.name})</span>`,
                                 status: 'inprogress',
                                 type: 'custom',
                                 projectId: project.id,
@@ -14565,20 +14565,20 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // Skanuj zadania główne
             myMainTasks.forEach(t => {
                 const project = findProject(t.projectId) || findCompletedProject(t.projectId);
-                // Dla zadań głównych status jest wprost w obiekcie
                 if (project) processTaskForColumns(t, project, t.status);
             });
             
             // Skanuj podzadania
             mySubtasks.forEach(item => {
-                // Dla podzadań używamy statusu obliczonego w punkcie 1 (item.status)
                 processTaskForColumns(item.subtask, item.project, item.status);
             });
 
+            // Sortowanie kolumn: Najpierw po Projekcie, potem po Kolejności w projekcie
             const customColumnsList = Array.from(customColumnsMap.values()).sort((a, b) => {
                 return a.projectId.localeCompare(b.projectId) || a.order - b.order;
             });
 
+            // Definicja układu kolumn
             const dashboardColumnsLayout = [
                 { id: 'todo', title: STATUSES.todo, status: 'todo', type: 'standard' },
                 { id: 'inprogress_default', title: STATUSES.inprogress, status: 'inprogress', type: 'standard', isDefault: true },
@@ -14586,25 +14586,33 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 { id: 'done', title: STATUSES.done, status: 'done', type: 'standard' }
             ];
 
-            // === 6. RENDEROWANIE KOLUMN ZADAŃ ===
+            // === 6. RENDEROWANIE KOLUMN ZADAŃ I INICJALIZACJA DRAG & DROP ===
+            
+            // Czyścimy stare instancje Sortable przed ponownym renderowaniem
+            if (window.dashboardSortableInstances) {
+                window.dashboardSortableInstances.forEach(s => s.destroy());
+            }
+            window.dashboardSortableInstances = [];
+
             const renderMyTasksKanban = (mainTasksList, subTasksList, targetElement, columnsLayout) => {
                 targetElement.innerHTML = '';
                 targetElement.style.width = '100%';
                 targetElement.style.overflowX = 'auto';
-                
                 targetElement.style.display = 'grid';
                 targetElement.style.gridAutoFlow = 'column';
                 targetElement.style.gridAutoColumns = '360px';
                 targetElement.style.gap = '16px';
+                targetElement.style.paddingBottom = '20px'; // Miejsce na cień scrolla
 
                 columnsLayout.forEach(colDef => {
                     const column = document.createElement('div');
                     column.className = 'kanban-column';
                     column.dataset.status = colDef.status;
 
+                    // Ustawianie atrybutów dla kolumn niestandardowych
                     if (colDef.type === 'custom') {
                         column.dataset.columnId = colDef.id;
-                        column.dataset.projectId = colDef.projectId; 
+                        column.dataset.projectId = colDef.projectId; // Ważne dla restrykcji DnD
                     } else if (colDef.isDefault) {
                         column.dataset.columnId = 'null';
                     }
@@ -14612,16 +14620,16 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     let mainTasksInColumn = [];
                     let subTasksInColumn = [];
 
+                    // Filtrowanie zadań dla danej kolumny
                     if (colDef.type === 'standard') {
-                        if (colDef.isDefault) {
+                        if (colDef.isDefault) { // Domyślne "W trakcie"
                             mainTasksInColumn = mainTasksList.filter(t => t.status === 'inprogress' && !t.customColumnId);
-                            // Filtrujemy podzadania używając item.status
                             subTasksInColumn = subTasksList.filter(item => item.status === 'inprogress' && !item.subtask.customColumnId);
-                        } else {
+                        } else { // Todo lub Done
                             mainTasksInColumn = mainTasksList.filter(t => t.status === colDef.status);
                             subTasksInColumn = subTasksList.filter(item => item.status === colDef.status);
                         }
-                    } else {
+                    } else { // Kolumny Custom
                         mainTasksInColumn = mainTasksList.filter(t => 
                             t.status === 'inprogress' && 
                             t.customColumnId === colDef.id && 
@@ -14634,11 +14642,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         );
                     }
 
+                    // Wykrywanie "Osieroconych" Podzadań (Standalone)
+                    // Podzadanie jest standalone w tej kolumnie, jeśli jego rodzic NIE znajduje się w tej samej kolumnie.
                     const standaloneSubtasks = subTasksInColumn.filter(item => {
                          const isParentInThisColumn = mainTasksInColumn.some(t => t.id === item.parentTask.id);
                          return !isParentInThisColumn;
                     });
 
+                    // Filtr "Wykonane" (opcjonalny)
                     let completedFilterHTML = '';
                     if (colDef.status === 'done') {
                          const filterValue = state.ui.dashboardCompletedFilter || '7days';
@@ -14657,13 +14668,22 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             mainTasksInColumn = mainTasksInColumn.filter(t => 
                                 t.completedAt && t.completedAt.toDate().getTime() >= cutoffDate
                             );
+                            // Subtasks w "Done" nie mają completedAt na poziomie obiektu subtask w tej strukturze w prosty sposób,
+                            // dla uproszczenia w dashboardzie filtrujemy głównie zadania główne lub pomijamy filtr dla subzadań tutaj.
                         }
                     }
                     
                     const totalCount = mainTasksInColumn.length + standaloneSubtasks.length;
                     let columnContentHTML = '';
                     
-                    columnContentHTML += mainTasksInColumn.map(task => createTaskCardHTML(task, true, null, colDef.status)).join('');
+                    // Renderowanie kart (Zadania Główne + Zagnieżdżone Podzadania)
+                    // Przekazujemy colDef.status i colDef.id do createTaskCardHTML, aby ta funkcja wiedziała,
+                    // które podzadania wyświetlić jako zagnieżdżone ("family").
+                    columnContentHTML += mainTasksInColumn.map(task => 
+                        createTaskCardHTML(task, true, null, colDef.status, colDef.type === 'custom' ? colDef.id : undefined)
+                    ).join('');
+
+                    // Renderowanie kart (Podzadania Standalone)
                     columnContentHTML += standaloneSubtasks.map(item => 
                         createVisualSubtaskCardHTML(item.subtask, item.parentTask, item.project, 'standalone')
                     ).join('');
@@ -14675,64 +14695,71 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             <span class="task-count" style="margin-left: auto;" title="Liczba zadań w kolumnie">${totalCount}</span>
                         </div>
                         <ul class="kanban-tasks" data-project-restriction="${colDef.projectId || ''}">${columnContentHTML}</ul>`;
+                    
                     targetElement.appendChild(column);
+
+                    // === INICJALIZACJA SORTABLE DLA TEJ KOLUMNY ===
+                    const taskList = column.querySelector('.kanban-tasks');
+                    const sortable = new Sortable(taskList, {
+                        group: {
+                            name: 'dashboard-tasks',
+                            put: (to, from, dragEl) => {
+                                // Logika upuszczania:
+                                // 1. Jeśli kolumna docelowa nie ma przypisanego projektu (Todo, Done, Default InProgress), przyjmij wszystko.
+                                // 2. Jeśli kolumna ma projekt (Custom), zadanie musi być z tego samego projektu.
+                                const targetColumn = to.el.closest('.kanban-column');
+                                const targetProjectId = targetColumn.dataset.projectId;
+                                
+                                if (!targetProjectId) return true; // Kolumna uniwersalna
+                                
+                                const taskProjectId = dragEl.dataset.projectId;
+                                return taskProjectId === targetProjectId;
+                            }
+                        }, 
+                        animation: 150,
+                        ghostClass: 'task-card-ghost',
+                        chosenClass: 'task-card-chosen',
+                        dragClass: 'task-card-drag',
+                        delay: 200, 
+                        delayOnTouchOnly: true,
+                        
+                        onStart: (evt) => {
+                            // Ustawiamy globalną zmienną draggedTaskId
+                            const subtaskCard = evt.item.closest('.subtask-visual-card');
+                            if (subtaskCard) {
+                                draggedTaskId = subtaskCard.dataset.subtaskId;
+                            } else {
+                                draggedTaskId = evt.item.dataset.taskId; 
+                            }
+                            evt.item.classList.add('dragging');
+                        },
+                        
+                        onEnd: async (evt) => {
+                            evt.item.classList.remove('dragging');
+                            
+                            // Sprawdź czy faktycznie przeniesiono do innej listy lub zmieniono pozycję
+                            const column = evt.to.closest('.kanban-column');
+                            
+                            if (column && draggedTaskId) {
+                                const newStatus = column.dataset.status;
+                                // Pobierz ID kolumny niestandardowej (jeśli istnieje)
+                                const newColumnIdAttr = column.dataset.columnId; 
+                                const newCustomColumnId = (newColumnIdAttr === 'null' || !newColumnIdAttr) ? null : newColumnIdAttr;
+                                
+                                // === NAPRAWA: BEZPOŚREDNIE WYWOŁANIE FUNKCJI AKTUALIZACJI ===
+                                // Zamiast dispatchEvent, wołamy logikę biznesową bezpośrednio.
+                                console.log(`[Dashboard DnD] Upuszczono zadanie ${draggedTaskId} do statusu: ${newStatus}, CustomCol: ${newCustomColumnId}`);
+                                await handleDroppedTask(draggedTaskId, newStatus, newCustomColumnId);
+                            }
+                            draggedTaskId = null; 
+                        }
+                    });
+                    window.dashboardSortableInstances.push(sortable);
                 });
             };
 
+            // Wywołanie renderowania z nową logiką
             renderMyTasksKanban(myMainTasks, mySubtasks, myTasksKanbanEl, dashboardColumnsLayout);
-
-            // === 7. ZABEZPIECZENIE DRAG & DROP ===
-            if (window.dashboardSortableInstances) {
-                window.dashboardSortableInstances.forEach(s => s.destroy());
-            }
-            window.dashboardSortableInstances = [];
-
-            const dashboardTaskLists = myTasksKanbanEl.querySelectorAll('.kanban-tasks');
-            
-            dashboardTaskLists.forEach(list => {
-                const sortable = new Sortable(list, {
-                    group: {
-                        name: 'dashboard-tasks',
-                        put: (to, from, dragEl) => {
-                            const targetColumn = to.el.closest('.kanban-column');
-                            const targetProjectId = targetColumn.dataset.projectId;
-                            if (!targetProjectId) return true;
-                            const taskProjectId = dragEl.dataset.projectId;
-                            return taskProjectId === targetProjectId;
-                        }
-                    }, 
-                    animation: 150,
-                    ghostClass: 'task-card-ghost',
-                    chosenClass: 'task-card-chosen',
-                    dragClass: 'task-card-drag',
-                    delay: 200, 
-                    delayOnTouchOnly: true,
-                    
-                    onStart: (evt) => {
-                        const subtaskCard = evt.item.closest('.subtask-visual-card');
-                        if (subtaskCard) {
-                            draggedTaskId = subtaskCard.dataset.subtaskId;
-                        } else {
-                            draggedTaskId = evt.item.dataset.taskId; 
-                        }
-                        evt.item.classList.add('dragging');
-                    },
-                    
-                    onEnd: (evt) => {
-                        evt.item.classList.remove('dragging');
-                        const column = evt.to.closest('.kanban-column');
-                        
-                        if (column && draggedTaskId) {
-                            const newStatus = column.dataset.status;
-                            const newColumnIdAttr = column.dataset.columnId; 
-                            const newCustomColumnId = (newColumnIdAttr === 'null' || !newColumnIdAttr) ? null : newColumnIdAttr;
-                            handleDroppedTask(draggedTaskId, newStatus, newCustomColumnId);
-                        }
-                        draggedTaskId = null; 
-                    }
-                });
-                window.dashboardSortableInstances.push(sortable);
-            });
         }
         function renderKanbanBoard(project, isInteractive) {
             kanbanBoardEl.innerHTML = '';
@@ -30190,6 +30217,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
