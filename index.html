@@ -23170,15 +23170,30 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return;
             }
             // === KONIEC NOWEJ LOGIKI ===
-           // 2. Sprawdź kliknięcie na CHECKBOX podzadania (wewnątrz rozwiniętej listy)
+           / 2. Sprawdź kliknięcie na CHECKBOX podzadania (wewnątrz rozwiniętej listy LUB kafelka wizualnego)
             const subtaskCheckbox = e.target.closest('.kanban-subtask-checkbox');
             if (subtaskCheckbox) {
                 e.stopPropagation(); // Tylko zatrzymaj bąbelkowanie
-                const mainTaskId = subtaskCheckbox.closest('.task-card').dataset.taskId;
+                
+                // === NAPRAWA BŁĘDU: Bezpieczne pobieranie ID rodzica ===
+                // 1. Najpierw sprawdź, czy checkbox ma bezpośrednio atrybut data-parent-id
+                // (Karty wizualne/standalone mają to ustawione w funkcji createVisualSubtaskCardHTML)
+                let mainTaskId = subtaskCheckbox.dataset.parentId;
+
+                // 2. Jeśli nie ma (np. jest to lista tekstowa wewnątrz zadania), poszukaj rodzica .task-card
+                if (!mainTaskId) {
+                    const parentCard = subtaskCheckbox.closest('.task-card');
+                    if (parentCard) {
+                        mainTaskId = parentCard.dataset.taskId;
+                    }
+                }
+                // === KONIEC NAPRAWY ===
+
                 if (mainTaskId) {
-                    // Używamy funkcji zaimplementowanej w poprzednim kroku
-                    // Przekazujemy sam element checkboxa i ID zadania-rodzica
                     handleSubtaskToggle(subtaskCheckbox, mainTaskId);
+                } else {
+                    console.error("Błąd: Nie znaleziono ID zadania głównego dla klikniętego podzadania.");
+                    showNotification("Wystąpił błąd struktury danych. Odśwież stronę.", "Błąd");
                 }
                 return; // Zakończ
             }
@@ -26985,7 +27000,6 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              const oldStatus = updatedTask.status; 
              const currentUserId = state.currentUser.uid;
 
-             // Flaga, czy faktycznie dokonano zmiany
              let subtaskChanged = false;
 
              updatedTask.subtasks = updatedTask.subtasks.map(s => {
@@ -27002,18 +27016,17 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
                      subtaskChanged = true;
 
-                     // Sprawdź uprawnienia Admina/Właściciela
                      const isOverride = project.ownerId === currentUserId || (project.admins || []).includes(currentUserId);
 
                      let newCompletedBy = [...(s.completedBy || [])];
                      let isNowCompleted = s.isCompleted;
 
                      if (checkbox.checked) {
-                         // --- AKCJA: ZAZNACZANIE ---
-                         showConfetti(); // Konfetti!
+                         // --- ZAZNACZANIE ---
+                         showConfetti(); 
 
                          if (isOverride) {
-                             // ADMIN: Wymusza DONE dla wszystkich
+                             // ADMIN
                              if (s.assignees.length > 0) {
                                  const allAssigneesSet = new Set([...newCompletedBy, ...s.assignees]);
                                  newCompletedBy = Array.from(allAssigneesSet);
@@ -27022,7 +27035,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                              }
                              isNowCompleted = true; 
                          } else {
-                             // USER: Odznacza swoją część
+                             // USER
                              if (!newCompletedBy.includes(currentUserId)) {
                                  newCompletedBy.push(currentUserId);
                              }
@@ -27034,7 +27047,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                              }
                          }
                      } else {
-                         // --- AKCJA: ODZNACZANIE ---
+                         // --- ODZNACZANIE ---
                          if (isOverride) {
                              newCompletedBy = []; 
                              isNowCompleted = false;
@@ -27044,7 +27057,19 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          }
                      }
                      
-                     return { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
+                     // === NAPRAWA: Synchronizacja statusu tekstowego ===
+                     // Jeśli isNowCompleted == true -> status = 'done'
+                     // Jeśli isNowCompleted == false -> status = 'todo' (lub powrót do inprogress, ale 'todo' jest bezpieczniejsze przy cofaniu)
+                     const newSubStatus = isNowCompleted ? 'done' : 'todo';
+                     const newCustomCol = isNowCompleted ? null : s.customColumnId; // Czyścimy kolumnę jeśli done
+
+                     return { 
+                         ...s, 
+                         completedBy: newCompletedBy, 
+                         isCompleted: isNowCompleted,
+                         status: newSubStatus, // <--- KLUCZOWA ZMIANA
+                         customColumnId: newCustomCol // <--- KLUCZOWA ZMIANA
+                     };
                  }
                  return s;
              });
@@ -27055,24 +27080,17 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              const updatedTasks = project.tasks.map(t => (t.id === mainTaskId ? updatedTask : t));
 
              try {
-                // Przeliczenie budżetu
                 const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
                 
-                // Zapisz do bazy
                 await updateDoc(projectDocRef, { 
                     tasks: updatedTasks,
                     budgetSummary: newBudgetSummary
                 });
                  
-                 // Odśwież listę w modalu (naprawa UI)
                  renderSubtaskListInMainModal(updatedTask);
              
-                 // Sprawdź logikę automatycznego zamykania
                  await checkAndCompleteMainTask(updatedTask, project);
-                 
-                 // === TUTAJ BYŁ BŁĄD - TERAZ JEST POPRAWIONA NAZWA FUNKCJI ===
                  await checkSubtasksAndCompleteParticipants(updatedTask, project); 
-                 // ============================================================
 
          } catch (error) {
              console.error("Błąd zapisu stanu subzadania:", error);
@@ -30379,6 +30397,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
