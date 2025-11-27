@@ -27342,23 +27342,33 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  console.warn(`checkAndCompleteMainTask: Otrzymano nieprawidłowe dane zadania lub projektu.`);
                  return;
              }
+             
+             // Jeśli zadanie już jest 'done', nie ma co robić
              if (mainTask.status === 'done') return;
 
+             // Sprawdź czy wszystkie podzadania są completed
              const allSubtasksDone = mainTask.subtasks && mainTask.subtasks.length > 0 && mainTask.subtasks.every(s => s.isCompleted);
 
+             // Automatyczne kończenie działa tylko dla zadań typu 'single' (jednoosobowych)
              if (allSubtasksDone && mainTask.type === 'single') {
                   const oldStatus = mainTask.status;
                   let updatedTask = { ...mainTask };
 
                   updatedTask.status = 'done';
 
+                  // Logujemy zmianę statusu
                   updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES.done);
 
                   try {
+                        // Wykonujemy fizyczne zakończenie zadania w bazie
                         await handleTaskCompletion(updatedTask, project, 'subtask_auto');
                         showConfetti();
 
-                        setTimeout(() => openTaskModal(mainTaskId), 100);
+                        // === NAPRAWA: Używamy mainTask.id zamiast nieistniejącego mainTaskId ===
+                        // Odświeżamy modal tylko jeśli jest otwarty i dotyczy tego zadania
+                        if (taskModal.overlay.classList.contains('visible') && taskModal.overlay.dataset.taskId === mainTask.id) {
+                            setTimeout(() => openTaskModal(mainTask.id), 100);
+                        }
 
                   } catch (error) {
                        console.error("Błąd podczas automatycznego kończenia zadania głównego (single):", error);
@@ -30369,6 +30379,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
