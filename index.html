@@ -14259,9 +14259,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             totalEl.textContent = grandTotal.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             currencyEl.textContent = currency;
         }
-      
-
-        function renderMyDashboardView() {
+         function renderMyDashboardView() {
             // ZMIANA: Upewniamy się, że kanbanBoardEl jest widoczny w tym widoku
             kanbanBoardEl.style.display = 'block';
 
@@ -14274,56 +14272,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             projectProgressEl.innerHTML = '';
             kanbanBoardEl.style.display = 'block'; 
 
-            // === 1. ZBIERANIE DANYCH (Zadania główne i Podzadania) ===
-            let myMainTasks = [];
-            let mySubtasks = [];
-            
-            const allAccessibleProjects = [...state.globalUserProjects, ...state.globalUserCompletedProjects];
-
-            allAccessibleProjects.forEach(project => {
-                (project.tasks || []).forEach(task => {
-                    const migratedTask = migrateTask(task); 
-
-                    // A. Zadania Główne przypisane do mnie
-                    if (migratedTask.assignees.includes(state.currentUser.uid)) {
-                        myMainTasks.push({
-                            ...migratedTask,
-                            projectId: project.id,
-                            projectName: project.name,
-                            groupId: project.groupId
-                        });
-                    }
-
-                    // B. Podzadania przypisane do mnie
-                    if (migratedTask.subtasks && migratedTask.subtasks.length > 0) {
-                        migratedTask.subtasks.forEach(sub => {
-                            if ((sub.assignees || []).includes(state.currentUser.uid)) {
-                                // === POPRAWKA LOGIKI STATUSU ===
-                                // Jeśli podzadanie ma customColumnId i nie jest completed, to status MUSI być 'inprogress'
-                                let subStatus = sub.status;
-                                if (!subStatus) {
-                                    if (sub.isCompleted) subStatus = 'done';
-                                    else if (sub.customColumnId) subStatus = 'inprogress';
-                                    else subStatus = 'todo';
-                                }
-                                
-                                mySubtasks.push({
-                                    subtask: sub,
-                                    parentTask: migratedTask,
-                                    project: project,         
-                                    status: subStatus // Używamy naprawionego statusu
-                                });
-                            }
-                        });
-                    }
-                });
-            });
-
-            // === 2. OBLICZENIA POMOCNICZE ===
+            const myTasks = getAllMyTasks();
+             // === NOWA LINIA: Obliczanie globalnego budżetu ===
             const globalBudgetSummary = calculateGlobalBudgetSummary();
+             // === NOWA LINIA: Obliczanie budżetu per osoba ===
             const userBudgetSummary = calculateGlobalUserBudgetSummary();
 
-            myMainTasks.sort((a, b) => {
+            // ... (logika sortowania myTasks) ...
+            myTasks.sort((a, b) => {
                 const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
                 const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
                 if (dateA === Infinity && dateB === Infinity) return 0;
@@ -14332,8 +14288,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - a.dueDate;
             });
 
-            const overdueTasks = getOverdueTasks(myMainTasks);
-            const todayPlusTomorrow = myMainTasks.filter(t => {
+            const overdueTasks = getOverdueTasks(myTasks);
+            const todayPlusTomorrow = myTasks.filter(t => {
                 if (!t.dueDate || t.status === 'done') return false;
                 const dueDate = new Date(t.dueDate);
                 const now = new Date();
@@ -14344,8 +14300,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             });
             const teamOverdueCount = getTeamOverdueCount();
             
-            const todoCount = myMainTasks.filter(t => t.status === 'todo').length;
-            const inProgressCount = myMainTasks.filter(t => t.status === 'inprogress').length;
+            const todoCount = myTasks.filter(t => t.status === 'todo').length;
+            const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
             const totalActiveTasks = todoCount + inProgressCount;
             const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
             const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
@@ -14354,7 +14310,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             otherUsersActivities.sort((a, b) => b.timestamp - a.timestamp);
             const recentActivityCount = otherUsersActivities.slice(0, 15).length;
 
-            // === 3. DEFINICJE KART KPI ===
+            // Definicje HTML kart KPI (skrócone dla czytelności, logika bez zmian)
             const cardHTMLs = {
                 'my-overdue': `
                     <div class="dashboard-card kpi-mini-card" data-id="my-overdue" data-action="show-my-overdue-details">
@@ -14486,7 +14442,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </div>
             `;
 
-            // === 4. RENDEROWANIE GRID (Kafelki) ===
+            // Renderowanie GRID
             kanbanBoardEl.innerHTML = `
                 <div class="dashboard-container">
                     <div class="dashboard-grid" id="dashboard-grid-main"></div>
@@ -14535,125 +14491,25 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 });
             }
 
-
             const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
 
-            // === 5. DYNAMICZNE KOLUMNY (Analiza użycia - Zoptymalizowana) ===
-            const customColumnsMap = new Map(); 
-
-            const processTaskForColumns = (task, project, computedStatus) => {
-                // Uwzględniamy kolumny tylko jeśli zadanie jest w statusie 'inprogress' i ma customColumnId
-                if (computedStatus === 'inprogress' && task.customColumnId && project.customColumns) {
-                    const colDef = project.customColumns.find(c => c.id === task.customColumnId);
-                    if (colDef) {
-                        // KLUCZOWE: Klucz mapy zawiera ID projektu, aby rozróżnić kolumny o tej samej nazwie/ID w różnych projektach
-                        const key = `${project.id}_${colDef.id}`;
-                        if (!customColumnsMap.has(key)) {
-                            customColumnsMap.set(key, {
-                                id: colDef.id, // To jest ID kolumny wewnątrz projektu
-                                title: `${colDef.title} <span style="font-size:10px; display:block; color:var(--text-secondary); font-weight: normal;">(Projekt: ${project.name})</span>`,
-                                status: 'inprogress',
-                                type: 'custom',
-                                projectId: project.id,
-                                order: colDef.order || 0
-                            });
-                        }
-                    }
-                }
-            };
-
-            // Skanuj zadania główne
-            myMainTasks.forEach(t => {
-                const project = findProject(t.projectId) || findCompletedProject(t.projectId);
-                if (project) processTaskForColumns(t, project, t.status);
-            });
-            
-            // Skanuj podzadania
-            mySubtasks.forEach(item => {
-                processTaskForColumns(item.subtask, item.project, item.status);
-            });
-
-            // Sortowanie kolumn: Najpierw po Projekcie, potem po Kolejności w projekcie
-            const customColumnsList = Array.from(customColumnsMap.values()).sort((a, b) => {
-                return a.projectId.localeCompare(b.projectId) || a.order - b.order;
-            });
-
-            // Definicja układu kolumn
-            const dashboardColumnsLayout = [
-                { id: 'todo', title: STATUSES.todo, status: 'todo', type: 'standard' },
-                { id: 'inprogress_default', title: STATUSES.inprogress, status: 'inprogress', type: 'standard', isDefault: true },
-                ...customColumnsList,
-                { id: 'done', title: STATUSES.done, status: 'done', type: 'standard' }
-            ];
-
-            // === 6. RENDEROWANIE KOLUMN ZADAŃ I INICJALIZACJA DRAG & DROP ===
-            
-            // Czyścimy stare instancje Sortable przed ponownym renderowaniem
-            if (window.dashboardSortableInstances) {
-                window.dashboardSortableInstances.forEach(s => s.destroy());
-            }
-            window.dashboardSortableInstances = [];
-
-            const renderMyTasksKanban = (mainTasksList, subTasksList, targetElement, columnsLayout) => {
+            // Funkcja pomocnicza renderowania kolumn
+            const renderMyTasksKanban = (tasks, targetElement) => {
                 targetElement.innerHTML = '';
                 targetElement.style.width = '100%';
                 targetElement.style.overflowX = 'auto';
-                targetElement.style.display = 'grid';
-                targetElement.style.gridAutoFlow = 'column';
-                targetElement.style.gridAutoColumns = '360px';
-                targetElement.style.gap = '16px';
-                targetElement.style.paddingBottom = '20px'; // Miejsce na cień scrolla
 
-                columnsLayout.forEach(colDef => {
+                Object.keys(STATUSES).forEach(statusKey => {
                     const column = document.createElement('div');
                     column.className = 'kanban-column';
-                    column.dataset.status = colDef.status;
-
-                    // Ustawianie atrybutów dla kolumn niestandardowych
-                    if (colDef.type === 'custom') {
-                        column.dataset.columnId = colDef.id;
-                        column.dataset.projectId = colDef.projectId; // Ważne dla restrykcji DnD
-                    } else if (colDef.isDefault) {
-                        column.dataset.columnId = 'null';
-                    }
-
-                    let mainTasksInColumn = [];
-                    let subTasksInColumn = [];
-
-                    // Filtrowanie zadań dla danej kolumny
-                    if (colDef.type === 'standard') {
-                        if (colDef.isDefault) { // Domyślne "W trakcie"
-                            mainTasksInColumn = mainTasksList.filter(t => t.status === 'inprogress' && !t.customColumnId);
-                            subTasksInColumn = subTasksList.filter(item => item.status === 'inprogress' && !item.subtask.customColumnId);
-                        } else { // Todo lub Done
-                            mainTasksInColumn = mainTasksList.filter(t => t.status === colDef.status);
-                            subTasksInColumn = subTasksList.filter(item => item.status === colDef.status);
-                        }
-                    } else { // Kolumny Custom
-                        mainTasksInColumn = mainTasksList.filter(t => 
-                            t.status === 'inprogress' && 
-                            t.customColumnId === colDef.id && 
-                            t.projectId === colDef.projectId
-                        );
-                        subTasksInColumn = subTasksList.filter(item => 
-                            item.status === 'inprogress' && 
-                            item.subtask.customColumnId === colDef.id && 
-                            item.project.id === colDef.projectId
-                        );
-                    }
-
-                    // Wykrywanie "Osieroconych" Podzadań (Standalone)
-                    // Podzadanie jest standalone w tej kolumnie, jeśli jego rodzic NIE znajduje się w tej samej kolumnie.
-                    const standaloneSubtasks = subTasksInColumn.filter(item => {
-                         const isParentInThisColumn = mainTasksInColumn.some(t => t.id === item.parentTask.id);
-                         return !isParentInThisColumn;
-                    });
-
-                    // Filtr "Wykonane" (opcjonalny)
+                    column.dataset.status = statusKey;
+                    
+                    let tasksInColumn = tasks.filter(t => t.status === statusKey);
                     let completedFilterHTML = '';
-                    if (colDef.status === 'done') {
-                         const filterValue = state.ui.dashboardCompletedFilter || '7days';
-                         completedFilterHTML = `
+
+                    if (statusKey === 'done') {
+                        const filterValue = state.ui.dashboardCompletedFilter || '7days';
+                        completedFilterHTML = `
                             <select class="completed-tasks-filter" data-context="dashboard" style="font-size: 11px; padding: 2px; margin-left: 8px; border-radius: 4px; background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">
                                 <option value="7days" ${filterValue === '7days' ? 'selected' : ''}>Ostatnie 7 dni</option>
                                 <option value="14days" ${filterValue === '14days' ? 'selected' : ''}>Ostatnie 14 dni</option>
@@ -14661,105 +14517,68 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                                 <option value="all" ${filterValue === 'all' ? 'selected' : ''}>Wszystkie</option>
                             </select>
                         `;
+
                         if (filterValue !== 'all') {
                             const now = Date.now();
                             const daysToFilter = parseInt(filterValue.replace('days', ''), 10);
                             const cutoffDate = now - (daysToFilter * 24 * 60 * 60 * 1000);
-                            mainTasksInColumn = mainTasksInColumn.filter(t => 
+                            tasksInColumn = tasksInColumn.filter(t => 
                                 t.completedAt && t.completedAt.toDate().getTime() >= cutoffDate
                             );
-                            // Subtasks w "Done" nie mają completedAt na poziomie obiektu subtask w tej strukturze w prosty sposób,
-                            // dla uproszczenia w dashboardzie filtrujemy głównie zadania główne lub pomijamy filtr dla subzadań tutaj.
                         }
                     }
-                    
-                    const totalCount = mainTasksInColumn.length + standaloneSubtasks.length;
-                    let columnContentHTML = '';
-                    
-                    // Renderowanie kart (Zadania Główne + Zagnieżdżone Podzadania)
-                    // Przekazujemy colDef.status i colDef.id do createTaskCardHTML, aby ta funkcja wiedziała,
-                    // które podzadania wyświetlić jako zagnieżdżone ("family").
-                    columnContentHTML += mainTasksInColumn.map(task => 
-                        createTaskCardHTML(task, true, null, colDef.status, colDef.type === 'custom' ? colDef.id : undefined)
-                    ).join('');
-
-                    // Renderowanie kart (Podzadania Standalone)
-                    columnContentHTML += standaloneSubtasks.map(item => 
-                        createVisualSubtaskCardHTML(item.subtask, item.parentTask, item.project, 'standalone')
-                    ).join('');
 
                     column.innerHTML = `
                         <div class="kanban-column-header">
-                            <h3>${colDef.title}</h3>
+                            <h3>${STATUSES[statusKey]}</h3>
                             ${completedFilterHTML}
-                            <span class="task-count" style="margin-left: auto;" title="Liczba zadań w kolumnie">${totalCount}</span>
+                            <span class="task-count" style="margin-left: auto;" title="Liczba zadań w kolumnie">${tasksInColumn.length}</span>
                         </div>
-                        <ul class="kanban-tasks" data-project-restriction="${colDef.projectId || ''}">${columnContentHTML}</ul>`;
-                    
+                        <ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true, null, statusKey)).join('')}</ul>`;
                     targetElement.appendChild(column);
-
-                    // === INICJALIZACJA SORTABLE DLA TEJ KOLUMNY ===
-                    const taskList = column.querySelector('.kanban-tasks');
-                    const sortable = new Sortable(taskList, {
-                        group: {
-                            name: 'dashboard-tasks',
-                            put: (to, from, dragEl) => {
-                                // Logika upuszczania:
-                                // 1. Jeśli kolumna docelowa nie ma przypisanego projektu (Todo, Done, Default InProgress), przyjmij wszystko.
-                                // 2. Jeśli kolumna ma projekt (Custom), zadanie musi być z tego samego projektu.
-                                const targetColumn = to.el.closest('.kanban-column');
-                                const targetProjectId = targetColumn.dataset.projectId;
-                                
-                                if (!targetProjectId) return true; // Kolumna uniwersalna
-                                
-                                const taskProjectId = dragEl.dataset.projectId;
-                                return taskProjectId === targetProjectId;
-                            }
-                        }, 
-                        animation: 150,
-                        ghostClass: 'task-card-ghost',
-                        chosenClass: 'task-card-chosen',
-                        dragClass: 'task-card-drag',
-                        delay: 200, 
-                        delayOnTouchOnly: true,
-                        
-                        onStart: (evt) => {
-                            // Ustawiamy globalną zmienną draggedTaskId
-                            const subtaskCard = evt.item.closest('.subtask-visual-card');
-                            if (subtaskCard) {
-                                draggedTaskId = subtaskCard.dataset.subtaskId;
-                            } else {
-                                draggedTaskId = evt.item.dataset.taskId; 
-                            }
-                            evt.item.classList.add('dragging');
-                        },
-                        
-                        onEnd: async (evt) => {
-                            evt.item.classList.remove('dragging');
-                            
-                            // Sprawdź czy faktycznie przeniesiono do innej listy lub zmieniono pozycję
-                            const column = evt.to.closest('.kanban-column');
-                            
-                            if (column && draggedTaskId) {
-                                const newStatus = column.dataset.status;
-                                // Pobierz ID kolumny niestandardowej (jeśli istnieje)
-                                const newColumnIdAttr = column.dataset.columnId; 
-                                const newCustomColumnId = (newColumnIdAttr === 'null' || !newColumnIdAttr) ? null : newColumnIdAttr;
-                                
-                                // === NAPRAWA: BEZPOŚREDNIE WYWOŁANIE FUNKCJI AKTUALIZACJI ===
-                                // Zamiast dispatchEvent, wołamy logikę biznesową bezpośrednio.
-                                console.log(`[Dashboard DnD] Upuszczono zadanie ${draggedTaskId} do statusu: ${newStatus}, CustomCol: ${newCustomColumnId}`);
-                                await handleDroppedTask(draggedTaskId, newStatus, newCustomColumnId);
-                            }
-                            draggedTaskId = null; 
-                        }
-                    });
-                    window.dashboardSortableInstances.push(sortable);
                 });
             };
 
-            // Wywołanie renderowania z nową logiką
-            renderMyTasksKanban(myMainTasks, mySubtasks, myTasksKanbanEl, dashboardColumnsLayout);
+            // Renderowanie kafelków zadań
+            renderMyTasksKanban(myTasks, myTasksKanbanEl);
+
+            // === NOWA LOGIKA: Włączenie Drag & Drop na Dashboardzie ===
+            if (window.dashboardSortableInstances) {
+                window.dashboardSortableInstances.forEach(s => s.destroy());
+            }
+            window.dashboardSortableInstances = [];
+
+            const dashboardTaskLists = myTasksKanbanEl.querySelectorAll('.kanban-tasks');
+            
+            dashboardTaskLists.forEach(list => {
+                const sortable = new Sortable(list, {
+                    group: 'dashboard-tasks', 
+                    animation: 150,
+                    ghostClass: 'task-card-ghost',
+                    chosenClass: 'task-card-chosen',
+                    dragClass: 'task-card-drag',
+                    delay: 200, 
+                    delayOnTouchOnly: true,
+                    
+                    onStart: (evt) => {
+                        draggedTaskId = evt.item.dataset.taskId; 
+                        evt.item.classList.add('dragging');
+                    },
+                    
+                    onEnd: (evt) => {
+                        evt.item.classList.remove('dragging');
+                        const column = evt.to.closest('.kanban-column');
+                        
+                        if (column && draggedTaskId) {
+                            const newStatus = column.dataset.status;
+                            // Na Dashboardzie nie ma Custom Columns
+                            handleDroppedTask(draggedTaskId, newStatus, null);
+                        }
+                        draggedTaskId = null; 
+                    }
+                });
+                window.dashboardSortableInstances.push(sortable);
+            });
         }
         function renderKanbanBoard(project, isInteractive) {
             kanbanBoardEl.innerHTML = '';
@@ -15275,14 +15094,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const hasAccess = isProjectOwner || isProjectAdmin || isMainTaskCreator || isSubtaskCreator || isSubtaskAssignee;
             const accessTooltip = !hasAccess ? 'title="Brak dostępu do szczegółów"' : '';
 
-            // Używamy statusu do określenia czy zakończone (to wpływa na przekreślenie tekstu w CSS)
+            // Używamy statusu do określenia czy zakończone
             const isCompleted = subtask.status === 'done';
-
-            // === NOWE: Sprawdzamy, czy JA ukończyłem swoją część (to wpływa na checkbox) ===
-            const isCompletedByMe = (subtask.completedBy || []).includes(currentUserId);
-            // Checkbox jest zaznaczony, jeśli JA ukończyłem, LUB jeśli całe zadanie jest zamknięte
-            const isChecked = isCompletedByMe || isCompleted;
-            // === KONIEC ===
             
             // Dziedziczenie koloru tła od rodzica
            let customStyle = '';
@@ -15314,7 +15127,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                            class="subtask-card-checkbox kanban-subtask-checkbox" 
                            data-subtask-id="${subtask.id}"
                            data-parent-id="${parentTask.id}" 
-                           ${isChecked ? 'checked' : ''} 
+                           ${isCompleted ? 'checked' : ''}
                            ${!canIComplete ? 'disabled' : ''}
                            title="${canIComplete ? 'Zmień status' : 'Brak uprawnień'}">
                         ${titleDisplay}
@@ -15327,7 +15140,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                            class="subtask-card-checkbox kanban-subtask-checkbox" 
                            data-subtask-id="${subtask.id}"
                            data-parent-id="${parentTask.id}"
-                           ${isChecked ? 'checked' : ''}
+                           ${isCompleted ? 'checked' : ''}
                            ${!canIComplete ? 'disabled' : ''}
                            title="${canIComplete ? 'Zmień status' : 'Brak uprawnień'}">
                     <h5>${titleDisplay}</h5>
@@ -15450,7 +15263,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                      draggable="true" 
                      data-subtask-id="${subtask.id}"
                      data-parent-id="${parentTask.id}"
-                     data-project-id="${project.id}" 
                      data-type="subtask"> 
                     
                     ${headerHTML}
@@ -15835,8 +15647,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // === NOWOŚĆ: Formatowanie tytułu z numerem WBS ===
             const titleDisplay = taskNumber ? `${taskNumber}. ${task.title}` : task.title;
 
-            // ZMIANA: Dodano data-project-id do elementu li
-            return `<li class="task-card ${isCompleted ? 'completed' : ''}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-project-id="${taskProject.id}" data-creator-id="${task.createdBy || ''}">
+            return `<li class="task-card ${isCompleted ? 'completed' : ''}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}">
                 
                 <div class="task-card-main-content ${priorityClass} ${assignmentClass} ${coverImageClass}" ${customStyle}>
                     ${coverImageHTML}
@@ -23091,24 +22902,11 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 return;
             }
             // === KONIEC NOWEJ LOGIKI ===
-          // 2. Sprawdź kliknięcie na CHECKBOX podzadania (wewnątrz rozwiniętej listy LUB kafelka wizualnego)
+           // 2. Sprawdź kliknięcie na CHECKBOX podzadania (wewnątrz rozwiniętej listy)
             const subtaskCheckbox = e.target.closest('.kanban-subtask-checkbox');
             if (subtaskCheckbox) {
                 e.stopPropagation(); // Tylko zatrzymaj bąbelkowanie
-                
-                // === NAPRAWA DLA PODZADAŃ STANDALONE ===
-                // Próbujemy pobrać ID rodzica bezpośrednio z checkboxa (dla kafelków wizualnych)
-                let mainTaskId = subtaskCheckbox.dataset.parentId;
-
-                // Jeśli nie ma (np. dla starej listy tekstowej), szukamy w DOM
-                if (!mainTaskId) {
-                    const parentCard = subtaskCheckbox.closest('.task-card');
-                    if (parentCard) {
-                        mainTaskId = parentCard.dataset.taskId;
-                    }
-                }
-                // === KONIEC NAPRAWY ===
-
+                const mainTaskId = subtaskCheckbox.closest('.task-card').dataset.taskId;
                 if (mainTaskId) {
                     // Używamy funkcji zaimplementowanej w poprzednim kroku
                     // Przekazujemy sam element checkboxa i ID zadania-rodzica
@@ -26916,76 +26714,41 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      let newCompletedBy = [...(s.completedBy || [])];
                      let isNowCompleted = s.isCompleted;
 
-                     // === POPRAWIONA LOGIKA ZAZNACZANIA/ODZNACZANIA ===
-                     if (isOverride) {
-                         // --- SCENARIUSZ ADMINA/WŁAŚCICIELA (Override) ---
-                         if (checkbox.checked) {
-                             // Wymuś ukończenie dla wszystkich
+                     if (checkbox.checked) {
+                         // ZAZNACZANIE
+                         if (isOverride) {
+                             // Admin wymusza ukończenie: 
+                             // 1. Ustawiamy flagę isCompleted na TRUE
+                             // 2. Opcjonalnie: Możemy dodać wszystkich assignees do completedBy, aby było spójnie
                              if (s.assignees.length > 0) {
-                                 newCompletedBy = [...s.assignees];
+                                 newCompletedBy = [...s.assignees]; // Wszyscy "ukończyli"
                              } else {
-                                 // Jeśli nikt nie jest przypisany, dodaj chociaż admina
+                                 // Jeśli nikt nie był przypisany, dodaj admina
                                  if (!newCompletedBy.includes(currentUserId)) newCompletedBy.push(currentUserId);
                              }
                              isNowCompleted = true;
                          } else {
-                             // Cofnij ukończenie dla wszystkich
-                             newCompletedBy = [];
-                             isNowCompleted = false;
-                         }
-                     } else {
-                         // --- SCENARIUSZ ZWYKŁEGO UŻYTKOWNIKA ---
-                         
-                         // 1. Aktualizuj listę 'completedBy' na podstawie stanu checkboxa
-                         if (checkbox.checked) {
+                             // Zwykły użytkownik
                              if (!newCompletedBy.includes(currentUserId)) {
                                  newCompletedBy.push(currentUserId);
                              }
-                         } else {
-                             newCompletedBy = newCompletedBy.filter(id => id !== currentUserId);
+                             // Sprawdź czy wszyscy
+                             isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
                          }
-
-                         // 2. Przelicz czy podzadanie jest w pełni ukończone
-                         const hasAssignees = s.assignees && s.assignees.length > 0;
-                         
-                         if (hasAssignees) {
-                             // Jeśli są przypisani: Ukończone tylko gdy WSZYSCY są na liście completedBy
-                             isNowCompleted = s.assignees.every(id => newCompletedBy.includes(id));
-                         } else {
-                             // Jeśli brak przypisanych (przypadek brzegowy): Decyduje stan checkboxa
-                             isNowCompleted = checkbox.checked;
-                         }
-                     }
-                     // === KONIEC POPRAWIONEJ LOGIKI ===
-                     
-                     // === NAPRAWA BŁĘDU: Synchronizacja statusu (string) z isCompleted (boolean) ===
-                     let newStatus = s.status; // Domyślnie stary status
-                     
-                     if (isNowCompleted) {
-                         newStatus = 'done';
-                     } else if (newCompletedBy.length > 0) {
-                         // Jeśli nie jest ukończone, ale ktoś już swoją część zrobił (w trybie multi)
-                         newStatus = 'inprogress';
                      } else {
-                         // Jeśli nikt nie ukończył (lub odznaczono)
-                         newStatus = 'todo';
+                         // ODZNACZANIE
+                         if (isOverride) {
+                             // Admin cofa ukończenie: Resetujemy wszystko
+                             newCompletedBy = []; // Czyścimy listę
+                             isNowCompleted = false;
+                         } else {
+                             // Zwykły użytkownik
+                             newCompletedBy = newCompletedBy.filter(id => id !== currentUserId);
+                             isNowCompleted = false; // Jeśli ktoś cofnął, to na pewno nie jest już completed
+                         }
                      }
-
-                     // === ZMIANA: Konfetti leci zawsze przy zaznaczaniu (nawet za 1. osobę w multi) ===
-                     // Jeśli użytkownik zaznaczył checkbox (checked === true), odpalamy nagrodę.
-                     // Niezależnie od tego, czy to kończy całe zadanie, czy tylko jego część.
-                     if (checkbox.checked) {
-                         showConfetti();
-                     }
-                     // === KONIEC ZMIANY ===
-                     // === KONIEC NAPRAWY ===
-
-                     changedSubtask = { 
-                        ...s, 
-                        completedBy: newCompletedBy, 
-                        isCompleted: isNowCompleted,
-                        status: newStatus // <-- Zapisujemy poprawny status
-                    };
+                     
+                     changedSubtask = { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
                      return changedSubtask;
                  }
                  return s;
@@ -30217,17 +29980,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
 
 
 
