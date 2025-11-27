@@ -26984,25 +26984,26 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  return; 
              }
 
-
              let updatedTask = { ...mainTask };
              const oldStatus = updatedTask.status; 
              const currentUserId = state.currentUser.uid;
 
-             let changedSubtask = null; 
+             // Flaga, czy faktycznie dokonano zmiany
+             let subtaskChanged = false;
 
              updatedTask.subtasks = updatedTask.subtasks.map(s => {
                  if (s.id === subtaskId) {
-                     // === NOWA BLOKADA: Lista kontrolna ===
+                     // === BLOKADA: Lista kontrolna ===
                      if (checkbox.checked && s.checklist && s.checklist.length > 0) {
                          const allChecklistDone = s.checklist.every(i => i.isCompleted);
                          if (!allChecklistDone) {
                              showNotification("Nie można ukończyć podzadania. Ukończ najpierw wszystkie pozycje z listy kontrolnej.", "Błąd");
-                             checkbox.checked = false; // Cofnij wizualnie
-                             return s; // Zwróć bez zmian
+                             checkbox.checked = false; 
+                             return s; 
                          }
                      }
-                     // === KONIEC BLOKADY ===
+
+                     subtaskChanged = true;
 
                      // Sprawdź uprawnienia Admina/Właściciela
                      const isOverride = project.ownerId === currentUserId || (project.admins || []).includes(currentUserId);
@@ -27011,79 +27012,75 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      let isNowCompleted = s.isCompleted;
 
                      if (checkbox.checked) {
-                         // ZAZNACZANIE
+                         // --- AKCJA: ZAZNACZANIE ---
+                         showConfetti(); // Konfetti!
+
                          if (isOverride) {
-                             // Admin wymusza ukończenie: 
-                             // 1. Ustawiamy flagę isCompleted na TRUE
-                             // 2. Opcjonalnie: Możemy dodać wszystkich assignees do completedBy, aby było spójnie
+                             // ADMIN: Wymusza DONE dla wszystkich
                              if (s.assignees.length > 0) {
-                                 newCompletedBy = [...s.assignees]; // Wszyscy "ukończyli"
+                                 const allAssigneesSet = new Set([...newCompletedBy, ...s.assignees]);
+                                 newCompletedBy = Array.from(allAssigneesSet);
                              } else {
-                                 // Jeśli nikt nie był przypisany, dodaj admina
                                  if (!newCompletedBy.includes(currentUserId)) newCompletedBy.push(currentUserId);
                              }
-                             isNowCompleted = true;
+                             isNowCompleted = true; 
                          } else {
-                             // Zwykły użytkownik
+                             // USER: Odznacza swoją część
                              if (!newCompletedBy.includes(currentUserId)) {
                                  newCompletedBy.push(currentUserId);
                              }
-                             // Sprawdź czy wszyscy
-                             isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
+                             const hasAssignees = s.assignees && s.assignees.length > 0;
+                             if (hasAssignees) {
+                                 isNowCompleted = s.assignees.every(id => newCompletedBy.includes(id));
+                             } else {
+                                 isNowCompleted = true;
+                             }
                          }
                      } else {
-                         // ODZNACZANIE
+                         // --- AKCJA: ODZNACZANIE ---
                          if (isOverride) {
-                             // Admin cofa ukończenie: Resetujemy wszystko
-                             newCompletedBy = []; // Czyścimy listę
+                             newCompletedBy = []; 
                              isNowCompleted = false;
                          } else {
-                             // Zwykły użytkownik
                              newCompletedBy = newCompletedBy.filter(id => id !== currentUserId);
-                             isNowCompleted = false; // Jeśli ktoś cofnął, to na pewno nie jest już completed
+                             isNowCompleted = false; 
                          }
                      }
                      
-                     changedSubtask = { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
-                     return changedSubtask;
+                     return { ...s, completedBy: newCompletedBy, isCompleted: isNowCompleted };
                  }
                  return s;
              });
 
-             if (!changedSubtask) {
-                 console.error("Nie znaleziono subzadania o ID:", subtaskId, "w zadaniu:", mainTaskId);
-                 return;
-             }
+             if (!subtaskChanged) return;
 
              const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
              const updatedTasks = project.tasks.map(t => (t.id === mainTaskId ? updatedTask : t));
 
              try {
-                // --- NAPRAWA: Przeliczenie budżetu przy zmianie statusu podzadania ---
+                // Przeliczenie budżetu
                 const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
                 
-                // Zapisz zadania ORAZ zaktualizowany budżet
+                // Zapisz do bazy
                 await updateDoc(projectDocRef, { 
                     tasks: updatedTasks,
                     budgetSummary: newBudgetSummary
                 });
-                // --- KONIEC NAPRAWY ---
                  
-                 // Zamiast odświeżać modal, od razu renderujemy zmienioną listę subzadań
+                 // Odśwież listę w modalu (naprawa UI)
                  renderSubtaskListInMainModal(updatedTask);
              
-                 // Przekazujemy "updatedTask" (zamiast mainTaskId) do funkcji sprawdzających
+                 // Sprawdź logikę automatycznego zamykania
                  await checkAndCompleteMainTask(updatedTask, project);
                  
-                 // === DODANA LINIA: Sprawdzamy, czy wszystkie subzadania użytkownika są ukończone ===
-                 // Również przekazujemy "updatedTask"
-                 await checkSubtasksAndCompleteMyPart(updatedTask, project); 
+                 // === TUTAJ BYŁ BŁĄD - TERAZ JEST POPRAWIONA NAZWA FUNKCJI ===
+                 await checkSubtasksAndCompleteParticipants(updatedTask, project); 
+                 // ============================================================
+
          } catch (error) {
              console.error("Błąd zapisu stanu subzadania:", error);
              showNotification("Wystąpił błąd podczas aktualizacji podzadania.", "Błąd");
              checkbox.checked = !checkbox.checked;
-             const { task: freshTask } = findTask(mainTaskId);
-             if(freshTask) renderSubtaskListInMainModal(freshTask);
          }
         }
 
@@ -30375,6 +30372,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
