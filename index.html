@@ -1432,25 +1432,7 @@
         /* Style drag & drop */
         .task-card.dragging .task-card-main-content { opacity: 0.5; transform: rotate(3deg); }
 
-        /* === NOWE REGUŁY: Ukrywanie "bebechów" podczas przeciągania === */
-/* To zadziała tylko, jeśli w JS włączymy forceFallback: true */
 
-/* 1. Ukryj w elemencie przyklejonym do myszki (drag) */
-body .task-card-drag .kanban-subtask-list-container,
-body .task-card-drag .subtask-family-container,
-body .task-card-drag .kanban-multi-status-container,
-body .task-card-drag .kanban-checklist-container {
-    display: none !important;
-}
-
-/* 2. Ukryj w "duchu" (pustym miejscu w kolumnie) - aby dziura nie była ogromna */
-body .task-card-ghost .kanban-subtask-list-container,
-body .task-card-ghost .subtask-family-container,
-body .task-card-ghost .kanban-multi-status-container,
-body .task-card-ghost .kanban-checklist-container {
-    display: none !important;
-}
-/* === KONIEC NOWYCH REGUŁ === */
         /* --- NOWE STYLE DLA DRZEWA PODZADAŃ --- */
         
         /* Kontener na rodzinę podzadań */
@@ -14898,48 +14880,46 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const taskLists = kanbanBoardEl.querySelectorAll('.kanban-tasks');
                 taskLists.forEach(list => {
                     const sortable = new Sortable(list, {
-    group: 'kanban-tasks',
-    animation: 150,
-    ghostClass: 'task-card-ghost',
-    chosenClass: 'task-card-chosen',
-    dragClass: 'task-card-drag',
+                        group: 'kanban-tasks',
+                        animation: 150,
+                        ghostClass: 'task-card-ghost',
+                        chosenClass: 'task-card-chosen',
+                        dragClass: 'task-card-drag',
+                        
+                        // === NOWE: FILTR DLA PODZADAŃ ===
+                        // Ignoruj element podzadania w logice Sortable (nie przesuwaj rodzica)
+                        filter: '.subtask-visual-card', 
+                        // WAŻNE: Pozwól na natywne zdarzenie dragstart na odfiltrowanym elemencie!
+                        // Dzięki temu nasz listener 'dragstart' (z KROKU 6) zadziała.
+                        preventOnFilter: false, 
+                        // === KONIEC ===
 
-    // === KLUCZOWA ZMIANA DLA ANIMACJI ===
-    // 1. Wymuś tworzenie elementu DOM zamiast systemowego obrazka
-    forceFallback: true, 
-    // 2. Upewnij się, że klasa drag jest nakładana na ten element
-    fallbackClass: 'task-card-drag', 
-    // ====================================
-    
-    // === NOWE: FILTR DLA PODZADAŃ ===
-    filter: '.subtask-visual-card', 
-    preventOnFilter: false, 
-    // === KONIEC ===
-
-    // === POCZĄTEK MODYFIKACJI (NAPRAWA SCROLLA MOBILNEGO) ===
-    delay: 200, 
-    delayOnTouchOnly: true, 
-    // === KONIEC MODYFIKACJI ===
-    
-    onStart: (evt) => {
-        // 1. Zapisz ID
-        draggedTaskId = evt.item.dataset.taskId; 
-        
-        // 2. Dodatkowo zwiń kontenery logicznie (dla pewności po upuszczeniu)
-        const containersToCollapse = evt.item.querySelectorAll('.kanban-subtask-list-container, .subtask-family-container, .kanban-multi-status-container, .kanban-checklist-container');
-        containersToCollapse.forEach(el => el.classList.add('collapsed'));
-    },
-
-    onEnd: (evt) => {
-        // Symulujemy zdarzenie 'drop', aby nasza główna logika przejęcia zadziałała
-        const column = evt.to.closest('.kanban-column');
-        if (column) {
-            const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
-            Object.defineProperty(dropEvent, 'target', { value: column, writable: false });
-            kanbanBoardEl.dispatchEvent(dropEvent);
-        }
-    }
-});
+                        // === POCZĄTEK MODYFIKACJI (NAPRAWA SCROLLA MOBILNEGO) ===
+                        delay: 200, // Opóźnienie 200ms (long press)
+                        delayOnTouchOnly: true, // Aktywuj opóźnienie tylko na dotyku
+                        // === KONIEC MODYFIKACJI ===
+                        
+                        onEnd: (evt) => {
+                            // Symulujemy zdarzenie 'drop', aby nasza główna logika przejęcia zadziałała
+                            // Musimy znaleźć element nadrzędny (kolumnę)
+                            const column = evt.to.closest('.kanban-column');
+                            if (column) {
+                                // Ręcznie tworzymy fałszywe zdarzenie 'drop',
+                                // aby przekazać je do naszego głównego listenera na kanbanBoardEl
+                                const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
+                                
+                                // Kopiujemy 'target', aby wskazywał na kolumnę, do której upuszczono
+                                // Używamy Object.defineProperty, aby móc nadpisać 'target'
+                                Object.defineProperty(dropEvent, 'target', { value: column, writable: false });
+                                
+                                // Ustawiamy ID przeciąganego zadania (które zapisaliśmy w dragstart)
+                                // (zakładając, że `draggedTaskId` jest nadal dostępne w tym zakresie)
+                                
+                                // Wywołaj zdarzenie na `kanbanBoardEl`
+                                kanbanBoardEl.dispatchEvent(dropEvent);
+                            }
+                        }
+                    });
                     window.sortableInstances.push(sortable);
                 });
             }
@@ -30000,8 +29980,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
-
-
 
 
 
