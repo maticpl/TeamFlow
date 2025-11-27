@@ -26714,39 +26714,47 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      let newCompletedBy = [...(s.completedBy || [])];
                      let isNowCompleted = s.isCompleted;
 
-                     if (checkbox.checked) {
-                         // ZAZNACZANIE
-                         if (isOverride) {
-                             // Admin wymusza ukończenie: 
-                             // 1. Ustawiamy flagę isCompleted na TRUE
-                             // 2. Opcjonalnie: Możemy dodać wszystkich assignees do completedBy, aby było spójnie
+                     // === POPRAWIONA LOGIKA ZAZNACZANIA/ODZNACZANIA ===
+                     if (isOverride) {
+                         // --- SCENARIUSZ ADMINA/WŁAŚCICIELA (Override) ---
+                         if (checkbox.checked) {
+                             // Wymuś ukończenie dla wszystkich
                              if (s.assignees.length > 0) {
-                                 newCompletedBy = [...s.assignees]; // Wszyscy "ukończyli"
+                                 newCompletedBy = [...s.assignees];
                              } else {
-                                 // Jeśli nikt nie był przypisany, dodaj admina
+                                 // Jeśli nikt nie jest przypisany, dodaj chociaż admina
                                  if (!newCompletedBy.includes(currentUserId)) newCompletedBy.push(currentUserId);
                              }
                              isNowCompleted = true;
                          } else {
-                             // Zwykły użytkownik
+                             // Cofnij ukończenie dla wszystkich
+                             newCompletedBy = [];
+                             isNowCompleted = false;
+                         }
+                     } else {
+                         // --- SCENARIUSZ ZWYKŁEGO UŻYTKOWNIKA ---
+                         
+                         // 1. Aktualizuj listę 'completedBy' na podstawie stanu checkboxa
+                         if (checkbox.checked) {
                              if (!newCompletedBy.includes(currentUserId)) {
                                  newCompletedBy.push(currentUserId);
                              }
-                             // Sprawdź czy wszyscy
-                             isNowCompleted = (s.assignees.length > 0) && (s.assignees.every(id => newCompletedBy.includes(id)));
-                         }
-                     } else {
-                         // ODZNACZANIE
-                         if (isOverride) {
-                             // Admin cofa ukończenie: Resetujemy wszystko
-                             newCompletedBy = []; // Czyścimy listę
-                             isNowCompleted = false;
                          } else {
-                             // Zwykły użytkownik
                              newCompletedBy = newCompletedBy.filter(id => id !== currentUserId);
-                             isNowCompleted = false; // Jeśli ktoś cofnął, to na pewno nie jest już completed
+                         }
+
+                         // 2. Przelicz czy podzadanie jest w pełni ukończone
+                         const hasAssignees = s.assignees && s.assignees.length > 0;
+                         
+                         if (hasAssignees) {
+                             // Jeśli są przypisani: Ukończone tylko gdy WSZYSCY są na liście completedBy
+                             isNowCompleted = s.assignees.every(id => newCompletedBy.includes(id));
+                         } else {
+                             // Jeśli brak przypisanych (przypadek brzegowy): Decyduje stan checkboxa
+                             isNowCompleted = checkbox.checked;
                          }
                      }
+                     // === KONIEC POPRAWIONEJ LOGIKI ===
                      
                      // === NAPRAWA BŁĘDU: Synchronizacja statusu (string) z isCompleted (boolean) ===
                      let newStatus = s.status; // Domyślnie stary status
@@ -29999,6 +30007,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
