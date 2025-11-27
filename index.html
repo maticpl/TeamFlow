@@ -15270,14 +15270,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
     // === ZMIANA: Generujemy prawdziwy checkbox zamiast ikony ===
     const isChecked = item.isCompleted ? 'checked' : '';
     
-    const checkboxHTML = `<input type="checkbox" 
+   const checkboxHTML = `<input type="checkbox" 
         class="kanban-checklist-item-checkbox" 
         data-parent-id="${parentTask.id}" 
         data-subtask-id="${subtask.id}"
         data-index="${index}"
         ${isChecked}
-        onmousedown="event.stopPropagation()" 
-        onclick="event.stopPropagation()"
         style="
             width: 14px; 
             height: 14px; 
@@ -15695,24 +15693,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         // 2. Dodano onclick="event.stopPropagation()".
                         // 3. Dodano position: relative, z-index: 10, opacity: 1, pointer-events: auto.
                         const checkboxHTML = `<input type="checkbox" 
-    class="kanban-checklist-item-checkbox" 
-    data-parent-id="${parentTask.id}" 
-    data-subtask-id="${subtask.id}"
-    data-index="${index}"
-    ${item.isCompleted ? 'checked' : ''}
-    onmousedown="event.stopPropagation()" 
-    onclick="event.stopPropagation()"
-    style="
-        width: 16px; 
-        height: 16px; 
-        cursor: pointer; 
-        flex-shrink: 0; 
-        accent-color: var(--success-primary);
-        opacity: 1;
-        pointer-events: auto;
-        position: relative;
-        z-index: 10;
-    ">`;
+        class="kanban-checklist-item-checkbox" 
+        data-task-id="${task.id}" 
+        data-index="${index}"
+        ${item.isCompleted ? 'checked' : ''}
+        style="
+            width: 16px; 
+            height: 16px; 
+            cursor: pointer; 
+            flex-shrink: 0; 
+            accent-color: var(--success-primary);
+            opacity: 1;
+            pointer-events: auto;
+            position: relative;
+            z-index: 10;
+        ">`;
 
                         // Styl tekstu
                         const textStyle = item.isCompleted ? 'text-decoration: line-through; color: var(--text-secondary);' : 'color: var(--text-primary);';
@@ -23400,45 +23395,46 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
             // === KONIEC NOWEGO KODU ===
 
-            // === NOWA LOGIKA: Obsługa CHECKBOXA LISTY KONTROLNEJ (na kafelku i w podzadaniach) ===
+            // === NOWA LOGIKA: Obsługa CHECKBOXA LISTY KONTROLNEJ (Zadania i Podzadania) ===
 if (e.target.matches('.kanban-checklist-item-checkbox')) {
-    e.stopPropagation(); // Zatrzymaj, aby nie otworzyć modala/nie zwinąć karty
+    // Teraz to my zatrzymujemy propagację programowo, po wykryciu elementu
+    e.stopPropagation(); 
     
     const checkbox = e.target;
     
-    // Pobierz ID. Jeśli to podzadanie, mamy data-parent-id i data-subtask-id.
-    // Jeśli to zadanie główne, mamy data-task-id.
+    // Pobieramy ID. 
+    // Jeśli checkbox jest w zadaniu głównym, ma data-task-id.
+    // Jeśli w podzadaniu, ma data-parent-id (rodzic) i data-subtask-id (on sam).
     const mainTaskId = checkbox.dataset.taskId || checkbox.dataset.parentId;
-    const subtaskId = checkbox.dataset.subtaskId; // Może być undefined
+    const subtaskId = checkbox.dataset.subtaskId; // Undefined dla zadania głównego
     const itemIndex = parseInt(checkbox.dataset.index, 10);
     const isChecked = checkbox.checked;
 
-    // Znajdź zadanie główne i projekt
-    const { task: mainTask, project } = findTask(mainTaskId);
+    const { task, project } = findTask(mainTaskId);
     
-    if (mainTask && project) {
-        let updatedTask = { ...mainTask };
-        let modificationMade = false;
+    if (task && project) {
+        // Klonujemy zadanie, żeby edytować kopię
+        let updatedTask = { ...task };
+        let modificationSuccess = false;
 
         if (subtaskId) {
-            // --- SCENARIUSZ A: Kliknięto w liście kontrolnej PODZADANIA ---
+            // --- SCENARIUSZ A: Lista w PODZADANIU ---
             if (updatedTask.subtasks) {
                 updatedTask.subtasks = updatedTask.subtasks.map(sub => {
                     if (sub.id === subtaskId && sub.checklist && sub.checklist[itemIndex]) {
-                        // Klonujemy checklistę podzadania
                         const updatedChecklist = [...sub.checklist];
                         updatedChecklist[itemIndex] = {
                             ...updatedChecklist[itemIndex],
                             isCompleted: isChecked
                         };
-                        modificationMade = true;
+                        modificationSuccess = true;
                         return { ...sub, checklist: updatedChecklist };
                     }
                     return sub;
                 });
             }
         } else {
-            // --- SCENARIUSZ B: Kliknięto w liście kontrolnej ZADANIA GŁÓWNEGO ---
+            // --- SCENARIUSZ B: Lista w ZADANIU GŁÓWNYM ---
             if (updatedTask.checklist && updatedTask.checklist[itemIndex]) {
                 const updatedChecklist = [...updatedTask.checklist];
                 updatedChecklist[itemIndex] = { 
@@ -23446,25 +23442,20 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                     isCompleted: isChecked 
                 };
                 updatedTask.checklist = updatedChecklist;
-                modificationMade = true;
+                modificationSuccess = true;
             }
         }
 
-        if (modificationMade) {
-            // Optymistyczna aktualizacja wizualna tekstu obok checkboxa
+        if (modificationSuccess) {
+            // Optymistyczna wizualizacja (przekreślenie tekstu od razu)
             const textSpan = checkbox.nextElementSibling;
             if (textSpan) {
-                if (isChecked) {
-                    textSpan.style.textDecoration = 'line-through';
-                    textSpan.style.color = 'var(--text-secondary)';
-                    showConfetti(); // Konfetti dla satysfakcji!
-                } else {
-                    textSpan.style.textDecoration = 'none';
-                    textSpan.style.color = 'var(--text-primary)';
-                }
+                textSpan.style.textDecoration = isChecked ? 'line-through' : 'none';
+                textSpan.style.color = isChecked ? 'var(--text-secondary)' : 'var(--text-primary)';
+                if (isChecked) showConfetti();
             }
 
-            // Zapisz zmiany do bazy
+            // Zapis do bazy
             const updatedTasks = project.tasks.map(t => t.id === mainTaskId ? updatedTask : t);
             const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
             
@@ -23472,10 +23463,15 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 console.error("Błąd zapisu checklisty:", err);
                 showNotification("Błąd zapisu.", "Błąd");
                 checkbox.checked = !isChecked; // Cofnij w razie błędu
+                // Cofnij styl
+                if (textSpan) {
+                     textSpan.style.textDecoration = isChecked ? 'none' : 'line-through';
+                     textSpan.style.color = isChecked ? 'var(--text-primary)' : 'var(--text-secondary)';
+                }
             });
         }
     }
-    return; // Zakończ obsługę tego kliknięcia
+    return; // Koniec obsługi tego kliknięcia
 }
 // === KONIEC NOWEJ LOGIKI ===
 
@@ -30630,6 +30626,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
