@@ -19304,27 +19304,70 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             const project = findProject(projectId);
             if (!project) return;
 
-            const taskToRestore = (project.deletedTasks || []).find(t => t.id === taskId);
-            if (!taskToRestore) return;
+            // 1. Znajdź element w koszu
+            const itemToRestore = (project.deletedTasks || []).find(t => t.id === taskId);
+            if (!itemToRestore) return;
 
-            // Usuń metadane kosza przed przywróceniem
-            const activeTask = { ...taskToRestore };
-            delete activeTask.deletedAt;
-            delete activeTask.deletedBy;
-            
-            // Ustaw status na 'todo' (bezpieczniej niż przywracać stary status, który mógł być 'inprogress')
-            // lub przywróć stary. Decyzja: Przywracamy stary status, ale jeśli był 'done', to wróci do 'done'.
-            // Bezpieczniej dla logiki:
-            // activeTask.status = activeTask.status; 
+            // 2. Wyczyść metadane usunięcia (wspólne dla obu typów)
+            const restoredItem = { ...itemToRestore };
+            delete restoredItem.deletedAt;
+            delete restoredItem.deletedBy;
 
-            // Aktualizuj tablice
+            // 3. Przygotuj nową listę aktywnych zadań (na razie kopię obecnych)
+            let newActiveTasks = [...(project.tasks || [])];
+            let restoreMessage = "Zadanie zostało przywrócone.";
+
+            // 4. Logika rozgałęziona: Podzadanie vs Zadanie Główne
+            if (restoredItem.isSubtask && restoredItem.originalParentId) {
+                // --- TO JEST PODZADANIE ---
+                
+                // Szukamy rodzica w aktywnych zadaniach
+                const parentIndex = newActiveTasks.findIndex(t => t.id === restoredItem.originalParentId);
+
+                if (parentIndex !== -1) {
+                    // SCENARIUSZ A: Rodzic istnieje
+                    const parentTask = { ...newActiveTasks[parentIndex] };
+                    
+                    // Czyścimy metadane specyficzne dla kosza podzadań
+                    delete restoredItem.isSubtask;
+                    delete restoredItem.originalParentId;
+                    delete restoredItem.originalParentTitle;
+
+                    // Dodajemy do tablicy subtasks rodzica
+                    if (!parentTask.subtasks) parentTask.subtasks = [];
+                    parentTask.subtasks.push(restoredItem);
+
+                    // Aktualizujemy rodzica w głównej liście
+                    newActiveTasks[parentIndex] = parentTask;
+                    
+                    restoreMessage = `Podzadanie przywrócone do zadania "${parentTask.title}".`;
+
+                } else {
+                    // SCENARIUSZ B: Rodzic NIE istnieje (np. został też usunięty trwale)
+                    // Przywracamy jako Zadanie Główne (konwersja)
+                    
+                    delete restoredItem.isSubtask;
+                    delete restoredItem.originalParentId;
+                    delete restoredItem.originalParentTitle;
+                    
+                    // Dodajemy jako nowe zadanie główne
+                    newActiveTasks.push(restoredItem);
+                    
+                    restoreMessage = "Zadanie nadrzędne nie istnieje. Przywrócono jako główne zadanie.";
+                }
+
+            } else {
+                // --- TO JEST ZADANIE GŁÓWNE ---
+                newActiveTasks.push(restoredItem);
+            }
+
+            // 5. Usuń z listy deletedTasks
             const newDeletedTasks = project.deletedTasks.filter(t => t.id !== taskId);
-            const newActiveTasks = [...(project.tasks || []), activeTask];
 
             const projectDocRef = doc(projectsRef, projectId);
             
             try {
-                // Przelicz budżet (teraz uwzględnia przywrócone zadanie)
+                // Przelicz budżet (teraz uwzględnia przywrócone elementy)
                 const newBudgetSummary = calculateProjectBudgetSummary(newActiveTasks);
 
                 const batch = writeBatch(db);
@@ -19336,21 +19379,15 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
                 
                 await batch.commit();
                 
-                showNotification("Zadanie zostało przywrócone.", "Sukces");
-                // Odśwież widok kosza
-                // (projekt w `state` zaktualizuje się przez onSnapshot, ale dla pewności w renderze kosza używamy findProject)
+                showNotification(restoreMessage, "Sukces");
                 
-                // Mały hack: Musimy poczekać na onSnapshot lub ręcznie zaktualizować lokalnie, żeby renderTrashList zadziałało od razu
-                // Ale ponieważ mamy listener onSnapshot, UI główne się odświeży. 
-                // Modal kosza musimy odświeżyć ręcznie po chwili lub zamknąć.
-                // Tutaj po prostu odświeżymy listę w modalu na bazie lokalnych obliczeń dla płynności,
-                // ale prawdziwe dane przyjdą z bazy.
+                // Odśwież widok kosza lokalnie dla płynności
                 const tempProject = { ...project, deletedTasks: newDeletedTasks };
                 renderTrashList(tempProject);
 
             } catch (error) {
                 console.error("Błąd przywracania:", error);
-                showNotification("Nie udało się przywrócić zadania.", "Błąd");
+                showNotification("Nie udało się przywrócić elementu.", "Błąd");
             }
         }
 
@@ -30299,6 +30336,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
