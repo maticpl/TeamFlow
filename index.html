@@ -15297,46 +15297,56 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 checklistIcon = `<div class="task-detail ${toggleClass}" ${tooltip} style="color: var(--accent-primary); ${cursorStyle}"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 1.043 3.296 3.746 3.746 0 0 1 3.296-1.043A3.745 3.745 0 0 1 21 12Z" /></svg><span style="font-weight: 600; font-size: 11px; margin-left: 2px;">${done}/${total}</span></div>`;
                 if (hasAccess) {
                     const checklistItemsHTML = subtask.checklist.map((item, index) => {
-    let avatarHTML = '';
-    if (item.assigneeId) {
-        const assignee = findUser(item.assigneeId);
-        if (assignee) {
-            avatarHTML = renderAvatarHTML(assignee, 'member-pill-avatar').replace('class="avatar member-pill-avatar"', 'class="avatar" style="width:16px;height:16px;font-size:9px;"');
-        }
-    }
+                        let avatarHTML = '';
+                        if (item.assigneeId) {
+                            const assignee = findUser(item.assigneeId);
+                            if (assignee) {
+                                avatarHTML = renderAvatarHTML(assignee, 'member-pill-avatar').replace('class="avatar member-pill-avatar"', 'class="avatar" style="width:16px;height:16px;font-size:9px;"');
+                            }
+                        }
 
-    // === ZMIANA: Generujemy prawdziwy checkbox zamiast ikony ===
-    const isChecked = item.isCompleted ? 'checked' : '';
-    
-   const checkboxHTML = `<input type="checkbox" 
-        class="kanban-checklist-item-checkbox" 
-        data-parent-id="${parentTask.id}" 
-        data-subtask-id="${subtask.id}"
-        data-index="${index}"
-        ${isChecked}
-        style="
-            width: 14px; 
-            height: 14px; 
-            cursor: pointer; 
-            flex-shrink: 0; 
-            accent-color: var(--success-primary);
-            opacity: 1;
-            pointer-events: auto;
-            position: relative;
-            z-index: 10;
-            margin: 0;
-        ">`;
+                        // === ZMIANA: Sprawdzanie uprawnień dla elementu listy w PODZADANIU ===
+                        // Używamy 'subtask' jako kontekstu zadania
+                        const canToggle = hasChecklistPermission(state.currentUser, project, subtask, item);
+                        
+                        const disabledAttr = canToggle ? '' : 'disabled';
+                        const cursorStyle = canToggle ? 'cursor: pointer;' : 'cursor: not-allowed; opacity: 0.6;';
+                        const titleAttr = canToggle ? '' : 'title="Brak uprawnień (tylko przypisany, twórca lub admin)"';
 
-    const textStyle = item.isCompleted ? 'text-decoration: line-through; color: var(--text-secondary);' : 'color: var(--text-primary);';
-    
-    return `<li style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border-color); font-size: 11px;">
-        <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
-            ${checkboxHTML}
-            <span style="${textStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name}</span>
-        </div>
-        ${avatarHTML}
-    </li>`;
-}).join('');
+                        // Generowanie interaktywnego checkboxa
+                        // WAŻNE: Używamy data-parent-id oraz data-subtask-id
+                        const checkboxHTML = `<input type="checkbox" 
+                            class="kanban-checklist-item-checkbox" 
+                            data-parent-id="${parentTask.id}" 
+                            data-subtask-id="${subtask.id}" 
+                            data-index="${index}"
+                            ${item.isCompleted ? 'checked' : ''}
+                            ${disabledAttr}
+                            ${titleAttr}
+                            style="
+                                width: 14px; 
+                                height: 14px; 
+                                ${cursorStyle}
+                                flex-shrink: 0; 
+                                accent-color: var(--success-primary); 
+                                opacity: 1; 
+                                pointer-events: auto; 
+                                position: relative; 
+                                z-index: 10; 
+                                margin: 0;
+                            ">`;
+
+                        const textStyle = item.isCompleted ? 'text-decoration: line-through; color: var(--text-secondary);' : 'color: var(--text-primary);';
+                        
+                        return `<li style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border-color); font-size: 11px;">
+                            <div style="display: flex; align-items: center; gap: 6px; overflow: hidden;">
+                                ${checkboxHTML}
+                                <span style="${textStyle} white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name}</span>
+                            </div>
+                            ${avatarHTML}
+                        </li>`;
+                    }).join('');
+                    
                     checklistListHTML = `<div class="kanban-checklist-container collapsed"><ul style="list-style: none; padding: 0; margin: 0;">${checklistItemsHTML}</ul></div>`;
                 }
             }
@@ -30664,6 +30674,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
