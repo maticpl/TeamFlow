@@ -26900,7 +26900,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 if (updates['preferences.confirmDelete'] !== undefined) newPrefs.confirmDelete = updates['preferences.confirmDelete'];
                 if (updates['preferences.expandSubtasksByDefault'] !== undefined) newPrefs.expandSubtasksByDefault = updates['preferences.expandSubtasksByDefault']; 
 
-                // === NOWE: Zapis powiadomień (POPRAWKA DETEKCJI ZMIAN) ===
+                // === NOWE: Zapis powiadomień (POPRAWKA DETEKCJI ZMIAN V2) ===
                 const newNotifPrefs = {
                     project_invite: document.getElementById('notif-project-invite').checked,
                     task_assign: document.getElementById('notif-task-assign').checked,
@@ -26913,30 +26913,43 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                     dependency: document.getElementById('notif-dependency').checked
                 };
 
-                // 1. Pobierz bezpiecznie aktualne ustawienia z bazy (jeśli brak, to pusty obiekt)
-                const currentNotifsSafe = (state.currentUser.preferences && state.currentUser.preferences.notifications) ? state.currentUser.preferences.notifications : {};
+                // 1. Pobierz aktualne ustawienia z bazy
+                // Używamy 'state.currentUser' jako źródła prawdy
+                const currentNotifsSafe = (state.currentUser.preferences && state.currentUser.preferences.notifications) 
+                    ? state.currentUser.preferences.notifications 
+                    : {};
+                
                 let notifChanged = false;
 
-                // 2. Porównaj każdą wartość
-                for (const key in newNotifPrefs) {
-                    const newValue = newNotifPrefs[key];
-                    // Ustal starą wartość: Jeśli w bazie jest undefined, to traktujemy to jako TRUE (domyślnie włączone)
-                    // Zatem zmiana następuje tylko wtedy, gdy użytkownik ODZNACZYŁ (false), a w bazie nie było false.
-                    const oldValue = currentNotifsSafe[key] !== false;
+                // 2. Porównaj każdą wartość jawną pętlą
+                const notifKeys = Object.keys(newNotifPrefs);
+                
+                for (let i = 0; i < notifKeys.length; i++) {
+                    const key = notifKeys[i];
+                    const newValue = newNotifPrefs[key]; // true/false z checkboxa
+                    
+                    // Pobierz starą wartość.
+                    // Jeśli w bazie jest undefined, przyjmujemy domyślnie TRUE.
+                    const storedValue = currentNotifsSafe[key];
+                    const oldValue = (storedValue === undefined) ? true : storedValue;
 
+                    // Porównanie ścisłe
                     if (newValue !== oldValue) {
                         notifChanged = true;
-                        console.log(`Zmiana powiadomienia [${key}]: ${oldValue} -> ${newValue}`); // Log diagnostyczny
-                        break; 
+                        console.log(`Wykryto zmianę w powiadomieniach: [${key}] Stara: ${oldValue}, Nowa: ${newValue}`);
+                        break; // Wystarczy jedna zmiana, by zapisać całą sekcję
                     }
                 }
 
                 if (notifChanged) {
                     updates['preferences.notifications'] = newNotifPrefs;
                     
-                    // Aktualizujemy też obiekt pomocniczy newPrefs, aby kolejne zapisy w tej sesji widziały zmianę
+                    // Aktualizujemy też obiekt pomocniczy newPrefs
                     if (!newPrefs.notifications) newPrefs.notifications = {};
-                    Object.assign(newPrefs.notifications, newNotifPrefs);
+                    
+                    // Nadpisujemy obiekt w pamięci nowymi wartościami
+                    // (ważne, aby kolejne kliknięcie "Zapisz" nie wykryło zmian, jeśli ich nie było)
+                    newPrefs.notifications = { ...newPrefs.notifications, ...newNotifPrefs };
                     
                     messages.push("Ustawienia powiadomień");
                 }
@@ -31458,6 +31471,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
