@@ -10671,13 +10671,32 @@ let state = {
          * @param {string} message - Treść HTML powiadomienia.
          * @param {object} linkData - Obiekt linku { type: 'task'|'project'|'poll', projectId, taskId, ... }
          */
-        async function sendInternalNotification(recipientIds, type, message, linkData) {
+        // ZMIANA: Dodano parametr preferenceKey na końcu
+        async function sendInternalNotification(recipientIds, type, message, linkData, preferenceKey = null) {
             // 1. Filtrujemy: nie wysyłaj do samego siebie i usuń duplikaty
-            const uniqueRecipients = [...new Set(recipientIds)].filter(id => id !== state.currentUser.uid);
+            let uniqueRecipients = [...new Set(recipientIds)].filter(id => id !== state.currentUser.uid);
             
-            if (uniqueRecipients.length === 0) return;
+            // === NOWA LOGIKA: Filtrowanie po preferencjach ===
+            if (preferenceKey) {
+                uniqueRecipients = uniqueRecipients.filter(userId => {
+                    const user = findUser(userId);
+                    // Jeśli nie ma usera w stanie (np. niezaładowany), wyślij domyślnie.
+                    // Jeśli user ma ustawienia, sprawdź klucz. Domyślnie true (jeśli undefined).
+                    if (user && user.preferences && user.preferences.notifications) {
+                        const prefValue = user.preferences.notifications[preferenceKey];
+                        return prefValue !== false; // Domyślnie włączone
+                    }
+                    return true; // Domyślnie włączone jeśli brak ustawień
+                });
+            }
+            // === KONIEC NOWEJ LOGIKI ===
 
-            console.log(`[Notification] Wysyłanie typu '${type}' do: ${uniqueRecipients.length} osób.`);
+            if (uniqueRecipients.length === 0) {
+                console.log(`[Notification] Wstrzymano wysyłanie (${type}) - brak odbiorców lub wyłączone w ustawieniach.`);
+                return;
+            }
+
+            console.log(`[Notification] Wysyłanie typu '${type}' do: ${uniqueRecipients.length} osób (Key: ${preferenceKey}).`);
 
             try {
                 const batch = writeBatch(db);
@@ -18356,7 +18375,8 @@ if (editorTaskDescription) {
                             [project.ownerId],
                             'alert',
                             msg,
-                            { type: 'task', projectId: project.id, taskId: updatedTask.id }
+                            { type: 'task', projectId: project.id, taskId: updatedTask.id },
+                            'budget_alert' // <--- KLUCZ USTAWIENIA
                         );
                     }
                 }
@@ -18387,27 +18407,16 @@ if (editorTaskDescription) {
                 
                 // === NOWA LOGIKA - POWIADOMIENIA PRZY EDYCJI ZADANIA ===
                 const newlyAssigned = newAssignees.filter(id => !oldAssignees.includes(id));
+                
                 if (newlyAssigned.length > 0) {
-                    const batch = writeBatch(db);
-                    const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-                    
-                    newlyAssigned.forEach(assigneeId => {
-                        if (assigneeId === state.currentUser.uid) return;
-
-                        const notification = {
-                            userId: assigneeId,
-                            creatorId: state.currentUser.uid,
-                            type: 'task_assigned',
-                            message: `<strong>${state.currentUser.name}</strong> przypisał/a Cię do zadania "<strong>${updatedTask.title}</strong>" w projekcie <em>${project.name}</em>.`,
-                            isRead: false,
-                            timestamp: Date.now(),
-                            groupId: state.ui.activeGroupId, // <-- DODANA TA LINIA
-                            link: { type: 'task', projectId: project.id, taskId: updatedTask.id }
-                        };
-                        const newNotifRef = doc(notificationsRef);
-                        batch.set(newNotifRef, notification);
-                    });
-                    await batch.commit();
+                    // Zastępujemy batch funkcją sendInternalNotification z kluczem 'task_assign'
+                    sendInternalNotification(
+                        newlyAssigned,
+                        'task_assigned',
+                        `<strong>${state.currentUser.name}</strong> przypisał/a Cię do zadania "<strong>${updatedTask.title}</strong>" w projekcie <em>${project.name}</em>.`,
+                        { type: 'task', projectId: project.id, taskId: updatedTask.id },
+                        'task_assign' // <--- KLUCZ USTAWIENIA
+                    );
                 }
                 // === KONIEC NOWEJ LOGIKI ===
 
@@ -20711,7 +20720,8 @@ if (subtaskModal.addCommentBtn) {
                             usersToNotify,
                             'mention',
                             msg,
-                            { type: 'task', projectId: project.id, taskId: mainTaskId }
+                            { type: 'task', projectId: project.id, taskId: mainTaskId },
+                            'subtask_mention' // <--- NOWY KLUCZ
                         );
                     }
                 }
@@ -22464,27 +22474,14 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 const docRef = await addDoc(projectsRef, newProject);
 
                 // === NOWA LOGIKA - POWIADOMIENIA O DODANIU DO PROJEKTU ===
-                const batch = writeBatch(db);
-                const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-
-                // Wysyłaj powiadomienie do każdego członka projektu, z wyłączeniem twórcy
-                newProject.members.forEach(memberId => {
-                    if (memberId === state.currentUser.uid) return;
-
-                    const notification = {
-                        userId: memberId,
-                        creatorId: state.currentUser.uid,
-                        type: 'project_invite',
-                        message: `<strong>${state.currentUser.name}</strong> zaprosił/a Cię do nowego projektu "<strong>${newProject.name}</strong>".`,
-                        isRead: false,
-                        timestamp: Date.now(),
-                        groupId: state.ui.activeGroupId, // <-- DODANA TA LINIA
-                        link: { type: 'project', projectId: docRef.id }
-                    };
-                    const newNotifRef = doc(notificationsRef);
-                    batch.set(newNotifRef, notification);
-                });
-                await batch.commit();
+                // Używamy sendInternalNotification z kluczem 'project_invite'
+                sendInternalNotification(
+                    newProject.members, // Funkcja sama odfiltruje twórcę
+                    'project_invite',
+                    `<strong>${state.currentUser.name}</strong> zaprosił/a Cię do nowego projektu "<strong>${newProject.name}</strong>".`,
+                    { type: 'project', projectId: docRef.id },
+                    'project_invite' // <--- KLUCZ USTAWIENIA
+                );
                 // === KONIEC NOWEJ LOGIKI ===
 
                 state.currentProjectId = docRef.id;
@@ -23124,27 +23121,15 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // --- KONIEC AKTUALIZACJI ---
         
         // --- POCZĄTEK DODANEGO KODU POWIADOMIEŃ ---
+        // Zastępujemy batch funkcją sendInternalNotification z kluczem 'task_assign'
         if (newTask.assignees.length > 0) {
-            const batch = writeBatch(db);
-            const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-            
-            newTask.assignees.forEach(assigneeId => {
-                    if (assigneeId === state.currentUser.uid) return;
-
-                    const notification = {
-                        userId: assigneeId,
-                        creatorId: state.currentUser.uid,
-                        type: 'task_assigned',
-                        message: `<strong>${state.currentUser.name}</strong> przypisał/a Cię do nowego zadania "<strong>${newTask.title}</strong>" w projekcie <em>${project.name}</em>.`,
-                        isRead: false,
-                        timestamp: Date.now(),
-                        groupId: state.ui.activeGroupId, // <-- DODANA TA LINIA
-                        link: { type: 'task', projectId: project.id, taskId: newTask.id }
-                    };
-                    const newNotifRef = doc(notificationsRef);;
-                batch.set(newNotifRef, notification);
-            });
-            await batch.commit();
+             sendInternalNotification(
+                newTask.assignees, // Funkcja sama odfiltruje twórcę
+                'task_assigned',
+                `<strong>${state.currentUser.name}</strong> przypisał/a Cię do nowego zadania "<strong>${newTask.title}</strong>" w projekcie <em>${project.name}</em>.`,
+                { type: 'task', projectId: project.id, taskId: newTask.id },
+                'task_assign' // <--- KLUCZ USTAWIENIA
+            );
         }
         // --- KONIEC DODANEGO KODU POWIADOMIEŃ ---
         
@@ -23238,9 +23223,10 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     const msg = `Zadanie "<strong>${task.title}</strong>" zostało ukończone. Możesz rozpocząć pracę nad: "<strong>${depTask.title}</strong>".`;
                     sendInternalNotification(
                         recipients,
-                        'task_assigned', // Używamy ikony 'assign' lub innej (np. 'info')
+                        'task_assigned', 
                         msg,
-                        { type: 'task', projectId: project.id, taskId: depTask.id }
+                        { type: 'task', projectId: project.id, taskId: depTask.id },
+                        'dependency' // <--- KLUCZ USTAWIENIA
                     );
                 }
             });
@@ -23256,9 +23242,10 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 const msg = `<strong>${state.currentUser.name}</strong> cofnął status zadania "<strong>${task.title}</strong>" do 'Do realizacji'. Sprawdź, co wymaga poprawy.`;
                 sendInternalNotification(
                     task.assignees,
-                    'alert', // Można dodać ikonę alertu w getNotificationIcon
+                    'alert', 
                     msg,
-                    { type: 'task', projectId: project.id, taskId: task.id }
+                    { type: 'task', projectId: project.id, taskId: task.id },
+                    'correction' // <--- KLUCZ USTAWIENIA
                 );
             }
         }
@@ -24762,27 +24749,14 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 console.log("Sondaż pomyślnie zapisany z ID:", newPollRef.id);
 
                 // 6. Przygotowanie i wysłanie powiadomień
-                const batch = writeBatch(db);
-                const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
-
-                assignees.forEach(assigneeId => {
-                    // Nie wysyłaj powiadomienia do samego siebie
-                    if (assigneeId === state.currentUser.uid) return;
-
-                    const notification = {
-                        userId: assigneeId,
-                        creatorId: state.currentUser.uid,
-                        type: 'poll_invite', // Nowy typ powiadomienia
-                        message: `<strong>${state.currentUser.name}</strong> zaprasza Cię do udziału w sondażu "<strong>${title}</strong>" w projekcie <em>${project.name}</em>.`,
-                        isRead: false,
-                        timestamp: Date.now(),
-                        link: { type: 'poll', projectId: projectId, pollId: newPollRef.id } // Link do sondażu
-                    };
-                    const newNotifRef = doc(notificationsRef);
-                    batch.set(newNotifRef, notification);
-                });
-                
-                await batch.commit();
+                // Używamy sendInternalNotification z kluczem 'polls'
+                sendInternalNotification(
+                    assignees,
+                    'poll_invite',
+                    `<strong>${state.currentUser.name}</strong> zaprasza Cię do udziału w sondażu "<strong>${title}</strong>" w projekcie <em>${project.name}</em>.`,
+                    { type: 'poll', projectId: projectId, pollId: newPollRef.id },
+                    'polls' // <--- KLUCZ USTAWIENIA
+                );
                 console.log(`Wysłano powiadomienia o sondażu do ${assignees.length - 1} użytkowników.`);
                 // === KONIEC RZECZYWISTEGO ZAPISU ===
 
@@ -24883,9 +24857,10 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                                 const msg = `Sondaż "<strong>${poll.title}</strong>" został zakończony. Sprawdź wyniki.`;
                                 sendInternalNotification(
                                     poll.assignees,
-                                    'poll_invite', // Używamy tej samej ikony co przy zaproszeniu
+                                    'poll_invite', 
                                     msg,
-                                    { type: 'poll', projectId: poll.projectId, pollId: pollId }
+                                    { type: 'poll', projectId: poll.projectId, pollId: pollId },
+                                    'polls' // <--- KLUCZ USTAWIENIA
                                 );
                             }
                             // === KONIEC LOGIKI ===
@@ -25054,23 +25029,24 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 const batch = writeBatch(db);
                     const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
 
-                    usersToNotify.forEach(userToNotify => {
-                        if (userToNotify.id === state.currentUser.uid) return;
-
-                        const notification = {
-                            userId: userToNotify.id, // ID odbiorcy
-                            creatorId: state.currentUser.uid, // ID twórcy
-                            groupId: state.ui.activeGroupId, // <-- DODANA LINIA
-                            type: 'mention',
-                            message: `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie w komentarzu w zadaniu "<strong>${task.title}</strong>".`,
-                            isRead: false,
-                            timestamp: Date.now(),
-                            link: { type: 'task', projectId: project.id, taskId: task.id }
-                        };
-                        const newNotifRef = doc(notificationsRef);
-                        batch.set(newNotifRef, notification);
-                    });
-                    await batch.commit();
+                    // Zastępujemy stary batch naszą nową funkcją pomocniczą
+                    // 1. Pobieramy same ID odbiorców (wykluczając siebie)
+                    const recipientIds = usersToNotify
+                        .filter(u => u.id !== state.currentUser.uid)
+                        .map(u => u.id);
+                    
+                    if (recipientIds.length > 0) {
+                         const msg = `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie w komentarzu w zadaniu "<strong>${task.title}</strong>".`;
+                         
+                         // 2. Wysyłamy powiadomienie z kluczem 'task_mention'
+                         sendInternalNotification(
+                            recipientIds,
+                            'mention',
+                            msg,
+                            { type: 'task', projectId: project.id, taskId: task.id },
+                            'task_mention' // <--- NOWY KLUCZ USTAWIENIA
+                         );
+                    }
                 } // Koniec bloku if (usersToNotify.length > 0)
             // POPRAWKA: Usunięto zbędną klamrę zamykającą, która była tutaj.
             // === KONIEC NOWEJ LOGIKI ===
@@ -26922,7 +26898,37 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 if (updates['preferences.startView']) newPrefs.startView = updates['preferences.startView'];
                 if (updates['preferences.showConfetti'] !== undefined) newPrefs.showConfetti = updates['preferences.showConfetti'];
                 if (updates['preferences.confirmDelete'] !== undefined) newPrefs.confirmDelete = updates['preferences.confirmDelete'];
-                if (updates['preferences.expandSubtasksByDefault'] !== undefined) newPrefs.expandSubtasksByDefault = updates['preferences.expandSubtasksByDefault']; // <--- NOWE
+                if (updates['preferences.expandSubtasksByDefault'] !== undefined) newPrefs.expandSubtasksByDefault = updates['preferences.expandSubtasksByDefault']; 
+
+                // === NOWE: Zapis powiadomień ===
+                const newNotifPrefs = {
+                    project_invite: document.getElementById('notif-project-invite').checked,
+                    task_assign: document.getElementById('notif-task-assign').checked,
+                    subtask_assign: document.getElementById('notif-subtask-assign').checked,
+                    task_mention: document.getElementById('notif-task-mention').checked,
+                    subtask_mention: document.getElementById('notif-subtask-mention').checked,
+                    budget_alert: document.getElementById('notif-budget-alert').checked,
+                    polls: document.getElementById('notif-polls').checked,
+                    correction: document.getElementById('notif-correction').checked,
+                    dependency: document.getElementById('notif-dependency').checked
+                };
+
+                // Sprawdź czy coś się zmieniło względem obecnych ustawień
+                const currentNotifPrefs = currentPrefs.notifications || {};
+                let notifChanged = false;
+                for (const key in newNotifPrefs) {
+                    if (newNotifPrefs[key] !== currentNotifPrefs[key] && (currentNotifPrefs[key] !== undefined || newNotifPrefs[key] === false)) {
+                        notifChanged = true;
+                        break;
+                    }
+                }
+
+                if (notifChanged) {
+                    updates['preferences.notifications'] = newNotifPrefs;
+                    newPrefs.notifications = newNotifPrefs; // Aktualizuj lokalny obiekt
+                    messages.push("Ustawienia powiadomień");
+                }
+                // === KONIEC NOWEGO KODU ===
 
                 state.currentUser.preferences = newPrefs;
             }
@@ -27105,9 +27111,27 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             // === NOWE ===
             if (settingsCompactMode) settingsCompactMode.checked = (state.ui.compactMode === true);
             if (settingsStartCollapsed) settingsStartCollapsed.checked = (state.ui.startCollapsed === true);
-            if (settingsExpandSubtasks) settingsExpandSubtasks.checked = (state.ui.expandSubtasksByDefault !== false); // Domyślnie true
-            // === KONIEC ===
+            if (settingsExpandSubtasks) settingsExpandSubtasks.checked = (state.ui.expandSubtasksByDefault !== false); 
             
+            // === NOWE: Ładowanie ustawień powiadomień ===
+            // Pobierz preferencje z obiektu użytkownika (domyślnie pusty obiekt jeśli brak)
+            const notifPrefs = state.currentUser.preferences.notifications || {};
+            
+            // Funkcja pomocnicza: true jeśli undefined lub true (domyślnie włączone)
+            const isNotifEnabled = (key) => notifPrefs[key] !== false;
+
+            // Mapowanie ID checkboxów na klucze w bazie
+            document.getElementById('notif-project-invite').checked = isNotifEnabled('project_invite');
+            document.getElementById('notif-task-assign').checked = isNotifEnabled('task_assign');
+            document.getElementById('notif-subtask-assign').checked = isNotifEnabled('subtask_assign');
+            document.getElementById('notif-task-mention').checked = isNotifEnabled('task_mention');
+            document.getElementById('notif-subtask-mention').checked = isNotifEnabled('subtask_mention');
+            document.getElementById('notif-budget-alert').checked = isNotifEnabled('budget_alert');
+            document.getElementById('notif-polls').checked = isNotifEnabled('polls');
+            document.getElementById('notif-correction').checked = isNotifEnabled('correction');
+            document.getElementById('notif-dependency').checked = isNotifEnabled('dependency');
+            // === KONIEC NOWEGO KODU ===
+
             // Reset do zakładki profilu przy każdym otwarciu
             const profileBtn = settingsMainNav.querySelector('[data-tab="profile"]');
             if (profileBtn) profileBtn.click();
@@ -27775,7 +27799,8 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                          newlyAssignedToSubtask, 
                          'task_assigned', 
                          msg, 
-                         { type: 'task', projectId: project.id, taskId: mainTask.id } // Linkujemy do zadania głównego
+                         { type: 'task', projectId: project.id, taskId: mainTask.id },
+                         'subtask_assign' // <--- NOWY KLUCZ
                      );
                  }
                  // === KONIEC LOGIKI POWIADOMIEŃ ===
@@ -29935,6 +29960,12 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                         </svg>
                         <span>Aplikacja</span>
                     </button>
+                    <button class="settings-nav-item" data-tab="notifications">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75v-.7V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+                        </svg>
+                        <span>Powiadomienia</span>
+                    </button>
                     <button class="settings-nav-item" id="open-tutorial-btn">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 0 0-.491 6.347A48.627 48.627 0 0 1 12 20.904a48.627 48.627 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.57 50.57 0 0 0-2.658-.813A59.905 59.905 0 0 1 12 3.493a59.902 59.902 0 0 1 10.499 5.24 50.552 50.552 0 0 0-2.658.814m-15.482 0A50.697 50.697 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
@@ -30070,6 +30101,104 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                             </div>
                         </div>
                         </div>
+                </div>
+                <div id="settings-tab-notifications" class="settings-tab-content">
+                    
+                    <div class="settings-section">
+                        <h3 style="margin-bottom: 8px; color: var(--text-secondary);">Powiadomienia Push</h3>
+                        <div style="padding: 16px; background-color: var(--bg-tertiary); border-radius: var(--border-radius); text-align: center;">
+                            <span style="font-weight: 600; color: var(--text-secondary);">🚧 Funkcja w budowie</span>
+                            <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">Powiadomienia na pulpit i telefon pojawią się wkrótce.</p>
+                        </div>
+                    </div>
+
+                    <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 24px 0;">
+
+                    <div class="settings-section">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 24px; height: 24px; color: var(--accent-primary);">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75v-.7V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+                            </svg>
+                            <h3 style="margin-bottom: 0;">Powiadomienia TeamFlow</h3>
+                        </div>
+                        <p class="settings-hint" style="margin-bottom: 24px;">Wybierz, jakie zdarzenia mają wyświetlać czerwoną kropkę i pojawiać się na liście powiadomień w aplikacji.</p>
+
+                        <div style="display: flex; flex-direction: column; gap: 20px;">
+
+                            <div>
+                                <div class="form-group-checkbox">
+                                    <input type="checkbox" id="notif-project-invite" checked>
+                                    <label for="notif-project-invite">Dodanie do projektu</label>
+                                </div>
+                                <p class="settings-hint">Przykład: "Anna zaprosiła Cię do nowego projektu Kampania 2025."</p>
+                            </div>
+
+                            <div>
+                                <div class="form-group-checkbox">
+                                    <input type="checkbox" id="notif-task-assign" checked>
+                                    <label for="notif-task-assign">Przypisanie do zadania</label>
+                                </div>
+                                <p class="settings-hint">Przykład: "Marek przypisał Cię do zadania Przygotowanie grafik."</p>
+                            </div>
+
+                            <div>
+                                <div class="form-group-checkbox">
+                                    <input type="checkbox" id="notif-subtask-assign" checked>
+                                    <label for="notif-subtask-assign">Przypisanie do podzadania</label>
+                                </div>
+                                <p class="settings-hint">Przykład: "Marek przypisał Cię do podzadania Wybór kolorów w zadaniu Grafiki."</p>
+                            </div>
+
+                            <div>
+                                <div class="form-group-checkbox">
+                                    <input type="checkbox" id="notif-task-mention" checked>
+                                    <label for="notif-task-mention">Wzmianka w zadaniu (@)</label>
+                                </div>
+                                <p class="settings-hint">Przykład: "Tomasz wspomniał o Tobie w komentarzu w zadaniu Raport."</p>
+                            </div>
+
+                            <div>
+                                <div class="form-group-checkbox">
+                                    <input type="checkbox" id="notif-subtask-mention" checked>
+                                    <label for="notif-subtask-mention">Wzmianka w podzadaniu (@)</label>
+                                </div>
+                                <p class="settings-hint">Przykład: "Tomasz wspomniał o Tobie w komentarzu do podzadania Dane Excel."</p>
+                            </div>
+
+                            <div>
+                                <div class="form-group-checkbox">
+                                    <input type="checkbox" id="notif-budget-alert" checked>
+                                    <label for="notif-budget-alert">Kontrola budżetu (Dla właściciela)</label>
+                                </div>
+                                <p class="settings-hint">Przykład: "Uwaga: Zadanie X spowodowało przekroczenie budżetu projektu."</p>
+                            </div>
+
+                            <div>
+                                <div class="form-group-checkbox">
+                                    <input type="checkbox" id="notif-polls" checked>
+                                    <label for="notif-polls">Sondaże (Zaproszenia i Wyniki)</label>
+                                </div>
+                                <p class="settings-hint">Przykład: "Sondaż Wybór logo został zakończony. Sprawdź wyniki."</p>
+                            </div>
+
+                            <div>
+                                <div class="form-group-checkbox">
+                                    <input type="checkbox" id="notif-correction" checked>
+                                    <label for="notif-correction">Cofnięcie do poprawki</label>
+                                </div>
+                                <p class="settings-hint">Przykład: "Kasia cofnęła status zadania X do 'Do realizacji'. Sprawdź, co wymaga poprawy."</p>
+                            </div>
+
+                            <div>
+                                <div class="form-group-checkbox">
+                                    <input type="checkbox" id="notif-dependency" checked>
+                                    <label for="notif-dependency">Wiązane zadanie (Odblokowanie)</label>
+                                </div>
+                                <p class="settings-hint">Przykład: "Zadanie blokujące Y zostało ukończone. Możesz rozpocząć pracę."</p>
+                            </div>
+
+                        </div>
+                    </div>
                 </div>
                 <div id="settings-tab-profile" class="settings-tab-content active">
                     
@@ -31317,6 +31446,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
