@@ -13108,15 +13108,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 
                 // Jeśli projekt nadal istnieje (nie został usunięty)
                 if (project) {
-                    console.log("Odświeżanie otwartego modala szczegółów...");
-                    
-                    // 1. Odśwież wykres budżetu (ten u góry)
+                    // ... (istniejący kod odświeżania szczegółów projektu) ...
                     renderProjectBudgetChartCSS(project, projectDetailsModal.budgetChartContainer);
-                    
-                    // 2. Odśwież tabelę zadań (tę nową, z podzadaniami)
                     renderProjectBudgetTasksTable(project, 'details-budget-tasks-table-container');
-                    
-                    // 3. Odśwież wykres obciążenia zespołu
                     renderProjectWorkloadChart(
                         project, 
                         projectDetailsModal.workloadChartContainer, 
@@ -13125,6 +13119,49 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             }
             // === KONIEC NOWEJ LOGIKI ===
+
+            // === NOWA LOGIKA LIVE UPDATE: Odświeżanie otwartego Zadania i Podzadania ===
+            
+            // 1. Odświeżanie Głównego Zadania (Komentarze, Historia, Załączniki)
+            if (taskModal.overlay.classList.contains('visible')) {
+                const openedTaskId = taskModal.overlay.dataset.taskId;
+                if (openedTaskId) {
+                    const { task } = findTask(openedTaskId);
+                    if (task) {
+                        // Odśwież sekcje dynamiczne "na żywo"
+                        renderComments(task);       // Nowe komentarze
+                        renderActivityLog(task);    // Nowa historia
+                        renderAttachments(task);    // Nowe załączniki
+                        
+                        // Opcjonalnie: Odśwież listę podzadań w głównym modalu (żeby widzieć postęp live)
+                        renderSubtaskListInMainModal(task);
+                    }
+                }
+            }
+
+            // 2. Odświeżanie Podzadania (Komentarze)
+            if (subtaskModal.overlay.classList.contains('visible')) {
+                const mainTaskId = subtaskModal.overlay.dataset.mainTaskId;
+                const subtaskId = subtaskModal.subtaskIdInput.value; // ID aktualnie otwartego podzadania
+                
+                if (mainTaskId && subtaskId) {
+                    const { task: mainTask } = findTask(mainTaskId);
+                    if (mainTask && mainTask.subtasks) {
+                        const subtask = mainTask.subtasks.find(s => s.id === subtaskId);
+                        if (subtask) {
+                            // Odśwież komentarze w podzadaniu "na żywo"
+                            renderSubtaskComments(subtask.comments || []);
+                            
+                            // Opcjonalnie: Odśwież też listę załączników w podzadaniu (jeśli ktoś dodał)
+                            // Tutaj musielibyśmy mieć funkcję renderSubtaskAttachments, 
+                            // ale na razie lista 'staged' jest lokalna, a lista zapisanych jest statyczna w HTMLu.
+                            // W poprzednim kroku dodaliśmy wyświetlanie "staged-attachment-item" dla zapisanych.
+                            // Można by tu dodać logikę odświeżania tej listy, jeśli to krytyczne.
+                        }
+                    }
+                }
+            }
+            // === KONIEC LOGIKI LIVE UPDATE ===
         }
        // === POCZĄTEK NOWEGO KODU: Logika Modala Zarządzania Kolumnami ===
 
@@ -30925,6 +30962,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
