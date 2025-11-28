@@ -14865,7 +14865,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     combinedItems.push({
                         type: 'main',
                         data: task,
-                        dueDate: task.dueDate // Data do sortowania
+                        // Używamy customOrder. Jeśli brak, dajemy bardzo dużą liczbę (na koniec)
+                        order: (task.customOrder !== undefined) ? task.customOrder : 999999
                     });
                 });
 
@@ -14873,24 +14874,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 standaloneSubtasks.forEach(item => {
                     combinedItems.push({
                         type: 'subtask',
-                        data: item, // zawiera { sub, parent }
-                        dueDate: item.sub.dueDate // Data do sortowania
+                        data: item, 
+                        // Używamy customOrder z PODZADANIA
+                        order: (item.sub.customOrder !== undefined) ? item.sub.customOrder : 999999
                     });
                 });
 
-                // 4. SORTOWANIE: Posortuj wspólną tablicę
-                const currentSortOrder = state.ui.projectSortOrders[project.id] || 'asc';
+                // 4. SORTOWANIE: Posortuj wspólną tablicę według KOLEJNOŚCI WŁASNEJ
+                // (Ignorujemy tu flagę 'asc/desc' z przycisku sortowania, bo sortowanie przyciskiem
+                // będzie teraz fizycznie zmieniać wartości 'order' w bazie)
                 
-                combinedItems.sort((a, b) => {
-                    const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
-                    const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-                    
-                    if (dateA === Infinity && dateB === Infinity) return 0;
-                    if (dateA === Infinity) return 1;
-                    if (dateB === Infinity) return -1;
-                    
-                    return currentSortOrder === 'asc' ? dateA - dateB : dateB - dateA;
-                });
+                combinedItems.sort((a, b) => a.order - b.order);
 
                 // 5. GENEROWANIE HTML: Iteruj po posortowanej liście
                 columnContentHTML += combinedItems.map(item => {
@@ -15012,25 +15006,34 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         delayOnTouchOnly: true, // Aktywuj opóźnienie tylko na dotyku
                         // === KONIEC MODYFIKACJI ===
                         
-                        onEnd: (evt) => {
-                            // Symulujemy zdarzenie 'drop', aby nasza główna logika przejęcia zadziałała
-                            // Musimy znaleźć element nadrzędny (kolumnę)
-                            const column = evt.to.closest('.kanban-column');
-                            if (column) {
-                                // Ręcznie tworzymy fałszywe zdarzenie 'drop',
-                                // aby przekazać je do naszego głównego listenera na kanbanBoardEl
+                        onEnd: async (evt) => {
+                            const itemEl = evt.item;
+                            const newColumn = evt.to.closest('.kanban-column');
+                            const oldColumn = evt.from.closest('.kanban-column');
+                            
+                            if (!newColumn) return;
+
+                            // SCENARIUSZ A: Przeniesienie do INNEJ kolumny (Zmiana statusu)
+                            if (newColumn !== oldColumn) {
+                                // Uruchom starą logikę zmiany statusu (dispatch event 'drop')
                                 const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
-                                
-                                // Kopiujemy 'target', aby wskazywał na kolumnę, do której upuszczono
-                                // Używamy Object.defineProperty, aby móc nadpisać 'target'
-                                Object.defineProperty(dropEvent, 'target', { value: column, writable: false });
-                                
-                                // Ustawiamy ID przeciąganego zadania (które zapisaliśmy w dragstart)
-                                // (zakładając, że `draggedTaskId` jest nadal dostępne w tym zakresie)
-                                
-                                // Wywołaj zdarzenie na `kanbanBoardEl`
+                                Object.defineProperty(dropEvent, 'target', { value: newColumn, writable: false });
                                 kanbanBoardEl.dispatchEvent(dropEvent);
+                                
+                                // Opcjonalnie: po chwili zapisz kolejność w nowej kolumnie, 
+                                // ale 'handleDroppedTask' przerysuje widok, więc persistColumnOrder 
+                                // tutaj może zostać nadpisane. 'handleDroppedTask' wstawi element na koniec 
+                                // lub w domyślne miejsce. Aby obsłużyć wstawienie w konkretne miejsce 
+                                // przy zmianie statusu, logika w 'handleDroppedTask' musiałaby być znacznie bardziej złożona.
+                                // Na razie zostawiamy standardową zmianę statusu.
+                            } 
+                            // SCENARIUSZ B: Reorganizacja w TEJ SAMEJ kolumnie
+                            else {
+                                // Tutaj po prostu zapisujemy nową kolejność
+                                await persistColumnOrder(newColumn);
                             }
+                            
+                            draggedTaskId = null;
                         }
                     });
                     window.sortableInstances.push(sortable);
@@ -24925,15 +24928,72 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
         }
         
 
-        sortBtn.addEventListener('click', () => {
+        sortBtn.addEventListener('click', async () => {
             if (state.ui.currentView === 'my-dashboard') {
+                // Na dashboardzie (tylko do odczytu) zostawiamy stare sortowanie wizualne
                 state.ui.sortMyTasksByDate = state.ui.sortMyTasksByDate === 'asc' ? 'desc' : 'asc';
-            } else if (state.ui.currentView === 'projects' && state.currentProjectId) {
+                saveUiState();
+                render();
+            } 
+            else if (state.ui.currentView === 'projects' && state.currentProjectId) {
+                // W projekcie: Twarde sortowanie i zapis do bazy
+                const project = findProject(state.currentProjectId);
+                if (!project) return;
+
+                // 1. Toggle kierunku (dla UX, żeby wiedzieć jak sortować)
                 const currentOrder = state.ui.projectSortOrders[state.currentProjectId] || 'asc';
-                state.ui.projectSortOrders[state.currentProjectId] = currentOrder === 'asc' ? 'desc' : 'asc';
+                const newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+                state.ui.projectSortOrders[state.currentProjectId] = newOrder;
+
+                showNotification("Porządkowanie zadań według daty...", "Info");
+
+                // 2. Zbierzemy wszystkie zadania (i podzadania) i nadamy im nowy customOrder
+                // Logika jest skomplikowana, bo customOrder jest per kolumna (nie globalny),
+                // ale najprościej jest posortować całą tablicę `tasks` wg daty i nadać im indeksy 0..N.
+                // To zadziała, bo `renderKanbanBoard` dzieli je potem na kolumny, zachowując względną kolejność indeksów.
+
+                const sortedTasks = [...project.tasks];
+                
+                // Funkcja pomocnicza do wyciągania czasu
+                const getTime = (t) => t.dueDate ? new Date(t.dueDate).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
+
+                // Sortujemy główne zadania
+                sortedTasks.sort((a, b) => {
+                    return newOrder === 'asc' ? getTime(a) - getTime(b) : getTime(b) - getTime(a);
+                });
+
+                // Nadajemy nowe indeksy (globalnie dla listy, co przełoży się na kolejność w kolumnach)
+                const updatedTasks = sortedTasks.map((t, index) => {
+                    // Sortujemy też podzadania wewnątrz zadania
+                    let sortedSubtasks = t.subtasks || [];
+                    if (sortedSubtasks.length > 0) {
+                        sortedSubtasks.sort((sa, sb) => {
+                             const sTimeA = sa.dueDate ? new Date(sa.dueDate).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
+                             const sTimeB = sb.dueDate ? new Date(sb.dueDate).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
+                             return newOrder === 'asc' ? sTimeA - sTimeB : sTimeB - sTimeA;
+                        });
+                        // Nadaj im też order
+                        sortedSubtasks = sortedSubtasks.map((sub, subIndex) => ({ ...sub, customOrder: subIndex }));
+                    }
+
+                    return { 
+                        ...t, 
+                        customOrder: index, // Nadpisujemy customOrder wynikający z daty
+                        subtasks: sortedSubtasks
+                    };
+                });
+
+                // 3. Zapisz do bazy
+                try {
+                     const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                     await updateDoc(projectDocRef, { tasks: updatedTasks });
+                     saveUiState(); // Zapisz preferencję kierunku
+                     // render() wywoła się sam przez onSnapshot
+                } catch (e) {
+                    console.error("Błąd sortowania:", e);
+                    showNotification("Błąd zapisu sortowania.", "Błąd");
+                }
             }
-            saveUiState();
-            render();
         });
 
         menuToggle.addEventListener('click', () => {
@@ -25212,7 +25272,73 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 await handleTaskCompletion(updatedTask, project);
             }
         }
+        /**
+         * Zapisuje kolejność elementów w kolumnie po przeciągnięciu.
+         * Obsługuje zarówno zadania główne, jak i samodzielne podzadania.
+         */
+        async function persistColumnOrder(columnElement) {
+            const projectId = state.currentProjectId;
+            if (!projectId) return;
 
+            const { project } = findTask(projectId) || { project: findProject(projectId) };
+            if (!project) return;
+
+            // 1. Pobierz wszystkie kafelki w tej kolumnie w aktualnej kolejności DOM
+            // (Zarówno .task-card jak i .subtask-visual-card)
+            const cards = Array.from(columnElement.querySelectorAll('.task-card, .subtask-visual-card'));
+            
+            if (cards.length === 0) return;
+
+            // 2. Stwórz mapę nowej kolejności: { "ID_ELEMENTU": NOWY_INDEX }
+            const orderMap = new Map();
+            cards.forEach((card, index) => {
+                // Dla podzadania bierzemy subtaskId, dla zadania taskId
+                const id = card.dataset.subtaskId || card.dataset.taskId;
+                if (id) orderMap.set(id, index);
+            });
+
+            // 3. Zaktualizuj strukturę danych projektu w pamięci (lokalnie)
+            let tasksUpdated = false;
+            const updatedTasks = project.tasks.map(t => {
+                let taskModified = false;
+                let newTask = { ...t };
+
+                // A. Sprawdź, czy to Zadanie Główne ma nową pozycję
+                if (orderMap.has(t.id)) {
+                    newTask.customOrder = orderMap.get(t.id);
+                    taskModified = true;
+                }
+
+                // B. Sprawdź, czy jakiekolwiek jego Podzadanie ma nową pozycję
+                if (newTask.subtasks && newTask.subtasks.length > 0) {
+                    const updatedSubtasks = newTask.subtasks.map(sub => {
+                        if (orderMap.has(sub.id)) {
+                            taskModified = true;
+                            return { ...sub, customOrder: orderMap.get(sub.id) };
+                        }
+                        return sub;
+                    });
+                    newTask.subtasks = updatedSubtasks;
+                }
+
+                if (taskModified) tasksUpdated = true;
+                return newTask;
+            });
+
+            if (!tasksUpdated) return; // Nic się nie zmieniło w tej kolumnie
+
+            // 4. Zapisz do Firestore
+            try {
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                
+                // Używamy updateDoc, aby nadpisać tablicę tasks nowymi wartościami customOrder
+                await updateDoc(projectDocRef, { tasks: updatedTasks });
+                console.log('Kolejność kolumny zaktualizowana.');
+            } catch (error) {
+                console.error("Błąd zapisu kolejności:", error);
+                showNotification("Nie udało się zapisać kolejności.", "Błąd");
+            }
+        }
         // Zaktualizowany główny listener DROP (korzysta z nowej funkcji)
         kanbanBoardEl.addEventListener('drop', async (e) => {
             e.preventDefault();
@@ -30697,6 +30823,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
