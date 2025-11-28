@@ -23241,33 +23241,32 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
          kanbanBoardEl.addEventListener('click', (e) => {
             // === NOWA LOGIKA: PRZECHWYCENIE KLIKNIĘĆ W TRYBIE ZAZNACZANIA ===
             if (state.ui.isSelectModeActive) {
-                const selectableCard = e.target.closest('.task-card.selectable');
+                // ZMIANA: Szukamy karty zadania LUB karty podzadania, która jest .selectable
+                const selectableCard = e.target.closest('.task-card.selectable, .subtask-visual-card.selectable');
                 
-                // Jeśli kliknięto gdziekolwiek na karcie, którą można zaznaczyć
                 if (selectableCard) {
-                    e.preventDefault(); // Zatrzymaj domyślną akcję (np. otwarcie modala)
-                    e.stopPropagation(); // Zatrzymaj bąbelkowanie
+                    e.preventDefault(); 
+                    e.stopPropagation(); 
                     
-                    const taskId = selectableCard.dataset.taskId;
-                    if (!taskId) return;
+                    // ZMIANA: Pobieramy ID. Podzadanie ma 'subtaskId', zadanie główne 'taskId'.
+                    const id = selectableCard.dataset.taskId || selectableCard.dataset.subtaskId;
+                    
+                    if (!id) return;
 
-                    // Przełącz zaznaczenie
+                    // Przełącz zaznaczenie wizualne
                     selectableCard.classList.toggle('selected');
                     
-                    // Zaktualizuj tablicę stanów
-                    if (state.ui.selectedTaskIds.includes(taskId)) {
-                        state.ui.selectedTaskIds = state.ui.selectedTaskIds.filter(id => id !== taskId);
+                    // Zaktualizuj tablicę stanów (teraz przechowuje mix ID zadań i podzadań)
+                    if (state.ui.selectedTaskIds.includes(id)) {
+                        state.ui.selectedTaskIds = state.ui.selectedTaskIds.filter(existingId => existingId !== id);
                     } else {
-                        state.ui.selectedTaskIds.push(taskId);
+                        state.ui.selectedTaskIds.push(id);
                     }
                     
-                    // Zaktualizuj pasek akcji
                     updateBulkActionBar();
                 }
                 
-                // Niezależnie od tego, co kliknięto (nawet tło), zatrzymaj dalsze
-                // wykonywanie tego listenera, gdy jesteśmy w trybie zaznaczania.
-                return; 
+                return; // Zatrzymaj dalsze przetwarzanie w trybie zaznaczania
             }
             // === KONIEC NOWEJ LOGIKI ===
 
@@ -25727,63 +25726,143 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
 
                             try {
                                 const batch = writeBatch(db);
-                                // 1. Pogrupuj zadania do usunięcia według ich projektu nadrzędnego
-                                const tasksByProject = new Map();
                                 
-                                for (const taskId of state.ui.selectedTaskIds) {
-                                    const { task, project } = findTask(taskId);
-                                    if (task && project) {
-                                        // Znajdź projekt w *aktywnym* stanie (state.projects), a nie w globalnym
-                                        const activeProject = state.projects.find(p => p.id === project.id);
+                                // Mapa przechowująca zmiany per projekt
+                                // Klucz: projectId, Wartość: { projectObj, mainIds: [], subInfos: [] }
+                                const updatesByProject = new Map();
+
+                                // 1. IDENTYFIKACJA: Co jest czym?
+                                for (const id of state.ui.selectedTaskIds) {
+                                    // A. Sprawdź czy to Zadanie Główne
+                                    let foundMain = findTask(id);
+                                    
+                                    if (foundMain.task && foundMain.project) {
+                                        // To jest zadanie główne
+                                        const pid = foundMain.project.id;
+                                        
+                                        // Upewnij się, że pracujemy na aktywnym projekcie
+                                        const activeProject = state.projects.find(p => p.id === pid);
                                         if (activeProject) {
-                                            if (!tasksByProject.has(activeProject.id)) {
-                                                tasksByProject.set(activeProject.id, { project: activeProject, taskIds: [] });
+                                            if (!updatesByProject.has(pid)) {
+                                                updatesByProject.set(pid, { project: activeProject, mainIds: [], subInfos: [] });
                                             }
-                                            tasksByProject.get(activeProject.id).taskIds.push(taskId);
+                                            updatesByProject.get(pid).mainIds.push(id);
                                         }
-                                        // Ignorujemy zadania z 'completedProjects' lub 'globalProjects',
-                                        // ponieważ tryb zaznaczania jest dostępny tylko w aktywnym projekcie.
+                                        continue; // Znaleziono, idź do następnego ID
+                                    }
+
+                                    // B. Sprawdź czy to Podzadanie (musimy przeszukać ręcznie)
+                                    let foundSub = null;
+                                    let parentOfSub = null;
+                                    let projectOfSub = null;
+
+                                    // Przeszukaj wszystkie aktywne projekty
+                                    for (const p of state.projects) {
+                                        for (const t of (p.tasks || [])) {
+                                            if (t.subtasks) {
+                                                const sub = t.subtasks.find(s => s.id === id);
+                                                if (sub) {
+                                                    foundSub = sub;
+                                                    parentOfSub = t;
+                                                    projectOfSub = p;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if (foundSub) break;
+                                    }
+
+                                    if (foundSub && projectOfSub) {
+                                        const pid = projectOfSub.id;
+                                        if (!updatesByProject.has(pid)) {
+                                            updatesByProject.set(pid, { project: projectOfSub, mainIds: [], subInfos: [] });
+                                        }
+                                        updatesByProject.get(pid).subInfos.push({
+                                            subtask: foundSub,
+                                            parentId: parentOfSub.id,
+                                            parentTitle: parentOfSub.title
+                                        });
                                     }
                                 }
 
-                                // 2. Dla każdego projektu przygotuj operację 'update' w batchu
-                                tasksByProject.forEach(({ project, taskIds }, projectId) => {
+                                // 2. PRZYGOTOWANIE AKTUALIZACJI DLA KAŻDEGO PROJEKTU
+                                updatesByProject.forEach(({ project, mainIds, subInfos }, projectId) => {
                                     const projectRef = doc(projectsRef, projectId);
                                     
-                                    // A. Znajdź i przygotuj zadania do przeniesienia do kosza
-                                    const tasksToArchive = (project.tasks || [])
-                                        .filter(t => taskIds.includes(t.id))
-                                        .map(t => ({
-                                            ...t,
+                                    // Kopia obecnych zadań do modyfikacji
+                                    let currentTasks = [...(project.tasks || [])];
+                                    const itemsToArchive = []; // Lista elementów do przeniesienia do kosza
+
+                                    // A. Usuwanie Zadań Głównych
+                                    if (mainIds.length > 0) {
+                                        // Znajdź zadania do usunięcia i dodaj metadane usunięcia
+                                        const mainTasksToArchive = currentTasks
+                                            .filter(t => mainIds.includes(t.id))
+                                            .map(t => ({
+                                                ...t,
+                                                deletedAt: Date.now(),
+                                                deletedBy: state.currentUser.uid
+                                            }));
+                                        itemsToArchive.push(...mainTasksToArchive);
+
+                                        // Usuń zadania z głównej listy
+                                        currentTasks = currentTasks.filter(t => !mainIds.includes(t.id));
+                                    }
+
+                                    // B. Usuwanie Podzadań
+                                    if (subInfos.length > 0) {
+                                        const subIdsToRemove = subInfos.map(info => info.subtask.id);
+
+                                        // Przygotuj podzadania do archiwizacji (dodaj info o rodzicu)
+                                        const subtasksToArchive = subInfos.map(info => ({
+                                            ...info.subtask,
                                             deletedAt: Date.now(),
-                                            deletedBy: state.currentUser.uid
+                                            deletedBy: state.currentUser.uid,
+                                            originalParentId: info.parentId,     // Ważne dla przywracania
+                                            originalParentTitle: info.parentTitle,
+                                            isSubtask: true
                                         }));
+                                        itemsToArchive.push(...subtasksToArchive);
 
-                                    // B. Filtruj listę zadań aktywnych (usuwając te zaznaczone)
-                                    const updatedTasks = (project.tasks || []).filter(t => !taskIds.includes(t.id));
-                                    
-                                    // C. Przelicz budżet dla nowej (odchudzonej) listy zadań aktywnych
-                                    const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
+                                        // Usuń podzadania z wnętrza ich rodziców
+                                        currentTasks = currentTasks.map(t => {
+                                            // Sprawdź, czy zadanie ma podzadania, które trzeba usunąć
+                                            if (t.subtasks && t.subtasks.some(s => subIdsToRemove.includes(s.id))) {
+                                                return {
+                                                    ...t,
+                                                    subtasks: t.subtasks.filter(s => !subIdsToRemove.includes(s.id))
+                                                };
+                                            }
+                                            return t;
+                                        });
+                                    }
 
-                                    // D. Dodaj aktualizację do batcha
-                                    // Aktualizujemy 'tasks' (usuwamy) ORAZ 'deletedTasks' (dodajemy)
-                                    batch.update(projectRef, {
-                                        tasks: updatedTasks,
-                                        budgetSummary: newBudgetSummary,
-                                        deletedTasks: arrayUnion(...tasksToArchive) // Używamy arrayUnion z rozproszeniem
-                                    });
+                                    // C. Przelicz budżet projektu po usunięciach
+                                    const newBudgetSummary = calculateProjectBudgetSummary(currentTasks);
+
+                                    // D. Dodaj operację update do batcha
+                                    const updateData = {
+                                        tasks: currentTasks,
+                                        budgetSummary: newBudgetSummary
+                                    };
+
+                                    // Jeśli mamy coś do archiwizacji, użyj arrayUnion
+                                    if (itemsToArchive.length > 0) {
+                                        updateData.deletedTasks = arrayUnion(...itemsToArchive);
+                                    }
+
+                                    batch.update(projectRef, updateData);
                                 });
 
-                                // 3. Wykonaj operację wsadową
+                                // 3. WYKONAJ BATCH
                                 await batch.commit();
 
-                                showNotification(`Pomyślnie usunięto ${count} zadań.`, "Sukces");
-                                // Wyjdź z trybu zaznaczania (co automatycznie odświeży widok)
-                                toggleSelectMode();
+                                showNotification(`Pomyślnie usunięto zaznaczone elementy.`, "Sukces");
+                                toggleSelectMode(); // Wyjdź z trybu zaznaczania
 
                             } catch (error) {
-                                console.error("Błąd podczas wsadowego usuwania zadań:", error);
-                                showNotification("Wystąpił błąd podczas usuwania zadań.", "Błąd");
+                                console.error("Błąd podczas wsadowego usuwania:", error);
+                                showNotification("Wystąpił błąd podczas usuwania.", "Błąd");
                             } finally {
                                 bulkDeleteBtn.disabled = false;
                                 bulkDeleteBtn.textContent = 'Usuń zaznaczone';
@@ -30970,6 +31049,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
