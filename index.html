@@ -12102,26 +12102,49 @@ function drawRadarChart(allProjects) {
         const tasks = project.tasks || [];
         const now = new Date().getTime();
 
+        // === NOWE: Definicja uprawnień dla tego projektu ===
+        const currentUserId = state.currentUser.uid;
+        const isOwner = project.ownerId === currentUserId;
+        const isAdmin = (project.admins || []).includes(currentUserId);
+        const canSeeAll = isOwner || isAdmin;
+        // === KONIEC ===
+
         // 1. AGREGACJA: Zbieramy wszystkie elementy do narysowania w tym sektorze
         let allItems = [];
         
         tasks.forEach(task => {
-            // Dodaj zadanie główne
-            allItems.push({ 
-                type: 'task', 
-                data: task, 
-                parentTitle: null 
-            });
+            
+            // === NOWE: Filtr widoczności Zadania Głównego ===
+            const isTaskCreator = task.createdBy === currentUserId;
+            const isTaskAssignee = (task.assignees || []).includes(currentUserId);
+            
+            if (canSeeAll || isTaskCreator || isTaskAssignee) {
+                // Dodaj zadanie główne
+                allItems.push({ 
+                    type: 'task', 
+                    data: task, 
+                    parentTitle: null 
+                });
+            }
+            // === KONIEC FILTRA ===
             
             // Dodaj podzadania jako niezależne byty
             if (task.subtasks && task.subtasks.length > 0) {
                 task.subtasks.forEach(sub => {
-                    allItems.push({ 
-                        type: 'subtask', 
-                        data: sub, 
-                        parentTitle: task.title, 
-                        parentId: task.id // Potrzebne do otwarcia modala rodzica
-                    });
+                    
+                    // === NOWE: Filtr widoczności Podzadania ===
+                    const isSubCreator = sub.createdBy === currentUserId;
+                    const isSubAssignee = (sub.assignees || []).includes(currentUserId);
+
+                    if (canSeeAll || isSubCreator || isSubAssignee) {
+                        allItems.push({ 
+                            type: 'subtask', 
+                            data: sub, 
+                            parentTitle: task.title, 
+                            parentId: task.id // Potrzebne do otwarcia modala rodzica
+                        });
+                    }
+                    // === KONIEC FILTRA ===
                 });
             }
         });
@@ -31560,6 +31583,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
