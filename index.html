@@ -26900,7 +26900,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 if (updates['preferences.confirmDelete'] !== undefined) newPrefs.confirmDelete = updates['preferences.confirmDelete'];
                 if (updates['preferences.expandSubtasksByDefault'] !== undefined) newPrefs.expandSubtasksByDefault = updates['preferences.expandSubtasksByDefault']; 
 
-                // === NOWE: Zapis powiadomień (POPRAWIONE) ===
+                // === NOWE: Zapis powiadomień (POPRAWKA DETEKCJI ZMIAN) ===
                 const newNotifPrefs = {
                     project_invite: document.getElementById('notif-project-invite').checked,
                     task_assign: document.getElementById('notif-task-assign').checked,
@@ -26913,28 +26913,31 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                     dependency: document.getElementById('notif-dependency').checked
                 };
 
-                // Sprawdź czy coś się zmieniło
-                // Pobieramy obecne ustawienia lub pusty obiekt
-                const currentNotifPrefs = (currentPrefs && currentPrefs.notifications) ? currentPrefs.notifications : {};
+                // 1. Pobierz bezpiecznie aktualne ustawienia z bazy (jeśli brak, to pusty obiekt)
+                const currentNotifsSafe = (state.currentUser.preferences && state.currentUser.preferences.notifications) ? state.currentUser.preferences.notifications : {};
                 let notifChanged = false;
 
+                // 2. Porównaj każdą wartość
                 for (const key in newNotifPrefs) {
                     const newValue = newNotifPrefs[key];
-                    // Ustal "starą" wartość: Jeśli w bazie jest undefined, to znaczy że jest włączone (true)
-                    // Zatem oldValue jest true, chyba że wprost zapisano false.
-                    const oldValue = currentNotifPrefs[key] !== false;
+                    // Ustal starą wartość: Jeśli w bazie jest undefined, to traktujemy to jako TRUE (domyślnie włączone)
+                    // Zatem zmiana następuje tylko wtedy, gdy użytkownik ODZNACZYŁ (false), a w bazie nie było false.
+                    const oldValue = currentNotifsSafe[key] !== false;
 
                     if (newValue !== oldValue) {
                         notifChanged = true;
-                        break; // Wystarczy jedna zmiana
+                        console.log(`Zmiana powiadomienia [${key}]: ${oldValue} -> ${newValue}`); // Log diagnostyczny
+                        break; 
                     }
                 }
 
                 if (notifChanged) {
                     updates['preferences.notifications'] = newNotifPrefs;
-                    // Aktualizuj lokalny obiekt preferences, upewniając się że istnieje
+                    
+                    // Aktualizujemy też obiekt pomocniczy newPrefs, aby kolejne zapisy w tej sesji widziały zmianę
                     if (!newPrefs.notifications) newPrefs.notifications = {};
-                    newPrefs.notifications = newNotifPrefs; 
+                    Object.assign(newPrefs.notifications, newNotifPrefs);
+                    
                     messages.push("Ustawienia powiadomień");
                 }
                 // === KONIEC POPRAWIONEGO KODU ===
@@ -31455,6 +31458,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
