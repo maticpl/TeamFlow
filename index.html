@@ -10664,7 +10664,44 @@ let state = {
                 taskModal.attachmentsList.appendChild(li);
             });
         }
-       
+       /**
+         * NOWA FUNKCJA POMOCNICZA: Uniwersalne wysyłanie powiadomień
+         * @param {Array<string>} recipientIds - Tablica ID użytkowników, którzy mają dostać powiadomienie.
+         * @param {string} type - Typ powiadomienia (np. 'task_assigned', 'mention', 'alert', 'unlock').
+         * @param {string} message - Treść HTML powiadomienia.
+         * @param {object} linkData - Obiekt linku { type: 'task'|'project'|'poll', projectId, taskId, ... }
+         */
+        async function sendInternalNotification(recipientIds, type, message, linkData) {
+            // 1. Filtrujemy: nie wysyłaj do samego siebie i usuń duplikaty
+            const uniqueRecipients = [...new Set(recipientIds)].filter(id => id !== state.currentUser.uid);
+            
+            if (uniqueRecipients.length === 0) return;
+
+            console.log(`[Notification] Wysyłanie typu '${type}' do: ${uniqueRecipients.length} osób.`);
+
+            try {
+                const batch = writeBatch(db);
+                const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+
+                uniqueRecipients.forEach(userId => {
+                    const newNotifRef = doc(notificationsRef);
+                    batch.set(newNotifRef, {
+                        userId: userId,
+                        creatorId: state.currentUser.uid,
+                        groupId: state.ui.activeGroupId,
+                        type: type,
+                        message: message,
+                        isRead: false,
+                        timestamp: Date.now(),
+                        link: linkData || null
+                    });
+                });
+
+                await batch.commit();
+            } catch (error) {
+                console.error("Błąd wysyłania powiadomień:", error);
+            }
+        }
   function createMyDayTaskItemHTML(task) {
       console.log("Renderuję zadanie:", task);
             const isCompleted = task.status === 'done';
@@ -18303,7 +18340,28 @@ if (editorTaskDescription) {
                         membersChanged = true;
                     }
                 });
-
+                // === NOWA LOGIKA: Alert Budżetowy ===
+            // Sprawdzamy, czy całkowity koszt przekracza budżet projektu
+            if (project.budget && parseFloat(project.budget.amount) > 0) {
+                const totalBudget = parseFloat(project.budget.amount);
+                const totalCommitted = (newBudgetSummary.totalReserved || 0) + (newBudgetSummary.totalSpent || 0);
+                
+                // Jeśli przekroczono i wcześniej nie było przekroczone (opcjonalne, tu sprawdzamy po prostu stan)
+                if (totalCommitted > totalBudget) {
+                    const overAmount = totalCommitted - totalBudget;
+                    // Powiadom Właściciela Projektu (jeśli to nie ja edytuję)
+                    if (project.ownerId !== state.currentUser.uid) {
+                        const msg = `⚠️ <strong>Uwaga Budżetowa:</strong> Zadanie "<strong>${updatedTask.title}</strong>" spowodowało przekroczenie budżetu projektu o ${overAmount.toLocaleString('pl-PL')} ${project.budget.currency}.`;
+                        sendInternalNotification(
+                            [project.ownerId],
+                            'alert',
+                            msg,
+                            { type: 'task', projectId: project.id, taskId: updatedTask.id }
+                        );
+                    }
+                }
+            }
+            // === KONIEC LOGIKI ===
                 // Przygotuj obiekt aktualizacji
                 const updatePayload = {
                     tasks: tasks,
@@ -20630,7 +20688,34 @@ if (subtaskModal.addCommentBtn) {
                 renderSubtaskComments(currentSubtask.comments);
 
                 subtaskModal.commentInput.value = ''; // Wyczyść input
+            // === NOWA LOGIKA POWIADOMIEŃ O WZMIANKACH (PODZADANIE) ===
+                const mentionRegex = /@([a-zA-Z0-9]+)/g;
+                const matches = text.match(mentionRegex);
+                
+                if (matches) {
+                    const mentionedNames = [...new Set(matches.map(m => m.substring(1)))];
+                    const usersToNotify = [];
+                    
+                    mentionedNames.forEach(nameVal => {
+                        const foundUser = state.users.find(u => 
+                            (u.name || u.email).replace(/[^a-zA-Z0-9]/g, '') === nameVal
+                        );
+                        if (foundUser) usersToNotify.push(foundUser.id);
+                    });
 
+                    if (usersToNotify.length > 0) {
+                        const subtaskTitle = updatedSubtasks.find(s => s.id === subtaskId)?.title || 'podzadaniu';
+                        const msg = `<strong>${state.currentUser.name}</strong> wspomniał/a o Tobie w komentarzu do podzadania "<strong>${subtaskTitle}</strong>".`;
+                        
+                        sendInternalNotification(
+                            usersToNotify,
+                            'mention',
+                            msg,
+                            { type: 'task', projectId: project.id, taskId: mainTaskId }
+                        );
+                    }
+                }
+                // === KONIEC NOWEJ LOGIKI ===
             } catch (error) {
                 console.error("Błąd zapisu komentarza podzadania:", error);
                 showNotification("Nie udało się dodać komentarza.", "Błąd");
@@ -23133,11 +23218,49 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // === KONIEC PRZYWRÓCONEGO KODU ===
         }
 
-        // === NOWA LOGIKA: Wywołanie powiadomień ===
-        // Sprawdź, czy zadanie JEST oznaczane jako 'done' i ma subskrybentów
+        // === NOWA LOGIKA: Powiadomienia (Subskrypcje, Zależności, Cofnięcie) ===
+        
+        // 1. Subskrybenci (Task Completed)
         if (task.status === 'done' && task.subscribers && task.subscribers.length > 0) {
-            // Wywołaj nową funkcję asynchronicznie (nie musimy na nią czekać)
             sendCompletionNotifications(task, project);
+        }
+
+        // 2. Zależności (Task Unlocked) - Jeśli to zadanie blokowało inne, powiadom ich właścicieli
+        if (task.status === 'done') {
+            // Szukamy w projekcie zadań, które są zablokowane przez TO zadanie (task.id)
+            const dependentTasks = project.tasks.filter(t => 
+                t.dependency && t.dependency.blockingTaskId === task.id && t.status !== 'done'
+            );
+
+            dependentTasks.forEach(depTask => {
+                const recipients = depTask.assignees || [];
+                if (recipients.length > 0) {
+                    const msg = `Zadanie "<strong>${task.title}</strong>" zostało ukończone. Możesz rozpocząć pracę nad: "<strong>${depTask.title}</strong>".`;
+                    sendInternalNotification(
+                        recipients,
+                        'task_assigned', // Używamy ikony 'assign' lub innej (np. 'info')
+                        msg,
+                        { type: 'task', projectId: project.id, taskId: depTask.id }
+                    );
+                }
+            });
+        }
+
+        // 3. Cofnięcie do poprawki (Status Reversal)
+        // Jeśli zadanie było 'done' lub 'inprogress', a wraca do 'todo' -> i robi to ktoś inny niż przypisany
+        // (Zakładamy completionSource='manual', bo auto-complete nie cofa)
+        if (completionSource === 'manual' && task.status === 'todo' && task.assignees.length > 0) {
+            // Sprawdzamy czy user nie jest przypisany (czyli np. manager cofa zadanie pracownika)
+            const amIAssigned = task.assignees.includes(state.currentUser.uid);
+            if (!amIAssigned) {
+                const msg = `<strong>${state.currentUser.name}</strong> cofnął status zadania "<strong>${task.title}</strong>" do 'Do realizacji'. Sprawdź, co wymaga poprawy.`;
+                sendInternalNotification(
+                    task.assignees,
+                    'alert', // Można dodać ikonę alertu w getNotificationIcon
+                    msg,
+                    { type: 'task', projectId: project.id, taskId: task.id }
+                );
+            }
         }
         // === KONIEC NOWEJ LOGIKI ===
 
@@ -24755,7 +24878,17 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                             await updateDoc(pollRef, {
                                 status: 'closed'
                             });
-                            
+                            // === NOWA LOGIKA: Powiadomienie o wynikach ===
+                            if (poll.assignees && poll.assignees.length > 0) {
+                                const msg = `Sondaż "<strong>${poll.title}</strong>" został zakończony. Sprawdź wyniki.`;
+                                sendInternalNotification(
+                                    poll.assignees,
+                                    'poll_invite', // Używamy tej samej ikony co przy zaproszeniu
+                                    msg,
+                                    { type: 'poll', projectId: poll.projectId, pollId: pollId }
+                                );
+                            }
+                            // === KONIEC LOGIKI ===
                             showNotification("Sondaż został zamknięty.", "Sukces");
                             closeModal(pollDetailsModal.overlay);
                             // Nie musimy wywoływać render(), 
@@ -27628,6 +27761,25 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
                  // --- 3. Zapis do Firestore ---
                  
+                 // === NOWA LOGIKA POWIADOMIEŃ PODZADAŃ ===
+                 // Obliczamy, kto został nowo przypisany do tego podzadania
+                 const oldSubtaskAssignees = subtaskId 
+                     ? (mainTask.subtasks.find(s => s.id === subtaskId)?.assignees || []) 
+                     : [];
+                 const newlyAssignedToSubtask = selectedAssignees.filter(id => !oldSubtaskAssignees.includes(id));
+
+                 if (newlyAssignedToSubtask.length > 0) {
+                     const msg = `<strong>${state.currentUser.name}</strong> przypisał/a Cię do podzadania "<strong>${title}</strong>" w zadaniu "${mainTask.title}".`;
+                     // Wywołujemy naszą nową funkcję (asynchronicznie, nie blokujemy zapisu)
+                     sendInternalNotification(
+                         newlyAssignedToSubtask, 
+                         'task_assigned', 
+                         msg, 
+                         { type: 'task', projectId: project.id, taskId: mainTask.id } // Linkujemy do zadania głównego
+                     );
+                 }
+                 // === KONIEC LOGIKI POWIADOMIEŃ ===
+
                  // === NOWA LOGIKA: Automatyczne dodawanie osób do zadania głównego i projektu ===
                  
                  // Kopia list do modyfikacji
@@ -31165,6 +31317,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
