@@ -14818,60 +14818,35 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     );
                 }
                 
-                // === NOWA LOGIKA RENDEROWANIA: FLATTENING (Spłaszczanie) ===
+                // === NOWA LOGIKA RENDEROWANIA: FLATTENING Z SORTOWANIEM ===
                 let columnContentHTML = '';
                 let totalRenderedTasks = 0;
 
-                // 1. Sondaże (zawsze na górze, tylko dla Todo/Done, bo nie mają statusu 'inprogress')
+                // 1. Sondaże (zawsze na samej górze)
                 if (state.ui.currentProjectFilters.showPolls) {
                     columnContentHTML += pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
                     totalRenderedTasks += pollsInColumn.length;
                 }
 
-                // 2. Zadania Główne (wraz z zagnieżdżonymi podzadaniami o tym samym statusie)
-                columnContentHTML += tasksInColumn.map(task => {
-                    totalRenderedTasks++;
-                    
-                    // === ZMIANA: Przekazujemy numer zadania ===
-                    const taskNumber = taskIndexMap[task.id]; 
-                    
-                    return createTaskCardHTML(task, isInteractive, project, colData.status, colData.customColumnId, taskNumber); 
-                }).join('');
-
-                // 3. Podzadania Niezależne (Standalone)
-                // Szukamy podzadań, które mają status TEJ kolumny, ale których rodzice są gdzie indziej.
+                // 2. Przygotuj listę Podzadań Niezależnych (Standalone)
+                // (To tylko zbieranie danych, jeszcze nie renderujemy)
                 const standaloneSubtasks = [];
                 tasks.forEach(parentTask => {
-                    // Sprawdź, czy rodzic jest w tej kolumnie. Jeśli tak, jego podzadania (o tym samym statusie)
-                    // zostały już wyrenderowane w punkcie 2 jako 'nested'.
-                    // UWAGA: Używamy tasksInColumn, które zawiera przefiltrowane zadania główne dla tej kolumny.
+                    // Sprawdź czy rodzic jest w tej kolumnie
                     const isParentInThisColumn = tasksInColumn.some(t => t.id === parentTask.id);
                     
-                    // === POPRAWKA: Nie pokazuj podzadań jako "wolnych", jeśli rodzic jest już wykonany ===
-                    // Jeśli rodzic jest 'done', to jego podzadania są historyczne i nie powinny wisieć w 'todo'.
                     if (parentTask.status === 'done') return; 
-                    // === KONIEC POPRAWKI ===
 
                     if (!isParentInThisColumn && parentTask.subtasks && parentTask.subtasks.length > 0) {
                         parentTask.subtasks.forEach(sub => {
-                            // Status podzadania (fallback do todo/done jeśli brak pola status)
                             const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
-                            
-                            // Sprawdzamy dopasowanie do bieżącej kolumny
                             let matches = false;
                             
                             if (colData.isCustom) {
-                                // === NAPRAWA: Obsługa kolumn niestandardowych ===
-                                // Podzadanie musi mieć status 'inprogress' ORAZ pasujące ID kolumny
                                 matches = (subStatus === 'inprogress' && sub.customColumnId === colData.id);
-                                
                             } else if (colData.status === 'inprogress') {
-                                // === NAPRAWA: Domyślna kolumna "W trakcie" ===
-                                // Podzadanie ma status 'inprogress' ORAZ NIE MA customColumnId (jest null lub undefined)
                                 matches = (subStatus === 'inprogress' && !sub.customColumnId);
-                                
                             } else {
-                                // Kolumny "todo" lub "done" (tutaj ignorujemy customColumnId, bo te statusy czyszczą ID)
                                 matches = (subStatus === colData.status);
                             }
 
@@ -14881,19 +14856,60 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         });
                     }
                 });
+
+                // 3. SCALANIE: Utwórz wspólną tablicę wszystkich elementów
+                let combinedItems = [];
+
+                // Dodaj Zadania Główne
+                tasksInColumn.forEach(task => {
+                    combinedItems.push({
+                        type: 'main',
+                        data: task,
+                        dueDate: task.dueDate // Data do sortowania
+                    });
+                });
+
+                // Dodaj Podzadania Niezależne
+                standaloneSubtasks.forEach(item => {
+                    combinedItems.push({
+                        type: 'subtask',
+                        data: item, // zawiera { sub, parent }
+                        dueDate: item.sub.dueDate // Data do sortowania
+                    });
+                });
+
+                // 4. SORTOWANIE: Posortuj wspólną tablicę
+                const currentSortOrder = state.ui.projectSortOrders[project.id] || 'asc';
                 
-                // Renderowanie znalezionych podzadań w trybie 'standalone'
-                columnContentHTML += standaloneSubtasks.map(item => {
+                combinedItems.sort((a, b) => {
+                    const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+                    const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+                    
+                    if (dateA === Infinity && dateB === Infinity) return 0;
+                    if (dateA === Infinity) return 1;
+                    if (dateB === Infinity) return -1;
+                    
+                    return currentSortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+                });
+
+                // 5. GENEROWANIE HTML: Iteruj po posortowanej liście
+                columnContentHTML += combinedItems.map(item => {
                     totalRenderedTasks++;
-                    
-                    // === NOWOŚĆ: Obliczanie numeracji WBS dla standalone ===
-                    const parentNumber = taskIndexMap[item.parent.id];
-                    // Znajdź index podzadania w rodzicu (liczone od 1)
-                    const subIndex = item.parent.subtasks.findIndex(s => s.id === item.sub.id) + 1;
-                    const wbsNumber = `${parentNumber}.${subIndex}`;
-                    
-                    // Przekazujemy numer WBS jako ostatni argument
-                    return createVisualSubtaskCardHTML(item.sub, item.parent, project, 'standalone', wbsNumber);
+
+                    if (item.type === 'main') {
+                        const task = item.data;
+                        const taskNumber = taskIndexMap[task.id];
+                        return createTaskCardHTML(task, isInteractive, project, colData.status, colData.customColumnId, taskNumber);
+                    } else {
+                        // item.type === 'subtask'
+                        const { sub, parent } = item.data;
+                        const parentNumber = taskIndexMap[parent.id];
+                        // Bezpieczne znajdowanie indeksu (może być -1 w skrajnych przypadkach)
+                        const subIndex = (parent.subtasks || []).findIndex(s => s.id === sub.id) + 1;
+                        const wbsNumber = parentNumber ? `${parentNumber}.${subIndex}` : '';
+                        
+                        return createVisualSubtaskCardHTML(sub, parent, project, 'standalone', wbsNumber);
+                    }
                 }).join('');
 
                 const totalCount = totalRenderedTasks;
@@ -30681,6 +30697,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
