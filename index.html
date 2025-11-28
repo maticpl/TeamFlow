@@ -25753,16 +25753,27 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                                 tasksByProject.forEach(({ project, taskIds }, projectId) => {
                                     const projectRef = doc(projectsRef, projectId);
                                     
-                                    // Filtruj listę zadań, usuwając te zaznaczone
+                                    // A. Znajdź i przygotuj zadania do przeniesienia do kosza
+                                    const tasksToArchive = (project.tasks || [])
+                                        .filter(t => taskIds.includes(t.id))
+                                        .map(t => ({
+                                            ...t,
+                                            deletedAt: Date.now(),
+                                            deletedBy: state.currentUser.uid
+                                        }));
+
+                                    // B. Filtruj listę zadań aktywnych (usuwając te zaznaczone)
                                     const updatedTasks = (project.tasks || []).filter(t => !taskIds.includes(t.id));
                                     
-                                    // Przelicz budżet dla nowej (odchudzonej) listy zadań
+                                    // C. Przelicz budżet dla nowej (odchudzonej) listy zadań aktywnych
                                     const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
 
-                                    // Dodaj aktualizację do batcha
+                                    // D. Dodaj aktualizację do batcha
+                                    // Aktualizujemy 'tasks' (usuwamy) ORAZ 'deletedTasks' (dodajemy)
                                     batch.update(projectRef, {
                                         tasks: updatedTasks,
-                                        budgetSummary: newBudgetSummary
+                                        budgetSummary: newBudgetSummary,
+                                        deletedTasks: arrayUnion(...tasksToArchive) // Używamy arrayUnion z rozproszeniem
                                     });
                                 });
 
@@ -30962,6 +30973,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
