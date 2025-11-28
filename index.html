@@ -26737,170 +26737,158 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             reader.readAsDataURL(file);
         });
         // 4. GŁÓWNA FUNKCJA ZAPISU
-    // 4. GŁÓWNA FUNKCJA ZAPISU (Wersja Firestore-First z poprawką na undefined)
-    settingsModal.saveBtn.addEventListener('click', async () => {
-        const user = state.currentUser;
-        const firebaseUser = auth.currentUser; 
+    // 4. GŁÓWNA FUNKCJA ZAPISU (Wersja z DEBUGOWANIEM POWIADOMIEŃ)
+        settingsModal.saveBtn.addEventListener('click', async () => {
+            const user = state.currentUser;
+            // Pobierz obiekt usera bezpośrednio z Auth dla operacji zmiany hasła
+            const firebaseUser = auth.currentUser; 
 
-        const newName = settingsModal.nameInput.value.trim();
-        const newSubgroup = settingsModal.subgroupSelect.value;
-        
-        // Hasła
-        const currentPass = settingsModal.currentPasswordInput.value;
-        const newPass = settingsModal.newPasswordInput.value;
-        const confirmPass = settingsModal.confirmPasswordInput.value;
-
-        if (!newName) {
-            showNotification("Imię i nazwisko nie może być puste.", "Błąd");
-            return;
-        }
-
-        // Walidacja hasła
-        if (newPass) {
-            if (!currentPass) {
-                showNotification("Aby zmienić hasło, musisz podać obecne hasło.", "Błąd");
-                settingsModal.currentPasswordInput.focus();
-                return;
-            }
-            if (newPass.length < 6) {
-                showNotification("Nowe hasło musi mieć min. 6 znaków.", "Błąd");
-                return;
-            }
-            if (newPass !== confirmPass) {
-                showNotification("Nowe hasła nie są identyczne.", "Błąd");
-                return;
-            }
-        }
-
-        settingsModal.saveBtn.disabled = true;
-        settingsModal.saveBtn.textContent = 'Zapisywanie...';
-
-        try {
-            const updates = {};
-            let messages = [];
-
-            // A. Obsługa Zdjęcia
-            if (tempProfileBlob) {
-                const filePath = `profile-pictures/${user.uid}/avatar.jpeg`;
-                const fileRef = ref(storage, filePath);
-                await uploadBytes(fileRef, tempProfileBlob);
-                const photoURL = await getDownloadURL(fileRef);
-                updates.photoURL = photoURL;
-                messages.push("Zdjęcie");
-            }
-
-            // B. Obsługa Nazwy
-            if (newName !== user.name) {
-                updates.name = newName;
-                messages.push("Nazwa");
-            }
+            const newName = settingsModal.nameInput.value.trim();
+            const newSubgroup = settingsModal.subgroupSelect.value;
             
-            // C. Obsługa Działu
-            const currentGroupInfo = state.currentUser.groupInfo[state.ui.activeGroupId] || {};
-            if (newSubgroup !== currentGroupInfo.subgroup) {
-                updates[`groupInfo.${state.ui.activeGroupId}.subgroup`] = newSubgroup;
+            // Hasła
+            const currentPass = settingsModal.currentPasswordInput.value;
+            const newPass = settingsModal.newPasswordInput.value;
+            const confirmPass = settingsModal.confirmPasswordInput.value;
+
+            if (!newName) {
+                showNotification("Imię i nazwisko nie może być puste.", "Błąd");
+                return;
+            }
+
+            // Walidacja hasła
+            if (newPass) {
+                if (!currentPass) {
+                    showNotification("Aby zmienić hasło, musisz podać obecne hasło.", "Błąd");
+                    settingsModal.currentPasswordInput.focus();
+                    return;
+                }
+                if (newPass.length < 6) {
+                    showNotification("Nowe hasło musi mieć min. 6 znaków.", "Błąd");
+                    return;
+                }
+                if (newPass !== confirmPass) {
+                    showNotification("Nowe hasła nie są identyczne.", "Błąd");
+                    return;
+                }
+            }
+
+            settingsModal.saveBtn.disabled = true;
+            settingsModal.saveBtn.textContent = 'Zapisywanie...';
+
+            try {
+                const updates = {};
+                let messages = [];
+
+                // A. Obsługa Zdjęcia
+                if (tempProfileBlob) {
+                    const filePath = `profile-pictures/${user.uid}/avatar.jpeg`;
+                    const fileRef = ref(storage, filePath);
+                    await uploadBytes(fileRef, tempProfileBlob);
+                    const photoURL = await getDownloadURL(fileRef);
+                    updates.photoURL = photoURL;
+                    messages.push("Zdjęcie");
+                }
+
+                // B. Obsługa Nazwy
+                if (newName !== user.name) {
+                    updates.name = newName;
+                    messages.push("Nazwa");
+                }
                 
+                // C. Obsługa Działu
+                // Inicjalizacja obiektu groupInfo jeśli nie istnieje
+                if (!state.currentUser.groupInfo) state.currentUser.groupInfo = {};
                 if (!state.currentUser.groupInfo[state.ui.activeGroupId]) {
                     state.currentUser.groupInfo[state.ui.activeGroupId] = {};
                 }
-                state.currentUser.groupInfo[state.ui.activeGroupId].subgroup = newSubgroup;
-                state.ui.activeGroupInfo.subgroup = newSubgroup;
-                messages.push("Dział");
-            }
 
-            // === E. OBSŁUGA USTAWIEŃ APLIKACJI (FIRESTORE) ===
-            // Pobieramy obecne preferencje z obiektu usera
-            const currentPrefs = user.preferences || {};
-            
-            // 1. Motyw (Theme)
-            const selectedTheme = document.querySelector('input[name="app-theme"]:checked')?.value || 'light';
-            const dbTheme = currentPrefs.theme || 'light';
-            if (selectedTheme !== dbTheme) {
-                updates['preferences.theme'] = selectedTheme;
-                state.ui.theme = selectedTheme; 
-                messages.push("Motyw");
-            }
+                const currentGroupInfo = state.currentUser.groupInfo[state.ui.activeGroupId] || {};
+                if (newSubgroup !== currentGroupInfo.subgroup) {
+                    updates[`groupInfo.${state.ui.activeGroupId}.subgroup`] = newSubgroup;
+                    
+                    // Aktualizacja lokalna
+                    state.currentUser.groupInfo[state.ui.activeGroupId].subgroup = newSubgroup;
+                    if (state.ui.activeGroupInfo) {
+                         state.ui.activeGroupInfo.subgroup = newSubgroup;
+                    }
+                    messages.push("Dział");
+                }
 
-            // 2. Widok Startowy
-            const dbStartView = currentPrefs.startView || 'auto';
-            if (settingsStartView && settingsStartView.value !== dbStartView) {
-                updates['preferences.startView'] = settingsStartView.value;
-                state.ui.startView = settingsStartView.value;
-                messages.push("Widok startowy");
-            }
-
-            // 3. Konfetti (POPRAWKA: obsługa undefined jako true)
-            const dbShowConfetti = currentPrefs.showConfetti !== undefined ? currentPrefs.showConfetti : true;
-            if (settingsShowConfetti && settingsShowConfetti.checked !== dbShowConfetti) {
-                updates['preferences.showConfetti'] = settingsShowConfetti.checked;
-                state.ui.showConfetti = settingsShowConfetti.checked;
-                messages.push("Konfetti");
-            }
-
-            // 4. Potwierdzenia (POPRAWKA: obsługa undefined jako true)
-            const dbConfirmDelete = currentPrefs.confirmDelete !== undefined ? currentPrefs.confirmDelete : true;
-            if (settingsConfirmDelete && settingsConfirmDelete.checked !== dbConfirmDelete) {
-                updates['preferences.confirmDelete'] = settingsConfirmDelete.checked;
-                state.ui.confirmDelete = settingsConfirmDelete.checked;
-                messages.push("Potwierdzenia");
-            }
-
-            // === NOWE: 5. Tryb Kompaktowy ===
-            const dbCompactMode = currentPrefs.compactMode || false;
-            if (settingsCompactMode && settingsCompactMode.checked !== dbCompactMode) {
-                updates['preferences.compactMode'] = settingsCompactMode.checked;
-                state.ui.compactMode = settingsCompactMode.checked;
-                applyInterfaceSettings(); // Aplikuj globalnie
-                messages.push("Tryb kompaktowy");
-            }
-
-            // === NOWE: 6. Start ze zwiniętym paskiem ===
-            const dbStartCollapsed = currentPrefs.startCollapsed || false;
-            if (settingsStartCollapsed && settingsStartCollapsed.checked !== dbStartCollapsed) {
-                updates['preferences.startCollapsed'] = settingsStartCollapsed.checked;
-                state.ui.startCollapsed = settingsStartCollapsed.checked;
-                messages.push("Ustawienie paska bocznego");
-            }
-
-            // === NOWE: 7. Rozwijanie podzadań ===
-            const dbExpandSubtasks = currentPrefs.expandSubtasksByDefault !== undefined ? currentPrefs.expandSubtasksByDefault : true;
-            if (settingsExpandSubtasks && settingsExpandSubtasks.checked !== dbExpandSubtasks) {
-                updates['preferences.expandSubtasksByDefault'] = settingsExpandSubtasks.checked;
-                state.ui.expandSubtasksByDefault = settingsExpandSubtasks.checked;
-                messages.push("Domyślne rozwijanie podzadań");
-            }
-            
-            // Zapisz też UI state do localStorage
-            saveUiState();
-            // === KONIEC ===
-
-            // D. Obsługa Hasła
-            if (newPass) {
-                const credential = EmailAuthProvider.credential(firebaseUser.email, currentPass);
-                await reauthenticateWithCredential(firebaseUser, credential);
-                await updatePassword(firebaseUser, newPass);
-                messages.push("Hasło");
-            }
-
-            // WYKONAJ ZAPIS DO FIRESTORE
-            if (Object.keys(updates).length > 0) {
-                const userRef = doc(usersRef, user.uid);
-                await updateDoc(userRef, updates);
+                // === E. OBSŁUGA USTAWIEŃ APLIKACJI (FIRESTORE) ===
+                const currentPrefs = user.preferences || {};
                 
-                // Zaktualizuj lokalny obiekt currentUser.preferences
-                // Rozszerzamy istniejące preferencje o nowe updates (spłaszczone)
-                
-                // Ponieważ updates ma klucze typu 'preferences.theme', musimy to obsłużyć
-                // Tworzymy obiekt 'preferences' z update'ów
-                const newPrefs = { ...currentPrefs };
-                
-                if (updates['preferences.theme']) newPrefs.theme = updates['preferences.theme'];
-                if (updates['preferences.startView']) newPrefs.startView = updates['preferences.startView'];
-                if (updates['preferences.showConfetti'] !== undefined) newPrefs.showConfetti = updates['preferences.showConfetti'];
-                if (updates['preferences.confirmDelete'] !== undefined) newPrefs.confirmDelete = updates['preferences.confirmDelete'];
-                if (updates['preferences.expandSubtasksByDefault'] !== undefined) newPrefs.expandSubtasksByDefault = updates['preferences.expandSubtasksByDefault']; 
+                // 1. Motyw (Theme)
+                const selectedTheme = document.querySelector('input[name="app-theme"]:checked')?.value || 'light';
+                const dbTheme = currentPrefs.theme || 'light';
+                if (selectedTheme !== dbTheme) {
+                    updates['preferences.theme'] = selectedTheme;
+                    state.ui.theme = selectedTheme; 
+                    messages.push("Motyw");
+                }
 
-                // === NOWE: Zapis powiadomień (POPRAWKA DETEKCJI ZMIAN V2) ===
+                // 2. Widok Startowy
+                const dbStartView = currentPrefs.startView || 'auto';
+                if (settingsStartView && settingsStartView.value !== dbStartView) {
+                    updates['preferences.startView'] = settingsStartView.value;
+                    state.ui.startView = settingsStartView.value;
+                    messages.push("Widok startowy");
+                }
+
+                // 3. Konfetti
+                const dbShowConfetti = currentPrefs.showConfetti !== undefined ? currentPrefs.showConfetti : true;
+                if (settingsShowConfetti && settingsShowConfetti.checked !== dbShowConfetti) {
+                    updates['preferences.showConfetti'] = settingsShowConfetti.checked;
+                    state.ui.showConfetti = settingsShowConfetti.checked;
+                    messages.push("Konfetti");
+                }
+
+                // 4. Potwierdzenia
+                const dbConfirmDelete = currentPrefs.confirmDelete !== undefined ? currentPrefs.confirmDelete : true;
+                if (settingsConfirmDelete && settingsConfirmDelete.checked !== dbConfirmDelete) {
+                    updates['preferences.confirmDelete'] = settingsConfirmDelete.checked;
+                    state.ui.confirmDelete = settingsConfirmDelete.checked;
+                    messages.push("Potwierdzenia");
+                }
+
+                // 5. Tryb Kompaktowy
+                const dbCompactMode = currentPrefs.compactMode || false;
+                if (settingsCompactMode && settingsCompactMode.checked !== dbCompactMode) {
+                    updates['preferences.compactMode'] = settingsCompactMode.checked;
+                    state.ui.compactMode = settingsCompactMode.checked;
+                    applyInterfaceSettings(); 
+                    messages.push("Tryb kompaktowy");
+                }
+
+                // 6. Start ze zwiniętym paskiem
+                const dbStartCollapsed = currentPrefs.startCollapsed || false;
+                if (settingsStartCollapsed && settingsStartCollapsed.checked !== dbStartCollapsed) {
+                    updates['preferences.startCollapsed'] = settingsStartCollapsed.checked;
+                    state.ui.startCollapsed = settingsStartCollapsed.checked;
+                    messages.push("Ustawienie paska bocznego");
+                }
+
+                // 7. Rozwijanie podzadań
+                const dbExpandSubtasks = currentPrefs.expandSubtasksByDefault !== undefined ? currentPrefs.expandSubtasksByDefault : true;
+                if (settingsExpandSubtasks && settingsExpandSubtasks.checked !== dbExpandSubtasks) {
+                    updates['preferences.expandSubtasksByDefault'] = settingsExpandSubtasks.checked;
+                    state.ui.expandSubtasksByDefault = settingsExpandSubtasks.checked;
+                    messages.push("Domyślne rozwijanie podzadań");
+                }
+                
+                saveUiState();
+
+                // D. Obsługa Hasła (Firebase Auth)
+                if (newPass) {
+                    const credential = EmailAuthProvider.credential(firebaseUser.email, currentPass);
+                    await reauthenticateWithCredential(firebaseUser, credential);
+                    await updatePassword(firebaseUser, newPass);
+                    messages.push("Hasło");
+                }
+
+                // === NOWE: Zapis powiadomień (DEBUGOWANIE) ===
+                
+                // Pobierz stan checkboxów
                 const newNotifPrefs = {
                     project_invite: document.getElementById('notif-project-invite').checked,
                     task_assign: document.getElementById('notif-task-assign').checked,
@@ -26913,68 +26901,84 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                     dependency: document.getElementById('notif-dependency').checked
                 };
 
-                // 1. Pobierz aktualne ustawienia z bazy
-                // Używamy 'state.currentUser' jako źródła prawdy
+                // Pobierz stan z bazy (domyślnie pusty obiekt)
                 const currentNotifsSafe = (state.currentUser.preferences && state.currentUser.preferences.notifications) 
                     ? state.currentUser.preferences.notifications 
                     : {};
                 
                 let notifChanged = false;
-
-                // 2. Porównaj każdą wartość jawną pętlą
                 const notifKeys = Object.keys(newNotifPrefs);
                 
+                console.group("--- DEBUGOWANIE ZAPISU POWIADOMIEŃ ---");
                 for (let i = 0; i < notifKeys.length; i++) {
                     const key = notifKeys[i];
-                    const newValue = newNotifPrefs[key]; // true/false z checkboxa
+                    const newValue = Boolean(newNotifPrefs[key]); // Wymuszamy typ Boolean
                     
-                    // Pobierz starą wartość.
-                    // Jeśli w bazie jest undefined, przyjmujemy domyślnie TRUE.
-                    const storedValue = currentNotifsSafe[key];
-                    const oldValue = (storedValue === undefined) ? true : storedValue;
+                    // Pobierz starą wartość. Jeśli undefined -> true (domyślny stan)
+                    const rawStoredValue = currentNotifsSafe[key];
+                    const oldValue = (rawStoredValue === undefined) ? true : Boolean(rawStoredValue);
 
-                    // Porównanie ścisłe
+                    // Logowanie każdej wartości
+                    console.log(`Klucz: ${key} | Nowa (Input): ${newValue} | Stara (DB): ${oldValue} (Raw: ${rawStoredValue})`);
+
                     if (newValue !== oldValue) {
                         notifChanged = true;
-                        console.log(`Wykryto zmianę w powiadomieniach: [${key}] Stara: ${oldValue}, Nowa: ${newValue}`);
-                        break; // Wystarczy jedna zmiana, by zapisać całą sekcję
+                        console.log(`>>> ZMIANA WYKRYTA! ${key}: ${oldValue} -> ${newValue}`);
+                        // Nie przerywamy pętli (break), żeby w logach zobaczyć wszystko, 
+                        // ale flaga notifChanged już jest true.
                     }
                 }
+                console.groupEnd();
 
                 if (notifChanged) {
                     updates['preferences.notifications'] = newNotifPrefs;
                     
-                    // Aktualizujemy też obiekt pomocniczy newPrefs
-                    if (!newPrefs.notifications) newPrefs.notifications = {};
+                    // Aktualizujemy lokalny stan, aby kolejne kliknięcie nie wykryło zmiany
+                    if (!state.currentUser.preferences) state.currentUser.preferences = {};
+                    if (!state.currentUser.preferences.notifications) state.currentUser.preferences.notifications = {};
                     
-                    // Nadpisujemy obiekt w pamięci nowymi wartościami
-                    // (ważne, aby kolejne kliknięcie "Zapisz" nie wykryło zmian, jeśli ich nie było)
-                    newPrefs.notifications = { ...newPrefs.notifications, ...newNotifPrefs };
+                    // Nadpisujemy lokalne preferencje
+                    state.currentUser.preferences.notifications = { 
+                        ...state.currentUser.preferences.notifications, 
+                        ...newNotifPrefs 
+                    };
                     
                     messages.push("Ustawienia powiadomień");
                 }
-                // === KONIEC POPRAWIONEGO KODU ===
+                // === KONIEC DEBUGOWANIA ===
 
-                state.currentUser.preferences = newPrefs;
+                // WYKONAJ ZAPIS DO FIRESTORE
+                if (Object.keys(updates).length > 0) {
+                    const userRef = doc(usersRef, user.uid);
+                    await updateDoc(userRef, updates);
+                    
+                    // Scalanie nowych preferencji z istniejącymi w stanie lokalnym (dla bezpieczeństwa)
+                    state.currentUser.preferences = {
+                        ...state.currentUser.preferences,
+                        ...currentPrefs
+                    };
+                    // Ręcznie aktualizujemy klucze, które wysłaliśmy
+                    if (updates['preferences.theme']) state.currentUser.preferences.theme = updates['preferences.theme'];
+                    // ... (reszta kluczy aktualizowana przez listenery zmiany wyżej)
+                }
+
+                if (messages.length > 0) {
+                    showNotification(`Pomyślnie zaktualizowano: ${messages.join(", ")}.`, "Sukces");
+                    closeModal(settingsModal.overlay);
+                } else {
+                    showNotification("Nie wprowadzono żadnych zmian.", "Informacja");
+                }
+                
+                render(); 
+
+            } catch (error) {
+                console.error("Błąd zapisu ustawień:", error);
+                showNotification(error.message || "Wystąpił błąd podczas zapisu.", "Błąd");
+            } finally {
+                settingsModal.saveBtn.disabled = false;
+                settingsModal.saveBtn.textContent = 'Zapisz zmiany';
             }
-
-            if (messages.length > 0) {
-                showNotification(`Pomyślnie zaktualizowano: ${messages.join(", ")}.`, "Sukces");
-                closeModal(settingsModal.overlay);
-            } else {
-                showNotification("Nie wprowadzono żadnych zmian.", "Informacja");
-            }
-            
-            render(); 
-
-        } catch (error) {
-            console.error("Błąd zapisu ustawień:", error);
-            showNotification(error.message || "Wystąpił błąd podczas zapisu.", "Błąd");
-        } finally {
-            settingsModal.saveBtn.disabled = false;
-            settingsModal.saveBtn.textContent = 'Zapisz zmiany';
-        }
-    });
+        });
 
         // === NAPRAWA BŁĘDU: Definicje zmiennych ustawień (MUSZĄ BYĆ TUTAJ) ===
         const settingsStartView = document.getElementById('settings-start-view');
@@ -31471,6 +31475,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
