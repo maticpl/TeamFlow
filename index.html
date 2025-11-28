@@ -12270,6 +12270,90 @@ function drawRadarChart(allProjects) {
     container.appendChild(svg);
     tippy('.radar-node', { allowHTML: true, theme: 'light', animation: 'scale' });
     tippy('.radar-avatar-group', { allowHTML: true, theme: 'light' });
+// === NOWA LOGIKA: NAWIGACJA RADARU (ZOOM & PAN) ===
+    
+    // 1. Zmienne stanu dla tej instancji wykresu
+    let radarScale = 1;
+    let radarTranslateX = 0;
+    let radarTranslateY = 0;
+    let isRadarPanning = false;
+    let isRadarPanningMoved = false; // Flaga: czy faktycznie przesunięto (żeby nie klikać przy upuszczeniu)
+    let startPanX = 0;
+    let startPanY = 0;
+
+    // Funkcja aplikująca transformację
+    const updateRadarTransform = () => {
+        svg.style.transform = `translate(${radarTranslateX}px, ${radarTranslateY}px) scale(${radarScale})`;
+        svg.style.transformOrigin = 'center center'; // Zoomujemy do środka
+        svg.style.transition = isRadarPanning ? 'none' : 'transform 0.1s ease-out'; // Płynność tylko przy zoomie
+    };
+
+    // 2. Obsługa Zoomu (Scroll)
+    container.addEventListener('wheel', (e) => {
+        e.preventDefault(); // Zablokuj przewijanie strony
+
+        const zoomIntensity = 0.001; // Czułość zoomu
+        const delta = -e.deltaY;
+        
+        // Oblicz nowy zoom
+        const newScale = radarScale + (delta * zoomIntensity * radarScale); // Zoom proporcjonalny
+        
+        // Ograniczenia (min 0.5x, max 5x)
+        radarScale = Math.min(Math.max(0.5, newScale), 5);
+        
+        updateRadarTransform();
+    }, { passive: false });
+
+    // 3. Obsługa Przesuwania (Prawy Przycisk Myszki)
+    
+    // Blokada menu kontekstowego (żeby prawy przycisk nie otwierał menu przeglądarki)
+    container.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        return false;
+    });
+
+    container.addEventListener('mousedown', (e) => {
+        // Sprawdź czy to prawy przycisk (button 2)
+        if (e.button === 2) {
+            isRadarPanning = true;
+            isRadarPanningMoved = false;
+            startPanX = e.clientX - radarTranslateX;
+            startPanY = e.clientY - radarTranslateY;
+            container.style.cursor = 'grabbing'; // Zmień kursor
+        }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isRadarPanning) return;
+        e.preventDefault();
+        
+        const newX = e.clientX - startPanX;
+        const newY = e.clientY - startPanY;
+        
+        // Wykryj czy nastąpiło przesunięcie większe niż margines błędu (np. 3px)
+        if (Math.abs(newX - radarTranslateX) > 3 || Math.abs(newY - radarTranslateY) > 3) {
+            isRadarPanningMoved = true;
+        }
+
+        radarTranslateX = newX;
+        radarTranslateY = newY;
+        
+        updateRadarTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (isRadarPanning) {
+            isRadarPanning = false;
+            container.style.cursor = 'default'; // Przywróć kursor
+            
+            // Reset flagi 'moved' po krótkim czasie, aby kliknięcia "w miejscu" działały
+            setTimeout(() => { isRadarPanningMoved = false; }, 50);
+        }
+    });
+    
+    // Inicjalizacja stylu
+    svg.style.cursor = 'default'; // Domyślny kursor nad SVG
+    updateRadarTransform(); // Aplikuj stan początkowy
 }
         // NOWA FUNKCJA DO RENDEROWANIA WIDOKU WSZYSTKICH PROJEKTÓW
         function renderAllProjectsView() {
@@ -30834,6 +30918,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
