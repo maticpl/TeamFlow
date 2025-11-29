@@ -12214,6 +12214,41 @@ function renderRadarView() {
     // 4. Renderuj pasek filtrów (Pigułki)
     renderRadarFilters(allProjects);
 
+    // --- NOWOŚĆ: Inicjalizacja i renderowanie przełącznika trybów ---
+    if (!state.ui.radarMode) state.ui.radarMode = 'effort'; // Domyślny tryb
+
+    const chartContainer = document.getElementById('radar-chart-container');
+    // Czyścimy kontener, aby nie dublować przycisków przy przerysowaniu
+    chartContainer.innerHTML = ''; 
+
+    const modeSwitcher = document.createElement('div');
+    modeSwitcher.className = 'radar-mode-switcher';
+    // Style inline dla pozycjonowania absolutnego w rogu radaru (nad SVG)
+    modeSwitcher.style.cssText = 'position: absolute; top: 20px; left: 20px; z-index: 10; display: flex; gap: 4px; background: var(--bg-secondary); padding: 4px; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm);';
+
+    const modes = [
+        { id: 'effort', label: 'Wysiłek', icon: '<path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />' },
+        { id: 'budget', label: 'Budżet', icon: '<path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8Z" /><path d="M12 16v-4M12 8h.01" />' },
+        { id: 'priority', label: 'Priorytet', icon: '<path d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5" />' }
+    ];
+
+    modes.forEach(m => {
+        const btn = document.createElement('button');
+        const isActive = state.ui.radarMode === m.id;
+        btn.className = `btn btn-sm ${isActive ? 'btn-primary' : 'btn-secondary'}`;
+        btn.style.cssText = `padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; ${isActive ? '' : 'border: none; background: transparent;'}`;
+        // Wstawiamy SVG bezpośrednio
+        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;">${m.icon}</svg> ${m.label}`;
+        
+        btn.onclick = () => {
+            state.ui.radarMode = m.id; // Zapisz wybór
+            renderRadarView(); // Przerysuj widok (zaktualizuje przyciski i wykres)
+        };
+        modeSwitcher.appendChild(btn);
+    });
+    
+    chartContainer.appendChild(modeSwitcher);
+
     // 5. Rysuj Radar SVG
     drawRadarChart(allProjects);
 }
@@ -12505,17 +12540,48 @@ function drawRadarChart(allProjects) {
             let ty = center + idealR * Math.sin(idealAngle);
 
             // C. Wielkość
-            let nodeSize = 7;
+            let nodeSize = 6; // Domyślna baza
+            
             if (isCompleted) {
-                nodeSize = isSubtask ? 3 : 4; // Ukończone są małe
+                nodeSize = isSubtask ? 3 : 4; // Ukończone zawsze małe
             } else {
-                const est = parseFloat(obj.estimation || obj.effort || 0);
-                // Skalowanie na podstawie wysiłku
-                if (est > 0) nodeSize = 7 + Math.min(est / 2, 10);
-                if (obj.priority === 'high') nodeSize += 3;
+                const mode = state.ui.radarMode || 'effort';
                 
-                // Podzadania wizualnie nieco mniejsze od zadań głównych o tej samej wadze
-                if (isSubtask) nodeSize = Math.max(4, nodeSize - 1.5); 
+                switch (mode) {
+                    case 'budget':
+                        // 1. Oblicz budżet zadania (suma pozycji)
+                        // Dla podzadania bierzemy jego budgetItems, dla głównego też
+                        const budgetTotal = (obj.budgetItems || []).reduce((acc, bItem) => acc + (parseFloat(bItem.amount) || 0), 0);
+                        
+                        if (budgetTotal > 0) {
+                            // Skala logarytmiczna: log10(1000) = 3. log10(100000) = 5.
+                            // Formuła: Baza 6 + (log10(kwota) * mnożnik)
+                            // Przykład: 1000 PLN -> 6 + (3 * 2.5) = 13.5px
+                            nodeSize = 6 + (Math.log10(budgetTotal) * 2.5);
+                            // Limit górny, żeby nie zasłoniło mapy
+                            nodeSize = Math.min(nodeSize, 24); 
+                        } else {
+                            nodeSize = 5; // Brak budżetu = mała kropka
+                        }
+                        break;
+
+                    case 'priority':
+                        if (obj.priority === 'high') nodeSize = 16;
+                        else if (obj.priority === 'medium') nodeSize = 10;
+                        else nodeSize = 6; // Low
+                        break;
+
+                    case 'effort':
+                    default:
+                        const est = parseFloat(obj.estimation || obj.effort || 0);
+                        if (est > 0) nodeSize = 7 + Math.min(est / 2, 10);
+                        // Dodatkowy boost za priorytet w trybie wysiłku (dla lepszej widoczności)
+                        if (obj.priority === 'high') nodeSize += 2;
+                        break;
+                }
+
+                // Podzadania zawsze trochę mniejsze od rodzica o tych samych parametrach
+                if (isSubtask) nodeSize = Math.max(3, nodeSize * 0.8); 
             }
             
             // D. Antykolizja (Wspólna dla obu typów - zadania i podzadania robią sobie miejsce)
@@ -32143,6 +32209,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
