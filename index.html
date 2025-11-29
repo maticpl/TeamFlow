@@ -5322,6 +5322,40 @@
                 color: var(--accent-primary);
             }
         }
+        /* === NOWE STYLE DLA DZWONKA PODZADANIA === */
+        .subtask-subscription-bell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0.5; /* Domyślnie wyszarzony */
+            transition: opacity 0.2s, transform 0.2s, color 0.2s;
+            color: var(--text-secondary);
+            margin-left: 4px;
+        }
+        
+        .subtask-subscription-bell:hover {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+        
+        .subtask-subscription-bell.subscribed {
+            opacity: 1;
+            color: var(--accent-primary); /* Niebieski gdy aktywny */
+        }
+
+        .subtask-subscription-bell svg {
+            width: 14px; /* Rozmiar dopasowany do innych ikon podzadania */
+            height: 14px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+        }
+        
+        /* Animacja dzwonienia (taka sama jak w głównym) */
+        .subtask-subscription-bell.animate-ring svg {
+            animation: bell-ring-wow 0.6s ease-in-out;
+        }
         /* === KONIEC NOWYCH STYLI === */
         /* === POCZĄTEK: NOWE STYLE DLA IKONY POWIĄZANIA (ŁAŃCUCH) === */
         
@@ -15987,8 +16021,26 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     multiStatusListHTML = `<div class="kanban-multi-status-container collapsed"><ul style="list-style: none; padding: 0; margin: 0;">${listItems}</ul></div>`;
                 }
             }
-
-            const iconsHTML = `<div class="subtask-visual-icons">${multiUserIcon}${checklistIcon}${effortIcon}${attIcon}${commIcon}${budgetIcon}</div>`;
+            // === NOWA LOGIKA DZWONKA DLA PODZADANIA ===
+            let bellIcon = '';
+            // Nie pokazuj dzwonka, jeśli podzadanie jest już wykonane
+            if (!isCompleted) {
+                const isSubscribed = (subtask.subscribers || []).includes(currentUserId);
+                const tooltip = isSubscribed ? 'Anuluj powiadomienie o ukończeniu podzadania' : 'Powiadom mnie o ukończeniu podzadania';
+                
+                // Używamy klasy subtask-subscription-bell
+                bellIcon = `
+                    <div class="task-detail subtask-subscription-bell ${isSubscribed ? 'subscribed' : ''}" 
+                         data-action="toggle-subtask-subscription"
+                         data-parent-id="${parentTask.id}"
+                         data-subtask-id="${subtask.id}"
+                         title="${tooltip}">
+                        <svg><use href="#icon-bell"></use></svg>
+                    </div>
+                `;
+            }
+            // === KONIEC ===
+            const iconsHTML = `<div class="subtask-visual-icons">${multiUserIcon}${checklistIcon}${effortIcon}${attIcon}${commIcon}${bellIcon}${budgetIcon}</div>`;
 
             // --- STOPKA ---
             let dateHTML = '';
@@ -18054,6 +18106,15 @@ if (editorTaskDescription) {
                 // Odśwież modal
                 openSubtaskModal(mainTaskId, subtaskId);
                 
+                // === NOWE: WYSŁANIE POWIADOMIEŃ (MULTI-USER SUBTASK) ===
+                // Sprawdzamy zaktualizowaną wersję z pamięci
+                const justUpdatedSubtask = updatedMainTask.subtasks.find(s => s.id === subtaskId);
+                // Jeśli po mojej akcji isCompleted == true, wyślij powiadomienie
+                if (justUpdatedSubtask && justUpdatedSubtask.isCompleted) {
+                     sendSubtaskCompletionNotifications(justUpdatedSubtask, updatedMainTask, project);
+                }
+                // === KONIEC ===
+
                 showNotification("Status podzadania zaktualizowany.", "Sukces");
 
             } catch (error) {
@@ -24032,15 +24093,26 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             // === KONIEC NOWEJ LOGIKI ===
             
             // === NOWA LOGIKA DLA DZWONKA ===
-            // 3. Sprawdź kliknięcie na DZWONEK subskrypcji
+            // 3a. Sprawdź kliknięcie na DZWONEK subskrypcji (GŁÓWNY)
             const bellBtn = e.target.closest('.task-subscription-bell');
             if (bellBtn) {
                 e.preventDefault();
                 e.stopPropagation();
                 const taskId = bellBtn.dataset.taskId;
                 const projectId = bellBtn.closest('.task-card').dataset.projectId || state.currentProjectId;
-                handleTaskSubscription(taskId, projectId, bellBtn); // Przekazujemy element przycisku
-                return; // Zakończ
+                handleTaskSubscription(taskId, projectId, bellBtn); 
+                return; 
+            }
+
+            // 3b. NOWE: Sprawdź kliknięcie na DZWONEK subskrypcji (PODZADANIE)
+            const subBellBtn = e.target.closest('.subtask-subscription-bell');
+            if (subBellBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const mainTaskId = subBellBtn.dataset.parentId;
+                const subtaskId = subBellBtn.dataset.subtaskId;
+                handleSubtaskSubscription(mainTaskId, subtaskId, subBellBtn);
+                return;
             }
             // === KONIEC NOWEJ LOGIKI ===
 
@@ -28397,6 +28469,16 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  await checkAndCompleteMainTask(updatedTask, project);
                  await checkSubtasksAndCompleteParticipants(updatedTask, project); 
 
+                 // === NOWE: WYSŁANIE POWIADOMIEŃ DLA PODZADANIA ===
+                 const changedSubtask = updatedTask.subtasks.find(s => s.id === subtaskId);
+                 // Sprawdź, czy podzadanie jest teraz ukończone (i czy wcześniej nie było - choć tu trudniej o stan 'prev',
+                 // zakładamy, że checkbox toggle zmienił stan na przeciwny. Jeśli teraz jest completed, to znaczy że właśnie je ukończyliśmy).
+                 // Dodatkowo sprawdzamy optimisticIsFullyCompleted (zdefiniowane wyżej w tej funkcji)
+                 if (changedSubtask && optimisticIsFullyCompleted) {
+                     sendSubtaskCompletionNotifications(changedSubtask, updatedTask, project);
+                 }
+                 // === KONIEC ===
+
          } catch (error) {
              console.error("Błąd zapisu stanu subzadania:", error);
              showNotification("Wystąpił błąd podczas aktualizacji podzadania.", "Błąd");
@@ -28547,6 +28629,58 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             // onSnapshot zajmie się zmianą koloru, a logika powyżej animacją.
         }
        /**
+         * NOWA FUNKCJA: Obsługuje subskrypcję PODZADANIA.
+         */
+        async function handleSubtaskSubscription(mainTaskId, subtaskId, bellElement) {
+            const { task: mainTask, project } = findTask(mainTaskId);
+            if (!mainTask || !project) return;
+
+            const currentUserId = state.currentUser.uid;
+            let isSubscribing = false;
+
+            // Tworzymy kopię zadania głównego i aktualizujemy konkretne podzadanie
+            const updatedSubtasks = mainTask.subtasks.map(sub => {
+                if (sub.id === subtaskId) {
+                    const subscribers = sub.subscribers || [];
+                    let newSubscribers;
+
+                    if (subscribers.includes(currentUserId)) {
+                        // Wypisz się
+                        newSubscribers = subscribers.filter(id => id !== currentUserId);
+                    } else {
+                        // Zapisz się
+                        newSubscribers = [...subscribers, currentUserId];
+                        isSubscribing = true;
+                    }
+                    
+                    return { ...sub, subscribers: newSubscribers };
+                }
+                return sub;
+            });
+
+            const updatedMainTask = { ...mainTask, subtasks: updatedSubtasks };
+
+            try {
+                // Zapisz do Firestore
+                const updatedTasks = project.tasks.map(t => (t.id === mainTaskId ? updatedMainTask : t));
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                
+                await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+                // Animacja (jeśli włączono)
+                if (isSubscribing && bellElement) {
+                    setTimeout(() => {
+                        bellElement.classList.add('animate-ring');
+                        setTimeout(() => bellElement.classList.remove('animate-ring'), 700);
+                    }, 100);
+                }
+
+            } catch (error) {
+                console.error("Błąd subskrypcji podzadania:", error);
+                showNotification("Błąd zapisu subskrypcji.", "Błąd");
+            }
+        }
+       /**
          * NOWA FUNKCJA
          * Wysyła powiadomienia do wszystkich subskrybentów danego zadania.
          * @param {object} task - Obiekt ukończonego zadania.
@@ -28595,6 +28729,32 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 console.error("Błąd podczas wysyłania powiadomień o ukończeniu zadania:", error);
                 // Nie pokazujemy błędu użytkownikowi, tylko logujemy w konsoli
             }
+        }
+       /**
+         * NOWA FUNKCJA: Wysyła powiadomienia o ukończeniu PODZADANIA.
+         */
+        async function sendSubtaskCompletionNotifications(subtask, mainTask, project) {
+            if (!subtask.subscribers || subtask.subscribers.length === 0) return;
+
+            const completerUser = findUser(state.currentUser.uid);
+            const completerName = completerUser ? (completerUser.name || completerUser.email) : 'Ktoś';
+
+            // Filtruj subskrybentów (nie wysyłaj do siebie)
+            const recipients = subtask.subscribers.filter(id => id !== state.currentUser.uid);
+
+            if (recipients.length === 0) return;
+
+            const msg = `Podzadanie "<strong>${subtask.title}</strong>" (w zadaniu "${mainTask.title}") zostało ukończone przez <strong>${completerName}</strong>.`;
+
+            // Używamy uniwersalnej funkcji wysyłania
+            // Reuse typu 'task_completed' lub dodaj nowy w getNotificationIcon jeśli chcesz inną ikonę
+            await sendInternalNotification(
+                recipients,
+                'task_completed', // Typ
+                msg,
+                { type: 'task', projectId: project.id, taskId: mainTask.id }, // Link otwiera główne zadanie
+                'subtask_assign' // Używamy preferencji dot. podzadań (lub stwórz nową 'subtask_subscription')
+            );
         }
        /**
          * NOWA FUNKCJA (ZAKTUALIZOWANA): Sprawdza postęp WSZYSTKICH uczestników.
@@ -31888,6 +32048,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
