@@ -15340,317 +15340,265 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             });
         }
         function renderKanbanBoard(project, isInteractive) {
-            kanbanBoardEl.innerHTML = '';
+            // Zamiast czyścić wszystko (kanbanBoardEl.innerHTML = ''), działamy na istniejących elementach
             
             const tasks = project.tasks || [];
             
-            // === ZMIANA: Generowanie Mapy Numeracji WBS (Chronologicznie) ===
-            // 1. Tworzymy kopię tablicy, aby nie psuć widoku (który może być posortowany wg daty wykonania)
+            // 1. Generowanie Mapy Numeracji WBS (Chronologicznie)
             const tasksForNumbering = [...tasks];
-
-            // 2. Sortujemy kopię od najstarszego do najnowszego (createdAt)
             tasksForNumbering.sort((a, b) => {
                 const getTime = (dateObj) => {
                     if (!dateObj) return 0;
-                    // Obsługa Firestore Timestamp (ma metodę toDate) oraz zwykłych stringów/Date
-                    if (typeof dateObj.toDate === 'function') {
-                        return dateObj.toDate().getTime();
-                    }
+                    if (typeof dateObj.toDate === 'function') return dateObj.toDate().getTime();
                     return new Date(dateObj).getTime();
                 };
                 return getTime(a.createdAt) - getTime(b.createdAt);
             });
-
-            // 3. Przypisujemy stałe numery (1, 2, 3...) na podstawie chronologii
             const taskIndexMap = {};
-            tasksForNumbering.forEach((t, i) => {
-                taskIndexMap[t.id] = i + 1;
-            });
-            // === KONIEC ZMIANY ===
+            tasksForNumbering.forEach((t, i) => { taskIndexMap[t.id] = i + 1; });
 
             const allPolls = state.polls.filter(poll => poll.projectId === project.id);
             const estimationType = project.estimationType || 'none';
             const unit = (estimationType === 'points') ? 'pkt' : 'g';
 
-            // === POCZĄTEK NOWEJ LOGIKI: Definiowanie listy kolumn ===
-            
-            // 1. Zacznij od stałej kolumny "Do realizacji"
+            // 2. Definiowanie Kolumn (Tak jak wcześniej)
             const columnsToRender = [
                 { id: 'todo', title: STATUSES.todo, status: 'todo', isCustom: false }
             ];
-
-            // 2. Dodaj domyślną kolumnę "W trakcie"
             columnsToRender.push({ 
-                id: 'inprogress_null', // Użyjemy specjalnego ID dla tej kolumny
+                id: 'inprogress_null', 
                 title: STATUSES.inprogress, 
                 status: 'inprogress', 
-                customColumnId: null, // To jest jej identyfikator
+                customColumnId: null, 
                 isCustom: false 
             });
-
-            // 3. Dodaj kolumny użytkownika (jeśli istnieją)
             if (project.customColumns && project.customColumns.length > 0) {
-                // Sortuj na podstawie zapisanego pola 'order'
                 const sortedCustomColumns = [...project.customColumns].sort((a, b) => (a.order || 0) - (b.order || 0));
-                
                 sortedCustomColumns.forEach(col => {
                     columnsToRender.push({
-                        id: col.id, // np. "col_wstrzymane_123"
-                        title: col.title, // np. "Wstrzymane"
-                        status: 'inprogress', // Status bazowy to 'inprogress'
-                        customColumnId: col.id, // ID łączenia z zadaniem
+                        id: col.id,
+                        title: col.title,
+                        status: 'inprogress',
+                        customColumnId: col.id,
                         isCustom: true
                     });
                 });
             }
-
-            // 4. Zakończ stałą kolumną "Wykonane"
             columnsToRender.push({ 
                 id: 'done', title: STATUSES.done, status: 'done', isCustom: false 
             });
-            
-            // KROK 2: NOWA LOGIKA - Warunkowe ustawienie stylu siatki.
-            const projectCollapsed = state.ui.collapsedColumns[project.id] || [];
 
-            // <<< USUNIĘTO CAŁY BLOK 'if (columnsToRender.length <= 3)' >>>
-            // <<< PONIŻSZA LINIA 'gridAutoFlow' JEST TERAZ WYKONYWANA ZAWSZE >>>
-
-            // Używamy domyślnych stylów z CSS.
-            // Ustawiamy 'auto-flow', aby aktywować 'grid-auto-columns: 360px' zdefiniowane w CSS.
-            // To zapewnia stałą szerokość kolumn i poziome przewijanie.
             kanbanBoardEl.style.gridAutoFlow = 'column';
-            // === KONIEC NOWEJ LOGIKI ===
-            
-            // === KONIEC NOWEJ LOGIKI: Definiowanie listy kolumn ===
 
-            // Iteruj po nowej, dynamicznej liście kolumn
-            columnsToRender.forEach(colData => {
-                const column = document.createElement('div');
-                column.className = 'kanban-column';
+            // === KLUCZOWA ZMIANA: SYNCHRONIZACJA KOLUMN (DOM DIFFING) ===
+            
+            // A. Usuń kolumny, których już nie ma w nowym zestawie
+            const newColumnIds = columnsToRender.map(c => c.id);
+            const existingColumns = Array.from(kanbanBoardEl.querySelectorAll('.kanban-column'));
+            existingColumns.forEach(col => {
+                // Pobieramy ID z atrybutów, które sami ustawiamy niżej
+                const status = col.dataset.status;
+                const colId = col.dataset.columnId === 'null' ? null : col.dataset.columnId;
+                const uniqueId = (status === 'inprogress' && colId) ? colId : (status === 'inprogress' ? 'inprogress_null' : status);
                 
-                // === POCZĄTEK NOWEGO KODU: Sprawdzenie stanu zwinięcia ===
+                if (!newColumnIds.includes(uniqueId)) {
+                    col.remove();
+                }
+            });
+
+            // B. Aktualizuj lub stwórz nowe kolumny
+            columnsToRender.forEach(colData => {
+                // Spróbuj znaleźć istniejącą kolumnę
+                let column = null;
+                // Szukamy po atrybutach data
+                const selector = `.kanban-column[data-status="${colData.status}"]` + 
+                                 (colData.customColumnId ? `[data-column-id="${colData.customColumnId}"]` : `[data-column-id="null"]`);
+                column = kanbanBoardEl.querySelector(selector);
+
+                if (!column) {
+                    // Jeśli nie ma, stwórz nową strukturę
+                    column = document.createElement('div');
+                    column.className = 'kanban-column';
+                    column.dataset.status = colData.status;
+                    column.dataset.columnId = colData.customColumnId !== undefined ? String(colData.customColumnId) : 'null';
+                    
+                    // Wstaw podstawowy szkielet
+                    column.innerHTML = `
+                        <div class="kanban-column-header">
+                            <h3>${colData.title}</h3>
+                            <button class="collapse-column-btn" title="Zwiń/Rozwiń kolumnę">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                                </svg>
+                            </button>
+                            <div class="completed-tasks-filter-placeholder"></div>
+                            <div class="kanban-header-counts" style="display: flex; gap: 6px; margin-left: auto;">
+                                <span class="task-count" title="Liczba zadań w kolumnie">0</span>
+                                <span class="task-estimation-sum-placeholder"></span>
+                            </div>
+                            ${(isInteractive && colData.status === 'todo') ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : ''}
+                        </div>
+                        <ul class="kanban-tasks"></ul>
+                    `;
+                    // Wstaw w odpowiednie miejsce (na koniec, bo iterujemy po kolei)
+                    kanbanBoardEl.appendChild(column);
+                }
+
+                // --- AKTUALIZACJA NAGŁÓWKA KOLUMNY ---
+                // Obsługa zwijania
                 const projectCollapsed = state.ui.collapsedColumns[project.id] || [];
-                // Używamy colData.id (np. "todo", "inprogress_null", "col_123") jako identyfikatora
                 if (projectCollapsed.includes(colData.id)) {
                     column.classList.add('collapsed');
+                } else {
+                    column.classList.remove('collapsed');
                 }
-                // === KONIEC NOWEGO KODU ===
-                
-                // === NOWE ATRYBUTY DATA ===
-                // `data-status` przechowuje status bazowy (todo, inprogress, done)
-                column.dataset.status = colData.status; 
-                // `data-column-id` przechowuje ID kolumny niestandardowej (lub "null" dla domyślnej "W trakcie")
-                column.dataset.columnId = colData.customColumnId !== undefined ? String(colData.customColumnId) : 'null';
-                // === KONIEC NOWYCH ATRYBUTÓW ===
 
+                // --- PRZYGOTOWANIE ZADAŃ ---
                 let tasksInColumn = [];
                 let pollsInColumn = [];
-                let completedFilterHTML = '';
-
+                
+                // (Tutaj logika filtrowania zadań - identyczna jak wcześniej)
                 if (colData.status === 'todo') {
                     tasksInColumn = tasks.filter(t => t.status === 'todo');
-                    if (state.ui.currentProjectFilters.showPolls) {
-                        pollsInColumn = allPolls.filter(p => p.status === 'open');
-                    }
+                    if (state.ui.currentProjectFilters.showPolls) pollsInColumn = allPolls.filter(p => p.status === 'open');
                 } else if (colData.status === 'done') {
                     tasksInColumn = tasks.filter(t => t.status === 'done');
-                    if (state.ui.currentProjectFilters.showPolls) {
-                        pollsInColumn = allPolls.filter(p => p.status === 'closed');
-                    }
+                    if (state.ui.currentProjectFilters.showPolls) pollsInColumn = allPolls.filter(p => p.status === 'closed');
                     
-                    // Logika filtra "Wykonane" (bez zmian)
-                    const filterValue = state.ui.projectCompletedFilters[project.id] || '7days';
-                    completedFilterHTML = `
-                        <select class="completed-tasks-filter" data-context="project" data-project-id="${project.id}" style="font-size: 11px; padding: 2px; margin-left: 8px; border-radius: 4px; background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">
-                            <option value="7days" ${filterValue === '7days' ? 'selected' : ''}>Ostatnie 7 dni</option>
-                            <option value="14days" ${filterValue === '14days' ? 'selected' : ''}>Ostatnie 14 dni</option>
-                            <option value="30days" ${filterValue === '30days' ? 'selected' : ''}>Ostatnie 30 dni</option>
-                            <option value="all" ${filterValue === 'all' ? 'selected' : ''}>Wszystkie</option>
-                        </select>`;
-                    if (filterValue !== 'all') {
+                    // Filtr "Wykonane" - aktualizacja selecta w DOM
+                    const filterPlaceholder = column.querySelector('.completed-tasks-filter-placeholder');
+                    if (filterPlaceholder && !filterPlaceholder.hasChildNodes()) {
+                         const filterValue = state.ui.projectCompletedFilters[project.id] || '7days';
+                         filterPlaceholder.innerHTML = `
+                            <select class="completed-tasks-filter" data-context="project" data-project-id="${project.id}" style="font-size: 11px; padding: 2px; margin-left: 8px; border-radius: 4px; background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">
+                                <option value="7days" ${filterValue === '7days' ? 'selected' : ''}>Ostatnie 7 dni</option>
+                                <option value="14days" ${filterValue === '14days' ? 'selected' : ''}>Ostatnie 14 dni</option>
+                                <option value="30days" ${filterValue === '30days' ? 'selected' : ''}>Ostatnie 30 dni</option>
+                                <option value="all" ${filterValue === 'all' ? 'selected' : ''}>Wszystkie</option>
+                            </select>`;
+                    }
+                     // Aplikacja filtra
+                     const filterValue = state.ui.projectCompletedFilters[project.id] || '7days';
+                     if (filterValue !== 'all') {
                         const now = Date.now();
                         const daysToFilter = parseInt(filterValue.replace('days', ''), 10);
                         const cutoffDate = now - (daysToFilter * 24 * 60 * 60 * 1000);
-                        tasksInColumn = tasksInColumn.filter(t => 
-                            t.completedAt && t.completedAt.toDate().getTime() >= cutoffDate
-                        );
-                    }
+                        tasksInColumn = tasksInColumn.filter(t => t.completedAt && t.completedAt.toDate().getTime() >= cutoffDate);
+                     }
 
                 } else if (colData.status === 'inprogress') {
-                    // To jest kolumna "W trakcie" LUB kolumna niestandardowa
-                    // Filtrujemy tylko zadania główne, które pasują do tej kolumny
-                    tasksInColumn = tasks.filter(t => 
-                        t.status === 'inprogress' && 
-                        t.customColumnId === colData.customColumnId
-                    );
+                    tasksInColumn = tasks.filter(t => t.status === 'inprogress' && t.customColumnId === colData.customColumnId);
                 }
-                
-                // === NOWA LOGIKA RENDEROWANIA: FLATTENING Z SORTOWANIEM ===
-                let columnContentHTML = '';
-                let totalRenderedTasks = 0;
 
-                // 1. Sondaże (zawsze na samej górze)
+                // Scalanie (Main + Subtasks)
+                let combinedItems = [];
+                // Sondaże
                 if (state.ui.currentProjectFilters.showPolls) {
-                    columnContentHTML += pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
-                    totalRenderedTasks += pollsInColumn.length;
+                     pollsInColumn.forEach(p => combinedItems.push({ type: 'poll', data: p, id: p.id }));
                 }
-
-                // 2. Przygotuj listę Podzadań Niezależnych (Standalone)
-                // (To tylko zbieranie danych, jeszcze nie renderujemy)
-                const standaloneSubtasks = [];
+                // Zadania Główne
+                tasksInColumn.forEach(task => {
+                    combinedItems.push({ type: 'main', data: task, id: task.id, order: (task.customOrder !== undefined) ? task.customOrder : 999999 });
+                });
+                // Podzadania Samodzielne
                 tasks.forEach(parentTask => {
-                    // Sprawdź czy rodzic jest w tej kolumnie
                     const isParentInThisColumn = tasksInColumn.some(t => t.id === parentTask.id);
-                    
-                    if (parentTask.status === 'done') return; 
-
+                    if (parentTask.status === 'done') return;
                     if (!isParentInThisColumn && parentTask.subtasks && parentTask.subtasks.length > 0) {
                         parentTask.subtasks.forEach(sub => {
                             const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
                             let matches = false;
-                            
-                            if (colData.isCustom) {
-                                matches = (subStatus === 'inprogress' && sub.customColumnId === colData.id);
-                            } else if (colData.status === 'inprogress') {
-                                matches = (subStatus === 'inprogress' && !sub.customColumnId);
-                            } else {
-                                matches = (subStatus === colData.status);
-                            }
+                            if (colData.isCustom) matches = (subStatus === 'inprogress' && sub.customColumnId === colData.id);
+                            else if (colData.status === 'inprogress') matches = (subStatus === 'inprogress' && !sub.customColumnId);
+                            else matches = (subStatus === colData.status);
 
                             if (matches) {
-                                standaloneSubtasks.push({ sub: sub, parent: parentTask });
+                                combinedItems.push({ type: 'subtask', data: { sub, parent: parentTask }, id: sub.id, order: (sub.customOrder !== undefined) ? sub.customOrder : 999999 });
                             }
                         });
                     }
                 });
 
-                // 3. SCALANIE: Utwórz wspólną tablicę wszystkich elementów
-                let combinedItems = [];
+                combinedItems.sort((a, b) => (a.order || 0) - (b.order || 0));
 
-                // Dodaj Zadania Główne
-                tasksInColumn.forEach(task => {
-                    combinedItems.push({
-                        type: 'main',
-                        data: task,
-                        // Używamy customOrder. Jeśli brak, dajemy bardzo dużą liczbę (na koniec)
-                        order: (task.customOrder !== undefined) ? task.customOrder : 999999
-                    });
-                });
-
-                // Dodaj Podzadania Niezależne
-                standaloneSubtasks.forEach(item => {
-                    combinedItems.push({
-                        type: 'subtask',
-                        data: item, 
-                        // Używamy customOrder z PODZADANIA
-                        order: (item.sub.customOrder !== undefined) ? item.sub.customOrder : 999999
-                    });
-                });
-
-                // 4. SORTOWANIE: Posortuj wspólną tablicę według KOLEJNOŚCI WŁASNEJ
-                // (Ignorujemy tu flagę 'asc/desc' z przycisku sortowania, bo sortowanie przyciskiem
-                // będzie teraz fizycznie zmieniać wartości 'order' w bazie)
-                
-                combinedItems.sort((a, b) => a.order - b.order);
-
-                // 5. GENEROWANIE HTML: Iteruj po posortowanej liście
-                columnContentHTML += combinedItems.map(item => {
-                    totalRenderedTasks++;
-
-                    if (item.type === 'main') {
-                        const task = item.data;
-                        const taskNumber = taskIndexMap[task.id];
-                        return createTaskCardHTML(task, isInteractive, project, colData.status, colData.customColumnId, taskNumber);
-                    } else {
-                        // item.type === 'subtask'
-                        const { sub, parent } = item.data;
-                        const parentNumber = taskIndexMap[parent.id];
-                        // Bezpieczne znajdowanie indeksu (może być -1 w skrajnych przypadkach)
-                        const subIndex = (parent.subtasks || []).findIndex(s => s.id === sub.id) + 1;
-                        const wbsNumber = parentNumber ? `${parentNumber}.${subIndex}` : '';
-                        
-                        return createVisualSubtaskCardHTML(sub, parent, project, 'standalone', wbsNumber);
-                    }
-                }).join('');
-
-                const totalCount = totalRenderedTasks;
-
-                // Logika sumowania wysiłku
-                let estimationSumHTML = '';
+                // --- AKTUALIZACJA LICZNIKÓW ---
+                column.querySelector('.task-count').textContent = combinedItems.length;
+                const estPlaceholder = column.querySelector('.task-estimation-sum-placeholder');
+                // (Logika sumowania wysiłku - wklejamy obliczenia)
                 if (estimationType !== 'none') {
-                    let estimationSum = 0;
-                    let actualSum = 0;
-                    
+                    let estimationSum = 0; let actualSum = 0;
                     tasksInColumn.forEach(task => {
-                        let taskEst = 0;
-                        let taskAct = 0;
-
-                        // Sprawdź, czy zadanie ma podzadania
+                        let taskEst = 0; let taskAct = 0;
                         if (task.subtasks && task.subtasks.length > 0) {
-                            // WARIANT A: Sumuj z podzadań
                             task.subtasks.forEach(sub => {
                                 taskEst += parseFloat(sub.effort) || 0;
                                 taskAct += parseFloat(sub.actualEffort) || 0;
                             });
                         } else {
-                            // WARIANT B: Pobierz z głównego zadania
-                            // Obsługa 'estimation' (standard) oraz 'effort' (AI)
                             taskEst = parseFloat(task.estimation ?? task.effort ?? 0);
-                            
-                            // Rzeczywisty wysiłek (jeśli brak, przyjmij estymację jak w reszcie apki)
-                            // Używamy task.actualEffort, a jak null/undefined to bierzemy taskEst
                             const rawActual = task.actualEffort !== undefined && task.actualEffort !== null ? task.actualEffort : taskEst;
                             taskAct = parseFloat(rawActual);
                         }
-
-                        estimationSum += taskEst;
-                        actualSum += taskAct;
+                        estimationSum += taskEst; actualSum += taskAct;
                     });
-
                     if (estimationSum > 0 || actualSum > 0) {
                         let color = "var(--text-secondary)";
                         if (actualSum > estimationSum) color = "var(--danger-primary)";
                         else if (actualSum > 0 && actualSum < estimationSum) color = "var(--success-primary)";
-                        estimationSumHTML = `<span class="task-estimation-sum" title="Suma Szacowana / Rzeczywista" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">
-                            ${estimationSum}/${actualSum} ${unit}
-                        </span>`;
+                        estPlaceholder.outerHTML = `<span class="task-estimation-sum task-estimation-sum-placeholder" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">${estimationSum}/${actualSum} ${unit}</span>`;
+                    } else {
+                         estPlaceholder.innerHTML = ''; // Wyczyść
                     }
                 }
-                
-                // Przycisk dodawania zadania (tylko dla 'todo')
-                const addTaskBtnHTML = (isInteractive && colData.status === 'todo') ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
 
-                // Złóż kolumnę
-                column.innerHTML = `
-                    <div class="kanban-column-header">
-                        <h3>${colData.title}</h3>
-                        
-                        <button class="collapse-column-btn" title="Zwiń/Rozwiń kolumnę">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                            </svg>
-                        </button>
-                        ${completedFilterHTML}
-                        <div class="kanban-header-counts" style="display: flex; gap: 6px; margin-left: auto;">
-                            <span class="task-count" title="Liczba zadań w kolumnie">${totalCount}</span>
-                            ${estimationSumHTML}
-                        </div>
-                        ${addTaskBtnHTML}
-                    </div>
-                    <ul class="kanban-tasks">
-                        ${columnContentHTML} 
-                    </ul>
-                `;
-                kanbanBoardEl.appendChild(column);
-            });
-            // === POCZĄTEK NOWEGO KODU: Ponowna inicjalizacja Sortable.js dla nowych kolumn ===
-            // Musimy zniszczyć stare instancje, jeśli istnieją
+                // --- AKTUALIZACJA LISTY ZADAŃ (Smart Replacement) ---
+                const tasksListEl = column.querySelector('.kanban-tasks');
+                
+                // 1. Wygeneruj nowy HTML dla całej zawartości
+                const newContentHTML = combinedItems.map(item => {
+                    if (item.type === 'poll') return createPollCardHTML(item.data);
+                    if (item.type === 'main') {
+                        const taskNumber = taskIndexMap[item.data.id];
+                        return createTaskCardHTML(item.data, isInteractive, project, colData.status, colData.customColumnId, taskNumber);
+                    }
+                    if (item.type === 'subtask') {
+                        const { sub, parent } = item.data;
+                        const parentNumber = taskIndexMap[parent.id];
+                        const subIndex = (parent.subtasks || []).findIndex(s => s.id === sub.id) + 1;
+                        const wbsNumber = parentNumber ? `${parentNumber}.${subIndex}` : '';
+                        return createVisualSubtaskCardHTML(sub, parent, project, 'standalone', wbsNumber);
+                    }
+                }).join('');
+
+                // 2. Zastąp HTML (To zachowuje scroll parenta .kanban-tasks!)
+                // Ponieważ nie niszczymy elementu UL, a jedynie jego dzieci, przeglądarka zazwyczaj utrzymuje scroll
+                // o ile wysokość kontenera drastycznie się nie zmienia (a tu się nie zmienia, bo treść jest podobna).
+                // Jeśli jednak chcemy być 100% pewni:
+                
+                if (tasksListEl.innerHTML !== newContentHTML) {
+                    // Zapisz pozycję scrolla tej konkretnej listy (w pionie)
+                    const scrollTop = tasksListEl.scrollTop;
+                    
+                    // Podmień zawartość
+                    tasksListEl.innerHTML = newContentHTML;
+                    
+                    // Przywróć scrolla
+                    if (scrollTop > 0) tasksListEl.scrollTop = scrollTop;
+                }
+                
+            }); // Koniec pętli po kolumnach
+
+            // Ponowna inicjalizacja Sortable (tylko dla nowych list, jeśli trzeba)
+            // W tym podejściu, ponieważ element UL (.kanban-tasks) nie jest usuwany,
+            // instancja Sortable może przetrwać!
+            // Jednak dla bezpieczeństwa (ponieważ children są nowe), odświeżamy.
+            
             if (window.sortableInstances) {
                 window.sortableInstances.forEach(s => s.destroy());
             }
             window.sortableInstances = [];
 
-           if (isInteractive) {
+            if (isInteractive) {
                 const taskLists = kanbanBoardEl.querySelectorAll('.kanban-tasks');
                 taskLists.forEach(list => {
                     const sortable = new Sortable(list, {
@@ -15659,54 +15607,29 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         ghostClass: 'task-card-ghost',
                         chosenClass: 'task-card-chosen',
                         dragClass: 'task-card-drag',
-                        
-                        // === NOWE: FILTR DLA PODZADAŃ ===
-                        // Ignoruj element podzadania w logice Sortable (nie przesuwaj rodzica)
                         filter: '.subtask-visual-card', 
-                        // WAŻNE: Pozwól na natywne zdarzenie dragstart na odfiltrowanym elemencie!
-                        // Dzięki temu nasz listener 'dragstart' (z KROKU 6) zadziała.
                         preventOnFilter: false, 
-                        // === KONIEC ===
-
-                        // === POCZĄTEK MODYFIKACJI (NAPRAWA SCROLLA MOBILNEGO) ===
-                        delay: 200, // Opóźnienie 200ms (long press)
-                        delayOnTouchOnly: true, // Aktywuj opóźnienie tylko na dotyku
-                        // === KONIEC MODYFIKACJI ===
+                        delay: 200, 
+                        delayOnTouchOnly: true,
                         
                         onEnd: async (evt) => {
-                            const itemEl = evt.item;
                             const newColumn = evt.to.closest('.kanban-column');
                             const oldColumn = evt.from.closest('.kanban-column');
-                            
                             if (!newColumn) return;
 
-                            // SCENARIUSZ A: Przeniesienie do INNEJ kolumny (Zmiana statusu)
                             if (newColumn !== oldColumn) {
-                                // Uruchom starą logikę zmiany statusu (dispatch event 'drop')
                                 const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
                                 Object.defineProperty(dropEvent, 'target', { value: newColumn, writable: false });
                                 kanbanBoardEl.dispatchEvent(dropEvent);
-                                
-                                // Opcjonalnie: po chwili zapisz kolejność w nowej kolumnie, 
-                                // ale 'handleDroppedTask' przerysuje widok, więc persistColumnOrder 
-                                // tutaj może zostać nadpisane. 'handleDroppedTask' wstawi element na koniec 
-                                // lub w domyślne miejsce. Aby obsłużyć wstawienie w konkretne miejsce 
-                                // przy zmianie statusu, logika w 'handleDroppedTask' musiałaby być znacznie bardziej złożona.
-                                // Na razie zostawiamy standardową zmianę statusu.
-                            } 
-                            // SCENARIUSZ B: Reorganizacja w TEJ SAMEJ kolumnie
-                            else {
-                                // Tutaj po prostu zapisujemy nową kolejność
+                            } else {
                                 await persistColumnOrder(newColumn);
                             }
-                            
                             draggedTaskId = null;
                         }
                     });
                     window.sortableInstances.push(sortable);
                 });
             }
-            // === KONIEC NOWEGO KODU ===
         }
        
         /**
@@ -32105,6 +32028,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
