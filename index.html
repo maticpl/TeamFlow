@@ -18540,12 +18540,29 @@ if (editorTaskDescription) {
         }
 
         async function saveTaskFromModal() {
+            // === UX FIX: Natychmiastowy feedback ===
+            const saveBtn = taskModal.saveBtn;
+            const originalText = saveBtn.textContent; // Zapamiętaj "Zapisz zmiany"
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Zapisywanie...';
+
+            // Funkcja pomocnicza do resetowania przycisku w razie błędu walidacji
+            const resetBtnState = () => {
+                saveBtn.disabled = false;
+                saveBtn.textContent = originalText;
+            };
+            // === KONIEC UX FIX ===
+
             const taskId = taskModal.overlay.dataset.taskId;
             const {
                 task,
                 project
             } = findTask(taskId);
-            if (!task || !project) return;
+            
+            if (!task || !project) {
+                resetBtnState(); // <-- Reset
+                return;
+            }
 
             // Zapisujemy starą listę przypisanych osób PRZED wprowadzeniem zmian
             const oldAssignees = task.assignees || [];
@@ -18553,6 +18570,7 @@ if (editorTaskDescription) {
             const newTitle = taskModal.titleInput.value.trim();
             if (!newTitle) {
                 showNotification("Tytuł zadania nie może być pusty.", "Błąd");
+                resetBtnState(); // <-- Reset przy błędzie
                 return;
             }
 
@@ -18605,12 +18623,13 @@ if (editorTaskDescription) {
                 newActualEffort = (newActualEffortValue > 0) ? newActualEffortValue : null;
             }
             // === NOWA BLOKADA POWIĄZANIA ===
-            if (newStatus === 'done' && oldStatus !== 'done') { // Sprawdzamy, czy status jest ZMIENIANY na 'done'
+            if (newStatus === 'done' && oldStatus !== 'done') { 
                 const block = isTaskBlocked(task);
                 if (block.blocked) {
                     showNotification(`Najpierw musisz ukończyć zadanie "${block.taskName}".`, "Błąd");
-                    taskModal.status.value = oldStatus; // Przywróć stary status w dropdownie
-                    return; // Przerwij zapis
+                    taskModal.status.value = oldStatus; 
+                    resetBtnState(); // <-- Reset
+                    return; 
                 }
             }
             // === KONIEC NOWEJ BLOKADY ===
@@ -18618,6 +18637,7 @@ if (editorTaskDescription) {
             if (task.type === 'multi' && newStatus === 'done' && task.completedBy.length < newAssignees.length) {
                 showNotification("Nie można oznaczyć zadania jako 'Wykonane', dopóki wszyscy przypisani członkowie nie ukończą swojej części.", "Błąd");
                 taskModal.status.value = oldStatus;
+                resetBtnState(); // <-- Reset
                 return;
             }
 
@@ -18653,7 +18673,8 @@ if (editorTaskDescription) {
             if (updatedTask.startDate && updatedTask.dueDate) {
                 if (new Date(updatedTask.dueDate) <= new Date(updatedTask.startDate)) {
                     showNotification("Termin wykonania musi być późniejszy niż data rozpoczęcia.", "Błąd");
-                    return; // Przerwij zapis
+                    resetBtnState(); // <-- Reset
+                    return; 
                 }
             }
            // === KONIEC WALIDACJI ===
@@ -18721,7 +18742,8 @@ if (editorTaskDescription) {
                 if (!taskModal.budgetTabButton.classList.contains('active')) {
                     taskModal.budgetTabButton.click();
                 }
-                return; // Przerwij zapis
+                resetBtnState(); // <-- Reset (DODANO)
+                return; 
             }
 
             if (taskBudgetItems.length === 0) {
@@ -18850,6 +18872,7 @@ if (editorTaskDescription) {
             } catch (error) {
                 console.error("Błąd zapisu zmian w zadaniu:", error);
                 showNotification("Wystąpił błąd podczas zapisu zmian.", "Błąd");
+                resetBtnState();
             }
         }
         
@@ -32113,6 +32136,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
