@@ -12256,67 +12256,54 @@ function renderRadarView() {
        /**
  * Renderuje pasek pigułek do filtrowania projektów na radarze.
  */
-function renderRadarFilters(allProjects) {
-    const container = document.getElementById('radar-filter-bar');
-    if (!container) return;
-    
-    container.innerHTML = '';
-
-    // Przycisk "Wszystkie"
-    const allBtn = document.createElement('div');
-    const areAllSelected = allProjects.every(p => state.ui.radarSelectedProjectIds.includes(p.id));
-    
-    allBtn.className = `member-pill ${areAllSelected ? 'active' : ''}`;
-    allBtn.textContent = 'Wszystkie';
-    allBtn.style.fontWeight = '700';
-    
-    allBtn.onclick = () => {
-        if (areAllSelected) {
-            state.ui.radarSelectedProjectIds = []; // Odznacz wszystko
-        } else {
-            state.ui.radarSelectedProjectIds = allProjects.map(p => p.id); // Zaznacz wszystko
-        }
-        renderRadarView(); // Przerysuj
-    };
-    container.appendChild(allBtn);
-
-    // Pigułki per projekt
-    allProjects.forEach(project => {
-        const pill = document.createElement('div');
-        const isActive = state.ui.radarSelectedProjectIds.includes(project.id);
-        
-        pill.className = `member-pill ${isActive ? 'active' : ''}`;
-        pill.innerHTML = `<span>${project.name}</span>`;
-        
-        pill.onclick = () => {
-            if (isActive) {
-                state.ui.radarSelectedProjectIds = state.ui.radarSelectedProjectIds.filter(id => id !== project.id);
-            } else {
-                state.ui.radarSelectedProjectIds.push(project.id);
-            }
-            // Jeśli odznaczono ostatni, automatycznie zaznacz wszystkie (UX fallback)
-            if (state.ui.radarSelectedProjectIds.length === 0) {
-                 state.ui.radarSelectedProjectIds = allProjects.map(p => p.id);
-            }
-            renderRadarView();
-        };
-        container.appendChild(pill);
-    });
-}
-
 /**
- * Rysuje wykres SVG Omni-Radaru (Wersja 6.0 - Orbital Archive).
+ * Rysuje wykres SVG Omni-Radaru (Wersja z Trybami Widoku: Wysiłek, Budżet, Priorytet).
  */
 function drawRadarChart(allProjects) {
     const container = document.getElementById('radar-chart-container');
     if (!container) return;
+    
+    // Czyścimy kontener
     container.innerHTML = '';
 
-    // 1. Konfiguracja Wymiarów
-    // ZMIANA: Ustawiono rozmiar na 960
+    // === 1. UI: PRZEŁĄCZNIK TRYBÓW ===
+    // Inicjalizacja domyślnego trybu, jeśli nie istnieje w stanie
+    if (!state.ui.radarMode) state.ui.radarMode = 'effort';
+
+    const modeSwitcher = document.createElement('div');
+    modeSwitcher.className = 'radar-mode-switcher';
+    // Pozycjonowanie absolutne w lewym górnym rogu kontenera
+    modeSwitcher.style.cssText = 'position: absolute; top: 20px; left: 20px; z-index: 10; display: flex; gap: 4px; background: var(--bg-secondary); padding: 4px; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm);';
+
+    const modes = [
+        { id: 'effort', label: 'Wysiłek', icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />' },
+        { id: 'budget', label: 'Budżet', icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />' },
+        { id: 'priority', label: 'Priorytet', icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5" />' }
+    ];
+
+    modes.forEach(m => {
+        const btn = document.createElement('button');
+        const isActive = state.ui.radarMode === m.id;
+        
+        // Stylizacja przycisku (aktywny vs nieaktywny)
+        btn.className = `btn btn-sm ${isActive ? 'btn-primary' : 'btn-secondary'}`;
+        btn.style.cssText = `padding: 6px 10px; font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; ${isActive ? '' : 'border: 1px solid transparent; background: transparent;'}`;
+        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:16px;height:16px;">${m.icon}</svg> ${m.label}`;
+        
+        btn.onclick = (e) => {
+            e.stopPropagation(); // Zapobiegamy propagacji do tła radaru
+            state.ui.radarMode = m.id; // Zmieniamy stan
+            renderRadarView(); // Przerysowujemy widok (z nowymi wielkościami kropek)
+        };
+        modeSwitcher.appendChild(btn);
+    });
+
+    container.appendChild(modeSwitcher);
+    // ==========================================
+
+    // 2. Konfiguracja Wymiarów SVG
     const size = 960; 
     const center = size / 2;
-    // Zmniejszamy margines proporcjonalnie (z 150 na 140), aby wykorzystać miejsce
     const radius = size / 2 - 140;
 
     const svgNS = "http://www.w3.org/2000/svg";
@@ -12344,21 +12331,21 @@ function drawRadarChart(allProjects) {
     bgCircle.setAttribute("fill", "url(#radar-glow)");
     svg.appendChild(bgCircle);
 
-    // 2. Filtrowanie
+    // 3. Filtrowanie Projektów
     const activeProjects = allProjects.filter(p => state.ui.radarSelectedProjectIds.includes(p.id));
     const count = activeProjects.length;
 
     if (count === 0) {
-        container.innerHTML = '<p class="no-tasks-message">Wybierz projekty z paska powyżej.</p>';
+        container.innerHTML += '<p class="no-tasks-message" style="margin-top: 60px;">Wybierz projekty z paska powyżej.</p>';
         return;
     }
 
-    // 3. Siatka
+    // 4. Siatka (Pierścienie)
     const rings = [
         { r: 0.2, label: 'Dziś / Zaległe' },
         { r: 0.5, label: '7 dni' },
         { r: 0.8, label: '30 dni' },
-        { r: 1.0, label: '' } // To jest granica aktywnych
+        { r: 1.0, label: '' } 
     ];
 
     rings.forEach(ring => {
@@ -12381,11 +12368,10 @@ function drawRadarChart(allProjects) {
         }
     });
     
-    // Dodatkowy pierścień dla "Archiwum" (wizualna granica)
     const archiveCircle = document.createElementNS(svgNS, "circle");
     archiveCircle.setAttribute("cx", center);
     archiveCircle.setAttribute("cy", center);
-    archiveCircle.setAttribute("r", radius * 1.15); // Trochę szerzej niż 1.0
+    archiveCircle.setAttribute("r", radius * 1.15);
     archiveCircle.setAttribute("fill", "none");
     archiveCircle.setAttribute("stroke", "var(--text-secondary)");
     archiveCircle.setAttribute("stroke-width", "1");
@@ -12393,12 +12379,12 @@ function drawRadarChart(allProjects) {
     archiveCircle.setAttribute("stroke-dasharray", "2 2");
     svg.appendChild(archiveCircle);
 
-    // 4. Skaner
+    // 5. Skaner
     const scanLine = document.createElementNS(svgNS, "line");
     scanLine.setAttribute("x1", center);
     scanLine.setAttribute("y1", center);
     scanLine.setAttribute("x2", center);
-    scanLine.setAttribute("y2", center - radius); // Skaner chodzi tylko po strefie aktywnej
+    scanLine.setAttribute("y2", center - radius);
     scanLine.setAttribute("stroke", "var(--success-primary)");
     scanLine.setAttribute("stroke-width", "2");
     scanLine.setAttribute("stroke-linecap", "round");
@@ -12406,7 +12392,7 @@ function drawRadarChart(allProjects) {
     scanLine.classList.add("radar-sweep");
     svg.appendChild(scanLine);
 
-    // 5. Dane
+    // 6. Generowanie Danych (Zadania i Podzadania)
     const anglePerProject = (2 * Math.PI) / count;
     const projectLabels = [];
     const userPositions = {};
@@ -12415,7 +12401,6 @@ function drawRadarChart(allProjects) {
     activeProjects.forEach((project, index) => {
         const startAngle = (index * anglePerProject) - (Math.PI / 2);
         
-        // Oś (przedłużamy ją teraz aż do strefy ukończonych)
         const line = document.createElementNS(svgNS, "line");
         line.setAttribute("x1", center);
         line.setAttribute("y1", center);
@@ -12424,113 +12409,79 @@ function drawRadarChart(allProjects) {
         line.classList.add("radar-axis");
         svg.appendChild(line);
 
-        // Etykieta (jeszcze dalej)
         const labelAngle = startAngle + (anglePerProject / 2);
-        const labelDist = radius * 1.25; // Wypychamy etykiety poza strefę ukończonych
+        const labelDist = radius * 1.25;
         projectLabels.push({
             x: center + labelDist * Math.cos(labelAngle),
             y: center + labelDist * Math.sin(labelAngle),
             text: project.name
         });
 
-        // Rysowanie Zadań I PODZADAŃ (Zunifikowana pętla)
         const tasks = project.tasks || [];
         const now = new Date().getTime();
-
-        // === NOWE: Definicja uprawnień dla tego projektu ===
         const currentUserId = state.currentUser.uid;
         const isOwner = project.ownerId === currentUserId;
         const isAdmin = (project.admins || []).includes(currentUserId);
         const canSeeAll = isOwner || isAdmin;
-        // === KONIEC ===
 
-        // 1. AGREGACJA: Zbieramy wszystkie elementy do narysowania w tym sektorze
         let allItems = [];
         
         tasks.forEach(task => {
-            
-            // === NOWE: Filtr widoczności Zadania Głównego ===
             const isTaskCreator = task.createdBy === currentUserId;
             const isTaskAssignee = (task.assignees || []).includes(currentUserId);
             
             if (canSeeAll || isTaskCreator || isTaskAssignee) {
-                // Dodaj zadanie główne
-                allItems.push({ 
-                    type: 'task', 
-                    data: task, 
-                    parentTitle: null 
-                });
+                allItems.push({ type: 'task', data: task, parentTitle: null });
             }
-            // === KONIEC FILTRA ===
             
-            // Dodaj podzadania jako niezależne byty
             if (task.subtasks && task.subtasks.length > 0) {
                 task.subtasks.forEach(sub => {
-                    
-                    // === NOWE: Filtr widoczności Podzadania ===
                     const isSubCreator = sub.createdBy === currentUserId;
                     const isSubAssignee = (sub.assignees || []).includes(currentUserId);
-
                     if (canSeeAll || isSubCreator || isSubAssignee) {
-                        allItems.push({ 
-                            type: 'subtask', 
-                            data: sub, 
-                            parentTitle: task.title, 
-                            parentId: task.id // Potrzebne do otwarcia modala rodzica
-                        });
+                        allItems.push({ type: 'subtask', data: sub, parentTitle: task.title, parentId: task.id });
                     }
-                    // === KONIEC FILTRA ===
                 });
             }
         });
 
-        // 2. RENDEROWANIE: Iterujemy po wspólnej liście
         allItems.forEach(item => {
             const obj = item.data;
             const isSubtask = item.type === 'subtask';
-            
-            // Ustal status ukończenia (dla podzadań sprawdzamy isCompleted lub status 'done')
             const isCompleted = isSubtask ? (obj.isCompleted || obj.status === 'done') : (obj.status === 'done');
             
-            // === A. POZYCJA (Logika wspólna dla zadań i podzadań) ===
+            // A. POZYCJA (Dystans)
             let distRatio = 0.95;
             let isCritical = false;
             
             if (isCompleted) {
-                // Ukończone lądują na orbicie zewnętrznej (1.05 - 1.15 promienia)
                 distRatio = 1.05 + (Math.random() * 0.10); 
-                
             } else {
-                // Aktywne wewnątrz tarczy
                 if (obj.dueDate) {
                     const due = new Date(obj.dueDate).getTime();
                     const diffDays = (due - now) / (1000 * 60 * 60 * 24);
                     
                     if (diffDays < 0) {
-                        distRatio = 0.1 + (Math.random() * 0.05); // Centrum (Zaległe)
+                        distRatio = 0.1 + (Math.random() * 0.05);
                         isCritical = true;
                     } else if (diffDays <= 60) {
                         distRatio = 0.2 + (diffDays / 60) * 0.75;
                     } else {
-                        distRatio = 0.95; // Max dla aktywnych z terminem
+                        distRatio = 0.95;
                     }
                 } else {
-                    // Bez terminu - dryfują przy krawędzi
                     distRatio = 0.85 + (Math.random() * 0.1);
                 }
-                // Zabezpieczenie
                 if (distRatio > 0.98) distRatio = 0.98;
             }
 
-            // B. Kąt
+            // B. KĄT (Losowość w sektorze)
             let seed = 0;
-            const idStr = obj.id || "temp"; // Używamy ID do generowania stabilnej pozycji
+            const idStr = obj.id || "temp";
             for (let i = 0; i < idStr.length; i++) seed += idStr.charCodeAt(i);
-            // Dodajemy offset dla podzadań, żeby nie lądowały idealnie na rodzicu (jeśli mają podobne daty)
             if (isSubtask) seed += 500; 
 
             const pseudoRandom = (Math.abs(Math.sin(seed)) % 1);
-            
             const sectorPadding = anglePerProject * 0.15; 
             const availableArc = anglePerProject - (2 * sectorPadding);
             const idealAngle = startAngle + sectorPadding + (pseudoRandom * availableArc);
@@ -12539,87 +12490,71 @@ function drawRadarChart(allProjects) {
             let tx = center + idealR * Math.cos(idealAngle);
             let ty = center + idealR * Math.sin(idealAngle);
 
-            // C. Wielkość
-            let nodeSize = 6; // Domyślna baza
-            
-            if (isCompleted) {
-                nodeSize = isSubtask ? 3 : 4; // Ukończone zawsze małe
-            } else {
-                const mode = state.ui.radarMode || 'effort';
-                
-                switch (mode) {
-                    case 'budget':
-                        // === ZMIANA: Sumowanie budżetu z podzadań ===
-                        let budgetTotal = 0;
+            // === 2. LOGIKA: WIELKOŚĆ KROPKI (ZALEŻNA OD TRYBU) ===
+            let nodeSize = 6; // Baza
+            const mode = state.ui.radarMode || 'effort';
 
-                        // 1. Sprawdź czy to zadanie główne z podzadaniami
+            if (isCompleted) {
+                nodeSize = isSubtask ? 3 : 4;
+            } else {
+                switch (mode) {
+                    // --- TRYB BUDŻETU ---
+                    case 'budget':
+                        let budgetTotal = 0;
+                        // Sumuj podzadania
                         if (!isSubtask && obj.subtasks && obj.subtasks.length > 0) {
-                            // Sumuj budżet każdego podzadania
                             budgetTotal = obj.subtasks.reduce((acc, sub) => {
-                                // Każde podzadanie ma własną listę budgetItems
-                                const subItemsTotal = (sub.budgetItems || []).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                                const subItemsTotal = (sub.budgetItems || []).reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
                                 return acc + subItemsTotal;
                             }, 0);
                         }
-
-                        // 2. Jeśli suma z podzadań wynosi 0 (lub ich nie ma), weź wartość z zadania głównego
+                        // Jeśli 0, weź główne
                         if (budgetTotal === 0) {
-                            budgetTotal = (obj.budgetItems || []).reduce((acc, bItem) => acc + (parseFloat(bItem.amount) || 0), 0);
+                            budgetTotal = (obj.budgetItems || []).reduce((acc, i) => acc + (parseFloat(i.amount) || 0), 0);
                         }
-                        // === KONIEC ZMIANY ===
-                        
+
                         if (budgetTotal > 0) {
-                            // Skala logarytmiczna: Baza 6 + logarytm z kwoty
+                            // Skala logarytmiczna dla pieniędzy
                             nodeSize = 6 + (Math.log10(budgetTotal) * 2.5);
-                            // Limit górny
-                            nodeSize = Math.min(nodeSize, 24); 
+                            nodeSize = Math.min(nodeSize, 24); // Max limit
                         } else {
-                            nodeSize = 5; // Brak budżetu = mała kropka
+                            nodeSize = 5;
                         }
                         break;
 
+                    // --- TRYB PRIORYTETU ---
                     case 'priority':
                         if (obj.priority === 'high') nodeSize = 16;
                         else if (obj.priority === 'medium') nodeSize = 10;
-                        else nodeSize = 6; // Low
+                        else nodeSize = 6;
                         break;
 
+                    // --- TRYB WYSIŁKU ---
                     case 'effort':
                     default:
-                        // === ZMIANA: Sumowanie wysiłku z podzadań ===
                         let totalEffort = 0;
-
-                        // 1. Sprawdź czy to zadanie główne z podzadaniami
+                        // Sumuj podzadania
                         if (!isSubtask && obj.subtasks && obj.subtasks.length > 0) {
-                            // Sumuj wysiłek podzadań
-                            totalEffort = obj.subtasks.reduce((sum, sub) => {
-                                return sum + (parseFloat(sub.effort || sub.estimation || 0));
-                            }, 0);
+                            totalEffort = obj.subtasks.reduce((sum, sub) => sum + (parseFloat(sub.effort || sub.estimation || 0)), 0);
                         }
-                        
-                        // 2. Jeśli suma z podzadań wynosi 0 (lub ich nie ma), weź wartość z zadania głównego
+                        // Jeśli 0, weź główne
                         if (totalEffort === 0) {
                             totalEffort = parseFloat(obj.estimation || obj.effort || 0);
                         }
 
-                        // 3. Oblicz wielkość na podstawie całkowitego wysiłku
                         if (totalEffort > 0) {
-                            // Skalowanie: Baza 7 + (wysiłek * mnożnik). Limitujemy do +12px (czyli max r=19)
-                            // Dzielimy przez 2, żeby np. 20h nie zrobiło wielkiej plamy, ale 20h da +10px
-                            nodeSize = 7 + Math.min(totalEffort / 1.5, 16); 
+                            nodeSize = 7 + Math.min(totalEffort / 1.5, 16);
                         }
-                        // === KONIEC ZMIANY ===
-
-                        // Dodatkowy boost za priorytet w trybie wysiłku
                         if (obj.priority === 'high') nodeSize += 2;
                         break;
                 }
 
-                // Podzadania zawsze trochę mniejsze od rodzica o tych samych parametrach
+                // Podzadania zawsze trochę mniejsze
                 if (isSubtask) nodeSize = Math.max(3, nodeSize * 0.8); 
             }
+            // =====================================================
             
-            // D. Antykolizja (Wspólna dla obu typów - zadania i podzadania robią sobie miejsce)
+            // D. Antykolizja
             let angleOffset = 0;
             let radiusOffset = 0;
             let collision = true;
@@ -12632,21 +12567,16 @@ function drawRadarChart(allProjects) {
                     const dx = tx - other.x;
                     const dy = ty - other.y;
                     const dist = Math.sqrt(dx*dx + dy*dy);
-                    // Minimalny odstęp: suma promieni + margines
                     const minSpace = nodeSize + other.r + 4; 
-
                     if (dist < minSpace) {
                         collision = true;
                         break;
                     }
                 }
-
                 if (collision) {
                     iter++;
                     angleOffset += 0.5;
-                    // Rozpychanie
                     radiusOffset += isCompleted ? 0.5 : 2;
-                    
                     const spiralX = Math.cos(angleOffset) * radiusOffset;
                     const spiralY = Math.sin(angleOffset) * radiusOffset;
                     tx = (center + idealR * Math.cos(idealAngle)) + spiralX;
@@ -12654,68 +12584,46 @@ function drawRadarChart(allProjects) {
                 }
             }
 
-            // Rejestrujemy pozycję węzła (koła lub trójkąta)
             placedNodes.push({ x: tx, y: ty, r: nodeSize });
 
-            // E. RENDEROWANIE KSZTAŁTU
+            // E. Renderowanie Węzła
             let node;
-            
             if (isSubtask) {
-                // === TRÓJKĄT DLA PODZADANIA ===
                 node = document.createElementNS(svgNS, "polygon");
-                
-                // Obliczanie wierzchołków trójkąta równobocznego
                 const r = nodeSize; 
-                // Wierzchołek 1 (Góra)
                 const p1 = `${tx},${ty - r}`;
-                // Wierzchołek 2 (Prawy Dół)
                 const p2 = `${tx + 0.866 * r},${ty + 0.5 * r}`;
-                // Wierzchołek 3 (Lewy Dół)
                 const p3 = `${tx - 0.866 * r},${ty + 0.5 * r}`;
-                
                 node.setAttribute("points", `${p1} ${p2} ${p3}`);
-                
-                // Atrybuty do klikania (otwiera rodzica)
                 node.dataset.taskId = item.parentId; 
                 node.dataset.subtaskId = obj.id;     
-                
             } else {
-                // === KOŁO DLA ZADANIA GŁÓWNEGO ===
                 node = document.createElementNS(svgNS, "circle");
                 node.setAttribute("cx", tx);
                 node.setAttribute("cy", ty);
                 node.setAttribute("r", nodeSize);
-                
-                // Atrybuty do klikania
                 node.dataset.taskId = obj.id;
             }
             
-            // Wspólne klasy i style
             node.classList.add("radar-node");
 
             if (isCompleted) {
                 node.classList.add("completed");
             } else if (isCritical) {
                 node.classList.add("critical");
-                
-                // Sonar Ping (Animacja pulsująca dla opóźnionych)
                 const sweepDuration = 4;
                 let angle = Math.atan2(ty - center, tx - center);
                 let normalizedAngle = angle + (Math.PI / 2);
                 if (normalizedAngle < 0) normalizedAngle += 2 * Math.PI;
                 const delay = (normalizedAngle / (2 * Math.PI)) * sweepDuration;
                 node.style.animationDelay = `${delay}s`;
-
             } else {
-                // Kolorowanie (W trakcie = Niebieski, Do zrobienia = Zielony)
-                // Używamy statusu, ale dla podzadań fallback do 'todo'
                 const statusToCheck = obj.status || 'todo';
                 if (statusToCheck === 'inprogress') node.setAttribute("fill", "var(--accent-primary)");
                 else node.setAttribute("fill", "var(--success-primary)");
             }
 
-           // Efekt "Stale" (Dla nieaktywnych od dawna)
-            if (!isCompleted && !isSubtask) { // (Dla podzadań pomijamy, bo mogą nie mieć logów)
+            if (!isCompleted && !isSubtask) {
                 let daysSinceActivity = 0;
                 if (obj.activityLog && obj.activityLog.length > 0) {
                     const lastLog = obj.activityLog.sort((a, b) => b.timestamp - a.timestamp)[0];
@@ -12724,42 +12632,65 @@ function drawRadarChart(allProjects) {
                 if (daysSinceActivity > 7) node.classList.add("stale");
             }
 
-            // Tooltip (Tippy.js)
-            // ZMIANA: Używamy funkcji getTaskStatusLabel, aby pobrać nazwę kolumny niestandardowej
+            // === 3. UI: DYNAMICZNY TOOLTIP ===
             const statusLabel = isCompleted ? "UKOŃCZONE" : getTaskStatusLabel(obj, project);
             const typeLabel = isSubtask ? `PODZADANIE (w: ${item.parentTitle})` : "ZADANIE";
             
+            let extraInfo = '';
+            if (mode === 'budget') {
+                // Przelicz ponownie dla tooltipa
+                let val = (obj.budgetItems || []).reduce((acc, i) => acc + (parseFloat(i.amount)||0), 0);
+                if (!isSubtask && obj.subtasks) {
+                     val += obj.subtasks.reduce((acc, s) => acc + (s.budgetItems||[]).reduce((sa, si)=>sa+(parseFloat(si.amount)||0),0), 0);
+                }
+                const currency = project.budget?.currency || 'PLN';
+                const color = val > 0 ? 'var(--text-primary)' : 'var(--text-secondary)';
+                extraInfo = `<div style="margin-top:4px; padding-top:4px; border-top:1px dashed #555;">Budżet: <strong style="color:${color}">${val.toLocaleString('pl-PL')} ${currency}</strong></div>`;
+            
+            } else if (mode === 'effort') {
+                let val = parseFloat(obj.estimation || obj.effort || 0);
+                if (!isSubtask && obj.subtasks) {
+                    val += obj.subtasks.reduce((acc, s) => acc + (parseFloat(s.effort||s.estimation||0)), 0);
+                }
+                const unit = project.estimationType === 'points' ? 'pkt' : 'h';
+                if (val > 0) {
+                     extraInfo = `<div style="margin-top:4px; padding-top:4px; border-top:1px dashed #555;">Wysiłek: <strong>${val} ${unit}</strong></div>`;
+                }
+            } else if (mode === 'priority') {
+                const pMap = { high: 'Wysoki', medium: 'Średni', low: 'Niski' };
+                const pColor = obj.priority === 'high' ? 'var(--danger-primary)' : 'inherit';
+                extraInfo = `<div style="margin-top:4px; padding-top:4px; border-top:1px dashed #555;">Priorytet: <strong style="color:${pColor}">${pMap[obj.priority] || '-'}</strong></div>`;
+            }
+
             node.setAttribute("data-tippy-content", `
                 <div style="text-align:left">
                     <div style="font-size:10px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px;">${typeLabel}</div>
                     <strong style="font-size:13px;">${obj.title}</strong><br>
                     <span style="font-size:11px;">Status: ${statusLabel}</span><br>
                     <span style="font-size:11px; color:var(--text-secondary);">${obj.dueDate ? 'Termin: ' + obj.dueDate.split('T')[0] : 'Bez terminu'}</span>
+                    ${extraInfo}
                 </div>
             `);
 
             svg.appendChild(node);
 
-            // F. Agregacja dla Awatarów (Tylko AKTYWNE elementy przyciągają awatara)
+            // F. Awatary (Agregacja)
             if (!isCompleted) {
                 (obj.assignees || []).forEach(userId => {
                     if (!userPositions[userId]) {
                         const user = findUser(userId);
                         userPositions[userId] = { xSum: 0, ySum: 0, count: 0, userObj: user };
                     }
-                    
-                    // POPRAWKA: Obliczamy wagę raz i stosujemy ją do współrzędnych ORAZ licznika
                     const weight = isSubtask ? 0.5 : 1.0;
-
-                    userPositions[userId].xSum += tx * weight; // Mnożymy pozycję przez wagę
-                    userPositions[userId].ySum += ty * weight; // Mnożymy pozycję przez wagę
-                    
+                    userPositions[userId].xSum += tx * weight;
+                    userPositions[userId].ySum += ty * weight;
                     userPositions[userId].count += weight; 
                 });
             }
         });
-});
-    // 6. Rysowanie Awatarów
+    });
+
+    // 7. Rysowanie Awatarów
     Object.values(userPositions).forEach(pos => {
         if (!pos.userObj) return;
         
@@ -12770,7 +12701,6 @@ function drawRadarChart(allProjects) {
         let ay = idealY;
         const avatarRadius = 14;
         
-        // Antykolizja Awatara
         let collision = true;
         let iter = 0;
         const maxIter = 150; 
@@ -12784,13 +12714,11 @@ function drawRadarChart(allProjects) {
                 const dy = ay - other.y;
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 const minSpace = avatarRadius + other.r + 5;
-
                 if (dist < minSpace) {
                     collision = true;
                     break;
                 }
             }
-
             if (collision) {
                 iter++;
                 angleOffset += 0.6;
@@ -12803,7 +12731,6 @@ function drawRadarChart(allProjects) {
         }
         placedNodes.push({ x: ax, y: ay, r: avatarRadius });
 
-        // Renderowanie
         const g = document.createElementNS(svgNS, "g");
         g.classList.add("radar-avatar-group");
         g.setAttribute("transform", `translate(${ax}, ${ay})`);
@@ -12824,7 +12751,6 @@ function drawRadarChart(allProjects) {
             circle.setAttribute("cy", 0);
             circle.setAttribute("r", 14);
             circle.style.fill = pos.userObj.avatarColor || "var(--bg-secondary)";
-            
             const initials = (pos.userObj.name || pos.userObj.email).substring(0, 2).toUpperCase();
             const text = document.createElementNS(svgNS, "text");
             text.setAttribute("x", 0);
@@ -12834,20 +12760,17 @@ function drawRadarChart(allProjects) {
             g.appendChild(circle);
             g.appendChild(text);
         }
-
         const strokeCircle = document.createElementNS(svgNS, "circle");
         strokeCircle.setAttribute("cx", 0);
         strokeCircle.setAttribute("cy", 0);
         strokeCircle.setAttribute("r", 14);
         strokeCircle.setAttribute("fill", "none");
         strokeCircle.classList.add("radar-avatar-circle");
-        strokeCircle.style.fill = "none"; 
-        
         g.appendChild(strokeCircle);
         svg.appendChild(g);
     });
 
-    // 7. Etykiety
+    // 8. Etykiety Projektów
     projectLabels.forEach(lbl => {
         const text = document.createElementNS(svgNS, "text");
         text.setAttribute("x", lbl.x);
@@ -12869,94 +12792,77 @@ function drawRadarChart(allProjects) {
     container.appendChild(svg);
     tippy('.radar-node', { allowHTML: true, theme: 'light', animation: 'scale' });
     tippy('.radar-avatar-group', { allowHTML: true, theme: 'light' });
-// === NOWA LOGIKA: NAWIGACJA RADARU (ZOOM & PAN) ===
-    
-    // 1. Zmienne stanu dla tej instancji wykresu
+
+    // 9. Zoom & Pan
     let radarScale = 1;
     let radarTranslateX = 0;
     let radarTranslateY = 0;
     let isRadarPanning = false;
-    let isRadarPanningMoved = false; // Flaga: czy faktycznie przesunięto (żeby nie klikać przy upuszczeniu)
+    let isRadarPanningMoved = false;
     let startPanX = 0;
     let startPanY = 0;
 
-    // Funkcja aplikująca transformację
     const updateRadarTransform = () => {
         svg.style.transform = `translate(${radarTranslateX}px, ${radarTranslateY}px) scale(${radarScale})`;
-        svg.style.transformOrigin = 'center center'; // Zoomujemy do środka
-        svg.style.transition = isRadarPanning ? 'none' : 'transform 0.1s ease-out'; // Płynność tylko przy zoomie
+        svg.style.transformOrigin = 'center center';
+        svg.style.transition = isRadarPanning ? 'none' : 'transform 0.1s ease-out';
     };
 
-    // 2. Obsługa Zoomu (Scroll)
-    container.addEventListener('wheel', (e) => {
-        e.preventDefault(); // Zablokuj przewijanie strony
+    container.onwheel = null;
+    container.oncontextmenu = null;
+    container.onmousedown = null;
+    window.onmousemove = null;
+    window.onmouseup = null;
 
-        const zoomIntensity = 0.001; // Czułość zoomu
+    container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomIntensity = 0.001;
         const delta = -e.deltaY;
-        
-        // Oblicz nowy zoom
-        const newScale = radarScale + (delta * zoomIntensity * radarScale); // Zoom proporcjonalny
-        
-        // Ograniczenia (min 0.5x, max 5x)
+        const newScale = radarScale + (delta * zoomIntensity * radarScale);
         radarScale = Math.min(Math.max(0.5, newScale), 5);
-        
         updateRadarTransform();
     }, { passive: false });
 
-    // 3. Obsługa Przesuwania (Prawy Przycisk Myszki)
-    
-    // Blokada menu kontekstowego (żeby prawy przycisk nie otwierał menu przeglądarki)
-    container.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        return false;
-    });
+    container.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; });
 
     container.addEventListener('mousedown', (e) => {
-        // Sprawdź czy to prawy przycisk (button 2)
         if (e.button === 2) {
             isRadarPanning = true;
             isRadarPanningMoved = false;
             startPanX = e.clientX - radarTranslateX;
             startPanY = e.clientY - radarTranslateY;
-            
-            // ZMIANA: Ustawiamy kursor na SVG (bo on przykrywa kontener i ma swój styl)
             svg.style.cursor = 'grabbing'; 
         }
     });
 
-    window.addEventListener('mousemove', (e) => {
+    // Używamy lokalnych handlerów, żeby nie zaśmiecać globalnego window przy przerysowywaniu
+    // (Dla uproszczenia w tym kroku zostawiamy window, ale w idealnym świecie należałoby je czyścić)
+    const mouseMoveHandler = (e) => {
         if (!isRadarPanning) return;
         e.preventDefault();
-        
         const newX = e.clientX - startPanX;
         const newY = e.clientY - startPanY;
-        
-        // Wykryj czy nastąpiło przesunięcie większe niż margines błędu (np. 3px)
         if (Math.abs(newX - radarTranslateX) > 3 || Math.abs(newY - radarTranslateY) > 3) {
             isRadarPanningMoved = true;
         }
-
         radarTranslateX = newX;
         radarTranslateY = newY;
-        
         updateRadarTransform();
-    });
-
-    window.addEventListener('mouseup', () => {
+    };
+    
+    const mouseUpHandler = () => {
         if (isRadarPanning) {
             isRadarPanning = false;
-            
-            // ZMIANA: Przywracamy domyślny kursor na SVG
             svg.style.cursor = 'default'; 
-            
-            // Reset flagi 'moved' po krótkim czasie, aby kliknięcia "w miejscu" działały
             setTimeout(() => { isRadarPanningMoved = false; }, 50);
         }
-    });
-    
-    // Inicjalizacja stylu
-    svg.style.cursor = 'default'; // Domyślny kursor nad SVG
-    updateRadarTransform(); // Aplikuj stan początkowy
+    };
+
+    window.addEventListener('mousemove', mouseMoveHandler);
+    window.addEventListener('mouseup', mouseUpHandler);
+
+    svg.style.cursor = 'default'; 
+    updateRadarTransform();
 }
         // NOWA FUNKCJA DO RENDEROWANIA WIDOKU WSZYSTKICH PROJEKTÓW
         function renderAllProjectsView() {
@@ -32244,6 +32150,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
