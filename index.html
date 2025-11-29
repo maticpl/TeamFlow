@@ -13242,29 +13242,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         function render() {
             if (!state.currentUser) return;
             applyTheme();
-            
-            // === POCZĄTEK ZMIANY (POPRAWKA SCROLLA) ===
-            // 1. CAPTURE SCROLL POSITION (Main + Kanban Board + Columns)
-            const mainContent = document.querySelector('.main-content');
-            const scrollPos = mainContent ? mainContent.scrollTop : 0;
-
-            // Zapamiętaj poziomy scroll tablicy
-            const kanbanBoard = document.getElementById('kanban-board');
-            const boardScrollLeft = kanbanBoard ? kanbanBoard.scrollLeft : 0;
-
-            // Zapamiętaj pionowe scrolle poszczególnych kolumn (mapujemy po data-status lub data-column-id)
-            const columnScrolls = {};
-            if (kanbanBoard) {
-                kanbanBoard.querySelectorAll('.kanban-column').forEach(col => {
-                    const statusKey = col.dataset.columnId !== 'null' && col.dataset.columnId ? col.dataset.columnId : col.dataset.status;
-                    const tasksList = col.querySelector('.kanban-tasks');
-                    if (statusKey && tasksList) {
-                        columnScrolls[statusKey] = tasksList.scrollTop;
-                    }
-                });
-            }
-            // === KONIEC ZMIANY ===
-
             // === POCZĄTEK ZMIANY: Renderowanie Przełącznika Grup ===
             if (state.ui.activeGroupInfo) {
                 // 1. Ustaw nazwę aktywnej grupy
@@ -13659,48 +13636,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             }
             // === KONIEC LOGIKI LIVE UPDATE ===
-            // ▼▼▼ WKLEJ KOD TUTAJ ▼▼▼
-
-            // === POCZĄTEK ZMIANY (POPRAWKA SCROLLA) ===
-            // PRZYWRÓCENIE POZYCJI SCROLLA
-            if (mainContent || kanbanBoard) {
-                setTimeout(() => {
-                    // 1. Przywróć scroll głównego okna
-                    if (mainContent) mainContent.scrollTop = scrollPos;
-                    
-                    // 2. Przywróć poziomy scroll tablicy
-                    const newKanbanBoard = document.getElementById('kanban-board');
-                    if (newKanbanBoard) {
-                        newKanbanBoard.scrollLeft = boardScrollLeft;
-                        
-                        // 3. Przywróć pionowe scrolle kolumn
-                        newKanbanBoard.querySelectorAll('.kanban-column').forEach(col => {
-                            const statusKey = col.dataset.columnId !== 'null' && col.dataset.columnId ? col.dataset.columnId : col.dataset.status;
-                            if (statusKey && columnScrolls.hasOwnProperty(statusKey)) {
-                                const tasksList = col.querySelector('.kanban-tasks');
-                                if (tasksList) {
-                                    tasksList.scrollTop = columnScrolls[statusKey];
-                                }
-                            }
-                        });
-                    }
-                }, 0);
-            }
-            // === KONIEC ZMIANY ===
-            
-            // === NOWE: CZYSZCZENIE STANU ANIMACJI ===
-            if (state.ui.animatingElementId) {
-                setTimeout(() => {
-                    // Wyczyść ID ze stanu, aby nie animowało się przy kolejnym odświeżeniu
-                    state.ui.animatingElementId = null;
-                    
-                    // Opcjonalnie usuń klasę z DOM (dla porządku)
-                    const animatedEl = document.querySelector('.animate-ring');
-                    if (animatedEl) animatedEl.classList.remove('animate-ring');
-                    
-                }, 1000); // Czas nieco dłuższy niż animacja CSS (0.6s)
-            }
-            // ========================================
         }
        // === POCZĄTEK NOWEGO KODU: Logika Modala Zarządzania Kolumnami ===
 
@@ -15784,13 +15719,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // Sprawdź, czy bieżący użytkownik subskrybuje
             const isSubscribed = (task.subscribers || []).includes(state.currentUser.uid);
             
-            // === NOWE: SPRAWDZENIE STANU ANIMACJI ===
-            const animationClass = (state.ui.animatingElementId === task.id) ? 'animate-ring' : '';
-            // ========================================
-            
             return `
                 <button 
-                    class="task-subscription-bell ${isSubscribed ? 'subscribed' : ''} ${animationClass}" 
+                    class="task-subscription-bell ${isSubscribed ? 'subscribed' : ''}" 
                     data-action="toggle-subscription" 
                     data-task-id="${task.id}" 
                     title="${isSubscribed ? 'Anuluj powiadomienie o ukończeniu' : 'Powiadom mnie o ukończeniu'}">
@@ -16097,13 +16028,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const isSubscribed = (subtask.subscribers || []).includes(currentUserId);
                 const tooltip = isSubscribed ? 'Anuluj powiadomienie o ukończeniu podzadania' : 'Powiadom mnie o ukończeniu podzadania';
                 
-                // === NOWE: SPRAWDZENIE STANU ANIMACJI ===
-                const animationClass = (state.ui.animatingElementId === subtask.id) ? 'animate-ring' : '';
-                // ========================================
-
                 // Używamy klasy subtask-subscription-bell
                 bellIcon = `
-                    <div class="task-detail subtask-subscription-bell ${isSubscribed ? 'subscribed' : ''} ${animationClass}" 
+                    <div class="task-detail subtask-subscription-bell ${isSubscribed ? 'subscribed' : ''}" 
                          data-action="toggle-subtask-subscription"
                          data-parent-id="${parentTask.id}"
                          data-subtask-id="${subtask.id}"
@@ -28656,7 +28583,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             // === USUNIĘTO: Natychmiastowa wizualna informacja zwrotna ===
             // (onSnapshot zajmie się zmianą koloru)
 
-           try {
+            try {
                 // Zaktualizuj zadanie w bazie danych
                 const updatedTask = { ...task, subscribers: updatedSubscribers };
                 const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
@@ -28666,15 +28593,30 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                     ? doc(projectsRef, project.id) 
                     : doc(completedProjectsRef, project.id);
                 
-                // === NOWE: USTAWIENIE STANU ANIMACJI ===
-                // Zamiast szukać elementu w DOM, ustawiamy flagę w stanie.
-                // Funkcja render() i generatory HTML zajmą się resztą.
-                if (isSubscribing) {
-                    state.ui.animatingElementId = taskId; 
-                }
-                // =======================================
-
                 await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+                // === NOWA LOGIKA DODANA PO AWAIT ===
+                if (isSubscribing) {
+                    // Czekamy krótki moment (np. 100ms), aby dać czas onSnapshot
+                    // na przerysowanie interfejsu (render()).
+                    setTimeout(() => {
+                        // Znajdź w DOM dzwonek, który został właśnie przerysowany
+                        const newBellElement = document.querySelector(`.task-subscription-bell[data-task-id="${taskId}"]`);
+                        
+                        if (newBellElement) {
+                            // Dodaj klasę animacji do NOWEGO elementu
+                            newBellElement.classList.add('animate-ring');
+                            
+                            // Ustaw usunięcie klasy animacji po jej zakończeniu
+                            setTimeout(() => {
+                                if (newBellElement) {
+                                     newBellElement.classList.remove('animate-ring');
+                                }
+                            }, 700); // Czas trwania animacji + bufor
+                        }
+                    }, 100); // Bufor na re-render
+                }
+                // === KONIEC NOWEJ LOGIKI ===
                 
             } catch (error) {
                 console.error("Błąd podczas aktualizacji subskrypcji zadania:", error);
@@ -28723,13 +28665,15 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 const updatedTasks = project.tasks.map(t => (t.id === mainTaskId ? updatedMainTask : t));
                 const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                 
-                // === NOWE: USTAWIENIE STANU ANIMACJI ===
-                if (isSubscribing) {
-                    state.ui.animatingElementId = subtaskId;
-                }
-                // =======================================
-
                 await updateDoc(projectDocRef, { tasks: updatedTasks });
+
+                // Animacja (jeśli włączono)
+                if (isSubscribing && bellElement) {
+                    setTimeout(() => {
+                        bellElement.classList.add('animate-ring');
+                        setTimeout(() => bellElement.classList.remove('animate-ring'), 700);
+                    }, 100);
+                }
 
             } catch (error) {
                 console.error("Błąd subskrypcji podzadania:", error);
@@ -32104,8 +32048,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
-
-
 
 
 
