@@ -15311,15 +15311,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
             dashboardTaskLists.forEach(list => {
                 const sortable = new Sortable(list, {
-                    group: 'dashboard-tasks', 
-                    animation: 150,
-                    ghostClass: 'task-card-ghost',
-                    chosenClass: 'task-card-chosen',
-                    dragClass: 'task-card-drag',
-                    delay: 200, 
-                    delayOnTouchOnly: true,
-                    
-                    onStart: (evt) => {
+                        group: 'kanban-tasks',
+                        animation: 150,
+                        ghostClass: 'task-card-ghost',
+                        chosenClass: 'task-card-chosen',
+                        dragClass: 'task-card-drag',
+                        
+                        // === ZMIANA FILTRA ===
+                        // Blokujemy tylko ZAGNIEŻDŻONE podzadania. 
+                        // Samodzielne (te na wierzchu) mają być przenoszone.
+                        filter: '.subtask-visual-card.is-nested', 
+                        preventOnFilter: false, 
+                        delay: 200, 
+                        delayOnTouchOnly: true,
+                        
+                        onEnd: async (evt) => {
                         draggedTaskId = evt.item.dataset.taskId; 
                         evt.item.classList.add('dragging');
                     },
@@ -25734,16 +25740,24 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
         kanbanBoardEl.addEventListener('dragstart', (e) => {
             // 1. PRIORYTET: Sprawdź, czy przeciągane jest PODZADANIE
             const subtaskCard = e.target.closest('.subtask-visual-card');
+            
+            // Jeśli to podzadanie ZAGNIEŻDŻONE (wewnątrz innej karty), zatrzymaj propagację,
+            // aby nie uruchomić przeciągania karty-rodzica.
+            if (subtaskCard && subtaskCard.classList.contains('is-nested')) {
+                e.stopPropagation();
+                e.preventDefault(); // Zagnieżdżonych nie przenosimy drag&drop na głównej tablicy (na razie)
+                return;
+            }
+
             if (subtaskCard) {
-                // Pobierz ID podzadania
+                // To jest podzadanie SAMODZIELNE (na liście głównej)
                 draggedTaskId = subtaskCard.dataset.subtaskId;
                 
-                // Zapobiegaj "bąbelkowaniu", aby nie uruchomić listenerów rodzica
-                e.stopPropagation(); 
+                // USUNIĘTO: e.stopPropagation(); - Musimy pozwolić Sortable.js wykryć to zdarzenie!
                 
                 // Dodaj klasę wizualną
                 setTimeout(() => subtaskCard.classList.add('dragging'), 0);
-                return; // WAŻNE: Kończymy tutaj, nie sprawdzamy dalej!
+                return; 
             }
 
             // 2. Sprawdź, czy to ZADANIE GŁÓWNE (tylko jeśli nie znaleziono podzadania)
@@ -32038,6 +32052,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
