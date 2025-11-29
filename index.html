@@ -12549,16 +12549,29 @@ function drawRadarChart(allProjects) {
                 
                 switch (mode) {
                     case 'budget':
-                        // 1. Oblicz budżet zadania (suma pozycji)
-                        // Dla podzadania bierzemy jego budgetItems, dla głównego też
-                        const budgetTotal = (obj.budgetItems || []).reduce((acc, bItem) => acc + (parseFloat(bItem.amount) || 0), 0);
+                        // === ZMIANA: Sumowanie budżetu z podzadań ===
+                        let budgetTotal = 0;
+
+                        // 1. Sprawdź czy to zadanie główne z podzadaniami
+                        if (!isSubtask && obj.subtasks && obj.subtasks.length > 0) {
+                            // Sumuj budżet każdego podzadania
+                            budgetTotal = obj.subtasks.reduce((acc, sub) => {
+                                // Każde podzadanie ma własną listę budgetItems
+                                const subItemsTotal = (sub.budgetItems || []).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                                return acc + subItemsTotal;
+                            }, 0);
+                        }
+
+                        // 2. Jeśli suma z podzadań wynosi 0 (lub ich nie ma), weź wartość z zadania głównego
+                        if (budgetTotal === 0) {
+                            budgetTotal = (obj.budgetItems || []).reduce((acc, bItem) => acc + (parseFloat(bItem.amount) || 0), 0);
+                        }
+                        // === KONIEC ZMIANY ===
                         
                         if (budgetTotal > 0) {
-                            // Skala logarytmiczna: log10(1000) = 3. log10(100000) = 5.
-                            // Formuła: Baza 6 + (log10(kwota) * mnożnik)
-                            // Przykład: 1000 PLN -> 6 + (3 * 2.5) = 13.5px
+                            // Skala logarytmiczna: Baza 6 + logarytm z kwoty
                             nodeSize = 6 + (Math.log10(budgetTotal) * 2.5);
-                            // Limit górny, żeby nie zasłoniło mapy
+                            // Limit górny
                             nodeSize = Math.min(nodeSize, 24); 
                         } else {
                             nodeSize = 5; // Brak budżetu = mała kropka
@@ -12573,9 +12586,31 @@ function drawRadarChart(allProjects) {
 
                     case 'effort':
                     default:
-                        const est = parseFloat(obj.estimation || obj.effort || 0);
-                        if (est > 0) nodeSize = 7 + Math.min(est / 2, 10);
-                        // Dodatkowy boost za priorytet w trybie wysiłku (dla lepszej widoczności)
+                        // === ZMIANA: Sumowanie wysiłku z podzadań ===
+                        let totalEffort = 0;
+
+                        // 1. Sprawdź czy to zadanie główne z podzadaniami
+                        if (!isSubtask && obj.subtasks && obj.subtasks.length > 0) {
+                            // Sumuj wysiłek podzadań
+                            totalEffort = obj.subtasks.reduce((sum, sub) => {
+                                return sum + (parseFloat(sub.effort || sub.estimation || 0));
+                            }, 0);
+                        }
+                        
+                        // 2. Jeśli suma z podzadań wynosi 0 (lub ich nie ma), weź wartość z zadania głównego
+                        if (totalEffort === 0) {
+                            totalEffort = parseFloat(obj.estimation || obj.effort || 0);
+                        }
+
+                        // 3. Oblicz wielkość na podstawie całkowitego wysiłku
+                        if (totalEffort > 0) {
+                            // Skalowanie: Baza 7 + (wysiłek * mnożnik). Limitujemy do +12px (czyli max r=19)
+                            // Dzielimy przez 2, żeby np. 20h nie zrobiło wielkiej plamy, ale 20h da +10px
+                            nodeSize = 7 + Math.min(totalEffort / 1.5, 16); 
+                        }
+                        // === KONIEC ZMIANY ===
+
+                        // Dodatkowy boost za priorytet w trybie wysiłku
                         if (obj.priority === 'high') nodeSize += 2;
                         break;
                 }
@@ -32209,6 +32244,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
