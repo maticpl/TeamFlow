@@ -12790,24 +12790,47 @@ function drawRadarChart(allProjects) {
         g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
 
         if (pos.userObj.photoURL) {
-            // === NAPRAWA: Użycie natywnego SVG <image> z ClipPath ===
-            // ForeignObject bywa problematyczny w dynamicznych SVG.
-            // Używamy zdefiniowanego wcześniej 'radar-avatar-clip' do wycięcia koła.
+            // === NAPRAWA FINALNA: SVG Pattern Fill ===
+            // Zamiast clip-path (który ma problemy z koordynatami w grupach),
+            // tworzymy dynamiczny wzorzec i wypełniamy nim koło. To działa najstabilniej.
             
+            // 1. Generujemy unikalne ID dla wzorca tego użytkownika
+            // Używamy losowego ciągu, aby uniknąć konfliktów przy przerysowywaniu
+            const patternId = `avatar-pat-${pos.userObj.id}-${Math.random().toString(36).substr(2, 5)}`;
+
+            // 2. Tworzymy definicję wzorca
+            const pattern = document.createElementNS(svgNS, "pattern");
+            pattern.setAttribute("id", patternId);
+            pattern.setAttribute("patternContentUnits", "objectBoundingBox"); // Kluczowe: wymiary 0-1 względem koła
+            pattern.setAttribute("width", "1");
+            pattern.setAttribute("height", "1");
+
+            // 3. Tworzymy obrazek wewnątrz wzorca
             const image = document.createElementNS(svgNS, "image");
-            image.setAttribute("href", pos.userObj.photoURL); // Nowoczesna składnia SVG
-            image.setAttribute("x", -14);
-            image.setAttribute("y", -14);
-            image.setAttribute("width", 28);
-            image.setAttribute("height", 28);
+            image.setAttribute("href", pos.userObj.photoURL);
+            // Zabezpieczenie dla starszych przeglądarek/Webview (wymagane np. w Safari)
+            image.setAttributeNS("http://www.w3.org/1999/xlink", "href", pos.userObj.photoURL);
             
-            // Odpowiednik CSS object-fit: cover w SVG
-            image.setAttribute("preserveAspectRatio", "xMidYMid slice");
-            
-            // Przycięcie do koła (ID zdefiniowane w sekcji <defs> na początku funkcji drawRadarChart)
-            image.setAttribute("clip-path", "url(#radar-avatar-clip)");
-            
-            g.appendChild(image);
+            // Ustawiamy obrazek tak, by wypełnił cały wzorzec (czyli całe koło)
+            image.setAttribute("x", "0");
+            image.setAttribute("y", "0");
+            image.setAttribute("width", "1");
+            image.setAttribute("height", "1");
+            image.setAttribute("preserveAspectRatio", "xMidYMid slice"); // object-fit: cover
+
+            // 4. Dodajemy obrazek do wzorca, a wzorzec do globalnych definicji SVG (<defs>)
+            // Zmienna 'defs' jest zdefiniowana na początku funkcji drawRadarChart
+            pattern.appendChild(image);
+            defs.appendChild(pattern);
+
+            // 5. Rysujemy koło wypełnione tym wzorcem
+            const circle = document.createElementNS(svgNS, "circle");
+            circle.setAttribute("cx", 0);
+            circle.setAttribute("cy", 0);
+            circle.setAttribute("r", 14);
+            circle.setAttribute("fill", `url(#${patternId})`); // Odwołanie do wzorca
+
+            g.appendChild(circle);
         } else {
             // Fallback na inicjały (gdy brak zdjęcia)
             const circle = document.createElementNS(svgNS, "circle");
@@ -32226,6 +32249,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
