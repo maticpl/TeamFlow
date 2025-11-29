@@ -12790,9 +12790,10 @@ function drawRadarChart(allProjects) {
         g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
 
         if (pos.userObj.photoURL) {
-            // === POWRÓT DO SPRAWDZONEGO ROZWIĄZANIA (Zgodnego ze starym kodem) ===
-            // Używamy foreignObject + standardowego tagu <img>.
-            // To rozwiązanie działało w wersji z 23.11 i jest najbardziej kompatybilne.
+            // === NAPRAWA STABILNOŚCI: ForeignObject + DIV z Tłem ===
+            // Stary kod używał <img>, co przy dynamicznym przerysowywaniu (filtry)
+            // powoduje błędy renderowania w Chrome/Safari.
+            // DIV z background-image jest znacznie stabilniejszy wewnątrz SVG.
 
             const fo = document.createElementNS(svgNS, "foreignObject");
             fo.setAttribute("x", -14);
@@ -12800,22 +12801,23 @@ function drawRadarChart(allProjects) {
             fo.setAttribute("width", 28);
             fo.setAttribute("height", 28);
             
-            // Tworzymy standardowy element obrazka HTML (nie SVG!)
-            const img = document.createElement("img");
-            img.src = pos.userObj.photoURL;
+            // Tworzymy element DIV zamiast IMG
+            const div = document.createElement("div");
             
-            // Style CSS robią robotę (kółko + dopasowanie)
-            // Przepisane kropka w kropkę ze starego, działającego kodu
-            img.style.width = "100%";
-            img.style.height = "100%";
-            img.style.borderRadius = "50%";
-            img.style.objectFit = "cover";
-            img.style.display = "block";
+            // Explicit namespace pomaga przeglądarce zrozumieć, że to HTML wewnątrz SVG
+            div.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
             
-            // Ważne: pointer-events none, żeby tooltip z grupy <g> działał poprawnie
-            img.style.pointerEvents = "none"; 
-            
-            fo.appendChild(img);
+            // Ustawiamy zdjęcie jako tło - to działa jak object-fit: cover, ale jest pewniejsze
+            div.style.width = "100%";
+            div.style.height = "100%";
+            div.style.borderRadius = "50%";
+            div.style.backgroundImage = `url('${pos.userObj.photoURL}')`;
+            div.style.backgroundSize = "cover";
+            div.style.backgroundPosition = "center";
+            div.style.border = "1px solid rgba(0,0,0,0.1)"; // Delikatna ramka dla lepszej widoczności
+            div.style.pointerEvents = "none"; // Kliknięcia przechodzą do grupy SVG (tooltip)
+
+            fo.appendChild(div);
             g.appendChild(fo);
         } else {
             // Fallback na inicjały (gdy brak zdjęcia)
@@ -32235,6 +32237,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
