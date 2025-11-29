@@ -13242,10 +13242,29 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         function render() {
             if (!state.currentUser) return;
             applyTheme();
-            // === NEW: CAPTURE SCROLL POSITION ===
+            
+            // === POCZĄTEK ZMIANY (POPRAWKA SCROLLA) ===
+            // 1. CAPTURE SCROLL POSITION (Main + Kanban Board + Columns)
             const mainContent = document.querySelector('.main-content');
             const scrollPos = mainContent ? mainContent.scrollTop : 0;
-            // ====================================
+
+            // Zapamiętaj poziomy scroll tablicy
+            const kanbanBoard = document.getElementById('kanban-board');
+            const boardScrollLeft = kanbanBoard ? kanbanBoard.scrollLeft : 0;
+
+            // Zapamiętaj pionowe scrolle poszczególnych kolumn (mapujemy po data-status lub data-column-id)
+            const columnScrolls = {};
+            if (kanbanBoard) {
+                kanbanBoard.querySelectorAll('.kanban-column').forEach(col => {
+                    const statusKey = col.dataset.columnId !== 'null' && col.dataset.columnId ? col.dataset.columnId : col.dataset.status;
+                    const tasksList = col.querySelector('.kanban-tasks');
+                    if (statusKey && tasksList) {
+                        columnScrolls[statusKey] = tasksList.scrollTop;
+                    }
+                });
+            }
+            // === KONIEC ZMIANY ===
+
             // === POCZĄTEK ZMIANY: Renderowanie Przełącznika Grup ===
             if (state.ui.activeGroupInfo) {
                 // 1. Ustaw nazwę aktywnej grupy
@@ -13642,14 +13661,32 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // === KONIEC LOGIKI LIVE UPDATE ===
             // ▼▼▼ WKLEJ KOD TUTAJ ▼▼▼
 
-            // === NOWE: PRZYWRÓCENIE POZYCJI SCROLLA ===
-            if (mainContent) {
-                // Używamy setTimeout(0), aby upewnić się, że DOM zakończył renderowanie
+            // === POCZĄTEK ZMIANY (POPRAWKA SCROLLA) ===
+            // PRZYWRÓCENIE POZYCJI SCROLLA
+            if (mainContent || kanbanBoard) {
                 setTimeout(() => {
-                    mainContent.scrollTop = scrollPos;
+                    // 1. Przywróć scroll głównego okna
+                    if (mainContent) mainContent.scrollTop = scrollPos;
+                    
+                    // 2. Przywróć poziomy scroll tablicy
+                    const newKanbanBoard = document.getElementById('kanban-board');
+                    if (newKanbanBoard) {
+                        newKanbanBoard.scrollLeft = boardScrollLeft;
+                        
+                        // 3. Przywróć pionowe scrolle kolumn
+                        newKanbanBoard.querySelectorAll('.kanban-column').forEach(col => {
+                            const statusKey = col.dataset.columnId !== 'null' && col.dataset.columnId ? col.dataset.columnId : col.dataset.status;
+                            if (statusKey && columnScrolls.hasOwnProperty(statusKey)) {
+                                const tasksList = col.querySelector('.kanban-tasks');
+                                if (tasksList) {
+                                    tasksList.scrollTop = columnScrolls[statusKey];
+                                }
+                            }
+                        });
+                    }
                 }, 0);
             }
-            // ==========================================
+            // === KONIEC ZMIANY ===
             
             // === NOWE: CZYSZCZENIE STANU ANIMACJI ===
             if (state.ui.animatingElementId) {
@@ -32067,6 +32104,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
