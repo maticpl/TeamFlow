@@ -13740,29 +13740,30 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // Sprawdź uprawnienia (tylko Właściciel lub Admin mogą przywracać)
                 const canRestore = project.ownerId === state.currentUser.uid || (project.admins || []).includes(state.currentUser.uid);
                 
+                // ZMIANA: Dodajemy przycisk Szczegóły
+                const detailsBtnHTML = `
+                    <button class="btn btn-secondary btn-sm js-report-project-btn" data-project-id="${project.id}" style="padding: 6px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; margin-right: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 14px; height: 14px;">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                        </svg>
+                        Szczegóły (Raport)
+                    </button>
+                `;
+
                 const restoreBtnHTML = canRestore ? `
                     <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color); text-align: right;">
+                        ${detailsBtnHTML}
                         <button class="btn btn-primary btn-sm js-restore-project-btn" data-project-id="${project.id}" style="padding: 6px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 14px; height: 14px;">
                               <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
                             </svg>
                             Przywróć projekt
                         </button>
-                    </div>` : '';
-
-                return `<div class="project-tile" data-id="${project.id}" style="opacity: 0.9;">
-                    <div class="project-tile-header">
-                        <h3 class="js-project-title" title="${project.name}">${project.name}</h3>
-                    </div>
-                     <div class="project-tile-details">
-                        <div class="project-tile-owner"><strong>Właściciel:</strong> ${owner ? owner.name : 'Nieznany'}</div>
-                        <div class="project-tile-members-list"><strong>Członkowie:</strong> <div class="project-tile-members">${membersHTML}</div></div>
-                    </div>
-                    <div>
-                        <div class="progress-text">${totalTasks} zadań</div>
-                    </div>
-                    ${restoreBtnHTML}
-                </div>`;
+                    </div>` 
+                    : `
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color); text-align: right;">
+                         ${detailsBtnHTML}
+                    </div>`;
             };
 
             // Sortujemy zakończone projekty alfabetycznie
@@ -13776,13 +13777,23 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
             // Listener do klikania na kafelki w archiwum
             grid.addEventListener('click', (e) => {
-                // === NOWE: Obsługa przycisku "Przywróć" ===
                 const restoreBtn = e.target.closest('.js-restore-project-btn');
+                // === NOWE: Obsługa przycisku Raportu ===
+                const reportBtn = e.target.closest('.js-report-project-btn');
+                
                 if (restoreBtn) {
                     e.preventDefault();
-                    e.stopPropagation(); // Zatrzymaj, aby nie otworzyć projektu
+                    e.stopPropagation();
                     const projectId = restoreBtn.dataset.projectId;
                     handleRestoreProject(projectId);
+                    return;
+                }
+                
+                if (reportBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const projectId = reportBtn.dataset.projectId;
+                    openProjectReportModal(projectId);
                     return;
                 }
                 // === KONIEC ===
@@ -13858,6 +13869,234 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     }
                 }
             );
+        }
+       /**
+         * NOWA FUNKCJA: Generuje i otwiera Raport Zamknięcia Projektu (Post-Mortem).
+         */
+        function openProjectReportModal(projectId) {
+            // Szukaj w zakończonych (głównie), ale też w aktywnych (dla testów)
+            const project = state.completedProjects.find(p => p.id === projectId) || state.projects.find(p => p.id === projectId);
+            
+            if (!project) {
+                showNotification("Błąd: Nie znaleziono danych projektu.", "Błąd");
+                return;
+            }
+
+            const modal = document.getElementById('project-report-modal');
+            document.getElementById('report-project-name').textContent = `Raport: ${project.name}`;
+
+            // --- 1. ANALIZA CZASU (Time) ---
+            let onTimeCount = 0;
+            let lateCount = 0;
+            let totalDelayHours = 0;
+            let maxDelayHours = 0;
+            let worstTaskTitle = "Brak opóźnień";
+
+            // --- 2. ANALIZA BUDŻETU (Budget) ---
+            const currency = project.budget?.currency || 'PLN';
+            const plannedBudget = parseFloat(project.budget?.amount) || 0;
+            let actualSpent = 0;
+            const taskCosts = []; // { title, cost }
+
+            // --- 3. ANALIZA ZESPOŁU (Team) ---
+            const teamStats = {}; // { userId: { done: 0, late: 0 } }
+
+            // --- 4. ANALIZA JAKOŚCI (Quality) ---
+            let abandonedCount = 0; // Status != done
+            let totalComments = 0;
+
+            const tasks = project.tasks || [];
+
+            tasks.forEach(task => {
+                // A. Budżet (Zadania Główne)
+                // Uwaga: Jeśli zadanie ma podzadania, ignorujemy jego budgetItems (są agregatem),
+                // ale tutaj dla raportu historycznego możemy po prostu zsumować wszystko co jest 'done'.
+                // Dla uproszczenia raportu: sumujemy budgetItems z taska jeśli status done.
+                // (W wersji zaawansowanej trzeba by wejść w rekurencję jak w calculateProjectBudgetSummary,
+                // tutaj robimy wersję spłaszczoną dla statystyk).
+                
+                // Funkcja pomocnicza do kosztu zadania (rekurencyjna)
+                const getTaskRealCost = (t) => {
+                    let cost = 0;
+                    // Koszt własny
+                    if (t.budgetItems && (t.status === 'done' || t.isCompleted)) { // isCompleted dla subtaska
+                        cost += t.budgetItems.reduce((sum, i) => sum + (parseFloat(i.amount)||0), 0);
+                    }
+                    // Koszt podzadań
+                    if (t.subtasks) {
+                        t.subtasks.forEach(sub => cost += getTaskRealCost(sub));
+                    }
+                    return cost;
+                };
+
+                const taskCost = getTaskRealCost(task);
+                actualSpent += taskCost;
+                if (taskCost > 0) {
+                    taskCosts.push({ title: task.title, cost: taskCost });
+                }
+
+                // B. Jakość (Porzucone)
+                if (task.status !== 'done') {
+                    abandonedCount++;
+                } else {
+                    // C. Czas (Tylko dla 'done')
+                    if (task.dueDate && task.completedAt) {
+                        // completedAt jest Timestamp, dueDate stringiem ISO
+                        const due = new Date(task.dueDate);
+                        // Obsługa formatu Timestamp z Firestore lub Date
+                        const doneDate = (typeof task.completedAt.toDate === 'function') 
+                            ? task.completedAt.toDate() 
+                            : new Date(task.completedAt);
+
+                        const diffMs = doneDate - due;
+                        
+                        if (diffMs > 0) {
+                            // Spóźnione
+                            lateCount++;
+                            const diffHours = diffMs / (1000 * 60 * 60);
+                            totalDelayHours += diffHours;
+                            
+                            // Zapisz statystyki dla osoby (CompletedBy)
+                            (task.completedBy || []).forEach(uid => {
+                                if (!teamStats[uid]) teamStats[uid] = { done: 0, late: 0 };
+                                teamStats[uid].late++;
+                            });
+
+                            if (diffHours > maxDelayHours) {
+                                maxDelayHours = diffHours;
+                                worstTaskTitle = `${task.title} (${Math.round(diffHours)}h)`;
+                            }
+                        } else {
+                            onTimeCount++;
+                        }
+                    } else if (task.status === 'done') {
+                         // Wykonane bez terminu - liczymy jako na czas
+                         onTimeCount++;
+                    }
+
+                    // D. Zespół (Liczba zadań wykonanych)
+                    // W zadaniach multi completedBy ma wielu, w single jednego
+                    (task.completedBy || []).forEach(uid => {
+                        if (!teamStats[uid]) teamStats[uid] = { done: 0, late: 0 };
+                        teamStats[uid].done++;
+                    });
+                }
+
+                // E. Komunikacja
+                totalComments += (task.comments || []).length;
+                if (task.subtasks) {
+                     task.subtasks.forEach(s => totalComments += (s.comments || []).length);
+                }
+            });
+
+            // --- RENDEROWANIE WYNIKÓW ---
+
+            // 1. Czas
+            const totalDoneTasks = onTimeCount + lateCount;
+            const onTimePercent = totalDoneTasks > 0 ? Math.round((onTimeCount / totalDoneTasks) * 100) : 0;
+            document.getElementById('report-time-score').textContent = `${onTimePercent}%`;
+            document.getElementById('report-time-score').style.color = onTimePercent < 80 ? 'var(--danger-primary)' : 'var(--success-primary)';
+            
+            let avgDelayText = "Brak";
+            if (lateCount > 0) {
+                const avgHours = totalDelayHours / lateCount;
+                if (avgHours > 24) {
+                    avgDelayText = `${(avgHours / 24).toFixed(1)} dni`;
+                } else {
+                    avgDelayText = `${Math.round(avgHours)} godz.`;
+                }
+            }
+            document.getElementById('report-avg-delay').textContent = avgDelayText;
+            document.getElementById('report-worst-task').textContent = worstTaskTitle;
+
+            // 2. Budżet
+            const budgetContainer = document.getElementById('report-budget-container');
+            const budgetPercent = plannedBudget > 0 ? (actualSpent / plannedBudget) * 100 : 0;
+            const isOver = actualSpent > plannedBudget && plannedBudget > 0;
+            const colorClass = isOver ? 'over' : '';
+            const diffVal = plannedBudget - actualSpent;
+            
+            const formatMoney = (val) => val.toLocaleString('pl-PL', { style: 'currency', currency: currency });
+
+            budgetContainer.innerHTML = `
+                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                    <span>Wydano: <strong>${formatMoney(actualSpent)}</strong></span>
+                    <span style="color: var(--text-secondary);">Budżet: ${formatMoney(plannedBudget)}</span>
+                </div>
+                <div class="report-budget-bar-bg">
+                    <div class="report-budget-bar-fill ${colorClass}" style="width: ${Math.min(budgetPercent, 100)}%">
+                        ${budgetPercent.toFixed(1)}%
+                    </div>
+                </div>
+                <div style="text-align: right; font-size: 12px; margin-top: 4px; color: ${diffVal < 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">
+                    ${diffVal < 0 ? `Przekroczenie: ${formatMoney(Math.abs(diffVal))}` : `Oszczędność: ${formatMoney(diffVal)}`}
+                </div>
+            `;
+
+            document.getElementById('report-avg-cost').textContent = totalDoneTasks > 0 ? formatMoney(actualSpent / totalDoneTasks) : '-';
+            
+            // Top 3 Kosztowne
+            taskCosts.sort((a, b) => b.cost - a.cost);
+            const costlyList = document.getElementById('report-costly-tasks');
+            costlyList.innerHTML = taskCosts.slice(0, 3).map(t => `
+                <li style="display:flex; justify-content:space-between; border-bottom:1px dashed var(--border-color); padding:4px 0;">
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%;">${t.title}</span>
+                    <strong>${formatMoney(t.cost)}</strong>
+                </li>
+            `).join('');
+            if (taskCosts.length === 0) costlyList.innerHTML = '<li>Brak danych finansowych.</li>';
+
+
+            // 3. Zespół (Ranking)
+            const teamTbody = document.getElementById('report-team-tbody');
+            teamTbody.innerHTML = '';
+            
+            // Konwersja na tablicę i sortowanie wg liczby zadań
+            const teamRanking = Object.keys(teamStats).map(uid => {
+                const stats = teamStats[uid];
+                const user = findUser(uid);
+                const total = stats.done; // Wszystkie ukończone przez niego
+                const timelyRate = total > 0 ? ((total - stats.late) / total) * 100 : 0;
+                return { uid, name: user ? (user.name || user.email) : 'Nieznany', ...stats, timelyRate };
+            }).sort((a, b) => b.done - a.done);
+
+            if (teamRanking.length === 0) {
+                teamTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-secondary);">Brak danych o wykonawcach.</td></tr>';
+            } else {
+                // Znajdź max values dla odznak
+                const maxDone = teamRanking[0].done;
+                const maxTimely = Math.max(...teamRanking.map(r => r.timelyRate));
+
+                teamRanking.forEach(r => {
+                    const avatar = renderAvatarHTML(findUser(r.uid), 'avatar-comment');
+                    let badges = '';
+                    if (r.done === maxDone && maxDone > 0) badges += `<span class="report-badge badge-gold">Top Performer</span> `;
+                    if (r.timelyRate === maxTimely && maxTimely === 100 && r.done > 0) badges += `<span class="report-badge badge-green">100% Terminowy</span>`;
+
+                    teamTbody.innerHTML += `
+                        <tr>
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    ${avatar.replace('class="avatar avatar-comment"', 'class="avatar" style="width:24px;height:24px;font-size:10px;"')}
+                                    <span>${r.name}</span>
+                                </div>
+                            </td>
+                            <td style="text-align: center; font-weight: 600;">${r.done}</td>
+                            <td style="text-align: center;">
+                                <span style="color: ${r.timelyRate < 80 ? 'var(--danger-primary)' : 'var(--success-primary)'}">${r.timelyRate.toFixed(0)}%</span>
+                                <span style="font-size:10px; color:#aaa;">(${r.late} spóź.)</span>
+                            </td>
+                            <td style="text-align: center;">${badges}</td>
+                        </tr>
+                    `;
+                });
+            }
+
+            // 4. Jakość
+            document.getElementById('report-abandoned-count').textContent = abandonedCount;
+            document.getElementById('report-comments-count').textContent = totalComments;
+
+            openModal(modal);
         }
         function render() {
             if (!state.currentUser) return;
@@ -32687,9 +32926,205 @@ welcomeModal.okBtn.addEventListener('click', async () => {
         background-color: var(--danger-primary);
         color: white;
     }
+    /* === STYLE DLA RAPORTU PROJEKTU (POST-MORTEM) === */
+    .report-section {
+        background-color: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--border-radius);
+        padding: 20px;
+        margin-bottom: 24px;
+        box-shadow: var(--shadow-sm);
+    }
+    .report-section-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid var(--bg-tertiary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .report-kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 16px;
+    }
+    .report-kpi-card {
+        background-color: var(--bg-primary);
+        border-radius: var(--border-radius);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        border-left: 4px solid var(--accent-primary);
+    }
+    .report-kpi-card.wide {
+        grid-column: span 2;
+    }
+    .kpi-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+    .kpi-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1.2;
+    }
+    .kpi-sub {
+        font-size: 11px;
+        color: var(--text-secondary);
+        margin-top: 2px;
+    }
+    
+    /* Tabela Zespołu */
+    .report-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+    .report-table th {
+        text-align: left;
+        padding: 8px;
+        border-bottom: 2px solid var(--border-color);
+        color: var(--text-secondary);
+        font-weight: 600;
+    }
+    .report-table td {
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--border-color);
+        vertical-align: middle;
+    }
+    .report-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    .badge-gold { background-color: #fef3c7; color: #d97706; border: 1px solid #f59e0b; }
+    .badge-green { background-color: #dcfce7; color: #16a34a; border: 1px solid #22c55e; }
+    
+    /* Pasek Budżetu w Raporcie */
+    .report-budget-bar-bg {
+        height: 24px;
+        background-color: var(--bg-tertiary);
+        border-radius: 12px;
+        overflow: hidden;
+        position: relative;
+        margin-top: 8px;
+    }
+    .report-budget-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--success-primary), var(--accent-primary));
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-right: 8px;
+        color: white;
+        font-size: 11px;
+        font-weight: 600;
+    }
+    .report-budget-bar-fill.over {
+        background: var(--danger-primary);
+    }
+    <div class="modal-overlay" id="project-report-modal">
+    <div class="modal" style="max-width: 900px; height: 90vh;">
+        <div class="modal-header" style="background-color: var(--bg-secondary); border-bottom: 1px solid var(--border-color);">
+            <div>
+                <h2 id="report-project-name" style="margin-bottom: 4px;">Raport Zamknięcia</h2>
+                <p style="font-size: 12px; color: var(--text-secondary);">Analiza powykonawcza (Post-Mortem)</p>
+            </div>
+            <button type="button" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="form-modal-content" style="padding: 24px; background-color: var(--bg-primary);">
+            
+            <div class="report-section">
+                <h3 class="report-section-title">⏱️ Efektywność Czasowa</h3>
+                <div class="report-kpi-grid">
+                    <div class="report-kpi-card">
+                        <span class="kpi-label">Terminowość</span>
+                        <strong class="kpi-value" id="report-time-score">-</strong>
+                        <span class="kpi-sub" id="report-time-sub">zadań na czas</span>
+                    </div>
+                    <div class="report-kpi-card">
+                        <span class="kpi-label">Średnie opóźnienie</span>
+                        <strong class="kpi-value" id="report-avg-delay" style="color: var(--danger-primary);">-</strong>
+                        <span class="kpi-sub">dla zadań spóźnionych</span>
+                    </div>
+                    <div class="report-kpi-card wide">
+                        <span class="kpi-label">Największy poślizg</span>
+                        <div id="report-worst-task" style="font-size: 13px; margin-top: 6px; font-weight: 500;">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="report-section">
+                <h3 class="report-section-title">💰 Bilans Budżetowy</h3>
+                <div id="report-budget-container">
+                    </div>
+                <div class="report-kpi-grid" style="margin-top: 16px;">
+                        <div class="report-kpi-card">
+                        <span class="kpi-label">Średni koszt zadania</span>
+                        <strong class="kpi-value" id="report-avg-cost">-</strong>
+                    </div>
+                        <div class="report-kpi-card wide">
+                        <span class="kpi-label">Top 3 Kosztogenne Zadania</span>
+                        <ul id="report-costly-tasks" style="list-style: none; padding: 0; margin-top: 8px; font-size: 12px;"></ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="report-section">
+                <h3 class="report-section-title">🏆 Wydajność Zespołu</h3>
+                <div class="report-table-container">
+                    <table class="report-table">
+                        <thead>
+                            <tr>
+                                <th>Pracownik</th>
+                                <th style="text-align: center;">Zadania (Ukończone)</th>
+                                <th style="text-align: center;">Terminowość</th>
+                                <th style="text-align: center;">Lider w...</th>
+                            </tr>
+                        </thead>
+                        <tbody id="report-team-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="report-section">
+                <h3 class="report-section-title">📉 Jakość i Proces</h3>
+                <div class="report-kpi-grid">
+                    <div class="report-kpi-card">
+                        <span class="kpi-label">Porzucone (Tech Debt)</span>
+                        <strong class="kpi-value" id="report-abandoned-count">-</strong>
+                        <span class="kpi-sub">niewykonane w dniu zamknięcia</span>
+                    </div>
+                    <div class="report-kpi-card">
+                        <span class="kpi-label">Komunikacja</span>
+                        <strong class="kpi-value" id="report-comments-count">-</strong>
+                        <span class="kpi-sub">wymienionych komentarzy</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close-btn">Zamknij raport</button>
+        </div>
+    </div>
+</div>
 </style>
 </body>
 </html>
+
 
 
 
