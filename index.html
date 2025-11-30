@@ -15531,80 +15531,123 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             const tasks = project.tasks || [];
 
-            // --- ANALIZA ZADAŃ ---
-            tasks.forEach(task => {
-                // 1. FINANSE: Sumujemy koszty (uproszczone dla raportu historycznego)
-                // Funkcja pomocnicza do rekurencyjnego liczenia kosztu zadania
-                const getTaskRealCost = (t) => {
-                    let cost = 0;
-                    // Koszt własny (jeśli zadanie ukończone)
-                    if (t.budgetItems && (t.status === 'done' || t.isCompleted)) {
-                        cost += t.budgetItems.reduce((sum, i) => sum + (parseFloat(i.amount)||0), 0);
+            // --- ANALIZA ZADAŃ (REKURENCYJNA) ---
+            
+            // Funkcja pomocnicza do analizy pojedynczego elementu (zadania lub podzadania)
+            function analyzeTaskRecursively(item, isMainTask = true) {
+                // A. FINANSE: Liczymy koszt, jeśli element jest ukończony
+                // (Dla podzadań: isCompleted, Dla głównego: status === 'done')
+                const isItemDone = isMainTask ? (item.status === 'done') : (item.isCompleted === true);
+                
+                if (isItemDone && item.budgetItems && item.budgetItems.length > 0) {
+                    const itemCost = item.budgetItems.reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
+                    actualSpent += itemCost;
+                    // Dodajemy do listy kosztownych zadań (dla czytelności używamy nazwy)
+                    if (itemCost > 0) {
+                        taskCosts.push({ title: item.title, cost: itemCost });
                     }
-                    // Koszt podzadań
-                    if (t.subtasks) {
-                        t.subtasks.forEach(sub => cost += getTaskRealCost(sub));
-                    }
-                    return cost;
-                };
-
-                const taskCost = getTaskRealCost(task);
-                actualSpent += taskCost;
-                if (taskCost > 0) {
-                    taskCosts.push({ title: task.title, cost: taskCost });
                 }
 
-                // 2. JAKOŚĆ: Czy zadanie zostało porzucone?
-                if (task.status !== 'done') {
+                // B. JAKOŚĆ: Porzucone (tylko dla głównych zadań sprawdzamy status 'todo'/'inprogress' przy zamknięciu projektu)
+                if (isMainTask && item.status !== 'done') {
                     abandonedCount++;
-                } else {
-                    // Zadanie ukończone - Analiza Czasu
-                    let isTaskLate = false;
+                    // Nawet jak porzucone, sprawdzamy podzadania, bo mogły być ukończone częściowo
+                }
 
-                    if (task.dueDate && task.completedAt) {
-                        const due = new Date(task.dueDate);
-                        // Obsługa formatu Timestamp z Firestore lub Date string
-                        const doneDate = (typeof task.completedAt.toDate === 'function') 
-                            ? task.completedAt.toDate() 
-                            : new Date(task.completedAt);
+                // C. CZAS I ZESPÓŁ: Analizujemy tylko elementy ukończone
+                if (isItemDone) {
+                    let isItemLate = false;
 
-                        const diffMs = doneDate - due;
-                        
+                    // Sprawdzamy terminowość (jeśli jest data i data ukończenia)
+                    // Uwaga: Podzadania mogą nie mieć completedAt w starych danych,
+                    // wtedy zakładamy, że ukończono je w momencie zamknięcia projektu lub deadline'u (fallback),
+                    // ale dla precyzji sprawdzamy istnienie completedAt (jeśli Twoja logika zapisu to obsługuje).
+                    // Jeśli nie ma completedAt w podzadaniu, a jest w rodzicu, można by dziedziczyć, ale tu liczymy strict.
+                    
+                    // FIX: Dla podzadań w obecnym kodzie często nie ma timestampu 'completedAt'.
+                    // Użyjemy timestampu rodzica jeśli brak własnego, lub uznamy za terminowe jeśli brak danych.
+                    // W tej wersji index.html, handleTaskCheckboxClick nie zapisuje timestampu dla podzadań,
+                    // więc analiza opóźnień podzadań może być niedokładna bez zmiany zapisu.
+                    // Jednak naprawiamy tu GŁÓWNE zadania i te podzadania, które mają dane.
+                    
+                    // Dla uproszczenia w raporcie: Analizujemy 'dueDate' vs Teraz (skoro projekt jest zamknięty/zarchiwizowany)
+                    // LUB używamy completedAt jeśli dostępne.
+                    
+                    let completionTime = null;
+                    if (item.completedAt) {
+                         completionTime = (typeof item.completedAt.toDate === 'function') ? item.completedAt.toDate() : new Date(item.completedAt);
+                    }
+                    
+                    if (item.dueDate && completionTime) {
+                        const due = new Date(item.dueDate);
+                        const diffMs = completionTime - due;
+
                         if (diffMs > 0) {
-                            // SPÓŹNIONE
-                            isTaskLate = true;
+                            isItemLate = true;
+                            // Statystyki globalne liczymy tylko dla zadań, które mają znaczenie (np. nie dublujemy czasu opóźnienia podzadania i zadania)
+                            // Ale dla "Liczby zadań" liczymy wszystko.
+                            
+                            // Dodajemy do globalnych liczników tylko jeśli to zadanie główne LUB niezależne podzadanie
+                            // (żeby nie zawyżać statystyk średniego opóźnienia dublami).
+                            // Decyzja: Liczymy wszystko dla pełnego obrazu.
+                            
                             lateCount++;
                             const diffHours = diffMs / (1000 * 60 * 60);
                             totalDelayHours += diffHours;
 
                             if (diffHours > maxDelayHours) {
                                 maxDelayHours = diffHours;
-                                worstTaskTitle = `${task.title} (${Math.round(diffHours)}h po terminie)`;
+                                worstTaskTitle = `${item.title} (${Math.round(diffHours)}h po terminie)`;
                             }
                         } else {
-                            // NA CZAS
                             onTimeCount++;
                         }
-                    } else {
-                         // Wykonane bez terminu - liczymy jako na czas
-                         onTimeCount++;
+                    } else if (isItemDone) {
+                        // Ukończone bez daty lub bez timestampu - uznajemy za terminowe
+                        onTimeCount++;
                     }
 
-                    // 3. ZESPÓŁ: Przypisywanie zasług (CompletedBy)
-                    // W zadaniach multi completedBy ma wielu, w single jednego
-                    (task.completedBy || []).forEach(uid => {
+                    // D. PRZYPISANIE DO UŻYTKOWNIKA (Kluczowa poprawka)
+                    // Iterujemy po completedBy danego elementu (zadania LUB podzadania)
+                    const finishers = item.completedBy || [];
+                    
+                    finishers.forEach(uid => {
                         if (!teamStats[uid]) teamStats[uid] = { done: 0, late: 0 };
-                        teamStats[uid].done++;
-                        if (isTaskLate) teamStats[uid].late++;
+                        
+                        teamStats[uid].done++; // +1 za każdy ukończony element (podzadanie lub zadanie)
+                        
+                        if (isItemLate) {
+                            teamStats[uid].late++;
+                        }
                     });
                 }
 
-                // 4. KOMUNIKACJA: Licznik komentarzy
-                totalComments += (task.comments || []).length;
-                if (task.subtasks) {
-                     task.subtasks.forEach(s => totalComments += (s.comments || []).length);
+                // E. KOMUNIKACJA
+                totalComments += (item.comments || []).length;
+
+                // F. REKURENCJA: Zejdź do podzadań
+                if (item.subtasks && item.subtasks.length > 0) {
+                    item.subtasks.forEach(sub => {
+                        // Przekazujemy rodzica completedAt jako fallback, jeśli podzadanie nie ma swojego (opcjonalne ulepszenie w przyszłości)
+                        // Na razie analizujemy subtask jako niezależny byt wewnątrz drzewa
+                        
+                        // Jeśli podzadanie nie ma completedAt, a jest isCompleted, 
+                        // w raportach historycznych często brakuje dokładnej daty dla podzadań.
+                        // Trik: Jeśli rodzic jest late, a podzadanie nie ma daty, to podzadanie nie jest late.
+                        // Jeśli podzadanie ma date, sprawdzamy ją.
+                        
+                        // Jeśli podzadanie jest zrobione, ale nie ma completedAt, spróbujmy użyć completedAt rodzica
+                        if (sub.isCompleted && !sub.completedAt && isMainTask && item.completedAt) {
+                            sub.completedAt = item.completedAt;
+                        }
+
+                        analyzeTaskRecursively(sub, false);
+                    });
                 }
-            });
+            }
+
+            // Uruchom analizę dla wszystkich zadań głównych
+            tasks.forEach(task => analyzeTaskRecursively(task, true));
 
             // --- RENDEROWANIE WYNIKÓW W DOM ---
 
@@ -33140,6 +33183,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
