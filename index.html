@@ -13732,7 +13732,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const createArchiveTileHTML = (project) => {
                 const owner = findUser(project.ownerId);
                 const projectTasks = (project.tasks || []);
-                const totalTasks = projectTasks.length;
+                
+                // ZMIANA: Rozdzielenie liczników
+                const mainTaskCount = projectTasks.length;
+                const subTaskCount = projectTasks.reduce((acc, task) => acc + (task.subtasks ? task.subtasks.length : 0), 0);
+                
                 const membersHTML = project.members.map(memberId => findUser(memberId)).filter(Boolean).map(user => renderAvatarHTML(user)).join('');
 
                 // 1. NAJPIERW DEFINIUJEMY ZMIENNĄ (Naprawa błędu ReferenceError)
@@ -13766,7 +13770,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         <div class="project-tile-members-list"><strong>Członkowie:</strong> <div class="project-tile-members">${membersHTML}</div></div>
                     </div>
                     <div>
-                        <div class="progress-text">${totalTasks} zadań</div>
+                        <div class="progress-text">
+                            <span style="font-weight: 600; color: var(--text-primary);">${mainTaskCount}</span> zadań, 
+                            <span style="font-weight: 600; color: var(--text-secondary);">${subTaskCount}</span> podzadań
+                        </div>
                     </div>
                     <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color); text-align: right;">
                          ${detailsBtnHTML}
@@ -15512,19 +15519,32 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const modal = document.getElementById('project-report-modal');
             document.getElementById('report-project-name').textContent = `Raport: ${project.name}`;
 
-            // --- ZMIENNE STATYSTYCZNE ---
-            let onTimeCount = 0;
-            let lateCount = 0;
-            let totalDelayHours = 0;
-            let maxDelayHours = 0;
-            let worstTaskTitle = "Brak opóźnień";
+           // --- ZMIENNE STATYSTYCZNE (ROZDZIELONE) ---
+            // Obiekt dla Zadań Głównych
+            const statsMain = {
+                onTimeCount: 0,
+                lateCount: 0,
+                totalDelayHours: 0,
+                maxDelayHours: 0,
+                worstTaskTitle: "Brak opóźnień"
+            };
+
+            // Obiekt dla Podzadań
+            const statsSub = {
+                onTimeCount: 0,
+                lateCount: 0,
+                totalDelayHours: 0,
+                maxDelayHours: 0,
+                worstTaskTitle: "Brak opóźnień"
+            };
 
             const currency = project.budget?.currency || 'PLN';
             const plannedBudget = parseFloat(project.budget?.amount) || 0;
             let actualSpent = 0;
             const taskCosts = []; // { title, cost }
 
-            const teamStats = {}; // { userId: { done: 0, late: 0 } }
+            // ZMIANA: Rozszerzona struktura statystyk zespołu
+            const teamStats = {}; // { userId: { mainDone: 0, subDone: 0, late: 0 } }
 
             let abandonedCount = 0; // Status != done
             let totalComments = 0;
@@ -15533,46 +15553,30 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // --- ANALIZA ZADAŃ (REKURENCYJNA) ---
             
-            // Funkcja pomocnicza do analizy pojedynczego elementu (zadania lub podzadania)
             function analyzeTaskRecursively(item, isMainTask = true) {
-                // A. FINANSE: Liczymy koszt, jeśli element jest ukończony
-                // (Dla podzadań: isCompleted, Dla głównego: status === 'done')
+                // Wybierz odpowiedni obiekt statystyk do aktualizacji
+                const currentStats = isMainTask ? statsMain : statsSub;
+
+                // A. FINANSE (Bez zmian - budżet jest wspólny)
                 const isItemDone = isMainTask ? (item.status === 'done') : (item.isCompleted === true);
                 
                 if (isItemDone && item.budgetItems && item.budgetItems.length > 0) {
                     const itemCost = item.budgetItems.reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
                     actualSpent += itemCost;
-                    // Dodajemy do listy kosztownych zadań (dla czytelności używamy nazwy)
                     if (itemCost > 0) {
-                        taskCosts.push({ title: item.title, cost: itemCost });
+                        // Oznaczamy w kosztach czy to podzadanie
+                        taskCosts.push({ title: (isMainTask ? item.title : `[Podzadanie] ${item.title}`), cost: itemCost });
                     }
                 }
 
-                // B. JAKOŚĆ: Porzucone (tylko dla głównych zadań sprawdzamy status 'todo'/'inprogress' przy zamknięciu projektu)
+                // B. JAKOŚĆ (Bez zmian)
                 if (isMainTask && item.status !== 'done') {
                     abandonedCount++;
-                    // Nawet jak porzucone, sprawdzamy podzadania, bo mogły być ukończone częściowo
                 }
 
-                // C. CZAS I ZESPÓŁ: Analizujemy tylko elementy ukończone
+                // C. CZAS I ZESPÓŁ
                 if (isItemDone) {
                     let isItemLate = false;
-
-                    // Sprawdzamy terminowość (jeśli jest data i data ukończenia)
-                    // Uwaga: Podzadania mogą nie mieć completedAt w starych danych,
-                    // wtedy zakładamy, że ukończono je w momencie zamknięcia projektu lub deadline'u (fallback),
-                    // ale dla precyzji sprawdzamy istnienie completedAt (jeśli Twoja logika zapisu to obsługuje).
-                    // Jeśli nie ma completedAt w podzadaniu, a jest w rodzicu, można by dziedziczyć, ale tu liczymy strict.
-                    
-                    // FIX: Dla podzadań w obecnym kodzie często nie ma timestampu 'completedAt'.
-                    // Użyjemy timestampu rodzica jeśli brak własnego, lub uznamy za terminowe jeśli brak danych.
-                    // W tej wersji index.html, handleTaskCheckboxClick nie zapisuje timestampu dla podzadań,
-                    // więc analiza opóźnień podzadań może być niedokładna bez zmiany zapisu.
-                    // Jednak naprawiamy tu GŁÓWNE zadania i te podzadania, które mają dane.
-                    
-                    // Dla uproszczenia w raporcie: Analizujemy 'dueDate' vs Teraz (skoro projekt jest zamknięty/zarchiwizowany)
-                    // LUB używamy completedAt jeśli dostępne.
-                    
                     let completionTime = null;
                     if (item.completedAt) {
                          completionTime = (typeof item.completedAt.toDate === 'function') ? item.completedAt.toDate() : new Date(item.completedAt);
@@ -15584,46 +15588,38 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
                         if (diffMs > 0) {
                             isItemLate = true;
-                            // Statystyki globalne liczymy tylko dla zadań, które mają znaczenie (np. nie dublujemy czasu opóźnienia podzadania i zadania)
-                            // Ale dla "Liczby zadań" liczymy wszystko.
                             
-                            // Dodajemy do globalnych liczników tylko jeśli to zadanie główne LUB niezależne podzadanie
-                            // (żeby nie zawyżać statystyk średniego opóźnienia dublami).
-                            // Decyzja: Liczymy wszystko dla pełnego obrazu.
-                            
-                            lateCount++;
+                            // Aktualizacja statystyk w odpowiednim obiekcie (Main lub Sub)
+                            currentStats.lateCount++;
                             const diffHours = diffMs / (1000 * 60 * 60);
-                            totalDelayHours += diffHours;
+                            currentStats.totalDelayHours += diffHours;
 
-                            if (diffHours > maxDelayHours) {
-                                maxDelayHours = diffHours;
-                                worstTaskTitle = `${item.title} (${Math.round(diffHours)}h po terminie)`;
+                            if (diffHours > currentStats.maxDelayHours) {
+                                currentStats.maxDelayHours = diffHours;
+                                currentStats.worstTaskTitle = `${item.title} (${Math.round(diffHours)}h po terminie)`;
                             }
                         } else {
-                            onTimeCount++;
+                            currentStats.onTimeCount++;
                         }
                     } else if (isItemDone) {
-                        // Ukończone bez daty lub bez timestampu - uznajemy za terminowe
-                        onTimeCount++;
+                        currentStats.onTimeCount++;
                     }
 
-                    // D. PRZYPISANIE DO UŻYTKOWNIKA (Kluczowa poprawka)
-                    // Iterujemy po completedBy danego elementu (zadania LUB podzadania)
-                    
-                    // === POPRAWKA LOGIKI RAPORTU ===
-                    // Jeśli zadanie jest 'single', tablica completedBy może być pusta.
-                    // W takim przypadku uznajemy, że wykonawcą jest osoba przypisana (assignee).
+                    // D. PRZYPISANIE DO UŻYTKOWNIKA (Rozdzielone)
                     let finishers = item.completedBy || [];
-                    
                     if (finishers.length === 0 && item.assignees && item.assignees.length > 0) {
                         finishers = item.assignees;
                     }
-                    // === KONIEC POPRAWKI ===
                     
                     finishers.forEach(uid => {
-                        if (!teamStats[uid]) teamStats[uid] = { done: 0, late: 0 };
+                        if (!teamStats[uid]) teamStats[uid] = { mainDone: 0, subDone: 0, late: 0 };
                         
-                        teamStats[uid].done++; // +1 za każdy ukończony element (podzadanie lub zadanie)
+                        // ZMIANA: Inkrementacja odpowiedniego licznika
+                        if (isMainTask) {
+                            teamStats[uid].mainDone++;
+                        } else {
+                            teamStats[uid].subDone++;
+                        }
                         
                         if (isItemLate) {
                             teamStats[uid].late++;
@@ -15631,26 +15627,16 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     });
                 }
 
-                // E. KOMUNIKACJA
+                // E. KOMUNIKACJA (Bez zmian)
                 totalComments += (item.comments || []).length;
 
-                // F. REKURENCJA: Zejdź do podzadań
+                // F. REKURENCJA (Bez zmian)
                 if (item.subtasks && item.subtasks.length > 0) {
                     item.subtasks.forEach(sub => {
-                        // Przekazujemy rodzica completedAt jako fallback, jeśli podzadanie nie ma swojego (opcjonalne ulepszenie w przyszłości)
-                        // Na razie analizujemy subtask jako niezależny byt wewnątrz drzewa
-                        
-                        // Jeśli podzadanie nie ma completedAt, a jest isCompleted, 
-                        // w raportach historycznych często brakuje dokładnej daty dla podzadań.
-                        // Trik: Jeśli rodzic jest late, a podzadanie nie ma daty, to podzadanie nie jest late.
-                        // Jeśli podzadanie ma date, sprawdzamy ją.
-                        
-                        // Jeśli podzadanie jest zrobione, ale nie ma completedAt, spróbujmy użyć completedAt rodzica
                         if (sub.isCompleted && !sub.completedAt && isMainTask && item.completedAt) {
                             sub.completedAt = item.completedAt;
                         }
-
-                        analyzeTaskRecursively(sub, false);
+                        analyzeTaskRecursively(sub, false); // isMainTask = false
                     });
                 }
             }
@@ -15660,26 +15646,48 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // --- RENDEROWANIE WYNIKÓW W DOM ---
 
-            // SEKCJA 1: CZAS
-            const totalDoneTasks = onTimeCount + lateCount;
-            const onTimePercent = totalDoneTasks > 0 ? Math.round((onTimeCount / totalDoneTasks) * 100) : 0;
+            // SEKCJA 1: CZAS (Całkowicie przebudowana podziałka)
             
-            document.getElementById('report-time-score').textContent = `${onTimePercent}%`;
-            // Koloruj wynik (Czerwony jeśli < 80%)
-            document.getElementById('report-time-score').style.color = onTimePercent < 80 ? 'var(--danger-primary)' : 'var(--success-primary)';
-            document.getElementById('report-time-sub').textContent = `${onTimeCount} z ${totalDoneTasks} zadań na czas`;
-            
-            let avgDelayText = "Brak opóźnień";
-            if (lateCount > 0) {
-                const avgHours = totalDelayHours / lateCount;
-                if (avgHours > 24) {
-                    avgDelayText = `${(avgHours / 24).toFixed(1)} dni`;
-                } else {
-                    avgDelayText = `${Math.round(avgHours)} godz.`;
+            // Funkcja pomocnicza do generowania bloku KPI
+            const generateTimeKPI = (label, stats) => {
+                const total = stats.onTimeCount + stats.lateCount;
+                const percent = total > 0 ? Math.round((stats.onTimeCount / total) * 100) : 0;
+                const avgDelay = stats.lateCount > 0 ? (stats.totalDelayHours / stats.lateCount) : 0;
+                let avgDelayText = "Brak";
+                if (avgDelay > 0) {
+                    avgDelayText = avgDelay > 24 ? `${(avgDelay / 24).toFixed(1)} dni` : `${Math.round(avgDelay)} h`;
                 }
+                const color = percent < 80 ? 'var(--danger-primary)' : 'var(--success-primary)';
+
+                return `
+                <div class="report-kpi-card">
+                    <span class="kpi-label">${label} - Terminowość</span>
+                    <strong class="kpi-value" style="color: ${color};">${percent}%</strong>
+                    <span class="kpi-sub">${stats.onTimeCount} z ${total} na czas</span>
+                </div>
+                <div class="report-kpi-card">
+                    <span class="kpi-label">${label} - Śr. opóźnienie</span>
+                    <strong class="kpi-value" style="color: var(--text-secondary); font-size: 20px;">${avgDelayText}</strong>
+                    <span class="kpi-sub">dla ${stats.lateCount} spóźnionych</span>
+                </div>
+                <div class="report-kpi-card wide">
+                    <span class="kpi-label">${label} - Największy poślizg</span>
+                    <div style="font-size: 13px; margin-top: 6px; font-weight: 500; color: var(--danger-primary);">${stats.worstTaskTitle}</div>
+                </div>
+                `;
+            };
+            
+            // Wyczyść i zbuduj nową siatkę dla sekcji Czasu używając funkcji z kroku 3.1
+            const timeSectionContainer = document.querySelector('.report-section .report-kpi-grid');
+            
+            if (timeSectionContainer) {
+                // Czyścimy stare ID, bo teraz generujemy dynamicznie dwa rzędy
+                timeSectionContainer.innerHTML = `
+                    ${generateTimeKPI('Zadania Główne', statsMain)}
+                    <div style="grid-column: 1 / -1; height: 1px; background: var(--border-color); margin: 8px 0;"></div>
+                    ${generateTimeKPI('Podzadania', statsSub)}
+                `;
             }
-            document.getElementById('report-avg-delay').textContent = avgDelayText;
-            document.getElementById('report-worst-task').textContent = worstTaskTitle;
 
 
             // SEKCJA 2: BUDŻET
@@ -15725,7 +15733,20 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
 
 
-            // SEKCJA 3: ZESPÓŁ (Tabela)
+           // SEKCJA 3: ZESPÓŁ (Tabela)
+            
+            // Najpierw zaktualizuj nagłówki tabeli
+            const teamTableHead = document.querySelector('.report-table thead tr');
+            if (teamTableHead) {
+                teamTableHead.innerHTML = `
+                    <th>Pracownik</th>
+                    <th style="text-align: center;">Zadania</th>
+                    <th style="text-align: center;">Podzadania</th>
+                    <th style="text-align: center;">Terminowość</th>
+                    <th style="text-align: center;">Lider w...</th>
+                `;
+            }
+
             const teamTbody = document.getElementById('report-team-tbody');
             teamTbody.innerHTML = '';
             
@@ -15739,25 +15760,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }).sort((a, b) => b.done - a.done);
 
             if (teamRanking.length === 0) {
-                teamTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-secondary); padding: 15px;">Brak danych o wykonawcach.</td></tr>';
+                // Zmieniono colspan na 5, bo mamy nową kolumnę
+                teamTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-secondary); padding: 15px;">Brak danych o wykonawcach.</td></tr>';
             } else {
-                // Znajdź max values dla przyznania odznak (Liderów)
-                const maxDone = teamRanking[0].done;
-                // Filtrujemy tylko tych, którzy zrobili chociaż jedno zadanie, żeby nie dawać 100% komuś z 0 zadań
-                const activeMembers = teamRanking.filter(r => r.done > 0);
-                const maxTimely = activeMembers.length > 0 ? Math.max(...activeMembers.map(r => r.timelyRate)) : 0;
+                // Obliczamy maxy dla obu kategorii
+                const maxMain = Math.max(...teamRanking.map(r => r.mainDone), 0);
+                const maxSub = Math.max(...teamRanking.map(r => r.subDone), 0);
 
                 teamRanking.forEach((r, index) => {
                     const avatar = renderAvatarHTML(findUser(r.uid), 'avatar-comment');
                     
                     let badges = '';
-                    if (r.done === maxDone && maxDone > 0) {
-                        badges += `<span class="report-badge badge-gold">Top Performer</span> `;
-                    }
-                    // Odznaka za terminowość tylko jeśli 100% i zrobił min. 1 zadanie
-                    if (r.timelyRate === 100 && r.done > 0 && r.timelyRate === maxTimely) {
-                        badges += `<span class="report-badge badge-green">Terminowy</span>`;
-                    }
+                    // Badge za zadania główne
+                    if (r.mainDone === maxMain && maxMain > 0) badges += `<span class="report-badge badge-gold" title="Najwięcej zadań głównych">Mistrz Zadań</span> `;
+                    // Badge za podzadania
+                    if (r.subDone === maxSub && maxSub > 0) badges += `<span class="report-badge badge-green" title="Najwięcej podzadań">Pomocna Dłoń</span> `;
 
                     teamTbody.innerHTML += `
                         <tr>
@@ -15767,10 +15784,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                                     <span style="font-weight: 500;">${r.name}</span>
                                 </div>
                             </td>
-                            <td style="text-align: center; font-weight: 600;">${r.done}</td>
+                            <td style="text-align: center; font-weight: 600; font-size: 14px;">${r.mainDone}</td>
+                            <td style="text-align: center; color: var(--text-secondary);">${r.subDone}</td>
                             <td style="text-align: center;">
                                 <span style="color: ${r.timelyRate < 80 ? 'var(--danger-primary)' : 'var(--success-primary)'}; font-weight: 600;">${r.timelyRate.toFixed(0)}%</span>
-                                <div style="font-size:10px; color: var(--text-secondary);">(${r.late} spóź.)</div>
                             </td>
                             <td style="text-align: center;">${badges}</td>
                         </tr>
@@ -33192,6 +33209,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
