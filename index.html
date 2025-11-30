@@ -22853,20 +22853,21 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             e.preventDefault();
             const submitBtn = e.target.querySelector('button[type="submit"]');
 
+            // --- KROK 1: Walidacja i pobranie budżetu "w locie" ---
+            // Zastępuje stare sprawdzanie zmiennej newProjectTempBudgetSaved
+            let budgetData = null;
             try {
-                // --- ZMIANA: Walidacja i pobranie budżetu "w locie" ---
-                let budgetData = null;
-                try {
-                    // Wywołujemy naszą nową funkcję. Jeśli walidacja nie przejdzie, rzuci błąd i przerwie zapis.
-                    budgetData = validateAndGetBudgetData(newProjectModal);
-                } catch (budgetError) {
-                    // Pokaż błąd walidacji budżetu w dedykowanym miejscu w modalu
+                budgetData = validateAndGetBudgetData(newProjectModal);
+            } catch (budgetError) {
+                // Wyświetl błąd w modalu
+                if (newProjectModal.budgetSaveErrorP) {
                     newProjectModal.budgetSaveErrorP.textContent = budgetError.message;
-                    // Oraz przerwij procedurę (nie blokuj przycisku trwale, ale wyjdź z funkcji)
-                    return; 
                 }
-                // --- KONIEC ZMIANY ---
+                return; // Przerwij zapis
+            }
+            // --- KONIEC KROKU 1 ---
 
+            try {
                 submitBtn.disabled = true;
                 submitBtn.textContent = 'Tworzenie...';
 
@@ -22883,6 +22884,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 }
                 const newDescription = newProjectModal.descriptionTextarea.value.trim();
                 
+                // Budowanie obiektu projektu
                 const newProject = {
                     name: newName,
                     ownerId: state.currentUser.uid,
@@ -22893,82 +22895,67 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     endDate: newProjectModal.endDateInput.value,
                     priority: newProjectModal.prioritySelect.value,
                     tasks: [], 
-                    // --- ZMIANA: Przypisanie obiektu budżetu bezpośrednio ze zmiennej lokalnej ---
+                    // --- ZMIANA: Przypisanie zwalidowanego budżetu ---
                     budget: budgetData, 
-                    // --- KONIEC ZMIANY ---
+                    // -------------------------------------------------
                     estimationType: newProjectModal.estimationTypeSelect.value
                 };
-                // === NOWA LOGIKA: Sprawdź, czy są zadania z szablonu ===
+
+                // Obsługa zadań z szablonu (jeśli istnieją)
                 const templateTasksJSON = newProjectModal.form.dataset.templateTasks;
-                let templateTaskTitles = [];
                 if (templateTasksJSON) {
                     try {
-                        templateTaskTitles = JSON.parse(templateTasksJSON);
-                        // Wyczyść atrybut data po odczytaniu
+                        const templateTaskTitles = JSON.parse(templateTasksJSON);
+                        if (templateTaskTitles.length > 0) {
+                             newProject.tasks = templateTaskTitles.map((title, i) => ({
+                                 id: `task${Date.now() + i}`,
+                                 title,
+                                 description: '',
+                                 status: 'todo',
+                                 createdBy: state.currentUser.uid,
+                                 type: 'single',
+                                 assignees: [state.currentUser.uid],
+                                 completedBy: [],
+                                 priority: 'medium',
+                                 dueDate: null,
+                                 comments: [],
+                                 activityLog: [],
+                                 recurrence: null,
+                                 attachments: []
+                             }));
+                        }
                         delete newProjectModal.form.dataset.templateTasks;
                     } catch (parseError) {
                         console.error("Błąd parsowania zadań z szablonu:", parseError);
-                        // Kontynuuj bez zadań z szablonu w razie błędu
                     }
                 }
 
-                // Dodaj zadania z szablonu do obiektu projektu
-                if (templateTaskTitles.length > 0) {
-                     newProject.tasks = templateTaskTitles.map((title, i) => ({
-                         id: `task${Date.now() + i}`, // Unikalne ID
-                         title,
-                         description: '',
-                         status: 'todo',
-                         createdBy: state.currentUser.uid,
-                         type: 'single', // Domyślnie jednoosobowe
-                         assignees: [state.currentUser.uid], // Przypisane do twórcy
-                         completedBy: [],
-                         priority: 'medium',
-                         dueDate: null,
-                         comments: [],
-                         activityLog: [],
-                         recurrence: null,
-                         attachments: []
-                     }));
-                }
-                // === KONIEC NOWEJ LOGIKI ===
-
-
-                // Dodajmy jeszcze jeden log tuż przed zapisem
-                console.log("[DEBUG] Tworzenie projektu - Obiekt newProject do zapisu:", JSON.stringify(newProject));
+                // Zapis do Firestore
                 const docRef = await addDoc(projectsRef, newProject);
 
-                // === NOWA LOGIKA - POWIADOMIENIA O DODANIU DO PROJEKTU ===
-                // Używamy sendInternalNotification z kluczem 'project_invite'
+                // Powiadomienia o zaproszeniu
                 sendInternalNotification(
-                    newProject.members, // Funkcja sama odfiltruje twórcę
+                    newProject.members, 
                     'project_invite',
                     `<strong>${state.currentUser.name}</strong> zaprosił/a Cię do nowego projektu "<strong>${newProject.name}</strong>".`,
                     { type: 'project', projectId: docRef.id },
-                    'project_invite' // <--- KLUCZ USTAWIENIA
+                    'project_invite'
                 );
-                // === KONIEC NOWEJ LOGIKI ===
 
                 state.currentProjectId = docRef.id;
                 state.ui.currentView = 'projects';
                 saveUiState();
 
-                // KROK 5: Dodanie powiadomienia o sukcesie
                 showNotification("Projekt został pomyślnie utworzony.", "Sukces");
+                closeModal(newProjectModal.overlay);
 
-                closeModal(newProjectModal.overlay); // Zamknięcie modala po sukcesie
-
-            } catch (error) { // KROK 6: Blok catch do obsługi błędów
-                 console.error("Błąd podczas zapisywania zmian w projekcie:", error);
-                 // === ZMIANA: Bezpośrednie wywołanie showNotification ===
-                 showNotification(error.message || "Wystąpił błąd podczas zapisywania zmian.", "Błąd");
-            } finally { // KROK 7: Blok finally do zresetowania przycisku
+            } catch (error) {
+                 console.error("Błąd podczas tworzenia projektu:", error);
+                 showNotification(error.message || "Wystąpił błąd podczas tworzenia projektu.", "Błąd");
+            } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Stwórz projekt';
-       // --- RESET STANU TYMCZASOWEGO BUDŻETU PO ZAMKNIĘCIU/ZAPISIE ---
-                newProjectTempBudgetSaved = false;
-                newProjectTempBudgetData = null;
-                // Można też wyczyścić pola, ale reset formularza na początku openNewProjectModal to robi
+                // Nie resetujemy już żadnych zmiennych Temp, bo ich nie ma.
             }
         });
 
@@ -32156,6 +32143,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
