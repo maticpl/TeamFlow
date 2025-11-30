@@ -5899,6 +5899,43 @@
             transform: scale(1.1);
         }
         /* === KONIEC: NOWE STYLE DLA PRZYCISKU ADMINISTRATORA PROJEKTU === */
+        /* === NOWE STYLE: Przycisk Zakończ Zadanie === */
+        .btn-complete-toggle {
+            background-color: var(--success-primary);
+            color: var(--text-on-accent);
+            border: 1px solid var(--success-primary);
+            padding: 6px 12px;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background-color 0.2s;
+        }
+        .btn-complete-toggle:hover {
+            background-color: #15803d; /* Ciemniejszy zielony */
+        }
+        .btn-complete-toggle.is-completed {
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+        .btn-complete-toggle.is-completed:hover {
+            background-color: var(--border-color);
+        }
+        
+        /* Wyrównanie etykiety i przycisku w jednej linii (dla Subtask Modal) */
+        .form-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px; /* Zastępuje margin-bottom labela */
+        }
+        .form-header-row label {
+            margin-bottom: 0; /* Reset marginesu labela */
+        }
         /* === POCZĄTEK: NOWE STYLE DLA PANELU BOCZNEGO AI (WERSJA HYBRYDOWA) === */
         
         .ai-chat-sidebar {
@@ -8270,7 +8307,14 @@ body.compact-mode .comment-item {
                 <p id="modal-task-dependency-link" style="font-size: 13px; color: var(--text-secondary); margin-top: -12px; margin-bottom: 12px; margin-left: 48px; display: none;"></p>
                 
                 <p id="modal-task-creator-info" style="font-size: 12px; color: var(--text-secondary); margin-top: -8px; margin-bottom: 16px; margin-left: 30px; min-height: 16px;"></p>
-                
+                <div style="margin-bottom: 16px; padding-left: 0;">
+                    <button type="button" id="modal-task-complete-btn-large" class="btn-complete-toggle" style="width: 100%; justify-content: center;">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 18px; height: 18px;">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span id="modal-task-complete-btn-text">Zakończ zadanie</span>
+                    </button>
+                </div>
                 <div class="subtasks-section">
                     <div class="subtasks-header" id="subtasks-toggle-btn" title="Pokaż/Ukryj podzadania">
                             <h4>Podzadania <span id="subtasks-counter"></span></h4>
@@ -10302,10 +10346,14 @@ let state = {
             overlay: document.getElementById('subtask-modal'),
             form: document.getElementById('subtask-form'),
             modalTitle: document.getElementById('subtask-modal-title'),
-            subtaskIdInput: document.getElementById('subtask-modal-id'),
-            titleInput: document.getElementById('subtask-modal-title-input'),
-            
-            tabsContainer: document.getElementById('subtask-tabs'),
+        subtaskIdInput: document.getElementById('subtask-modal-id'),
+        titleInput: document.getElementById('subtask-modal-title-input'),
+        
+        // === NOWA REFERENCJA: Przycisk zakończenia podzadania ===
+        completeBtn: document.getElementById('subtask-modal-complete-btn'),
+        // ========================================================
+
+        tabsContainer: document.getElementById('subtask-tabs'),
             contentsContainer: document.querySelector('#subtask-modal .task-modal-tabs-content'),
             
             descriptionInput: document.getElementById('subtask-description'),
@@ -10551,6 +10599,12 @@ let state = {
         budgetCurrencySpan: document.getElementById('modal-task-budget-currency'),
         budgetErrorP: document.getElementById('modal-task-budget-error'),
         budgetTabButton: document.getElementById('task-tab-taskBudget'),
+        
+        // === NOWA REFERENCJA: Duży przycisk zakończenia ===
+        completeBtnLarge: document.getElementById('modal-task-complete-btn-large'),
+        completeBtnText: document.getElementById('modal-task-complete-btn-text'),
+        // ==================================================
+
         // KROK 7.1: DODANE NOWE REFERENCJE (MODAL EDYCJI)
         effortTabButton: document.getElementById('task-tab-effort'),
         effortLabel: document.getElementById('modal-task-effort-label'),
@@ -17337,12 +17391,28 @@ if (editorTaskDescription) {
 
             // Checkbox ukończenia - logika specjalna
             if (taskModal.completed) {
-                taskModal.completed.checked = task.status === 'done';
+                const isDone = task.status === 'done';
+                taskModal.completed.checked = isDone;
+                
                 const shouldBeDisabled = task.type === 'multi' && (task.status === 'todo' || task.status === 'inprogress');
-                // Checkbox działa niezależnie od trybu edycji (każdy przypisany może oznaczyć), 
-                // ale blokujemy go, jeśli user nie ma w ogóle dostępu (choć Privacy Guard wyżej i tak to zablokuje).
                 const canComplete = canUserCompleteTask(currentUserId, task, project);
-                taskModal.completed.disabled = shouldBeDisabled || !canComplete;
+                const isDisabled = shouldBeDisabled || !canComplete;
+                
+                taskModal.completed.disabled = isDisabled;
+
+                // === NOWA LOGIKA: Obsługa dużego zielonego przycisku ===
+                if (taskModal.completeBtnLarge) {
+                    taskModal.completeBtnLarge.disabled = isDisabled;
+                    
+                    if (isDone) {
+                        taskModal.completeBtnLarge.classList.add('is-completed');
+                        taskModal.completeBtnText.textContent = "Wznów zadanie";
+                    } else {
+                        taskModal.completeBtnLarge.classList.remove('is-completed');
+                        taskModal.completeBtnText.textContent = "Zakończ zadanie";
+                    }
+                }
+                // === KONIEC ===
             }
             
            // === LOGIKA PODSUMOWANIA DLA ZADAŃ Z PODZADANIAMI ===
@@ -17841,6 +17911,14 @@ if (editorTaskDescription) {
             // --- 3. Wypełnianie danymi (Edycja vs Tworzenie) ---
             let selectedAssignees = [];
             
+            // === NOWE: Reset stanu przycisku zakończenia ===
+            if (subtaskModal.completeBtn) {
+                // Domyślnie (dla nowego)
+                subtaskModal.completeBtn.classList.remove('is-completed');
+                subtaskModal.completeBtn.querySelector('span').textContent = "Oznacz jako wykonane";
+            }
+            // === KONIEC ===
+
             if (subtaskId) {
                 // --- TRYB EDYCJI ---
                 const subtask = (mainTask.subtasks || []).find(s => s.id === subtaskId);
@@ -17868,6 +17946,21 @@ if (editorTaskDescription) {
                 // Dane podstawowe
                 subtaskModal.titleInput.value = subtask.title;
                 
+                // === NOWE: Aktualizacja przycisku zakończenia w trybie edycji ===
+                if (subtaskModal.completeBtn) {
+                    // Sprawdzamy status (czy done lub isCompleted)
+                    const isDone = subtask.status === 'done' || subtask.isCompleted;
+                    
+                    if (isDone) {
+                        subtaskModal.completeBtn.classList.add('is-completed');
+                        subtaskModal.completeBtn.querySelector('span').textContent = "Wznów podzadanie";
+                    } else {
+                        subtaskModal.completeBtn.classList.remove('is-completed');
+                        subtaskModal.completeBtn.querySelector('span').textContent = "Oznacz jako wykonane";
+                    }
+                }
+                // === KONIEC ===
+
                 // === NOWE: Wczytanie opisu do edytora wizualnego ===
                 if (typeof editorSubtaskDescription !== 'undefined' && editorSubtaskDescription) {
                     editorSubtaskDescription.setContent(subtask.description || '');
@@ -18218,7 +18311,65 @@ if (editorTaskDescription) {
                 e.target.closest('li.budget-item').remove();
             }
         });
+        // === NOWY LISTENER: Duży zielony przycisk "Zakończ zadanie" (Task Modal) ===
+        if (taskModal.completeBtnLarge) {
+            taskModal.completeBtnLarge.addEventListener('click', (e) => {
+                e.preventDefault();
+                // Symulujemy kliknięcie w oryginalny checkbox (który zawiera całą logikę)
+                if (taskModal.completed && !taskModal.completed.disabled) {
+                    // Wywołujemy handler ręcznie, przekazując checkbox jako kontekst
+                    // (Symulacja click() na checkboxie mogłaby nie zadziałać poprawnie z preventDefault w handlerze)
+                    taskModal.completed.click();
+                }
+            });
+        }
 
+        // === NOWY LISTENER: Przycisk "Zakończ" w podzadaniu (Subtask Modal) ===
+        if (subtaskModal.completeBtn) {
+            subtaskModal.completeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                
+                // Pobierz obecny status z Selecta
+                const currentStatus = subtaskModal.statusSelect.value;
+                const isCurrentlyDone = currentStatus === 'done';
+                
+                // Przełącz status
+                if (isCurrentlyDone) {
+                    // Wznów -> ustaw na 'todo' (lub 'inprogress')
+                    subtaskModal.statusSelect.value = 'todo';
+                    
+                    // Zaktualizuj wygląd przycisku
+                    subtaskModal.completeBtn.classList.remove('is-completed');
+                    subtaskModal.completeBtn.querySelector('span').textContent = "Oznacz jako wykonane";
+                } else {
+                    // Zakończ -> ustaw na 'done'
+                    subtaskModal.statusSelect.value = 'done';
+                    
+                    // Zaktualizuj wygląd przycisku
+                    subtaskModal.completeBtn.classList.add('is-completed');
+                    subtaskModal.completeBtn.querySelector('span').textContent = "Wznów podzadanie";
+                    
+                    // Efekt konfetti dla satysfakcji
+                    showConfetti();
+                }
+            });
+        }
+       // === NOWY LISTENER: Synchronizacja przycisku w podzadaniu przy zmianie Selecta ===
+        if (subtaskModal.statusSelect) {
+            subtaskModal.statusSelect.addEventListener('change', () => {
+                const isDone = subtaskModal.statusSelect.value === 'done';
+                
+                if (subtaskModal.completeBtn) {
+                    if (isDone) {
+                        subtaskModal.completeBtn.classList.add('is-completed');
+                        subtaskModal.completeBtn.querySelector('span').textContent = "Wznów podzadanie";
+                    } else {
+                        subtaskModal.completeBtn.classList.remove('is-completed');
+                        subtaskModal.completeBtn.querySelector('span').textContent = "Oznacz jako wykonane";
+                    }
+                }
+            });
+        }
         // === NOWY LISTENER: Obsługa statusu wieloosobowego w MODALU PODZADANIA ===
         document.getElementById('subtask-modal').addEventListener('click', async (e) => {
             const btn = e.target.closest('.js-subtask-toggle-my-part');
@@ -31223,7 +31374,15 @@ welcomeModal.okBtn.addEventListener('click', async () => {
             <div class="task-modal-main" style="padding: 20px 24px 0 24px; flex-shrink: 0;">
                 <input type="hidden" id="subtask-modal-id">
                 <div class="form-group">
-                    <label for="subtask-modal-title-input">Tytuł podzadania</label>
+                    <div class="form-header-row">
+                        <label for="subtask-modal-title-input">Tytuł podzadania</label>
+                        <button type="button" id="subtask-modal-complete-btn" class="btn-complete-toggle" style="padding: 4px 10px; font-size: 12px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 14px; height: 14px;">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                            <span>Oznacz jako wykonane</span>
+                        </button>
+                    </div>
                     <input type="text" id="subtask-modal-title-input" required placeholder="Co trzeba zrobić?">
                 </div>
             </div>
@@ -32147,6 +32306,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
