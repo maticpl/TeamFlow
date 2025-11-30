@@ -13876,234 +13876,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             );
         }
-       /**
-         * NOWA FUNKCJA: Generuje i otwiera Raport Zamknięcia Projektu (Post-Mortem).
-         */
-        function openProjectReportModal(projectId) {
-            // Szukaj w zakończonych (głównie), ale też w aktywnych (dla testów)
-            const project = state.completedProjects.find(p => p.id === projectId) || state.projects.find(p => p.id === projectId);
-            
-            if (!project) {
-                showNotification("Błąd: Nie znaleziono danych projektu.", "Błąd");
-                return;
-            }
-
-            const modal = document.getElementById('project-report-modal');
-            document.getElementById('report-project-name').textContent = `Raport: ${project.name}`;
-
-            // --- 1. ANALIZA CZASU (Time) ---
-            let onTimeCount = 0;
-            let lateCount = 0;
-            let totalDelayHours = 0;
-            let maxDelayHours = 0;
-            let worstTaskTitle = "Brak opóźnień";
-
-            // --- 2. ANALIZA BUDŻETU (Budget) ---
-            const currency = project.budget?.currency || 'PLN';
-            const plannedBudget = parseFloat(project.budget?.amount) || 0;
-            let actualSpent = 0;
-            const taskCosts = []; // { title, cost }
-
-            // --- 3. ANALIZA ZESPOŁU (Team) ---
-            const teamStats = {}; // { userId: { done: 0, late: 0 } }
-
-            // --- 4. ANALIZA JAKOŚCI (Quality) ---
-            let abandonedCount = 0; // Status != done
-            let totalComments = 0;
-
-            const tasks = project.tasks || [];
-
-            tasks.forEach(task => {
-                // A. Budżet (Zadania Główne)
-                // Uwaga: Jeśli zadanie ma podzadania, ignorujemy jego budgetItems (są agregatem),
-                // ale tutaj dla raportu historycznego możemy po prostu zsumować wszystko co jest 'done'.
-                // Dla uproszczenia raportu: sumujemy budgetItems z taska jeśli status done.
-                // (W wersji zaawansowanej trzeba by wejść w rekurencję jak w calculateProjectBudgetSummary,
-                // tutaj robimy wersję spłaszczoną dla statystyk).
-                
-                // Funkcja pomocnicza do kosztu zadania (rekurencyjna)
-                const getTaskRealCost = (t) => {
-                    let cost = 0;
-                    // Koszt własny
-                    if (t.budgetItems && (t.status === 'done' || t.isCompleted)) { // isCompleted dla subtaska
-                        cost += t.budgetItems.reduce((sum, i) => sum + (parseFloat(i.amount)||0), 0);
-                    }
-                    // Koszt podzadań
-                    if (t.subtasks) {
-                        t.subtasks.forEach(sub => cost += getTaskRealCost(sub));
-                    }
-                    return cost;
-                };
-
-                const taskCost = getTaskRealCost(task);
-                actualSpent += taskCost;
-                if (taskCost > 0) {
-                    taskCosts.push({ title: task.title, cost: taskCost });
-                }
-
-                // B. Jakość (Porzucone)
-                if (task.status !== 'done') {
-                    abandonedCount++;
-                } else {
-                    // C. Czas (Tylko dla 'done')
-                    if (task.dueDate && task.completedAt) {
-                        // completedAt jest Timestamp, dueDate stringiem ISO
-                        const due = new Date(task.dueDate);
-                        // Obsługa formatu Timestamp z Firestore lub Date
-                        const doneDate = (typeof task.completedAt.toDate === 'function') 
-                            ? task.completedAt.toDate() 
-                            : new Date(task.completedAt);
-
-                        const diffMs = doneDate - due;
-                        
-                        if (diffMs > 0) {
-                            // Spóźnione
-                            lateCount++;
-                            const diffHours = diffMs / (1000 * 60 * 60);
-                            totalDelayHours += diffHours;
-                            
-                            // Zapisz statystyki dla osoby (CompletedBy)
-                            (task.completedBy || []).forEach(uid => {
-                                if (!teamStats[uid]) teamStats[uid] = { done: 0, late: 0 };
-                                teamStats[uid].late++;
-                            });
-
-                            if (diffHours > maxDelayHours) {
-                                maxDelayHours = diffHours;
-                                worstTaskTitle = `${task.title} (${Math.round(diffHours)}h)`;
-                            }
-                        } else {
-                            onTimeCount++;
-                        }
-                    } else if (task.status === 'done') {
-                         // Wykonane bez terminu - liczymy jako na czas
-                         onTimeCount++;
-                    }
-
-                    // D. Zespół (Liczba zadań wykonanych)
-                    // W zadaniach multi completedBy ma wielu, w single jednego
-                    (task.completedBy || []).forEach(uid => {
-                        if (!teamStats[uid]) teamStats[uid] = { done: 0, late: 0 };
-                        teamStats[uid].done++;
-                    });
-                }
-
-                // E. Komunikacja
-                totalComments += (task.comments || []).length;
-                if (task.subtasks) {
-                     task.subtasks.forEach(s => totalComments += (s.comments || []).length);
-                }
-            });
-
-            // --- RENDEROWANIE WYNIKÓW ---
-
-            // 1. Czas
-            const totalDoneTasks = onTimeCount + lateCount;
-            const onTimePercent = totalDoneTasks > 0 ? Math.round((onTimeCount / totalDoneTasks) * 100) : 0;
-            document.getElementById('report-time-score').textContent = `${onTimePercent}%`;
-            document.getElementById('report-time-score').style.color = onTimePercent < 80 ? 'var(--danger-primary)' : 'var(--success-primary)';
-            
-            let avgDelayText = "Brak";
-            if (lateCount > 0) {
-                const avgHours = totalDelayHours / lateCount;
-                if (avgHours > 24) {
-                    avgDelayText = `${(avgHours / 24).toFixed(1)} dni`;
-                } else {
-                    avgDelayText = `${Math.round(avgHours)} godz.`;
-                }
-            }
-            document.getElementById('report-avg-delay').textContent = avgDelayText;
-            document.getElementById('report-worst-task').textContent = worstTaskTitle;
-
-            // 2. Budżet
-            const budgetContainer = document.getElementById('report-budget-container');
-            const budgetPercent = plannedBudget > 0 ? (actualSpent / plannedBudget) * 100 : 0;
-            const isOver = actualSpent > plannedBudget && plannedBudget > 0;
-            const colorClass = isOver ? 'over' : '';
-            const diffVal = plannedBudget - actualSpent;
-            
-            const formatMoney = (val) => val.toLocaleString('pl-PL', { style: 'currency', currency: currency });
-
-            budgetContainer.innerHTML = `
-                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
-                    <span>Wydano: <strong>${formatMoney(actualSpent)}</strong></span>
-                    <span style="color: var(--text-secondary);">Budżet: ${formatMoney(plannedBudget)}</span>
-                </div>
-                <div class="report-budget-bar-bg">
-                    <div class="report-budget-bar-fill ${colorClass}" style="width: ${Math.min(budgetPercent, 100)}%">
-                        ${budgetPercent.toFixed(1)}%
-                    </div>
-                </div>
-                <div style="text-align: right; font-size: 12px; margin-top: 4px; color: ${diffVal < 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">
-                    ${diffVal < 0 ? `Przekroczenie: ${formatMoney(Math.abs(diffVal))}` : `Oszczędność: ${formatMoney(diffVal)}`}
-                </div>
-            `;
-
-            document.getElementById('report-avg-cost').textContent = totalDoneTasks > 0 ? formatMoney(actualSpent / totalDoneTasks) : '-';
-            
-            // Top 3 Kosztowne
-            taskCosts.sort((a, b) => b.cost - a.cost);
-            const costlyList = document.getElementById('report-costly-tasks');
-            costlyList.innerHTML = taskCosts.slice(0, 3).map(t => `
-                <li style="display:flex; justify-content:space-between; border-bottom:1px dashed var(--border-color); padding:4px 0;">
-                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%;">${t.title}</span>
-                    <strong>${formatMoney(t.cost)}</strong>
-                </li>
-            `).join('');
-            if (taskCosts.length === 0) costlyList.innerHTML = '<li>Brak danych finansowych.</li>';
-
-
-            // 3. Zespół (Ranking)
-            const teamTbody = document.getElementById('report-team-tbody');
-            teamTbody.innerHTML = '';
-            
-            // Konwersja na tablicę i sortowanie wg liczby zadań
-            const teamRanking = Object.keys(teamStats).map(uid => {
-                const stats = teamStats[uid];
-                const user = findUser(uid);
-                const total = stats.done; // Wszystkie ukończone przez niego
-                const timelyRate = total > 0 ? ((total - stats.late) / total) * 100 : 0;
-                return { uid, name: user ? (user.name || user.email) : 'Nieznany', ...stats, timelyRate };
-            }).sort((a, b) => b.done - a.done);
-
-            if (teamRanking.length === 0) {
-                teamTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-secondary);">Brak danych o wykonawcach.</td></tr>';
-            } else {
-                // Znajdź max values dla odznak
-                const maxDone = teamRanking[0].done;
-                const maxTimely = Math.max(...teamRanking.map(r => r.timelyRate));
-
-                teamRanking.forEach(r => {
-                    const avatar = renderAvatarHTML(findUser(r.uid), 'avatar-comment');
-                    let badges = '';
-                    if (r.done === maxDone && maxDone > 0) badges += `<span class="report-badge badge-gold">Top Performer</span> `;
-                    if (r.timelyRate === maxTimely && maxTimely === 100 && r.done > 0) badges += `<span class="report-badge badge-green">100% Terminowy</span>`;
-
-                    teamTbody.innerHTML += `
-                        <tr>
-                            <td>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    ${avatar.replace('class="avatar avatar-comment"', 'class="avatar" style="width:24px;height:24px;font-size:10px;"')}
-                                    <span>${r.name}</span>
-                                </div>
-                            </td>
-                            <td style="text-align: center; font-weight: 600;">${r.done}</td>
-                            <td style="text-align: center;">
-                                <span style="color: ${r.timelyRate < 80 ? 'var(--danger-primary)' : 'var(--success-primary)'}">${r.timelyRate.toFixed(0)}%</span>
-                                <span style="font-size:10px; color:#aaa;">(${r.late} spóź.)</span>
-                            </td>
-                            <td style="text-align: center;">${badges}</td>
-                        </tr>
-                    `;
-                });
-            }
-
-            // 4. Jakość
-            document.getElementById('report-abandoned-count').textContent = abandonedCount;
-            document.getElementById('report-comments-count').textContent = totalComments;
-
-            openModal(modal);
-        }
+      
         function render() {
             if (!state.currentUser) return;
             applyTheme();
@@ -15723,6 +15496,242 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
         container.innerHTML = tableHTML;
     }
+       /**
+         * NOWA FUNKCJA: Generuje i otwiera Raport Zamknięcia Projektu (Post-Mortem).
+         * Analizuje zakończony projekt i wylicza statystyki.
+         */
+        function openProjectReportModal(projectId) {
+            // Szukamy projektu w zakończonych (głównie), ale też w aktywnych (dla testów)
+            const project = state.completedProjects.find(p => p.id === projectId) || state.projects.find(p => p.id === projectId);
+            
+            if (!project) {
+                showNotification("Błąd: Nie znaleziono danych projektu.", "Błąd");
+                return;
+            }
+
+            const modal = document.getElementById('project-report-modal');
+            document.getElementById('report-project-name').textContent = `Raport: ${project.name}`;
+
+            // --- ZMIENNE STATYSTYCZNE ---
+            let onTimeCount = 0;
+            let lateCount = 0;
+            let totalDelayHours = 0;
+            let maxDelayHours = 0;
+            let worstTaskTitle = "Brak opóźnień";
+
+            const currency = project.budget?.currency || 'PLN';
+            const plannedBudget = parseFloat(project.budget?.amount) || 0;
+            let actualSpent = 0;
+            const taskCosts = []; // { title, cost }
+
+            const teamStats = {}; // { userId: { done: 0, late: 0 } }
+
+            let abandonedCount = 0; // Status != done
+            let totalComments = 0;
+
+            const tasks = project.tasks || [];
+
+            // --- ANALIZA ZADAŃ ---
+            tasks.forEach(task => {
+                // 1. FINANSE: Sumujemy koszty (uproszczone dla raportu historycznego)
+                // Funkcja pomocnicza do rekurencyjnego liczenia kosztu zadania
+                const getTaskRealCost = (t) => {
+                    let cost = 0;
+                    // Koszt własny (jeśli zadanie ukończone)
+                    if (t.budgetItems && (t.status === 'done' || t.isCompleted)) {
+                        cost += t.budgetItems.reduce((sum, i) => sum + (parseFloat(i.amount)||0), 0);
+                    }
+                    // Koszt podzadań
+                    if (t.subtasks) {
+                        t.subtasks.forEach(sub => cost += getTaskRealCost(sub));
+                    }
+                    return cost;
+                };
+
+                const taskCost = getTaskRealCost(task);
+                actualSpent += taskCost;
+                if (taskCost > 0) {
+                    taskCosts.push({ title: task.title, cost: taskCost });
+                }
+
+                // 2. JAKOŚĆ: Czy zadanie zostało porzucone?
+                if (task.status !== 'done') {
+                    abandonedCount++;
+                } else {
+                    // Zadanie ukończone - Analiza Czasu
+                    let isTaskLate = false;
+
+                    if (task.dueDate && task.completedAt) {
+                        const due = new Date(task.dueDate);
+                        // Obsługa formatu Timestamp z Firestore lub Date string
+                        const doneDate = (typeof task.completedAt.toDate === 'function') 
+                            ? task.completedAt.toDate() 
+                            : new Date(task.completedAt);
+
+                        const diffMs = doneDate - due;
+                        
+                        if (diffMs > 0) {
+                            // SPÓŹNIONE
+                            isTaskLate = true;
+                            lateCount++;
+                            const diffHours = diffMs / (1000 * 60 * 60);
+                            totalDelayHours += diffHours;
+
+                            if (diffHours > maxDelayHours) {
+                                maxDelayHours = diffHours;
+                                worstTaskTitle = `${task.title} (${Math.round(diffHours)}h po terminie)`;
+                            }
+                        } else {
+                            // NA CZAS
+                            onTimeCount++;
+                        }
+                    } else {
+                         // Wykonane bez terminu - liczymy jako na czas
+                         onTimeCount++;
+                    }
+
+                    // 3. ZESPÓŁ: Przypisywanie zasług (CompletedBy)
+                    // W zadaniach multi completedBy ma wielu, w single jednego
+                    (task.completedBy || []).forEach(uid => {
+                        if (!teamStats[uid]) teamStats[uid] = { done: 0, late: 0 };
+                        teamStats[uid].done++;
+                        if (isTaskLate) teamStats[uid].late++;
+                    });
+                }
+
+                // 4. KOMUNIKACJA: Licznik komentarzy
+                totalComments += (task.comments || []).length;
+                if (task.subtasks) {
+                     task.subtasks.forEach(s => totalComments += (s.comments || []).length);
+                }
+            });
+
+            // --- RENDEROWANIE WYNIKÓW W DOM ---
+
+            // SEKCJA 1: CZAS
+            const totalDoneTasks = onTimeCount + lateCount;
+            const onTimePercent = totalDoneTasks > 0 ? Math.round((onTimeCount / totalDoneTasks) * 100) : 0;
+            
+            document.getElementById('report-time-score').textContent = `${onTimePercent}%`;
+            // Koloruj wynik (Czerwony jeśli < 80%)
+            document.getElementById('report-time-score').style.color = onTimePercent < 80 ? 'var(--danger-primary)' : 'var(--success-primary)';
+            document.getElementById('report-time-sub').textContent = `${onTimeCount} z ${totalDoneTasks} zadań na czas`;
+            
+            let avgDelayText = "Brak opóźnień";
+            if (lateCount > 0) {
+                const avgHours = totalDelayHours / lateCount;
+                if (avgHours > 24) {
+                    avgDelayText = `${(avgHours / 24).toFixed(1)} dni`;
+                } else {
+                    avgDelayText = `${Math.round(avgHours)} godz.`;
+                }
+            }
+            document.getElementById('report-avg-delay').textContent = avgDelayText;
+            document.getElementById('report-worst-task').textContent = worstTaskTitle;
+
+
+            // SEKCJA 2: BUDŻET
+            const budgetContainer = document.getElementById('report-budget-container');
+            const budgetPercent = plannedBudget > 0 ? (actualSpent / plannedBudget) * 100 : 0;
+            const isOver = actualSpent > plannedBudget && plannedBudget > 0;
+            const colorClass = isOver ? 'over' : '';
+            const diffVal = plannedBudget - actualSpent;
+            
+            const formatMoney = (val) => val.toLocaleString('pl-PL', { style: 'currency', currency: currency });
+
+            // Generowanie paska postępu budżetu
+            budgetContainer.innerHTML = `
+                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                    <span>Wydano: <strong>${formatMoney(actualSpent)}</strong></span>
+                    <span style="color: var(--text-secondary);">Budżet: ${formatMoney(plannedBudget)}</span>
+                </div>
+                <div class="report-budget-bar-bg">
+                    <div class="report-budget-bar-fill ${colorClass}" style="width: ${Math.min(budgetPercent, 100)}%">
+                        ${budgetPercent.toFixed(1)}%
+                    </div>
+                </div>
+                <div style="text-align: right; font-size: 12px; margin-top: 4px; font-weight: 600; color: ${diffVal < 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">
+                    ${diffVal < 0 ? `Przekroczenie: ${formatMoney(Math.abs(diffVal))}` : `Oszczędność: ${formatMoney(diffVal)}`}
+                </div>
+            `;
+
+            document.getElementById('report-avg-cost').textContent = totalDoneTasks > 0 ? formatMoney(actualSpent / totalDoneTasks) : '-';
+            
+            // Ranking kosztownych zadań (Top 3)
+            taskCosts.sort((a, b) => b.cost - a.cost);
+            const costlyList = document.getElementById('report-costly-tasks');
+            
+            if (taskCosts.length === 0) {
+                costlyList.innerHTML = '<li style="color: var(--text-secondary); font-style: italic;">Brak danych finansowych.</li>';
+            } else {
+                costlyList.innerHTML = taskCosts.slice(0, 3).map(t => `
+                    <li style="display:flex; justify-content:space-between; border-bottom:1px dashed var(--border-color); padding:4px 0;">
+                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%;" title="${t.title}">${t.title}</span>
+                        <strong>${formatMoney(t.cost)}</strong>
+                    </li>
+                `).join('');
+            }
+
+
+            // SEKCJA 3: ZESPÓŁ (Tabela)
+            const teamTbody = document.getElementById('report-team-tbody');
+            teamTbody.innerHTML = '';
+            
+            // Konwersja obiektu statystyk na tablicę i sortowanie wg liczby zadań (malejąco)
+            const teamRanking = Object.keys(teamStats).map(uid => {
+                const stats = teamStats[uid];
+                const user = findUser(uid);
+                const total = stats.done;
+                const timelyRate = total > 0 ? ((total - stats.late) / total) * 100 : 0;
+                return { uid, name: user ? (user.name || user.email) : 'Nieznany', ...stats, timelyRate };
+            }).sort((a, b) => b.done - a.done);
+
+            if (teamRanking.length === 0) {
+                teamTbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-secondary); padding: 15px;">Brak danych o wykonawcach.</td></tr>';
+            } else {
+                // Znajdź max values dla przyznania odznak (Liderów)
+                const maxDone = teamRanking[0].done;
+                // Filtrujemy tylko tych, którzy zrobili chociaż jedno zadanie, żeby nie dawać 100% komuś z 0 zadań
+                const activeMembers = teamRanking.filter(r => r.done > 0);
+                const maxTimely = activeMembers.length > 0 ? Math.max(...activeMembers.map(r => r.timelyRate)) : 0;
+
+                teamRanking.forEach((r, index) => {
+                    const avatar = renderAvatarHTML(findUser(r.uid), 'avatar-comment');
+                    
+                    let badges = '';
+                    if (r.done === maxDone && maxDone > 0) {
+                        badges += `<span class="report-badge badge-gold">Top Performer</span> `;
+                    }
+                    // Odznaka za terminowość tylko jeśli 100% i zrobił min. 1 zadanie
+                    if (r.timelyRate === 100 && r.done > 0 && r.timelyRate === maxTimely) {
+                        badges += `<span class="report-badge badge-green">Terminowy</span>`;
+                    }
+
+                    teamTbody.innerHTML += `
+                        <tr>
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    ${avatar.replace('class="avatar avatar-comment"', 'class="avatar" style="width:24px;height:24px;font-size:10px;"')}
+                                    <span style="font-weight: 500;">${r.name}</span>
+                                </div>
+                            </td>
+                            <td style="text-align: center; font-weight: 600;">${r.done}</td>
+                            <td style="text-align: center;">
+                                <span style="color: ${r.timelyRate < 80 ? 'var(--danger-primary)' : 'var(--success-primary)'}; font-weight: 600;">${r.timelyRate.toFixed(0)}%</span>
+                                <div style="font-size:10px; color: var(--text-secondary);">(${r.late} spóź.)</div>
+                            </td>
+                            <td style="text-align: center;">${badges}</td>
+                        </tr>
+                    `;
+                });
+            }
+
+            // SEKCJA 4: JAKOŚĆ
+            document.getElementById('report-abandoned-count').textContent = abandonedCount;
+            document.getElementById('report-comments-count').textContent = totalComments;
+
+            openModal(modal);
+        }
         // --- NOWA FUNKCJA: Otwieranie modala szczegółów ---
         function openProjectDetailsModal() {
             const project = findProject(state.currentProjectId);
@@ -33130,6 +33139,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
