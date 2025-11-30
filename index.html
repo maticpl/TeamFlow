@@ -22978,6 +22978,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             e.preventDefault();
             const projectId = editProjectModal.overlay.dataset.projectId;
             const newName = editProjectModal.nameInput.value.trim();
+            // Pobieramy przycisk tutaj, aby mieć do niego dostęp w bloku finally
             const submitBtn = e.target.querySelector('button[type="submit"]'); 
 
             if (!projectId || !newName) {
@@ -22986,13 +22987,16 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             }
 
             // --- ZMIANA: Walidacja i pobranie budżetu "w locie" ---
+            // Używamy nowej funkcji, która nie potrzebuje zmiennych Temp
             let budgetData = null;
             try {
                 budgetData = validateAndGetBudgetData(editProjectModal);
             } catch (budgetError) {
-                // Wyświetl błąd w modalu (zamiast ogólnego powiadomienia)
-                editProjectModal.budgetSaveErrorP.textContent = budgetError.message;
-                return; 
+                // Wyświetl błąd w modalu, jeśli walidacja nie przeszła
+                if(editProjectModal.budgetSaveErrorP) {
+                    editProjectModal.budgetSaveErrorP.textContent = budgetError.message;
+                }
+                return; // Przerwij zapis
             }
             // --- KONIEC ZMIANY ---
 
@@ -23001,8 +23005,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                 submitBtn.textContent = 'Zapisywanie...';
 
                 const selectedMembers = Array.from(editProjectModal.membersContainer.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
-                const selectedAdminIds = Array.from(editProjectModal.membersContainer.querySelectorAll('.admin-toggle-btn.is-admin'))
-                    .map(btn => btn.dataset.userId);
+                const selectedAdminIds = Array.from(editProjectModal.membersContainer.querySelectorAll('.admin-toggle-btn.is-admin')).map(btn => btn.dataset.userId);
 
                 const projectUpdates = {
                     name: newName,
@@ -23012,7 +23015,7 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
                     endDate: editProjectModal.endDateInput.value,
                     priority: editProjectModal.prioritySelect.value,
                     description: editProjectModal.descriptionTextarea.value,
-                    // --- ZMIANA: Użycie lokalnej zmiennej budgetData ---
+                    // --- ZMIANA: Użycie lokalnej zmiennej budgetData (zamiast editProjectTempBudgetData) ---
                     budget: budgetData,
                     // --- KONIEC ZMIANY ---
                     estimationType: editProjectModal.estimationTypeSelect.value
@@ -23020,20 +23023,16 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
                 await updateDoc(doc(projectsRef, projectId), projectUpdates);
 
-                showNotification("Zmiany w projekcie zostały zapisane.", "Sukces"); // Dodano powiadomienie
+                showNotification("Zmiany w projekcie zostały zapisane.", "Sukces"); 
                 closeModal(editProjectModal.overlay);
 
             } catch (error) {
                  console.error("Błąd podczas zapisywania zmian w projekcie:", error);
-                 if (mainErrorP) mainErrorP.textContent = error.message || "Wystąpił błąd podczas zapisywania zmian.";
-                 else showNotification(error.message || "Wystąpił błąd podczas zapisywania zmian.", "Błąd");
+                 showNotification(error.message || "Wystąpił błąd podczas zapisywania zmian.", "Błąd");
             } finally {
-                 submitBtn.disabled = false; // Włącz przycisk z powrotem
+                 submitBtn.disabled = false; 
                  submitBtn.textContent = 'Zapisz zmiany';
-                 // --- RESET STANU TYMCZASOWEGO BUDŻETU PO ZAMKNIĘCIU/ZAPISIE ---
-                 editProjectTempBudgetSaved = false;
-                 editProjectTempBudgetData = null;
-                 // --- KONIEC RESETU ---
+                 // USUNIĘTO: Resetowanie nieistniejących już zmiennych tymczasowych
             }
         });
         
@@ -32157,6 +32156,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
