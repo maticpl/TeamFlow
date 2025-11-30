@@ -13018,6 +13018,7 @@ let radarCenter = 0;
 let radarRadius = 0;
 let activeSvg = null;
 let tempNewDate = null;
+let isRadarDragValid = true; // <<< NOWA ZMIENNA: Flaga walidacji
 
 function handleRadarNodeDragStart(e, node, task, project, center, radius, svgElement) {
     // Nie używamy e.preventDefault() tutaj, aby pozwolić na kliknięcie
@@ -13026,6 +13027,7 @@ function handleRadarNodeDragStart(e, node, task, project, center, radius, svgEle
 
     isMouseDownOnNode = true;
     isDraggingNode = false; // Jeszcze nie ciągniemy!
+    isRadarDragValid = true; // <<< NOWE: Reset flagi przy rozpoczęciu
     
     // Zapisz pozycję startową (dla myszy i dotyku)
     if (e.touches) {
@@ -13124,19 +13126,52 @@ function handleRadarNodeDragMove(e) {
     labelGroup.setAttribute("transform", `translate(${svgP.x}, ${svgP.y - 30})`);
     
     const dateStr = newDate.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
-    const diffText = diffDays === 0 ? '(Dziś)' : (diffDays > 0 ? `(za ${diffDays} dni)` : `(${Math.abs(diffDays)} dni temu)`);
     
-    labelText.textContent = `${dateStr} ${diffText}`;
-    
-    if (diffDays < 0) {
-        labelRect.setAttribute("stroke", "var(--danger-primary)");
-        labelRect.setAttribute("fill", "#fee2e2");
-    } else if (diffDays <= 3) {
-        labelRect.setAttribute("stroke", "var(--accent-primary)");
-        labelRect.setAttribute("fill", "var(--bg-secondary)");
+    // === POCZĄTEK NOWEJ LOGIKI WALIDACJI ===
+    isRadarDragValid = true; // Zakładamy, że jest ok
+    let validationMsg = "";
+
+    // Sprawdź czy to podzadanie (polygon) i czy ma rodzica z terminem
+    if (activeNode.tagName === 'polygon' && activeProjectData) {
+        const parentId = activeNode.dataset.taskId; // W radarze taskId na węźle podzadania to ID rodzica
+        const parentTask = activeProjectData.tasks.find(t => t.id === parentId);
+        
+        if (parentTask && parentTask.dueDate) {
+            const parentDueISO = parentTask.dueDate.split('T')[0];
+            
+            if (tempNewDate > parentDueISO) {
+                isRadarDragValid = false;
+                const parentDatePretty = new Date(parentTask.dueDate).toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
+                validationMsg = `Blokada! Max: ${parentDatePretty}`;
+            }
+        }
+    }
+    // === KONIEC WALIDACJI ===
+
+    if (!isRadarDragValid) {
+        // Styl dla BŁĘDU (Przekroczony termin rodzica)
+        labelText.textContent = validationMsg;
+        labelRect.setAttribute("stroke", "var(--danger-primary)"); // Czerwona ramka
+        labelRect.setAttribute("fill", "var(--danger-primary)");   // Czerwone tło (dla mocnego efektu)
+        labelText.setAttribute("fill", "white");                   // Biały tekst
     } else {
-        labelRect.setAttribute("stroke", "var(--success-primary)");
-        labelRect.setAttribute("fill", "var(--bg-secondary)");
+        // Standardowy styl (licznik dni)
+        const diffText = diffDays === 0 ? '(Dziś)' : (diffDays > 0 ? `(za ${diffDays} dni)` : `(${Math.abs(diffDays)} dni temu)`);
+        labelText.textContent = `${dateStr} ${diffText}`;
+        
+        // Reset koloru tekstu na domyślny (bo mógł zostać biały po błędzie)
+        labelText.setAttribute("fill", "var(--text-primary)");
+
+        if (diffDays < 0) {
+            labelRect.setAttribute("stroke", "var(--danger-primary)");
+            labelRect.setAttribute("fill", "#fee2e2");
+        } else if (diffDays <= 3) {
+            labelRect.setAttribute("stroke", "var(--accent-primary)");
+            labelRect.setAttribute("fill", "var(--bg-secondary)");
+        } else {
+            labelRect.setAttribute("stroke", "var(--success-primary)");
+            labelRect.setAttribute("fill", "var(--bg-secondary)");
+        }
     }
 }
 
@@ -13181,6 +13216,20 @@ async function handleRadarNodeDragEnd(e) {
         activeNode.style.cursor = 'grab';
         activeNode.style.transition = ''; 
     }
+
+    // === NOWE: BLOKADA ZAPISU JEŚLI DATA JEST NIEPOPRAWNA ===
+    if (!isRadarDragValid) {
+        showNotification("Nie można ustawić daty podzadania później niż zadania głównego.", "Błąd");
+        renderRadarView(); // Przerysuj radar, aby cofnąć wizualnie węzeł
+        
+        // Reset zmiennych
+        activeNode = null;
+        activeTaskData = null;
+        activeProjectData = null;
+        tempNewDate = null;
+        return; // Przerwij funkcję
+    }
+    // === KONIEC BLOKADY ===
 
     // === ZAPISZ NOWĄ DATĘ DO BAZY ===
     if (activeTaskData && activeProjectData && tempNewDate) {
@@ -32555,6 +32604,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
