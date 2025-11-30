@@ -12687,6 +12687,28 @@ function drawRadarChart(allProjects) {
             // === 3. UI: DYNAMICZNY TOOLTIP ===
             const statusLabel = isCompleted ? "UKOŃCZONE" : getTaskStatusLabel(obj, project);
             const typeLabel = isSubtask ? `PODZADANIE (w: ${item.parentTitle})` : "ZADANIE";
+
+            // === NOWE: Logika Drag & Drop (Inicjalizacja na węźle) ===
+            // Sprawdź uprawnienia (używamy zmiennych zdefiniowanych wyżej w pętli)
+            const isAssignee = (obj.assignees || []).includes(state.currentUser.uid);
+            const isCreator = obj.createdBy === state.currentUser.uid;
+            // Zezwól na edycję (przeciąganie), jeśli użytkownik ma prawa, zadanie nie jest Inboxem i nie jest ukończone
+            const canEdit = (isOwner || isAdmin || isCreator || isAssignee) && !isCompleted && !project.isInbox;
+
+            if (canEdit) {
+                node.style.cursor = 'grab';
+                // Dodajemy atrybut typu, aby funkcja upuszczania wiedziała, czy to podzadanie
+                node.dataset.type = item.type; 
+                
+                // Listener rozpoczęcia przeciągania
+                node.addEventListener('mousedown', (e) => {
+                    handleRadarNodeDragStart(e, node, obj, project, center, radius, svg);
+                });
+                node.addEventListener('touchstart', (e) => {
+                    handleRadarNodeDragStart(e, node, obj, project, center, radius, svg);
+                }, {passive: false});
+            }
+            // === KONIEC NOWEGO KODU ===
             
             let extraInfo = '';
             if (mode === 'budget') {
@@ -12924,9 +12946,13 @@ function drawRadarChart(allProjects) {
         }
     });
 
-    // Używamy lokalnych handlerów, żeby nie zaśmiecać globalnego window przy przerysowywaniu
+   // Używamy lokalnych handlerów, żeby nie zaśmiecać globalnego window przy przerysowywaniu
     // (Dla uproszczenia w tym kroku zostawiamy window, ale w idealnym świecie należałoby je czyścić)
     const mouseMoveHandler = (e) => {
+        // === NOWE: Blokada Pan jeśli ciągniemy węzeł ===
+        if (isDraggingNode) return; 
+        // === KONIEC ===
+        
         if (!isRadarPanning) return;
         e.preventDefault();
         const newX = e.clientX - startPanX;
@@ -12950,9 +12976,249 @@ function drawRadarChart(allProjects) {
     window.addEventListener('mousemove', mouseMoveHandler);
     window.addEventListener('mouseup', mouseUpHandler);
 
+    // === NOWE: Dymek "Live" dla przeciągania (Wstawiony na końcu, aby był na wierzchu) ===
+    const dragLabelGroup = document.createElementNS(svgNS, "g");
+    dragLabelGroup.setAttribute("id", "radar-drag-label");
+    dragLabelGroup.style.display = "none"; // Domyślnie ukryty
+    dragLabelGroup.style.pointerEvents = "none"; // Nie blokuje myszki
+    
+    // Tło dymka
+    const dragLabelRect = document.createElementNS(svgNS, "rect");
+    dragLabelRect.setAttribute("x", "-60");
+    dragLabelRect.setAttribute("y", "-30");
+    dragLabelRect.setAttribute("width", "120");
+    dragLabelRect.setAttribute("height", "24");
+    dragLabelRect.setAttribute("rx", "4");
+    dragLabelRect.setAttribute("fill", "var(--bg-secondary)");
+    dragLabelRect.setAttribute("stroke", "var(--accent-primary)");
+    dragLabelRect.setAttribute("stroke-width", "1");
+    
+    // Tekst dymka
+    const dragLabelText = document.createElementNS(svgNS, "text");
+    dragLabelText.setAttribute("x", "0");
+    dragLabelText.setAttribute("y", "-14");
+    dragLabelText.setAttribute("text-anchor", "middle");
+    dragLabelText.setAttribute("fill", "var(--text-primary)");
+    dragLabelText.style.fontSize = "12px";
+    dragLabelText.style.fontWeight = "600";
+    dragLabelText.textContent = ""; // Pusty na start
+
+    dragLabelGroup.appendChild(dragLabelRect);
+    dragLabelGroup.appendChild(dragLabelText);
+    svg.appendChild(dragLabelGroup); 
+    // === KONIEC NOWEGO KODU ===
+
     svg.style.cursor = 'default'; 
     updateRadarTransform();
 }
+       // === NOWE FUNKCJE: OBSŁUGA PRZECIĄGANIA NA RADARZE ===
+
+let isDraggingNode = false;
+let activeNode = null;
+let activeTaskData = null;
+let activeProjectData = null;
+let radarCenter = 0;
+let radarRadius = 0;
+let activeSvg = null;
+let tempNewDate = null;
+
+function handleRadarNodeDragStart(e, node, task, project, center, radius, svgElement) {
+    e.preventDefault();
+    e.stopPropagation(); // Zatrzymaj propagację, aby nie przesuwać całej mapy (pan/zoom)
+
+    isDraggingNode = true;
+    activeNode = node;
+    activeTaskData = task;
+    activeProjectData = project;
+    radarCenter = center;
+    radarRadius = radius;
+    activeSvg = svgElement;
+
+    node.style.cursor = 'grabbing';
+    node.style.transition = 'none'; // Wyłącz animację CSS na czas przeciągania
+    
+    // Ukryj tooltip Tippy podczas przeciągania, jeśli istnieje
+    if (node._tippy) node._tippy.hide();
+
+    // Pokaż nasz "Dymek Live"
+    const label = document.getElementById('radar-drag-label');
+    if (label) {
+        label.style.display = 'block';
+        // Przenieś dymek na sam wierzch (ponowne dołączenie przesuwa na koniec listy DOM)
+        activeSvg.appendChild(label);
+    }
+
+    // Dodaj globalne listenery ruchu (tylko na czas dragu)
+    window.addEventListener('mousemove', handleRadarNodeDragMove);
+    window.addEventListener('touchmove', handleRadarNodeDragMove, { passive: false });
+    window.addEventListener('mouseup', handleRadarNodeDragEnd);
+    window.addEventListener('touchend', handleRadarNodeDragEnd);
+}
+
+function handleRadarNodeDragMove(e) {
+    if (!isDraggingNode || !activeNode) return;
+    e.preventDefault(); // Ważne dla touch
+
+    // 1. Pobierz koordynaty myszy/dotyku
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+    // Konwersja współrzędnych ekranu na współrzędne SVG (skalowanie, zoom)
+    const pt = activeSvg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const svgP = pt.matrixTransform(activeSvg.getScreenCTM().inverse());
+
+    // 2. Przesuń węzeł wizualnie
+    if (activeNode.tagName === 'circle') {
+        activeNode.setAttribute('cx', svgP.x);
+        activeNode.setAttribute('cy', svgP.y);
+    } else if (activeNode.tagName === 'polygon') {
+        // Dla podzadania (trójkąta) przesuwamy go
+        const r = 6 * 0.8; // Rozmiar zdefiniowany w drawRadarChart
+        const p1 = `${svgP.x},${svgP.y - r}`;
+        const p2 = `${svgP.x + 0.866 * r},${svgP.y + 0.5 * r}`;
+        const p3 = `${svgP.x - 0.866 * r},${svgP.y + 0.5 * r}`;
+        activeNode.setAttribute("points", `${p1} ${p2} ${p3}`);
+    }
+
+    // 3. Oblicz odległość od środka (Promień)
+    const dx = svgP.x - radarCenter;
+    const dy = svgP.y - radarCenter;
+    const distanceFromCenter = Math.sqrt(dx*dx + dy*dy);
+
+    // 4. Matematyka odwrotna: Dystans -> Data
+    // Logika: 0.2 promienia = Dziś. 0.95 promienia = 60 dni w przyszłość.
+    const ratio = distanceFromCenter / radarRadius;
+    let diffDays = ((ratio - 0.2) / 0.75) * 60;
+
+    // Zaokrąglij do pełnych dni
+    diffDays = Math.round(diffDays);
+
+    // Oblicz nową datę
+    const newDate = new Date();
+    newDate.setDate(newDate.getDate() + diffDays);
+    
+    tempNewDate = newDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    // 5. Zaktualizuj pozycję i tekst Dymka
+    const labelGroup = document.getElementById('radar-drag-label');
+    const labelText = labelGroup.querySelector('text');
+    const labelRect = labelGroup.querySelector('rect');
+    
+    // Przesuń dymek nad kursor
+    labelGroup.setAttribute("transform", `translate(${svgP.x}, ${svgP.y - 30})`);
+    
+    // Formatowanie tekstu
+    const dateStr = newDate.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
+    const diffText = diffDays === 0 ? '(Dziś)' : (diffDays > 0 ? `(za ${diffDays} dni)` : `(${Math.abs(diffDays)} dni temu)`);
+    
+    labelText.textContent = `${dateStr} ${diffText}`;
+    
+    // Kolor dymka zależny od terminu
+    if (diffDays < 0) {
+        labelRect.setAttribute("stroke", "var(--danger-primary)");
+        labelRect.setAttribute("fill", "#fee2e2"); // Jasny czerwony
+    } else if (diffDays <= 3) {
+        labelRect.setAttribute("stroke", "var(--accent-primary)");
+        labelRect.setAttribute("fill", "var(--bg-secondary)");
+    } else {
+        labelRect.setAttribute("stroke", "var(--success-primary)");
+        labelRect.setAttribute("fill", "var(--bg-secondary)");
+    }
+}
+
+async function handleRadarNodeDragEnd(e) {
+    if (!isDraggingNode) return;
+    isDraggingNode = false;
+
+    // Usuń listenery
+    window.removeEventListener('mousemove', handleRadarNodeDragMove);
+    window.removeEventListener('touchmove', handleRadarNodeDragMove);
+    window.removeEventListener('mouseup', handleRadarNodeDragEnd);
+    window.removeEventListener('touchend', handleRadarNodeDragEnd);
+
+    // Ukryj dymek
+    const label = document.getElementById('radar-drag-label');
+    if (label) label.style.display = 'none';
+    
+    if (activeNode) {
+        activeNode.style.cursor = 'grab';
+        activeNode.style.transition = ''; // Przywróć animację CSS
+    }
+
+    // === ZAPISZ NOWĄ DATĘ DO BAZY ===
+    if (activeTaskData && activeProjectData && tempNewDate) {
+        const taskId = activeTaskData.id;
+        const projectId = activeProjectData.id;
+        const oldDate = activeTaskData.dueDate ? activeTaskData.dueDate.split('T')[0] : null;
+        
+        // Sprawdź czy data faktycznie się zmieniła
+        if (tempNewDate !== oldDate) {
+            console.log(`Zmiana terminu zadania ${taskId} na ${tempNewDate}`);
+            
+            // Zachowaj godzinę z poprzedniej daty lub ustaw 12:00
+            let newTime = '12:00';
+            if (activeTaskData.dueDate && activeTaskData.dueDate.includes('T')) {
+                newTime = activeTaskData.dueDate.split('T')[1];
+            }
+            const finalIsoDate = `${tempNewDate}T${newTime}`;
+
+            // Aktualizacja w Firestore
+            const projectDocRef = findProject(projectId) ? doc(projectsRef, projectId) : doc(completedProjectsRef, projectId);
+            
+            // Skopiuj i zmodyfikuj listę zadań
+            let updatedTasks = [...activeProjectData.tasks];
+            
+            updatedTasks = updatedTasks.map(t => {
+                // Sprawdź czy przeciągano podzadanie (po tagu i atrybucie data)
+                const isDraggingSubtask = activeNode.dataset.type === 'subtask';
+                
+                if (isDraggingSubtask) {
+                    // Musimy znaleźć rodzica. W handleRadarNodeDragStart activeTaskData to obiekt podzadania.
+                    // Ale potrzebujemy ID rodzica. W KROKU 2 przy tworzeniu węzła podzadania
+                    // użyliśmy parentId. W drawRadarChart w pętli:
+                    // item.parentId jest dostępne. Niestety activeTaskData ma tylko dane podzadania.
+                    // ROZWIĄZANIE: Pobieramy parentId z dataset węzła.
+                    const parentId = activeNode.dataset.taskId; // To jest ID rodzica (zapisane w drawRadarChart)
+                    const subId = activeTaskData.id;
+
+                    if (t.id === parentId) {
+                        return {
+                            ...t,
+                            subtasks: t.subtasks.map(s => s.id === subId ? { ...s, dueDate: finalIsoDate } : s)
+                        };
+                    }
+                } else {
+                    // To jest zadanie główne
+                    if (t.id === taskId) {
+                        return { ...t, dueDate: finalIsoDate };
+                    }
+                }
+                return t;
+            });
+
+            try {
+                await updateDoc(projectDocRef, { tasks: updatedTasks });
+                showNotification(`Zmieniono termin na ${tempNewDate}`, "Sukces");
+                // onSnapshot automatycznie odświeży radar i ustawi kropkę na nowej orbicie
+            } catch (error) {
+                console.error("Błąd zapisu daty z radaru:", error);
+                showNotification("Błąd zmiany terminu.", "Błąd");
+                renderRadarView(); // Cofnij wizualnie
+            }
+        } else {
+             renderRadarView(); // Cofnij wizualnie (data bez zmian)
+        }
+    }
+
+    // Reset zmiennych
+    activeNode = null;
+    activeTaskData = null;
+    activeProjectData = null;
+    tempNewDate = null;
+}
+// === KONIEC NOWYCH FUNKCJI ===
         // NOWA FUNKCJA DO RENDEROWANIA WIDOKU WSZYSTKICH PROJEKTÓW
         function renderAllProjectsView() {
             kanbanBoardEl.className = 'all-projects-view';
@@ -32244,6 +32510,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
