@@ -13737,10 +13737,23 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const totalTasks = projectTasks.length;
                 const membersHTML = project.members.map(memberId => findUser(memberId)).filter(Boolean).map(user => renderAvatarHTML(user)).join('');
 
-                return `<div class="project-tile" data-id="${project.id}" style="opacity: 0.8;">
+                // Sprawdź uprawnienia (tylko Właściciel lub Admin mogą przywracać)
+                const canRestore = project.ownerId === state.currentUser.uid || (project.admins || []).includes(state.currentUser.uid);
+                
+                const restoreBtnHTML = canRestore ? `
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color); text-align: right;">
+                        <button class="btn btn-primary btn-sm js-restore-project-btn" data-project-id="${project.id}" style="padding: 6px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 14px; height: 14px;">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
+                            </svg>
+                            Przywróć projekt
+                        </button>
+                    </div>` : '';
+
+                return `<div class="project-tile" data-id="${project.id}" style="opacity: 0.9;">
                     <div class="project-tile-header">
                         <h3 class="js-project-title" title="${project.name}">${project.name}</h3>
-                        </div>
+                    </div>
                      <div class="project-tile-details">
                         <div class="project-tile-owner"><strong>Właściciel:</strong> ${owner ? owner.name : 'Nieznany'}</div>
                         <div class="project-tile-members-list"><strong>Członkowie:</strong> <div class="project-tile-members">${membersHTML}</div></div>
@@ -13748,6 +13761,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     <div>
                         <div class="progress-text">${totalTasks} zadań</div>
                     </div>
+                    ${restoreBtnHTML}
                 </div>`;
             };
 
@@ -13760,18 +13774,90 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 grid.innerHTML = archivedProjects.map(p => createArchiveTileHTML(p)).join('');
             }
             
-            // Listener do klikania na kafelki w archiwum (otwiera widok projektu)
+            // Listener do klikania na kafelki w archiwum
             grid.addEventListener('click', (e) => {
+                // === NOWE: Obsługa przycisku "Przywróć" ===
+                const restoreBtn = e.target.closest('.js-restore-project-btn');
+                if (restoreBtn) {
+                    e.preventDefault();
+                    e.stopPropagation(); // Zatrzymaj, aby nie otworzyć projektu
+                    const projectId = restoreBtn.dataset.projectId;
+                    handleRestoreProject(projectId);
+                    return;
+                }
+                // === KONIEC ===
+
                 const projectTile = e.target.closest('.project-tile');
                 if (projectTile) {
                     const projectId = projectTile.dataset.id;
                     state.currentProjectId = projectId;
+                    // ... reszta logiki otwierania (bez zmian) ...
                     state.ui.previousView = state.ui.currentView;
-                    state.ui.currentView = 'projects'; // Przełączamy na standardowy widok projektu
+                    state.ui.currentView = 'projects'; 
                     saveUiState();
                     render();
                 }
             });
+        }
+
+        /**
+         * NOWA FUNKCJA: Przywraca projekt z archiwum do aktywnych.
+         */
+        async function handleRestoreProject(projectId) {
+            const project = state.completedProjects.find(p => p.id === projectId);
+            if (!project) return;
+
+            showConfirmation(
+                "Przywróć projekt",
+                `Czy na pewno chcesz reaktywować projekt "${project.name}"? Zostanie on przeniesiony do listy aktywnych projektów, a wszyscy członkowie otrzymają powiadomienie.`,
+                async (confirmed) => {
+                    if (confirmed) {
+                        try {
+                            // 1. Przenieś dokument z completedProjects -> projects
+                            const completedRef = doc(completedProjectsRef, projectId);
+                            const activeRef = doc(projectsRef, projectId);
+                            
+                            // Pobierz dane (dla pewności, że mamy najnowszą wersję z serwera)
+                            const snapshot = await getDoc(completedRef);
+                            if (!snapshot.exists()) throw new Error("Projekt nie istnieje w archiwum.");
+                            
+                            const projectData = snapshot.data();
+                            
+                            // Użyj batcha dla atomowości
+                            const batch = writeBatch(db);
+                            batch.set(activeRef, projectData); // Utwórz w aktywnych
+                            batch.delete(completedRef);        // Usuń z archiwum
+                            
+                            await batch.commit();
+
+                            // 2. Wyślij profesjonalne powiadomienia biznesowe
+                            if (project.members && project.members.length > 0) {
+                                const msg = `
+                                    <div style="margin-bottom: 4px;"><strong>Projekt Reaktywowany</strong></div>
+                                    Informujemy, że projekt "<strong>${project.name}</strong>" został przywrócony do aktywnych działań. Twój dostęp operacyjny został w pełni przywrócony.
+                                `;
+                                
+                                sendInternalNotification(
+                                    project.members, // Wyślij do wszystkich członków
+                                    'alert',         // Typ alert (użyje dzwonka/ikony)
+                                    msg,
+                                    { type: 'project', projectId: projectId },
+                                    'project_invite' // Użyjemy tej samej preferencji co dla zaproszeń (ważne info)
+                                );
+                            }
+
+                            showNotification("Projekt został pomyślnie przywrócony.", "Sukces");
+                            
+                            // Przeładuj widok (onSnapshot powinien to zrobić, ale wymuszamy dla pewności UI)
+                            // Jeśli jesteśmy w archiwum, projekt zniknie z listy.
+                            
+                        } catch (error) {
+                            console.error("Błąd przywracania projektu:", error);
+                            showNotification("Wystąpił błąd podczas przywracania projektu.", "Błąd");
+                        }
+                    }
+                }
+            );
         }
         function render() {
             if (!state.currentUser) return;
@@ -32604,6 +32690,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
