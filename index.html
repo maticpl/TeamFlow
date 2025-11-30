@@ -15646,9 +15646,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // --- RENDEROWANIE WYNIKÓW W DOM ---
 
-            // SEKCJA 1: CZAS (Całkowicie przebudowana podziałka)
-            
-            // Funkcja pomocnicza do generowania bloku KPI
+            // 1. Definicja funkcji pomocniczej (wewnątrz openProjectReportModal)
             const generateTimeKPI = (label, stats) => {
                 const total = stats.onTimeCount + stats.lateCount;
                 const percent = total > 0 ? Math.round((stats.onTimeCount / total) * 100) : 0;
@@ -15676,12 +15674,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 </div>
                 `;
             };
-            
-            // Wyczyść i zbuduj nową siatkę dla sekcji Czasu używając funkcji z kroku 3.1
+
+            // SEKCJA 1: CZAS (Nowe renderowanie)
             const timeSectionContainer = document.querySelector('.report-section .report-kpi-grid');
-            
             if (timeSectionContainer) {
-                // Czyścimy stare ID, bo teraz generujemy dynamicznie dwa rzędy
                 timeSectionContainer.innerHTML = `
                     ${generateTimeKPI('Zadania Główne', statsMain)}
                     <div style="grid-column: 1 / -1; height: 1px; background: var(--border-color); margin: 8px 0;"></div>
@@ -15700,36 +15696,44 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const formatMoney = (val) => val.toLocaleString('pl-PL', { style: 'currency', currency: currency });
 
             // Generowanie paska postępu budżetu
-            budgetContainer.innerHTML = `
-                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
-                    <span>Wydano: <strong>${formatMoney(actualSpent)}</strong></span>
-                    <span style="color: var(--text-secondary);">Budżet: ${formatMoney(plannedBudget)}</span>
-                </div>
-                <div class="report-budget-bar-bg">
-                    <div class="report-budget-bar-fill ${colorClass}" style="width: ${Math.min(budgetPercent, 100)}%">
-                        ${budgetPercent.toFixed(1)}%
+            if (budgetContainer) {
+                budgetContainer.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+                        <span>Wydano: <strong>${formatMoney(actualSpent)}</strong></span>
+                        <span style="color: var(--text-secondary);">Budżet: ${formatMoney(plannedBudget)}</span>
                     </div>
-                </div>
-                <div style="text-align: right; font-size: 12px; margin-top: 4px; font-weight: 600; color: ${diffVal < 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">
-                    ${diffVal < 0 ? `Przekroczenie: ${formatMoney(Math.abs(diffVal))}` : `Oszczędność: ${formatMoney(diffVal)}`}
-                </div>
-            `;
+                    <div class="report-budget-bar-bg">
+                        <div class="report-budget-bar-fill ${colorClass}" style="width: ${Math.min(budgetPercent, 100)}%">
+                            ${budgetPercent.toFixed(1)}%
+                        </div>
+                    </div>
+                    <div style="text-align: right; font-size: 12px; margin-top: 4px; font-weight: 600; color: ${diffVal < 0 ? 'var(--danger-primary)' : 'var(--success-primary)'};">
+                        ${diffVal < 0 ? `Przekroczenie: ${formatMoney(Math.abs(diffVal))}` : `Oszczędność: ${formatMoney(diffVal)}`}
+                    </div>
+                `;
+            }
 
-            document.getElementById('report-avg-cost').textContent = totalDoneTasks > 0 ? formatMoney(actualSpent / totalDoneTasks) : '-';
+            // === NAPRAWA BŁĘDU 'totalDoneTasks' ===
+            // Obliczamy całkowitą liczbę ukończonych elementów (Zadania + Podzadania) na potrzeby średniego kosztu
+            const allDoneCount = (statsMain.onTimeCount + statsMain.lateCount) + (statsSub.onTimeCount + statsSub.lateCount);
+            
+            document.getElementById('report-avg-cost').textContent = allDoneCount > 0 ? formatMoney(actualSpent / allDoneCount) : '-';
             
             // Ranking kosztownych zadań (Top 3)
             taskCosts.sort((a, b) => b.cost - a.cost);
             const costlyList = document.getElementById('report-costly-tasks');
             
-            if (taskCosts.length === 0) {
-                costlyList.innerHTML = '<li style="color: var(--text-secondary); font-style: italic;">Brak danych finansowych.</li>';
-            } else {
-                costlyList.innerHTML = taskCosts.slice(0, 3).map(t => `
-                    <li style="display:flex; justify-content:space-between; border-bottom:1px dashed var(--border-color); padding:4px 0;">
-                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%;" title="${t.title}">${t.title}</span>
-                        <strong>${formatMoney(t.cost)}</strong>
-                    </li>
-                `).join('');
+            if (costlyList) {
+                if (taskCosts.length === 0) {
+                    costlyList.innerHTML = '<li style="color: var(--text-secondary); font-style: italic;">Brak danych finansowych.</li>';
+                } else {
+                    costlyList.innerHTML = taskCosts.slice(0, 3).map(t => `
+                        <li style="display:flex; justify-content:space-between; border-bottom:1px dashed var(--border-color); padding:4px 0;">
+                            <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%;" title="${t.title}">${t.title}</span>
+                            <strong>${formatMoney(t.cost)}</strong>
+                        </li>
+                    `).join('');
+                }
             }
 
 
@@ -33209,6 +33213,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
