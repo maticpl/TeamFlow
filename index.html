@@ -15608,25 +15608,15 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     }
 
                     // D. PRZYPISANIE DO UŻYTKOWNIKA (Kluczowa poprawka)
+                    // Iterujemy po completedBy danego elementu (zadania LUB podzadania)
                     
-                    // === POPRAWKA LOGIKI RAPORTU (Wersja 3 - Odpowiedzialność vs Kliknięcie) ===
-                    let finishers = [];
-
-                    if (item.type === 'multi') {
-                        // W zadaniach MULTI (wieloosobowych) każdy klika za siebie.
-                        // Tutaj 'completedBy' jest jedynym wyznacznikiem, kto faktycznie zrobił swoją część.
-                        finishers = item.completedBy || [];
-                    } else {
-                        // W zadaniach SINGLE (jednoosobowych), 'completedBy' wskazuje osobę, która KLIKNĘŁA.
-                        // Często jest to Admin/Manager sprzątający tablicę, a nie faktyczny wykonawca.
-                        // Dlatego dla statystyk bierzemy 'assignees' (osoby odpowiedzialne).
-                        finishers = item.assignees || [];
-
-                        // Fallback: Jeśli nikt nie jest przypisany (zadanie sierota), 
-                        // wtedy przypisujemy zasługę temu, kto kliknął.
-                        if (finishers.length === 0) {
-                            finishers = item.completedBy || [];
-                        }
+                    // === POPRAWKA LOGIKI RAPORTU ===
+                    // Jeśli zadanie jest 'single', tablica completedBy może być pusta.
+                    // W takim przypadku uznajemy, że wykonawcą jest osoba przypisana (assignee).
+                    let finishers = item.completedBy || [];
+                    
+                    if (finishers.length === 0 && item.assignees && item.assignees.length > 0) {
+                        finishers = item.assignees;
                     }
                     // === KONIEC POPRAWKI ===
                     
@@ -16459,60 +16449,76 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 });
 
                 // 4. SORTOWANIE: Posortuj wspólną tablicę według KOLEJNOŚCI WŁASNEJ
+                // (Ignorujemy tu flagę 'asc/desc' z przycisku sortowania, bo sortowanie przyciskiem
+                // będzie teraz fizycznie zmieniać wartości 'order' w bazie)
                 
                 combinedItems.sort((a, b) => a.order - b.order);
 
-                // === POPRAWKA ZLICZANIA: Rozdzielamy liczniki ===
-                let mainTasksCount = 0;
-                let subtasksCount = 0;
-
                 // 5. GENEROWANIE HTML: Iteruj po posortowanej liście
                 columnContentHTML += combinedItems.map(item => {
-                    // totalRenderedTasks++; // <-- USUNIĘTE
+                    totalRenderedTasks++;
 
                     if (item.type === 'main') {
-                        mainTasksCount++; // Inkrementacja zadań głównych
-                        
                         const task = item.data;
                         const taskNumber = taskIndexMap[task.id];
                         return createTaskCardHTML(task, isInteractive, project, colData.status, colData.customColumnId, taskNumber);
                     } else {
                         // item.type === 'subtask'
-                        subtasksCount++; // Inkrementacja podzadań
-                        
                         const { sub, parent } = item.data;
                         const parentNumber = taskIndexMap[parent.id];
+                        // Bezpieczne znajdowanie indeksu (może być -1 w skrajnych przypadkach)
                         const subIndex = (parent.subtasks || []).findIndex(s => s.id === sub.id) + 1;
                         const wbsNumber = parentNumber ? `${parentNumber}.${subIndex}` : '';
                         
                         return createVisualSubtaskCardHTML(sub, parent, project, 'standalone', wbsNumber);
                     }
                 }).join('');
-                
-                // Generowanie etykiety licznika
-                // Np. "5 Zad." lub "5 Zad. + 3 Podz."
-                let countLabelHTML = `<span class="task-count" title="Liczba Zadań Głównych">${mainTasksCount} Zad.</span>`;
-                
-                if (subtasksCount > 0) {
-                    // Dodajemy licznik podzadań w nieco innym stylu (szarym)
-                    countLabelHTML += `<span class="task-count" title="Liczba Podzadań" style="background-color: var(--bg-tertiary); margin-left: 4px;">${subtasksCount} Podz.</span>`;
-                }
-                // === KONIEC POPRAWKI ===
+
+                const totalCount = totalRenderedTasks;
 
                 // Logika sumowania wysiłku
                 let estimationSumHTML = '';
-                // ... (logika estymacji bez zmian) ...
                 if (estimationType !== 'none') {
-                    // ... (kod obliczania estymacji bez zmian) ...
-                    // ...
+                    let estimationSum = 0;
+                    let actualSum = 0;
+                    
+                    tasksInColumn.forEach(task => {
+                        let taskEst = 0;
+                        let taskAct = 0;
+
+                        // Sprawdź, czy zadanie ma podzadania
+                        if (task.subtasks && task.subtasks.length > 0) {
+                            // WARIANT A: Sumuj z podzadań
+                            task.subtasks.forEach(sub => {
+                                taskEst += parseFloat(sub.effort) || 0;
+                                taskAct += parseFloat(sub.actualEffort) || 0;
+                            });
+                        } else {
+                            // WARIANT B: Pobierz z głównego zadania
+                            // Obsługa 'estimation' (standard) oraz 'effort' (AI)
+                            taskEst = parseFloat(task.estimation ?? task.effort ?? 0);
+                            
+                            // Rzeczywisty wysiłek (jeśli brak, przyjmij estymację jak w reszcie apki)
+                            // Używamy task.actualEffort, a jak null/undefined to bierzemy taskEst
+                            const rawActual = task.actualEffort !== undefined && task.actualEffort !== null ? task.actualEffort : taskEst;
+                            taskAct = parseFloat(rawActual);
+                        }
+
+                        estimationSum += taskEst;
+                        actualSum += taskAct;
+                    });
+
                     if (estimationSum > 0 || actualSum > 0) {
-                        // ...
+                        let color = "var(--text-secondary)";
+                        if (actualSum > estimationSum) color = "var(--danger-primary)";
+                        else if (actualSum > 0 && actualSum < estimationSum) color = "var(--success-primary)";
                         estimationSumHTML = `<span class="task-estimation-sum" title="Suma Szacowana / Rzeczywista" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">
                             ${estimationSum}/${actualSum} ${unit}
                         </span>`;
                     }
                 }
                 
+                // Przycisk dodawania zadania (tylko dla 'todo')
                 const addTaskBtnHTML = (isInteractive && colData.status === 'todo') ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
 
                 // Złóż kolumnę
@@ -16526,8 +16532,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             </svg>
                         </button>
                         ${completedFilterHTML}
-                        <div class="kanban-header-counts" style="display: flex; gap: 2px; margin-left: auto; align-items: center;">
-                            ${countLabelHTML}
+                        <div class="kanban-header-counts" style="display: flex; gap: 6px; margin-left: auto;">
+                            <span class="task-count" title="Liczba zadań w kolumnie">${totalCount}</span>
                             ${estimationSumHTML}
                         </div>
                         ${addTaskBtnHTML}
@@ -33186,8 +33192,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
-
-
 
 
 
