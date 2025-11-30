@@ -13005,12 +13005,12 @@ function drawRadarChart(allProjects) {
     svg.style.cursor = 'default'; 
     updateRadarTransform();
 }
-     // === ZMODYFIKOWANE ZMIENNE I FUNKCJE DRAG & DROP ===
+      // === ZMODYFIKOWANE ZMIENNE I FUNKCJE DRAG & DROP ===
 
 let isDraggingNode = false;
-let isMouseDownOnNode = false;
-let dragStartX = 0;
-let dragStartY = 0;
+let isMouseDownOnNode = false; // Nowa flaga: Czy przycisk jest wciśnięty na węźle?
+let dragStartX = 0;            // Nowa zmienna: Pozycja startowa X
+let dragStartY = 0;            // Nowa zmienna: Pozycja startowa Y
 let activeNode = null;
 let activeTaskData = null;
 let activeProjectData = null;
@@ -13018,16 +13018,16 @@ let radarCenter = 0;
 let radarRadius = 0;
 let activeSvg = null;
 let tempNewDate = null;
-// === NOWE: Zmienna na limit daty ===
-let dragMaxDate = null; 
-// === KONIEC ===
 
 function handleRadarNodeDragStart(e, node, task, project, center, radius, svgElement) {
+    // Nie używamy e.preventDefault() tutaj, aby pozwolić na kliknięcie
+    // Ale zatrzymujemy propagację, by nie odpalać Pan/Zoom radaru
     e.stopPropagation(); 
 
     isMouseDownOnNode = true;
-    isDraggingNode = false; 
+    isDraggingNode = false; // Jeszcze nie ciągniemy!
     
+    // Zapisz pozycję startową (dla myszy i dotyku)
     if (e.touches) {
         dragStartX = e.touches[0].clientX;
         dragStartY = e.touches[0].clientY;
@@ -13042,25 +13042,8 @@ function handleRadarNodeDragStart(e, node, task, project, center, radius, svgEle
     radarCenter = center;
     radarRadius = radius;
     activeSvg = svgElement;
-    
-    // === NOWE: Ustalanie limitu daty dla podzadania ===
-    dragMaxDate = null; // Reset limitu
 
-    // Sprawdź czy to podzadanie (na podstawie dataset lub tagu)
-    // W drawRadarChart dodaliśmy: node.dataset.type = item.type;
-    if (node.dataset.type === 'subtask') {
-        const parentId = node.dataset.taskId; // ID rodzica
-        const parentTask = project.tasks.find(t => t.id === parentId);
-        
-        if (parentTask && parentTask.dueDate) {
-            // Ustawiamy limit na północ dnia terminu rodzica
-            const pDate = new Date(parentTask.dueDate);
-            pDate.setHours(0,0,0,0);
-            dragMaxDate = pDate.getTime();
-        }
-    }
-    // === KONIEC NOWEGO KODU ===
-
+    // Nasłuchuj ruchu
     window.addEventListener('mousemove', handleRadarNodeDragMove);
     window.addEventListener('touchmove', handleRadarNodeDragMove, { passive: false });
     window.addEventListener('mouseup', handleRadarNodeDragEnd);
@@ -13131,54 +13114,7 @@ function handleRadarNodeDragMove(e) {
     diffDays = Math.round(diffDays);
 
     const newDate = new Date();
-    // Oblicz nową datę
-    const newDate = new Date();
     newDate.setDate(newDate.getDate() + diffDays);
-    
-    // === NOWE: Zastosowanie LIMITU (Clamp) ===
-    let isLimited = false;
-    if (dragMaxDate !== null) {
-        // Ustawiamy godziny newDate na 0 dla poprawnego porównania
-        newDate.setHours(0,0,0,0);
-        
-        if (newDate.getTime() > dragMaxDate) {
-            newDate.setTime(dragMaxDate); // Cofnij do daty granicznej
-            isLimited = true;
-            
-            // Przelicz diffDays na podstawie nowej (ograniczonej) daty dla poprawności tekstu
-            const nowReset = new Date();
-            nowReset.setHours(0,0,0,0);
-            const diffTime = newDate.getTime() - nowReset.getTime();
-            diffDays = Math.round(diffTime / (1000 * 3600 * 24));
-        }
-    }
-    // === KONIEC NOWEGO KODU ===
-    
-    tempNewDate = newDate.toISOString().split('T')[0]; // YYYY-MM-DD
-
-    // 5. Zaktualizuj pozycję i tekst Dymka
-    const labelGroup = document.getElementById('radar-drag-label');
-    const labelText = labelGroup.querySelector('text');
-    const labelRect = labelGroup.querySelector('rect');
-    
-    labelGroup.setAttribute("transform", `translate(${svgP.x}, ${svgP.y - 30})`);
-    
-    // Formatowanie tekstu
-    const dateStr = newDate.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
-    
-    // === NOWE: Zmiana tekstu w przypadku blokady ===
-    let diffText = diffDays === 0 ? '(Dziś)' : (diffDays > 0 ? `(za ${diffDays} dni)` : `(${Math.abs(diffDays)} dni temu)`);
-    
-    if (isLimited) {
-        diffText = `(Limit rodzica)`;
-        // Opcjonalnie: zmiana koloru tekstu na czerwony lub ostrzegawczy
-        labelText.setAttribute("fill", "var(--danger-primary)");
-    } else {
-        labelText.setAttribute("fill", "var(--text-primary)");
-    }
-    // === KONIEC ===
-    
-    labelText.textContent = `${dateStr} ${diffText}`;
     tempNewDate = newDate.toISOString().split('T')[0];
 
     const labelGroup = document.getElementById('radar-drag-label');
@@ -32619,7 +32555,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
-
 
 
 
