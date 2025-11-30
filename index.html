@@ -3751,7 +3751,15 @@
 
 /* === KONIEC: Efekt "lupy" dla awatarów === */
         /* === POCZĄTEK: Style dla ikon w rogu karty zadania === */
-
+/* === NOWA KLASA: Ikona Ostrzeżenia === */
+        .task-warning-icon {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 8px; /* Odstęp od tytułu */
+            vertical-align: middle;
+            flex-shrink: 0;
+        }
+        /* === KONIEC === */
 .task-card-icons {
     position: static; 
     display: flex;
@@ -10499,6 +10507,15 @@ let state = {
                         font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" class="text-fill">$</text>
             </svg>
         `;
+       // === NOWA IKONA OSTRZEŻENIA ===
+        const SVG_WARNING_ICON = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-labelledby="warnTitleFilled">
+          <title id="warnTitleFilled">Ostrzeżenie</title>
+          <path d="M1 21h22L12 2 1 21z" fill="#FFD54F" />
+          <rect x="11" y="7" width="2" height="7" rx="1" fill="#212121"/>
+          <circle cx="12" cy="17.5" r="1.25" fill="#212121"/>
+        </svg>`;
+        // === KONIEC ===
        // --- Koniec Definicji ikon ---
        const taskModal = { // <--- POCZĄTEK BLOKU DO WYCIĘCIA
         overlay: document.getElementById('task-modal'),
@@ -16037,6 +16054,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // --- GENEROWANIE NAGŁÓWKA (ZALEŻNIE OD TRYBU) ---
             let headerHTML = '';
             
+            // === NOWA LOGIKA: Ikona Ostrzeżenia w Podzadaniu ===
+            let warningIconHTML = '';
+            if (subtask.dueDate && !isCompleted) {
+                const warningDays = state.currentUser.preferences.warningDays !== undefined ? state.currentUser.preferences.warningDays : 3;
+                const now = new Date();
+                const dueDateObj = new Date(subtask.dueDate);
+                const diffTime = dueDateObj.getTime() - now.getTime();
+                const diffDays = diffTime / (1000 * 3600 * 24);
+
+                if (diffDays <= warningDays) {
+                    warningIconHTML = `<div class="task-warning-icon" style="margin-left: 4px; width: 18px; height: 18px;" title="Termin upływa za mniej niż ${warningDays} dni!">${SVG_WARNING_ICON.replace('width="24"', 'width="18"').replace('height="24"', 'height="18"')}</div>`;
+                }
+            }
+            // === KONIEC ===
+
             if (renderMode === 'standalone') {
                 // TRYB NIEZALEŻNY: Pasek kontekstu + Tytuł
                 const parentTitleSafe = parentTask.title.length > 30 ? parentTask.title.substring(0, 27) + '...' : parentTask.title;
@@ -16048,7 +16080,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         </svg>
                         <span>${parentTitleSafe}</span>
                     </div>
-                    <h5>
+                    <h5 style="display: flex; align-items: center; flex-wrap: wrap;">
                         <input type="checkbox" 
                            class="subtask-card-checkbox kanban-subtask-checkbox" 
                            data-subtask-id="${subtask.id}"
@@ -16056,7 +16088,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                            ${isCheckedAttribute}
                            ${!canIComplete ? 'disabled' : ''}
                            title="${canIComplete ? 'Zmień status' : 'Brak uprawnień'}">
-                        ${titleDisplay}
+                        <span style="margin-right: 4px;">${titleDisplay}</span>
+                        ${warningIconHTML}
                     </h5>
                 `;
             } else {
@@ -16069,7 +16102,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                            ${isCheckedAttribute}
                            ${!canIComplete ? 'disabled' : ''}
                            title="${canIComplete ? 'Zmień status' : 'Brak uprawnień'}">
-                    <h5>${titleDisplay}</h5>
+                    <h5 style="display: flex; align-items: center; flex-wrap: wrap;">
+                        <span style="margin-right: 4px;">${titleDisplay}</span>
+                        ${warningIconHTML}
+                    </h5>
                 `;
             }
 
@@ -16662,14 +16698,44 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // === NOWOŚĆ: Formatowanie tytułu z numerem WBS ===
             const titleDisplay = taskNumber ? `${taskNumber}. ${task.title}` : task.title;
+            // === NOWA LOGIKA: Ikona Ostrzeżenia o Terminie ===
+            let warningIconHTML = '';
+            if (task.dueDate && !isCompleted) {
+                const warningDays = state.currentUser.preferences.warningDays !== undefined ? state.currentUser.preferences.warningDays : 3;
+                const now = new Date();
+                const dueDateObj = new Date(task.dueDate);
+                
+                // Ustawiamy godziny na północ dla dokładnego porównania dni (opcjonalne, ale bezpieczniejsze)
+                // Tutaj używamy prostej różnicy w czasie
+                const diffTime = dueDateObj.getTime() - now.getTime();
+                const diffDays = diffTime / (1000 * 3600 * 24); // Różnica w dniach (może być ułamkowa)
 
+                // Logika:
+                // 1. diffDays > 0: Termin jest w przyszłości (nie jest jeszcze "overdue", bo to obsługuje inna klasa)
+                // 2. diffDays <= warningDays: Jesteśmy w oknie ostrzegawczym
+                // Uwaga: Jeśli zadanie jest już "overdue" (czerwone), czy nadal pokazywać ikonę? 
+                // Zgodnie z instrukcją "ostrzegaj... przed terminem". Jeśli termin minął, to już nie ostrzeżenie, to fakt.
+                // Ale jeśli chcesz ikonę także dla przeterminowanych, usuń warunek `diffDays > -1` (lub podobny).
+                // Przyjmuję interpretację: Ostrzeżenie pojawia się w oknie "przed". 
+                // Jeśli zadanie jest przeterminowane, data jest czerwona, ikona może zostać dla wzmocnienia efektu.
+                
+                // Zmieniam logikę na: Pokaż jeśli zostało mniej niż X dni (włączając w to ujemne, czyli przeterminowane)
+                if (diffDays <= warningDays) {
+                    warningIconHTML = `<div class="task-warning-icon" title="Termin upływa za mniej niż ${warningDays} dni!">${SVG_WARNING_ICON}</div>`;
+                }
+            }
+            // === KONIEC NOWEJ LOGIKI ===
             return `<li class="task-card ${isCompleted ? 'completed' : ''}" ${isInteractive ? 'draggable="true"' : ''} data-task-id="${task.id}" data-creator-id="${task.createdBy || ''}">
                 
                 <div class="task-card-main-content ${priorityClass} ${assignmentClass} ${coverImageClass}" ${customStyle}>
                     ${coverImageHTML}
                     <input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} ${tooltipText}>
                     ${projectNameHTML}
-                    <h4 title="${task.title}">${titleDisplay}</h4> ${iconsHTML}
+                    <div style="display: flex; align-items: center; margin-bottom: 4px;">
+                        <h4 title="${task.title}" style="margin-bottom: 0;">${titleDisplay}</h4>
+                        ${warningIconHTML}
+                    </div>
+                    ${iconsHTML}
                     
                     <div class="task-meta">
                         <div class="task-details">${startDateHTML}${dueDateHTML}</div>
@@ -27382,6 +27448,22 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                     
                     messages.push("Ustawienia powiadomień");
                 }
+                
+                // === NOWE: Zapis dni ostrzeżenia ===
+                const warningDaysInput = document.getElementById('setting-warning-days');
+                const newWarningDays = parseInt(warningDaysInput.value, 10) || 3; // Fallback do 3
+                const oldWarningDays = state.currentUser.preferences.warningDays !== undefined 
+                                       ? state.currentUser.preferences.warningDays 
+                                       : 3;
+
+                if (newWarningDays !== oldWarningDays) {
+                    updates['preferences.warningDays'] = newWarningDays;
+                    // Aktualizacja lokalna
+                    state.currentUser.preferences.warningDays = newWarningDays;
+                    messages.push("Dni ostrzeżenia");
+                }
+                // === KONIEC ===
+
                 // === KONIEC DEBUGOWANIA ===
 
                 // WYKONAJ ZAPIS DO FIRESTORE
@@ -27597,6 +27679,16 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             document.getElementById('notif-correction').checked = isNotifEnabled('correction');
             document.getElementById('notif-dependency').checked = isNotifEnabled('dependency');
             document.getElementById('notif-checklist-assign').checked = isNotifEnabled('checklist_assign'); // <--- NOWE
+            
+            // === NOWE: Ładowanie dni ostrzeżenia ===
+            const warningDaysInput = document.getElementById('setting-warning-days');
+            // Pobierz wartość z preferencji (domyślnie 3)
+            const savedWarningDays = state.currentUser.preferences.warningDays !== undefined 
+                                     ? state.currentUser.preferences.warningDays 
+                                     : 3;
+            if (warningDaysInput) warningDaysInput.value = savedWarningDays;
+            // === KONIEC ===
+
             // === KONIEC NOWEGO KODU ===
 
             // Reset do zakładki profilu przy każdym otwarciu
@@ -30886,19 +30978,21 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
                             <div>
                                 <div class="form-group-checkbox">
-                                    <input type="checkbox" id="notif-dependency" checked>
-                                    <label for="notif-dependency">Wiązane zadanie (Odblokowanie)</label>
-                                </div>
-                                <p class="settings-hint">Przykład: "Zadanie blokujące Y zostało ukończone. Możesz rozpocząć pracę."</p>
-                            </div>
-                            <div>
-                                <div class="form-group-checkbox">
                                     <input type="checkbox" id="notif-checklist-assign" checked>
                                     <label for="notif-checklist-assign">Lista kontrolna (Przypisanie)</label>
                                 </div>
                                 <p class="settings-hint">Przykład: "Anna przypisała Cię do zadania 'Sprawdzić błędy' z listy kontrolnej podzadania Testy."</p>
                             </div>
-                        </div>
+
+                            <div style="border-top: 1px dashed var(--border-color); padding-top: 16px; margin-top: 8px;">
+                                <label for="setting-warning-days" style="font-weight: 500; display: block; margin-bottom: 8px;">Ostrzeżenie o terminie zadania</label>
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <input type="number" id="setting-warning-days" min="1" max="30" value="3" style="width: 80px; padding: 8px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary);">
+                                    <span style="font-size: 14px; color: var(--text-secondary);">dni przed terminem</span>
+                                </div>
+                                <p class="settings-hint" style="margin-top: 8px;">Ikona ostrzeżenia pojawi się przy zadaniach, których termin zbliża się w wybranym przedziale czasu.</p>
+                            </div>
+                            </div>
                     </div>
                 </div>
                 <div id="settings-tab-profile" class="settings-tab-content active">
@@ -32147,6 +32241,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </style>
 </body>
 </html>
+
 
 
 
