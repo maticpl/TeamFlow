@@ -16925,11 +16925,37 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     });
                 });
 
-                // 4. SORTOWANIE: Posortuj wspólną tablicę według KOLEJNOŚCI WŁASNEJ
-                // (Ignorujemy tu flagę 'asc/desc' z przycisku sortowania, bo sortowanie przyciskiem
-                // będzie teraz fizycznie zmieniać wartości 'order' w bazie)
-                
-                combinedItems.sort((a, b) => a.order - b.order);
+                // 4. SORTOWANIE: Posortuj wspólną tablicę według DATY (Main i Standalone Subtasks razem)
+                const sortOrder = state.ui.projectSortOrders[project.id] || 'asc'; // Pobierz kierunek sortowania
+
+                combinedItems.sort((a, b) => {
+                    // Funkcja pomocnicza do wyciągania daty z obu typów obiektów
+                    const getDate = (item) => {
+                        let dateVal = null;
+                        if (item.type === 'main') {
+                            dateVal = item.data.dueDate;
+                        } else { // item.type === 'subtask'
+                            dateVal = item.data.sub.dueDate;
+                        }
+                        return dateVal ? new Date(dateVal).getTime() : null;
+                    };
+
+                    const timeA = getDate(a);
+                    const timeB = getDate(b);
+
+                    // Ustal wartość dla braku daty (Infinity wrzuca na koniec)
+                    // Jeśli sortujemy rosnąco, brak daty na koniec (Infinity).
+                    // Jeśli malejąco, brak daty na koniec (-Infinity).
+                    const valA = timeA !== null ? timeA : (sortOrder === 'asc' ? Infinity : -Infinity);
+                    const valB = timeB !== null ? timeB : (sortOrder === 'asc' ? Infinity : -Infinity);
+
+                    if (valA !== valB) {
+                        return sortOrder === 'asc' ? valA - valB : valB - valA;
+                    }
+
+                    // Jeśli daty są równe (lub ich brak), użyj customOrder jako fallback
+                    return (a.order || 0) - (b.order || 0);
+                });
 
                 // 5. GENEROWANIE HTML: Iteruj po posortowanej liście
                 columnContentHTML += combinedItems.map(item => {
@@ -34305,6 +34331,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
