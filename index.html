@@ -27071,13 +27071,20 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 }
 
                 let updatedMainTask = { ...parentTask };
+                
+                // === NOWOŚĆ: Automatyczne otwieranie rodzica (Auto-Reopen) ===
+                // Jeśli przenosimy podzadanie z 'done' do aktywnego, a rodzic jest 'done', musimy otworzyć rodzica.
+                if (newStatus !== 'done' && updatedMainTask.status === 'done') {
+                    updatedMainTask.status = 'inprogress'; // Cofnij rodzica do 'W trakcie'
+                    updatedMainTask.completedAt = null;    // Wyczyść datę ukończenia
+                    updatedMainTask = addActivity(updatedMainTask, 'status', STATUSES['done'], STATUSES['inprogress']);
+                }
+                // === KONIEC NOWOŚCI ===
+
                 updatedMainTask.subtasks = updatedMainTask.subtasks.map(s => {
                     if (s.id === subtask.id) {
                         
                         // Logika zachowania postępu:
-                        // Jeśli przenosimy do 'todo', czyścimy postęp.
-                        // Jeśli przenosimy do 'inprogress' lub 'done', zachowujemy istniejący postęp (completedBy).
-                        
                         let newCompletedBy = s.completedBy || [];
                         
                         if (newStatus === 'todo') {
@@ -27088,8 +27095,6 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                             if (!newCompletedBy.includes(currentUserId)) {
                                 newCompletedBy = [...newCompletedBy, currentUserId];
                             }
-                            // Opcjonalnie: Dla admina w trybie override można by dodać wszystkich, 
-                            // ale przy drag&drop bezpieczniej jest tylko dodać siebie lub zostawić jak jest.
                         }
 
                         return { 
@@ -27109,7 +27114,8 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
 
                 await updateDoc(projectDocRef, { tasks: updatedTasks, budgetSummary: newBudget });
                 
-                // Sprawdź automatyczne zamykanie rodzica
+                // Sprawdź automatyczne zamykanie rodzica (to działa tylko w jedną stronę: Active -> Done)
+                // Nasza nowa logika powyżej obsłużyła drugą stronę (Done -> Active)
                 await checkAndCompleteMainTask(updatedMainTask, project);
                 
                 return;
@@ -33505,6 +33511,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
