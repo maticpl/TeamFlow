@@ -27330,13 +27330,33 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 } 
                 // 2. Kolumny niestandardowe (złączone) -> Tłumaczenie na ID projektu
                 else if (columnIdRaw && columnIdRaw.startsWith('custom_')) {
-                    // Znajdź zadanie i jego projekt
-                    // findTask obsługuje szukanie podzadań i zwraca { task, project }
-                    const { project } = findTask(draggedTaskId);
                     
-                    if (project && project.customColumns) {
+                    // --- NAPRAWA: Znajdowanie projektu (Zadanie Główne LUB Podzadanie) ---
+                    let targetProject = null;
+                    
+                    // A. Spróbuj znaleźć jako zadanie główne
+                    const { project: mainProject } = findTask(draggedTaskId);
+                    if (mainProject) {
+                        targetProject = mainProject;
+                    } else {
+                        // B. Spróbuj znaleźć jako PODZADANIE (jeśli findTask zawiódł)
+                        // Iterujemy po wszystkich projektach, żeby znaleźć rodzica tego podzadania
+                        const allProjects = [...state.projects, ...state.completedProjects];
+                        for (const p of allProjects) {
+                            for (const t of (p.tasks || [])) {
+                                if (t.subtasks && t.subtasks.some(s => s.id === draggedTaskId)) {
+                                    targetProject = p;
+                                    break;
+                                }
+                            }
+                            if (targetProject) break;
+                        }
+                    }
+                    // -------------------------------------------------------------------
+                    
+                    if (targetProject && targetProject.customColumns) {
                         // Szukamy w projekcie kolumny pasującej nazwą do klucza z Dashboardu
-                        const targetCol = project.customColumns.find(c => {
+                        const targetCol = targetProject.customColumns.find(c => {
                              const normalizedKey = `custom_${c.title.trim().toLowerCase().replace(/\s+/g, '_')}`;
                              return normalizedKey === columnIdRaw;
                         });
@@ -27344,14 +27364,14 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                         if (targetCol) {
                             finalCustomColumnId = targetCol.id; // Prawdziwe ID z bazy (np. col_123)
                         } else {
-                            // Projekt nie ma takiej kolumny -> domyślna
+                            // Projekt nie ma takiej kolumny -> domyślna "W trakcie"
                             finalCustomColumnId = null; 
                         }
                     } else {
                         finalCustomColumnId = null;
                     }
                 }
-            } 
+            }
             // === LOGIKA DLA WIDOKU PROJEKTU (BEZPIECZNIK - STARA LOGIKA) ===
             else {
                 // W widoku projektu 'columnIdRaw' to zawsze poprawne ID z bazy lub 'null'
@@ -33589,6 +33609,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
