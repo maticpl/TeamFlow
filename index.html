@@ -11515,6 +11515,64 @@ function hasChecklistPermission(user, project, task, item) {
                 }))
             );
         }
+       /**
+         * NOWA FUNKCJA: Pobiera płaską listę wszystkich zadań ORAZ podzadań przypisanych do użytkownika.
+         * Służy do generowania widoku "Mój Dashboard" z uwzględnieniem podzadań jako niezależnych kafelków.
+         */
+        function getAllMyTasksAndSubtasks() {
+            // 1. Pobierz wszystkie dostępne projekty (aktywne i zakończone)
+            const allProjects = [...state.projects, ...state.completedProjects];
+            const myId = state.currentUser.uid;
+            let items = [];
+
+            allProjects.forEach(project => {
+                const tasks = project.tasks || [];
+                
+                tasks.forEach(task => {
+                    // Migracja struktury, aby upewnić się, że pola (np. assignees) istnieją
+                    const taskObj = migrateTask(task); 
+                    
+                    // A. Sprawdź Zadanie Główne
+                    if ((taskObj.assignees || []).includes(myId)) {
+                        items.push({
+                            type: 'main',
+                            data: taskObj,
+                            project: project,
+                            // Kluczowe pola do grupowania
+                            status: taskObj.status,
+                            customColumnId: taskObj.customColumnId,
+                            dueDate: taskObj.dueDate,
+                            // Dla sortowania
+                            createdAt: taskObj.createdAt
+                        });
+                    }
+
+                    // B. Sprawdź Podzadania (niezależnie od tego, czy jestem w zadaniu głównym)
+                    if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                        taskObj.subtasks.forEach(sub => {
+                            if ((sub.assignees || []).includes(myId)) {
+                                // Ustal status podzadania (wsteczna kompatybilność)
+                                // Podzadania nieukończone bez statusu traktujemy jako 'todo'
+                                const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                                
+                                items.push({
+                                    type: 'subtask',
+                                    data: { sub: sub, parent: taskObj }, // Pakujemy jako para dla renderera
+                                    project: project,
+                                    // Kluczowe pola do grupowania
+                                    status: subStatus,
+                                    customColumnId: sub.customColumnId, // Podzadania też mogą mieć kolumny
+                                    dueDate: sub.dueDate,
+                                    createdAt: sub.createdAt || taskObj.createdAt // Fallback daty
+                                });
+                            }
+                        });
+                    }
+                });
+            });
+            
+            return items;
+        }
         /**
          * NOWA FUNKCJA (GLOBALNA): Pobiera zadania użytkownika ze WSZYSTKICH grup.
          * Używa globalUserProjects zamiast state.projects.
@@ -16174,54 +16232,23 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
 
-            // Funkcja pomocnicza renderowania kolumn
-            const renderMyTasksKanban = (tasks, targetElement) => {
-                targetElement.innerHTML = '';
-                targetElement.style.width = '100%';
-                targetElement.style.overflowX = 'auto';
+            // 1. Pobierz dane nową metodą (Zadania + Podzadania)
+            // Używamy getAllMyTasksAndSubtasks() zamiast myTasks (które było z getAllMyTasks())
+            const allMyWorkItems = getAllMyTasksAndSubtasks();
+            
+            // 2. Sortowanie (opcjonalne, bo renderMyTasksKanban też sortuje, ale dla porządku)
+            allMyWorkItems.sort((a, b) => {
+                 const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+                 const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+                 if (dateA === Infinity && dateB === Infinity) return 0;
+                 if (dateA === Infinity) return 1;
+                 if (dateB === Infinity) return -1;
+                 return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
+            });
 
-                Object.keys(STATUSES).forEach(statusKey => {
-                    const column = document.createElement('div');
-                    column.className = 'kanban-column';
-                    column.dataset.status = statusKey;
-                    
-                    let tasksInColumn = tasks.filter(t => t.status === statusKey);
-                    let completedFilterHTML = '';
-
-                    if (statusKey === 'done') {
-                        const filterValue = state.ui.dashboardCompletedFilter || '7days';
-                        completedFilterHTML = `
-                            <select class="completed-tasks-filter" data-context="dashboard" style="font-size: 11px; padding: 2px; margin-left: 8px; border-radius: 4px; background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">
-                                <option value="7days" ${filterValue === '7days' ? 'selected' : ''}>Ostatnie 7 dni</option>
-                                <option value="14days" ${filterValue === '14days' ? 'selected' : ''}>Ostatnie 14 dni</option>
-                                <option value="30days" ${filterValue === '30days' ? 'selected' : ''}>Ostatnie 30 dni</option>
-                                <option value="all" ${filterValue === 'all' ? 'selected' : ''}>Wszystkie</option>
-                            </select>
-                        `;
-
-                        if (filterValue !== 'all') {
-                            const now = Date.now();
-                            const daysToFilter = parseInt(filterValue.replace('days', ''), 10);
-                            const cutoffDate = now - (daysToFilter * 24 * 60 * 60 * 1000);
-                            tasksInColumn = tasksInColumn.filter(t => 
-                                t.completedAt && t.completedAt.toDate().getTime() >= cutoffDate
-                            );
-                        }
-                    }
-
-                    column.innerHTML = `
-                        <div class="kanban-column-header">
-                            <h3>${STATUSES[statusKey]}</h3>
-                            ${completedFilterHTML}
-                            <span class="task-count" style="margin-left: auto;" title="Liczba zadań w kolumnie">${tasksInColumn.length}</span>
-                        </div>
-                        <ul class="kanban-tasks">${tasksInColumn.map(task => createTaskCardHTML(task, true, null, statusKey)).join('')}</ul>`;
-                    targetElement.appendChild(column);
-                });
-            };
-
-            // Renderowanie kafelków zadań
-            renderMyTasksKanban(myTasks, myTasksKanbanEl);
+            // 3. Wywołaj nową funkcję renderującą (zdefiniowaną globalnie)
+            // Przekazujemy "allMyWorkItems"
+            renderMyTasksKanban(allMyWorkItems, myTasksKanbanEl);
 
             // === NOWA LOGIKA: Włączenie Drag & Drop na Dashboardzie ===
             if (window.dashboardSortableInstances) {
@@ -16261,6 +16288,187 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 window.dashboardSortableInstances.push(sortable);
             });
         }
+       /**
+             * NOWA FUNKCJA: Renderuje tablicę Kanban na Dashboardzie.
+             * Łączy kolumny o tych samych nazwach z różnych projektów.
+             * Obsługuje zadania główne i podzadania jako niezależne kafelki.
+             */
+            function renderMyTasksKanban(items, targetElement) {
+                targetElement.innerHTML = '';
+                
+                // Styl kontenera Flex dla wielu kolumn (aktywuje poziome przewijanie)
+                targetElement.style.display = 'flex';
+                targetElement.style.gap = '12px';
+                targetElement.style.paddingBottom = '16px';
+                targetElement.style.overflowX = 'auto';
+                targetElement.style.alignItems = 'flex-start';
+                targetElement.className = 'kanban-board-mini kanban-board'; // Dodajemy klasy dla styli CSS
+
+                // 1. Mapa Kolumn (Buckets)
+                // Klucz: Nazwa unikalna kolumny (np. 'todo', 'done', 'custom_do_testow')
+                // Wartość: { title: "Tytuł", items: [], status: "status_bazowy" }
+                const columnsMap = new Map();
+                
+                // Helper do pobierania/tworzenia kolumny w Mapie
+                const getOrCreateColumn = (key, title, baseStatus) => {
+                    if (!columnsMap.has(key)) {
+                        columnsMap.set(key, { title, status: baseStatus, items: [] });
+                    }
+                    return columnsMap.get(key);
+                };
+
+                // Zawsze zainicjuj stałe kolumny (nawet puste)
+                getOrCreateColumn('todo', STATUSES.todo, 'todo');
+                
+                // 2. Rozdzielanie elementów do kolumn
+                items.forEach(item => {
+                    const status = item.status;
+                    const customColId = item.customColumnId;
+                    
+                    if (status === 'todo') {
+                        getOrCreateColumn('todo', STATUSES.todo, 'todo').items.push(item);
+                    } else if (status === 'done') {
+                        // Filtr daty dla "Wykonane" na dashboardzie
+                        const filterValue = state.ui.dashboardCompletedFilter || '7days';
+                        let include = true;
+                        
+                        if (filterValue !== 'all') {
+                             const now = Date.now();
+                             const daysToFilter = parseInt(filterValue.replace('days', ''), 10);
+                             const cutoffDate = now - (daysToFilter * 24 * 60 * 60 * 1000);
+                             // Pobieramy datę ukończenia z zadania lub podzadania
+                             let completedAt = null;
+                             
+                             if (item.type === 'main') {
+                                 completedAt = item.data.completedAt;
+                             } else {
+                                 // Dla podzadania: jeśli ma completedAt to super, jak nie to próbujemy rodzica
+                                 completedAt = item.data.sub.completedAt || item.data.parent.completedAt;
+                             }
+
+                             if (completedAt) {
+                                 const time = (typeof completedAt.toDate === 'function') ? completedAt.toDate().getTime() : new Date(completedAt).getTime();
+                                 if (time < cutoffDate) include = false;
+                             }
+                        }
+
+                        if (include) {
+                             getOrCreateColumn('done', STATUSES.done, 'done').items.push(item);
+                        }
+
+                    } else if (status === 'inprogress') {
+                        // Logika dla statusu "W trakcie"
+                        if (customColId) {
+                            // To zadanie jest w kolumnie niestandardowej w swoim projekcie
+                            // Musimy znaleźć nazwę tej kolumny w definicji projektu
+                            const colDef = (item.project.customColumns || []).find(c => c.id === customColId);
+                            const colTitle = colDef ? colDef.title : 'W trakcie'; // Fallback
+                            
+                            // KLUCZOWE: Grupujemy po TYTULE (znormalizowanym)
+                            // Dzięki temu "Do Testu" z Projektu A i "Do Testu" z Projektu B trafią do jednego wora.
+                            // trim() i toLowerCase() dla pewności
+                            const normalizedTitle = colTitle.trim().toLowerCase().replace(/\s+/g, '_');
+                            const safeKey = `custom_${normalizedTitle}`;
+                            
+                            getOrCreateColumn(safeKey, colTitle, 'inprogress').items.push(item);
+                        } else {
+                            // Standardowe "W trakcie" (bez custom ID)
+                            getOrCreateColumn('inprogress_default', STATUSES.inprogress, 'inprogress').items.push(item);
+                        }
+                    }
+                });
+
+                // Zawsze zainicjuj też standardowe InProgress i Done (dla porządku w UI)
+                if (!columnsMap.has('inprogress_default')) {
+                     getOrCreateColumn('inprogress_default', STATUSES.inprogress, 'inprogress');
+                }
+                getOrCreateColumn('done', STATUSES.done, 'done');
+
+                // 3. Sortowanie kolejności wyświetlania kolumn
+                // Kolejność: Todo -> [Custom Columns A-Z] -> InProgress (Default) -> Done
+                const sortedKeys = Array.from(columnsMap.keys()).sort((a, b) => {
+                    // 1. Todo zawsze pierwsze
+                    if (a === 'todo') return -1;
+                    if (b === 'todo') return 1;
+                    
+                    // 4. Done zawsze ostatnie
+                    if (a === 'done') return 1;
+                    if (b === 'done') return -1;
+                    
+                    // 3. InProgress Default przed Done, ale po Customach (lub przed customami, kwestia preferencji)
+                    // Umówmy się: Todo -> Custom -> InProgress Default -> Done
+                    if (a === 'inprogress_default') return 1; 
+                    if (b === 'inprogress_default') return -1;
+
+                    // 2. Customowe alfabetycznie
+                    return a.localeCompare(b);
+                });
+
+                // 4. Renderowanie HTML
+                sortedKeys.forEach(key => {
+                    const colData = columnsMap.get(key);
+                    const isDoneColumn = (key === 'done');
+                    
+                    // Opcjonalnie: Ukryj puste kolumny niestandardowe, jeśli chcesz zaoszczędzić miejsce
+                    // Ale Todo/InProgress/Done pokazujemy zawsze.
+                    const isStandard = ['todo', 'inprogress_default', 'done'].includes(key);
+                    if (!isStandard && colData.items.length === 0) return;
+
+                    // Sortowanie zadań wewnątrz kolumny (wg daty, zgodnie z ustawieniem Dashboardu)
+                    colData.items.sort((a, b) => {
+                        const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+                        const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+                        if (dateA === Infinity && dateB === Infinity) return 0;
+                        if (dateA === Infinity) return 1;
+                        if (dateB === Infinity) return -1;
+                        return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
+                    });
+                    
+                    // Generowanie HTML dla kafelków
+                    const cardsHTML = colData.items.map(item => {
+                        if (item.type === 'main') {
+                            // Zadanie Główne
+                            // Używamy 'createTaskCardHTML' (false = non-interactive d&d wewnątrz funkcji)
+                            return createTaskCardHTML(item.data, true, item.project, colData.status, item.customColumnId);
+                        } else {
+                            // Podzadanie (Standalone)
+                            const { sub, parent } = item.data;
+                            // Używamy trybu 'standalone' dla createVisualSubtaskCardHTML
+                            return createVisualSubtaskCardHTML(sub, parent, item.project, 'standalone');
+                        }
+                    }).join('');
+                    
+                    // Filtr dla kolumny Done (wizualny select)
+                    let completedFilterHTML = '';
+                    if (isDoneColumn) {
+                         const filterValue = state.ui.dashboardCompletedFilter || '7days';
+                         completedFilterHTML = `
+                            <select class="completed-tasks-filter" data-context="dashboard" style="font-size: 11px; padding: 2px; margin-left: 8px; border-radius: 4px; background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">
+                                <option value="7days" ${filterValue === '7days' ? 'selected' : ''}>Ostatnie 7 dni</option>
+                                <option value="14days" ${filterValue === '14days' ? 'selected' : ''}>Ostatnie 14 dni</option>
+                                <option value="30days" ${filterValue === '30days' ? 'selected' : ''}>Ostatnie 30 dni</option>
+                                <option value="all" ${filterValue === 'all' ? 'selected' : ''}>Wszystkie</option>
+                            </select>
+                        `;
+                    }
+
+                    // HTML Kolumny
+                    // Ustawiamy sztywną szerokość (flex: 0 0 300px) aby działał scroll poziomy
+                    const columnHTML = `
+                        <div class="kanban-column" data-status="${colData.status}" style="min-width: 300px; max-width: 300px; flex: 0 0 300px;">
+                            <div class="kanban-column-header">
+                                <h3>${colData.title}</h3>
+                                ${completedFilterHTML}
+                                <span class="task-count">${colData.items.length}</span>
+                            </div>
+                            <ul class="kanban-tasks" style="min-height: 50px;">
+                                ${cardsHTML}
+                            </ul>
+                        </div>
+                    `;
+                    targetElement.insertAdjacentHTML('beforeend', columnHTML);
+                });
+            }
         function renderKanbanBoard(project, isInteractive) {
             kanbanBoardEl.innerHTML = '';
             
@@ -33213,6 +33421,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
