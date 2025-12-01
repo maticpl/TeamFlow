@@ -10460,7 +10460,11 @@ let state = {
             warningWrapper: document.getElementById('subtask-warning-wrapper'),
             warningDaysInput: document.getElementById('subtask-warning-days'),
 
-            saveBtn: document.getElementById('subtask-save-btn') // ZMIANA: Bezpośrednie ID
+            // Przyciski
+            saveBtn: document.getElementById('subtask-save-btn'),
+            
+            // === TU JEST BRAKUJĄCY PRZYCISK ===
+            finishBtn: document.getElementById('finish-subtask-btn')
         };
 
         // === NOWE LISTENERY UI DLA PODZADANIA (Wklejone w poprawne miejsce - PO definicji obiektu) ===
@@ -19309,20 +19313,28 @@ if (editorTaskDescription) {
                 // Komentarze: Wyświetl historię
                 renderSubtaskComments(subtask.comments || []); 
 
-                // === NOWE: Sterowanie przyciskiem "Zakończ" w podzadaniu ===
+                // === LOGIKA PRZYCISKU ZAKOŃCZ (PODZADANIE) ===
                 if (subtaskModal.finishBtn) {
                     let showFinishBtn = false;
-                    // Sprawdź uprawnienia (zdefiniowane wyżej jako hasAccess)
+                    
+                    // Sprawdź, czy użytkownik ma dostęp (zdefiniowane wcześniej w funkcji jako hasAccess)
                     if (hasAccess) {
-                        const amIDone = (subtask.completedBy || []).includes(currentUserId);
-                        const isDone = subtask.status === 'done' || subtask.isCompleted;
+                        const currentUserId = state.currentUser.uid;
                         
-                        // Jeśli to Multi -> sprawdź czy JA ukończyłem
-                        if (subtask.type === 'multi') {
+                        // Czy JA ukończyłem swoją część?
+                        const amIDone = (subtask.completedBy || []).includes(currentUserId);
+                        
+                        // Czy całe podzadanie jest ukończone?
+                        // Sprawdzamy zarówno flagę isCompleted, jak i status tekstowy 'done'
+                        const isFullyDone = subtask.isCompleted || subtask.status === 'done';
+
+                        if (subtask.type === 'multi' || (subtask.assignees && subtask.assignees.length > 1)) {
+                            // W trybie Multi: Pokaż przycisk, jeśli JA jeszcze nie skończyłem
+                            // (Nawet jeśli inni skończyli, ja mogę chcieć odznaczyć swoją część)
                             if (!amIDone) showFinishBtn = true;
                         } else {
-                            // Jeśli Single -> sprawdź czy ogólnie ukończone
-                            if (!isDone) showFinishBtn = true;
+                            // W trybie Single: Pokaż przycisk, jeśli podzadanie nie jest w pełni gotowe
+                            if (!isFullyDone) showFinishBtn = true;
                         }
                     }
                     subtaskModal.finishBtn.style.display = showFinishBtn ? 'block' : 'none';
@@ -19479,12 +19491,18 @@ if (editorTaskDescription) {
                 selectedAssignees = mainTask.assignees || [];
                 
                 // Domyślne daty: Dziś
-                const today = new Date().toISOString().split('T')[0];
-                subtaskModal.startDateDate.value = today;
-                // Jeśli zadanie główne ma daty, walidator przypilnuje zakresów
+            const today = new Date().toISOString().split('T')[0];
+            subtaskModal.startDateDate.value = today;
+            // Jeśli zadanie główne ma daty, walidator przypilnuje zakresów
+
+            // === NOWE: Ukryj przycisk "Zakończ" przy tworzeniu nowego podzadania ===
+            if (subtaskModal.finishBtn) {
+                subtaskModal.finishBtn.style.display = 'none';
             }
-            
-            // Inicjalizacja wzmianek (Tribute) w polu komentarza
+            // === KONIEC ===
+        }
+        
+        // Inicjalizacja wzmianek (Tribute) w polu komentarza
             // Używamy tej samej logiki co w głównym zadaniu
             if (typeof Tribute !== 'undefined' && !window.subtaskTributeInstance) {
                  try {
@@ -27812,6 +27830,17 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 updatedMainTask.subtasks = updatedMainTask.subtasks.map(sub => {
                     if (sub.id === subtaskId) {
                         subtaskChanged = true;
+
+                        // === NOWE: Automatyczne ukończenie całej listy kontrolnej ===
+                        // Analogicznie do zadania głównego, przycisk "Zakończ" odhacza wszystko na liście
+                        if (sub.checklist && sub.checklist.length > 0) {
+                            sub.checklist = sub.checklist.map(item => ({
+                                ...item,
+                                isCompleted: true
+                            }));
+                        }
+                        // === KONIEC ===
+
                         let newCompletedBy = [...(sub.completedBy || [])];
                         let newStatus = sub.status || 'todo';
                         let newIsCompleted = sub.isCompleted;
@@ -34250,6 +34279,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
