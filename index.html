@@ -2002,6 +2002,10 @@
         .btn { padding: 10px 16px; border-radius: var(--border-radius); border: none; cursor: pointer; font-weight: 600; font-size: 14px; }
         .btn-primary { background-color: var(--accent-primary); color: var(--text-on-accent); }
         .btn-danger { background-color: var(--danger-primary); color: var(--text-on-accent); }
+        /* NOWA KLASA: Zielony przycisk sukcesu */
+        .btn-success { background-color: var(--success-primary); color: var(--text-on-accent); }
+        .btn-success:hover { background-color: #15803d; } /* Ciemniejszy zielony na hover */
+        /* KONIEC */
         .btn-secondary { background-color: var(--bg-tertiary); color: var(--text-primary); }
         .modal form {
     display: flex;
@@ -8670,6 +8674,7 @@ body.compact-mode .comment-item {
     <button type="button" id="delete-task-btn" class="btn btn-danger" style="margin-right: 8px;">Usuń zadanie</button>
     <button type="button" id="edit-task-btn" class="btn btn-secondary" style="margin-right: auto; display: none !important;">Edytuj</button>
     
+    <button type="button" id="finish-task-btn" class="btn btn-success" style="display: none; margin-right: 8px;">✓ Zakończ zadanie</button>
     <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
     <button type="button" id="ok-task-btn" class="btn btn-primary modal-close-btn" style="display: none;">OK</button>
     <button type="button" id="save-task-btn" class="btn btn-primary" style="display: none;">Zapisz zmiany</button>
@@ -10676,8 +10681,9 @@ let state = {
 
         // NOWE REFERENCJE DLA OSTRZEŻEŃ (EDYCJA ZADANIA)
         warningOverride: document.getElementById('modal-task-warning-override'),
-        warningWrapper: document.getElementById('modal-task-warning-wrapper'),
-        warningDaysInput: document.getElementById('modal-task-warning-days')
+        warningDaysInput: document.getElementById('subtask-warning-days'),
+        saveBtn: document.getElementById('subtask-save-btn'),
+        finishBtn: document.getElementById('finish-subtask-btn') // <-- NOWA LINIA
     };
        // --- INICJALIZACJA EDYTORÓW RICH TEXT ---
     let editorTaskDescription = null;
@@ -18662,6 +18668,27 @@ if (editorTaskDescription) {
     // Fallback
     taskModal.description.value = task.description || '';
 }
+            
+            // === NOWE: Sterowanie widocznością przycisku "Zakończ zadanie" ===
+            if (taskModal.finishBtn) {
+                let showFinishBtn = false;
+                // Sprawdź, czy użytkownik ma uprawnienia do ukończenia
+                const canComplete = canUserCompleteTask(currentUserId, task, project);
+                
+                if (canComplete) {
+                    // Sprawdź, czy zadanie jest już ukończone (lub moja część)
+                    if (task.type === 'multi') {
+                        const amIDone = (task.completedBy || []).includes(currentUserId);
+                        // Pokaż tylko, jeśli moja część NIE jest jeszcze zrobiona
+                        if (!amIDone) showFinishBtn = true;
+                    } else {
+                        // Pokaż tylko, jeśli status NIE jest 'done'
+                        if (task.status !== 'done') showFinishBtn = true;
+                    }
+                }
+                taskModal.finishBtn.style.display = showFinishBtn ? 'block' : 'none';
+            }
+            // === KONIEC ===
 
             // Checkbox ukończenia - logika specjalna
             if (taskModal.completed) {
@@ -19273,6 +19300,26 @@ if (editorTaskDescription) {
                 
                 // Komentarze: Wyświetl historię
                 renderSubtaskComments(subtask.comments || []); 
+
+                // === NOWE: Sterowanie przyciskiem "Zakończ" w podzadaniu ===
+                if (subtaskModal.finishBtn) {
+                    let showFinishBtn = false;
+                    // Sprawdź uprawnienia (zdefiniowane wyżej jako hasAccess)
+                    if (hasAccess) {
+                        const amIDone = (subtask.completedBy || []).includes(currentUserId);
+                        const isDone = subtask.status === 'done' || subtask.isCompleted;
+                        
+                        // Jeśli to Multi -> sprawdź czy JA ukończyłem
+                        if (subtask.type === 'multi') {
+                            if (!amIDone) showFinishBtn = true;
+                        } else {
+                            // Jeśli Single -> sprawdź czy ogólnie ukończone
+                            if (!isDone) showFinishBtn = true;
+                        }
+                    }
+                    subtaskModal.finishBtn.style.display = showFinishBtn ? 'block' : 'none';
+                }
+                // === KONIEC ===
 
                 // === NOWE: Generowanie listy statusów (z Custom Columns) ===
                 let statusOptionsHTML = '';
@@ -27641,6 +27688,188 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 detailsContainer.classList.toggle('expanded');
             }
         });
+       // === NOWE LISTENERY: ZIELONE PRZYCISKI "ZAKOŃCZ" ===
+
+        // 1. Zakończ Zadanie Główne (z obsługą podzadań)
+        if (taskModal.finishBtn) {
+            taskModal.finishBtn.addEventListener('click', async () => {
+                const taskId = taskModal.overlay.dataset.taskId;
+                const { task, project } = findTask(taskId);
+                if (!task || !project) return;
+
+                const currentUserId = state.currentUser.uid;
+                let updatedTask = { ...task };
+                const oldStatus = updatedTask.status;
+
+                // A. Oznaczanie Zadania Głównego
+                if (updatedTask.type === 'multi') {
+                    // Tryb Multi: Dodaj mnie do completedBy
+                    if (!updatedTask.completedBy.includes(currentUserId)) {
+                        updatedTask.completedBy.push(currentUserId);
+                    }
+                    // Sprawdź czy wszyscy skończyli
+                    const allDone = updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
+                    if (allDone) updatedTask.status = 'done';
+                    else updatedTask.status = 'inprogress';
+                
+                } else {
+                    // Tryb Single: Po prostu zakończ
+                    updatedTask.status = 'done';
+                    // Jeśli Single, to completedBy powinno zawierać wykonawcę (dla porządku)
+                    if (!updatedTask.completedBy.includes(currentUserId)) {
+                        updatedTask.completedBy.push(currentUserId);
+                    }
+                }
+
+                // B. Kaskadowe zamykanie PODZADAŃ (Zgodnie z życzeniem: "zakończy także wszystkie podzadania")
+                if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
+                    updatedTask.subtasks = updatedTask.subtasks.map(sub => {
+                        const isSubMulti = sub.type === 'multi' || (sub.assignees && sub.assignees.length > 1);
+                        let newCompletedBy = [...(sub.completedBy || [])];
+
+                        // Sprawdź, czy użytkownik ma prawo edytować to podzadanie
+                        // (Jeśli jest adminem/właścicielem - może zamknąć za wszystkich w trybie single, 
+                        // ale w trybie multi zaznaczamy tylko jego część, chyba że to admin override - 
+                        // tutaj przyjmijmy logikę "User Action", czyli zaznaczamy JEGO część).
+                        
+                        // Czy jestem przypisany do tego podzadania?
+                        const amIAssignedToSub = (sub.assignees || []).includes(currentUserId);
+                        const isAdmin = project.ownerId === currentUserId || (project.admins || []).includes(currentUserId);
+
+                        if (amIAssignedToSub || isAdmin) {
+                            if (isSubMulti) {
+                                // Multi: Zaznacz moją część
+                                if (!newCompletedBy.includes(currentUserId)) {
+                                    newCompletedBy.push(currentUserId);
+                                }
+                                // Przelicz status podzadania
+                                const subAllDone = (sub.assignees || []).every(id => newCompletedBy.includes(id));
+                                return {
+                                    ...sub,
+                                    completedBy: newCompletedBy,
+                                    isCompleted: subAllDone,
+                                    status: subAllDone ? 'done' : 'inprogress'
+                                };
+                            } else {
+                                // Single: Zamknij podzadanie całkowicie
+                                // (Jeśli jestem adminem lub przypisanym)
+                                return {
+                                    ...sub,
+                                    completedBy: (sub.assignees || []), // Oznacz wszystkich (zazwyczaj 1)
+                                    isCompleted: true,
+                                    status: 'done'
+                                };
+                            }
+                        }
+                        return sub; // Brak zmian, jeśli nie mam praw do tego podzadania
+                    });
+                }
+
+                // C. Finalizacja
+                if (updatedTask.status !== oldStatus) {
+                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                }
+                // Dodaj log ukończenia
+                updatedTask = addActivity(updatedTask, 'completion');
+
+                // Efekt Konfetti!
+                showConfetti();
+
+                // Zapisz i zamknij
+                taskModal.finishBtn.disabled = true;
+                taskModal.finishBtn.textContent = 'Zapisywanie...';
+                
+                await handleTaskCompletion(updatedTask, project, 'manual');
+                
+                showNotification("Zadanie zostało zaktualizowane.", "Sukces");
+                closeModal(taskModal.overlay);
+                taskModal.finishBtn.disabled = false;
+                taskModal.finishBtn.textContent = '✓ Zakończ zadanie';
+            });
+        }
+
+        // 2. Zakończ Podzadanie (Wewnątrz modala podzadania)
+        if (subtaskModal.finishBtn) {
+            subtaskModal.finishBtn.addEventListener('click', async () => {
+                const mainTaskId = subtaskModal.overlay.dataset.mainTaskId;
+                const subtaskId = subtaskModal.subtaskIdInput.value;
+                
+                const { task: mainTask, project } = findTask(mainTaskId);
+                if (!mainTask || !project) return;
+
+                const currentUserId = state.currentUser.uid;
+                let updatedMainTask = { ...mainTask };
+                let subtaskChanged = false;
+
+                updatedMainTask.subtasks = updatedMainTask.subtasks.map(sub => {
+                    if (sub.id === subtaskId) {
+                        subtaskChanged = true;
+                        let newCompletedBy = [...(sub.completedBy || [])];
+                        let newStatus = sub.status || 'todo';
+                        let newIsCompleted = sub.isCompleted;
+
+                        const isMulti = sub.type === 'multi' || (sub.assignees && sub.assignees.length > 1);
+
+                        if (isMulti) {
+                            // Multi: Oznacz moją część
+                            if (!newCompletedBy.includes(currentUserId)) {
+                                newCompletedBy.push(currentUserId);
+                            }
+                            // Sprawdź czy wszyscy gotowi
+                            const allDone = (sub.assignees || []).every(id => newCompletedBy.includes(id));
+                            if (allDone) {
+                                newStatus = 'done';
+                                newIsCompleted = true;
+                            } else {
+                                newStatus = 'inprogress';
+                            }
+                        } else {
+                            // Single: Oznacz jako zrobione
+                            newIsCompleted = true;
+                            newStatus = 'done';
+                            // Dodaj wykonawcę do completedBy
+                            if (!newCompletedBy.includes(currentUserId)) newCompletedBy.push(currentUserId);
+                        }
+
+                        return {
+                            ...sub,
+                            completedBy: newCompletedBy,
+                            status: newStatus,
+                            isCompleted: newIsCompleted
+                        };
+                    }
+                    return sub;
+                });
+
+                if (subtaskChanged) {
+                    subtaskModal.finishBtn.disabled = true;
+                    subtaskModal.finishBtn.textContent = 'Zapisywanie...';
+
+                    showConfetti(); // Konfetti dla podzadania też!
+
+                    const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                    
+                    // Oblicz nowy budżet (standardowa procedura przy zmianie zadań)
+                    const newBudget = calculateProjectBudgetSummary(updatedMainTask.tasks || [updatedMainTask]); // Uproszczenie, normalnie cała lista
+                    // Ale musimy mieć całą listę zadań projektu
+                    const allTasks = project.tasks.map(t => t.id === mainTaskId ? updatedMainTask : t);
+                    const fullBudget = calculateProjectBudgetSummary(allTasks);
+
+                    await updateDoc(projectDocRef, { tasks: allTasks, budgetSummary: fullBudget });
+                    
+                    // Sprawdzenia automatyczne
+                    await checkAndCompleteMainTask(updatedMainTask, project);
+                    await checkSubtasksAndCompleteParticipants(updatedMainTask, project);
+
+                    showNotification("Podzadanie ukończone.", "Sukces");
+                    closeModal(subtaskModal.overlay);
+                    
+                    subtaskModal.finishBtn.disabled = false;
+                    subtaskModal.finishBtn.textContent = '✓ Zakończ';
+                }
+            });
+        }
+        // === KONIEC NOWYCH LISTENERÓW ===
         // +++ KONIEC DODANEGO KODU +++
        taskModal.deleteBtn.addEventListener('click', async () => {
             const taskId = taskModal.overlay.dataset.taskId;
@@ -33053,6 +33282,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
             </div>
 
             <div class="modal-footer" style="flex-shrink: 0;">
+                <button type="button" id="finish-subtask-btn" class="btn btn-success" style="display: none; margin-right: auto;">✓ Zakończ</button>
                 <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
                 <button type="submit" id="subtask-save-btn" class="btn btn-primary">Zapisz podzadanie</button>
             </div>
@@ -34012,6 +34242,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
