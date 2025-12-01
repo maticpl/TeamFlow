@@ -27277,11 +27277,52 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             const column = e.target.closest('.kanban-column');
             if (!column || !draggedTaskId) return;
 
-            const newStatus = column.dataset.status;
-            const newColumnIdAttr = column.dataset.columnId; 
-            const newCustomColumnId = newColumnIdAttr === 'null' ? null : newColumnIdAttr; 
+            const newStatus = column.dataset.status; // 'todo', 'inprogress', 'done'
+            const columnIdRaw = column.dataset.columnId; // Dashboard: 'inprogress_default', 'custom_...'. Projekt: 'col_...', 'null'
             
-            await handleDroppedTask(draggedTaskId, newStatus, newCustomColumnId);
+            let finalCustomColumnId = null;
+
+            // === NAPRAWA SYNCHRONIZACJI (Dashboard vs Projekt) ===
+            if (state.ui.currentView === 'my-dashboard') {
+                // Jesteśmy na Dashboardzie - musimy tłumaczyć wirtualne kolumny na prawdziwe ID
+                
+                if (columnIdRaw === 'todo' || columnIdRaw === 'done' || columnIdRaw === 'inprogress_default') {
+                    // Dla standardowych kolumn, customColumnId musi być NULL
+                    finalCustomColumnId = null;
+                } 
+                else if (columnIdRaw && columnIdRaw.startsWith('custom_')) {
+                    // Dla kolumn niestandardowych (złączonych po nazwie):
+                    // Musimy znaleźć ID kolumny w projekcie, do którego należy przeciągane zadanie.
+                    
+                    // 1. Znajdź zadanie i jego projekt
+                    const { project } = findTask(draggedTaskId);
+                    
+                    if (project && project.customColumns) {
+                        // 2. Szukamy w projekcie kolumny, która pasuje do klucza z Dashboardu
+                        // (Dashboard generuje klucz: 'custom_' + nazwa małymi literami bez spacji)
+                        const targetCol = project.customColumns.find(c => {
+                             const normalizedKey = `custom_${c.title.trim().toLowerCase().replace(/\s+/g, '_')}`;
+                             return normalizedKey === columnIdRaw;
+                        });
+                        
+                        if (targetCol) {
+                            finalCustomColumnId = targetCol.id; // Mamy prawdziwe ID!
+                        } else {
+                            // Jeśli projekt nie ma takiej kolumny (np. nazwy się nie pokrywają),
+                            // bezpieczniej wrzucić do domyślnej "W trakcie" niż stworzyć ducha.
+                            finalCustomColumnId = null;
+                        }
+                    } else {
+                        finalCustomColumnId = null;
+                    }
+                }
+            } else {
+                // Jesteśmy w Widoku Projektu - tutaj ID są poprawne (z bazy)
+                finalCustomColumnId = (columnIdRaw === 'null' || columnIdRaw === 'todo' || columnIdRaw === 'done') ? null : columnIdRaw;
+            }
+            // === KONIEC NAPRAWY ===
+            
+            await handleDroppedTask(draggedTaskId, newStatus, finalCustomColumnId);
             
             draggedTaskId = null;
         });
@@ -33511,6 +33552,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
