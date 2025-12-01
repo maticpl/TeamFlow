@@ -11542,9 +11542,11 @@ function hasChecklistPermission(user, project, task, item) {
         }
        /**
          * NOWA FUNKCJA: Pobiera płaską listę wszystkich zadań ORAZ podzadań przypisanych do użytkownika.
-         * Zmodyfikowana, aby obsługiwać Zasadę Rozbieżności.
+         * Służy do generowania widoku "Mój Dashboard" z uwzględnieniem podzadań jako niezależnych kafelków.
          */
         function getAllMyTasksAndSubtasks() {
+            // 1. Pobierz wszystkie dostępne projekty (aktywne i zakończone)
+            // Używamy tablic globalnych, aby mieć pewność, że mamy wszystko
             const allProjects = [...state.projects, ...state.completedProjects];
             const myId = state.currentUser.uid;
             let items = [];
@@ -11553,14 +11555,17 @@ function hasChecklistPermission(user, project, task, item) {
                 const tasks = project.tasks || [];
                 
                 tasks.forEach(task => {
+                    // Upewniamy się, że zadanie ma poprawną strukturę
                     const taskObj = migrateTask(task); 
                     
-                    // A. Zadanie Główne
+                    // A. Sprawdź Zadanie Główne
+                    // Jeśli jestem przypisany LUB jestem właścicielem (opcjonalnie, tu skupiamy się na przypisanych)
                     if ((taskObj.assignees || []).includes(myId)) {
                         items.push({
                             type: 'main',
                             data: taskObj,
-                            project: project,
+                            project: project, // Przekazujemy cały obiekt projektu, by mieć dostęp do definicji kolumn
+                            // Kluczowe pola do grupowania
                             status: taskObj.status,
                             customColumnId: taskObj.customColumnId,
                             dueDate: taskObj.dueDate,
@@ -11568,49 +11573,41 @@ function hasChecklistPermission(user, project, task, item) {
                         });
                     }
 
-                    // B. Podzadania
+                    // B. Sprawdź Podzadania (niezależnie od tego, czy jestem w zadaniu głównym)
                     if (taskObj.subtasks && taskObj.subtasks.length > 0) {
                         taskObj.subtasks.forEach(sub => {
+                            // Sprawdzamy, czy ja jestem przypisany do tego konkretnego podzadania
                             if ((sub.assignees || []).includes(myId)) {
+                                // Ustal status podzadania (logika wsteczna)
                                 const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                                
+                                // Podzadanie dziedziczy customColumnId od siebie (jeśli ma) lub jest null
                                 const subColId = sub.customColumnId || null;
-                                
-                                // === ZASADA ROZBIEŻNOŚCI (DASHBOARD) ===
-                                // Jeśli podzadanie ma TEN SAM status i kolumnę co rodzic -> jest zagnieżdżone (nie dodajemy jako main).
-                                // Jeśli ma INNY -> jest samodzielne (dodajemy jako main).
-                                
-                                const parentStatus = taskObj.status;
-                                const parentColId = taskObj.customColumnId || null;
 
-                                const isDivergent = (subStatus !== parentStatus) || (subColId !== parentColId);
-                                
-                                // Jeśli jesteśmy w widoku Dashboard, pokazujemy jako kartę TYLKO jeśli jest rozbieżne
-                                // LUB jeśli rodzic nie jest przypisany do mnie (wtedy widzę tylko podzadanie)
-                                const isParentAssignedToMe = (taskObj.assignees || []).includes(myId);
-
-                                if (isDivergent || !isParentAssignedToMe) {
-                                    items.push({
-                                        type: 'subtask',
-                                        data: { sub: sub, parent: taskObj },
-                                        project: project,
-                                        status: subStatus,
-                                        customColumnId: subColId, 
-                                        dueDate: sub.dueDate,
-                                        createdAt: sub.createdAt || taskObj.createdAt
-                                    });
-                                }
+                                items.push({
+                                    type: 'subtask',
+                                    data: { sub: sub, parent: taskObj }, // Pakujemy jako para
+                                    project: project,
+                                    // Kluczowe pola
+                                    status: subStatus,
+                                    customColumnId: subColId, 
+                                    dueDate: sub.dueDate,
+                                    createdAt: sub.createdAt || taskObj.createdAt
+                                });
                             }
                         });
                     }
                 });
             });
             
+            // Sortowanie domyślne po dacie (najbliższe terminy na górze)
             items.sort((a, b) => {
                  const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
                  const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-                 return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - dateA;
+                 return dateA - dateB;
             });
 
+            console.log(`[Dashboard] Znaleziono łącznie ${items.length} elementów (zadań i podzadań) dla użytkownika.`);
             return items;
         }
         /**
@@ -16855,77 +16852,59 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             window.sortableInstances = [];
 
            if (isInteractive) {
-                // ZMIANA: Pobieramy WSZYSTKIE strefy dropu (kolumny ORAZ kontenery wewnątrz kart)
-                const allDropZones = targetElement.querySelectorAll('.kanban-tasks, .subtask-family-container');
-                
-                allDropZones.forEach(zone => {
-                    const sortable = new Sortable(zone, {
-                        group: 'dashboard-tasks', // Wspólna grupa
+                const taskLists = kanbanBoardEl.querySelectorAll('.kanban-tasks');
+                taskLists.forEach(list => {
+                    const sortable = new Sortable(list, {
+                        group: 'kanban-tasks',
                         animation: 150,
                         ghostClass: 'task-card-ghost',
                         chosenClass: 'task-card-chosen',
                         dragClass: 'task-card-drag',
+                        
+                        // === NOWE: FILTR DLA PODZADAŃ ===
+                        // Ignoruj element podzadania w logice Sortable (nie przesuwaj rodzica)
                         filter: '.subtask-visual-card', 
+                        // WAŻNE: Pozwól na natywne zdarzenie dragstart na odfiltrowanym elemencie!
+                        // Dzięki temu nasz listener 'dragstart' (z KROKU 6) zadziała.
                         preventOnFilter: false, 
-                        delay: 200, 
-                        delayOnTouchOnly: true, 
-                        fallbackOnBody: true,
+                        // === KONIEC ===
+
+                        // === POCZĄTEK MODYFIKACJI (NAPRAWA SCROLLA MOBILNEGO) ===
+                        delay: 200, // Opóźnienie 200ms (long press)
+                        delayOnTouchOnly: true, // Aktywuj opóźnienie tylko na dotyku
+                        // === KONIEC MODYFIKACJI ===
                         
                         onEnd: async (evt) => {
                             const itemEl = evt.item;
-                            
-                            // 1. Wykrywanie upuszczenia do RODZICA (Re-nesting)
-                            if (evt.to.classList.contains('subtask-family-container')) {
-                                // Pobierz ID zadania głównego, do którego wrzucono element
-                                // Kontener .subtask-family-container jest wewnątrz li.task-card
-                                const targetParentCard = evt.to.closest('.task-card');
-                                const targetParentId = targetParentCard ? targetParentCard.dataset.taskId : null;
-                                const movedSubtaskId = itemEl.dataset.subtaskId; // To musi być podzadanie
-
-                                if (targetParentId && movedSubtaskId) {
-                                    // Sprawdź czy wrzucamy do WŁASNEGO rodzica (nie można przenieść do innego zadania w ten sposób)
-                                    const originalParentId = itemEl.dataset.parentId;
-                                    
-                                    if (targetParentId !== originalParentId) {
-                                        showNotification("Nie można przenieść podzadania do innego zadania głównego w tym widoku.", "Błąd");
-                                        render(); // Cofnij wizualnie
-                                        return;
-                                    }
-
-                                    // Znajdź rodzica, aby pobrać jego status
-                                    const { task: parentTask, project } = findTask(targetParentId);
-                                    if (parentTask && project) {
-                                        // SYNCHRONIZACJA: Ustaw status podzadania na taki sam jak rodzica
-                                        const newStatus = parentTask.status;
-                                        const newColId = parentTask.customColumnId;
-                                        
-                                        // Wywołaj aktualizację
-                                        await handleDroppedTask(movedSubtaskId, newStatus, newColId);
-                                    }
-                                }
-                                draggedTaskId = null;
-                                return; // Koniec obsługi dla re-nesting
-                            }
-
-                            // 2. Standardowa obsługa upuszczenia do KOLUMNY (jak wcześniej)
                             const newColumn = evt.to.closest('.kanban-column');
                             const oldColumn = evt.from.closest('.kanban-column');
                             
                             if (!newColumn) return;
 
+                            // SCENARIUSZ A: Przeniesienie do INNEJ kolumny (Zmiana statusu)
                             if (newColumn !== oldColumn) {
+                                // Uruchom starą logikę zmiany statusu (dispatch event 'drop')
                                 const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
                                 Object.defineProperty(dropEvent, 'target', { value: newColumn, writable: false });
                                 kanbanBoardEl.dispatchEvent(dropEvent);
-                            } else {
-                                // Reorganizacja w kolumnie (tylko dla zadań głównych, subtaski sortuje się inaczej)
-                                // Na dashboardzie sortowanie jest automatyczne (wg daty), więc to pomijamy
+                                
+                                // Opcjonalnie: po chwili zapisz kolejność w nowej kolumnie, 
+                                // ale 'handleDroppedTask' przerysuje widok, więc persistColumnOrder 
+                                // tutaj może zostać nadpisane. 'handleDroppedTask' wstawi element na koniec 
+                                // lub w domyślne miejsce. Aby obsłużyć wstawienie w konkretne miejsce 
+                                // przy zmianie statusu, logika w 'handleDroppedTask' musiałaby być znacznie bardziej złożona.
+                                // Na razie zostawiamy standardową zmianę statusu.
+                            } 
+                            // SCENARIUSZ B: Reorganizacja w TEJ SAMEJ kolumnie
+                            else {
+                                // Tutaj po prostu zapisujemy nową kolejność
+                                await persistColumnOrder(newColumn);
                             }
                             
                             draggedTaskId = null;
                         }
                     });
-                    window.dashboardSortableInstances.push(sortable);
+                    window.sortableInstances.push(sortable);
                 });
             }
             // === KONIEC NOWEGO KODU ===
@@ -17831,30 +17810,16 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             // KROK A: Najpierw przypisz oryginalny indeks każdemu podzadaniu
                             .map((sub, index) => ({ sub, index: index + 1 })) 
                             
-                            // KROK B: Filtruj widoczność
+                            // KROK B: Filtruj widoczność (używając obiektu {sub, index})
                             .filter(({ sub }) => {
-                                // Ustal status podzadania
+                                // === NOWA LOGIKA FILTROWANIA (POPRAWIONA) ===
                                 const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
-                                const subColId = sub.customColumnId || null;
                                 
-                                // === ZASADA ROZBIEŻNOŚCI (WIDOK W RODZICU) ===
-                                if (state.ui.currentView === 'my-dashboard') {
-                                    // Na Dashboardzie: Pokaż wewnątrz rodzica TYLKO jeśli pasują do siebie.
-                                    // Jeśli są różne (rozbieżne), to podzadanie jest wyświetlane jako osobna karta w innej kolumnie.
-                                    const parentStatus = task.status;
-                                    const parentColId = task.customColumnId || null;
-                                    
-                                    if (subStatus !== parentStatus || subColId !== parentColId) {
-                                        return false; // Ukryj (jest gdzieś indziej na tablicy)
-                                    }
-                                    return true; // Pokaż (siedzi grzecznie w rodzicu)
-                                }
-
-                                // Logika dla Widoku Projektu (bez zmian)
                                 if (task.status === 'done') return true;
                                 if (subStatus !== parentStatusForFamily) return false;
 
                                 if (subStatus === 'inprogress' && targetCustomColumnId !== undefined) {
+                                     const subColId = sub.customColumnId || null;
                                      const targetColId = targetCustomColumnId || null; 
                                      if (subColId !== targetColId) return false;
                                 }
@@ -27306,54 +27271,56 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 showNotification("Nie udało się zapisać kolejności.", "Błąd");
             }
         }
-       // Zaktualizowany główny listener DROP (korzysta z nowej funkcji)
+        // Zaktualizowany główny listener DROP (korzysta z nowej funkcji)
         kanbanBoardEl.addEventListener('drop', async (e) => {
             e.preventDefault();
             const column = e.target.closest('.kanban-column');
             if (!column || !draggedTaskId) return;
 
             const newStatus = column.dataset.status; // 'todo', 'inprogress', 'done'
-            const columnIdRaw = column.dataset.columnId; // Dashboard: 'custom_...', Projekt: 'col_...'
+            const columnIdRaw = column.dataset.columnId; // Dashboard: 'inprogress_default', 'custom_...'. Projekt: 'col_...', 'null'
             
             let finalCustomColumnId = null;
 
-            // === LOGIKA DLA DASHBOARDU (NOWA) ===
+            // === NAPRAWA SYNCHRONIZACJI (Dashboard vs Projekt) ===
             if (state.ui.currentView === 'my-dashboard') {
+                // Jesteśmy na Dashboardzie - musimy tłumaczyć wirtualne kolumny na prawdziwe ID
                 
-                // 1. Standardowe kolumny -> null
                 if (columnIdRaw === 'todo' || columnIdRaw === 'done' || columnIdRaw === 'inprogress_default') {
+                    // Dla standardowych kolumn, customColumnId musi być NULL
                     finalCustomColumnId = null;
                 } 
-                // 2. Kolumny niestandardowe (złączone) -> Tłumaczenie na ID projektu
                 else if (columnIdRaw && columnIdRaw.startsWith('custom_')) {
-                    // Znajdź zadanie i jego projekt
-                    // findTask obsługuje szukanie podzadań i zwraca { task, project }
+                    // Dla kolumn niestandardowych (złączonych po nazwie):
+                    // Musimy znaleźć ID kolumny w projekcie, do którego należy przeciągane zadanie.
+                    
+                    // 1. Znajdź zadanie i jego projekt
                     const { project } = findTask(draggedTaskId);
                     
                     if (project && project.customColumns) {
-                        // Szukamy w projekcie kolumny pasującej nazwą do klucza z Dashboardu
+                        // 2. Szukamy w projekcie kolumny, która pasuje do klucza z Dashboardu
+                        // (Dashboard generuje klucz: 'custom_' + nazwa małymi literami bez spacji)
                         const targetCol = project.customColumns.find(c => {
                              const normalizedKey = `custom_${c.title.trim().toLowerCase().replace(/\s+/g, '_')}`;
                              return normalizedKey === columnIdRaw;
                         });
                         
                         if (targetCol) {
-                            finalCustomColumnId = targetCol.id; // Prawdziwe ID z bazy (np. col_123)
+                            finalCustomColumnId = targetCol.id; // Mamy prawdziwe ID!
                         } else {
-                            // Projekt nie ma takiej kolumny -> domyślna
-                            finalCustomColumnId = null; 
+                            // Jeśli projekt nie ma takiej kolumny (np. nazwy się nie pokrywają),
+                            // bezpieczniej wrzucić do domyślnej "W trakcie" niż stworzyć ducha.
+                            finalCustomColumnId = null;
                         }
                     } else {
                         finalCustomColumnId = null;
                     }
                 }
-            } 
-            // === LOGIKA DLA WIDOKU PROJEKTU (BEZPIECZNIK - STARA LOGIKA) ===
-            else {
-                // W widoku projektu 'columnIdRaw' to zawsze poprawne ID z bazy lub 'null'
-                // Nie wykonujemy tu żadnego tłumaczenia nazw!
+            } else {
+                // Jesteśmy w Widoku Projektu - tutaj ID są poprawne (z bazy)
                 finalCustomColumnId = (columnIdRaw === 'null' || columnIdRaw === 'todo' || columnIdRaw === 'done') ? null : columnIdRaw;
             }
+            // === KONIEC NAPRAWY ===
             
             await handleDroppedTask(draggedTaskId, newStatus, finalCustomColumnId);
             
@@ -33585,7 +33552,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
-
 
 
 
