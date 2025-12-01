@@ -27761,22 +27761,31 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                     }
                 }
 
-                // B. Kaskadowe zamykanie PODZADAŃ (Zgodnie z życzeniem: "zakończy także wszystkie podzadania")
+                // B. Kaskadowe zamykanie PODZADAŃ
                 if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
                     updatedTask.subtasks = updatedTask.subtasks.map(sub => {
                         const isSubMulti = sub.type === 'multi' || (sub.assignees && sub.assignees.length > 1);
                         let newCompletedBy = [...(sub.completedBy || [])];
 
                         // Sprawdź, czy użytkownik ma prawo edytować to podzadanie
-                        // (Jeśli jest adminem/właścicielem - może zamknąć za wszystkich w trybie single, 
-                        // ale w trybie multi zaznaczamy tylko jego część, chyba że to admin override - 
-                        // tutaj przyjmijmy logikę "User Action", czyli zaznaczamy JEGO część).
-                        
-                        // Czy jestem przypisany do tego podzadania?
                         const amIAssignedToSub = (sub.assignees || []).includes(currentUserId);
                         const isAdmin = project.ownerId === currentUserId || (project.admins || []).includes(currentUserId);
 
                         if (amIAssignedToSub || isAdmin) {
+                            
+                            // === NOWE: KASKADA DO LISTY KONTROLNEJ PODZADANIA ===
+                            // Jeśli podzadanie ma listę kontrolną, odhacz moje pozycje
+                            if (sub.checklist && sub.checklist.length > 0) {
+                                sub.checklist = sub.checklist.map(item => {
+                                    // Jeśli element listy w podzadaniu jest przypisany do mnie -> zakończ go
+                                    if (item.assigneeId === currentUserId) {
+                                        return { ...item, isCompleted: true };
+                                    }
+                                    return item;
+                                });
+                            }
+                            // === KONIEC NOWEGO KODU ===
+
                             if (isSubMulti) {
                                 // Multi: Zaznacz moją część
                                 if (!newCompletedBy.includes(currentUserId)) {
@@ -34296,6 +34305,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
