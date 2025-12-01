@@ -16847,88 +16847,81 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 `;
                 kanbanBoardEl.appendChild(column);
             });
-            // === POCZĄTEK NOWEGO KODU: Ponowna inicjalizacja Sortable.js dla nowych kolumn ===
-            // Musimy zniszczyć stare instancje, jeśli istnieją
+            // === POCZĄTEK NOWEGO KODU: Ponowna inicjalizacja Sortable.js ===
             if (window.sortableInstances) {
                 window.sortableInstances.forEach(s => s.destroy());
             }
             window.sortableInstances = [];
 
            if (isInteractive) {
-                // ZMIANA: Pobieramy WSZYSTKIE strefy dropu (kolumny ORAZ kontenery wewnątrz kart)
-                const allDropZones = targetElement.querySelectorAll('.kanban-tasks, .subtask-family-container');
+                // POPRAWKA: Zamiana 'targetElement' na 'kanbanBoardEl'
+                // Dodajemy też '.subtask-family-container' aby obsłużyć zagnieżdżanie w widoku projektu
+                const allDropZones = kanbanBoardEl.querySelectorAll('.kanban-tasks, .subtask-family-container');
                 
-                allDropZones.forEach(zone => {
-                    const sortable = new Sortable(zone, {
-                        group: 'dashboard-tasks', // Wspólna grupa
+                allDropZones.forEach(list => {
+                    const sortable = new Sortable(list, {
+                        group: 'kanban-tasks',
                         animation: 150,
                         ghostClass: 'task-card-ghost',
                         chosenClass: 'task-card-chosen',
                         dragClass: 'task-card-drag',
+                        
+                        // Filtr dla podzadań (aby nie ciągnąć rodzica za dziecko w dziwny sposób)
                         filter: '.subtask-visual-card', 
                         preventOnFilter: false, 
+
                         delay: 200, 
                         delayOnTouchOnly: true, 
                         fallbackOnBody: true,
                         
                         onEnd: async (evt) => {
                             const itemEl = evt.item;
-                            
-                            // 1. Wykrywanie upuszczenia do RODZICA (Re-nesting)
-                            if (evt.to.classList.contains('subtask-family-container')) {
-                                // Pobierz ID zadania głównego, do którego wrzucono element
-                                // Kontener .subtask-family-container jest wewnątrz li.task-card
-                                const targetParentCard = evt.to.closest('.task-card');
-                                const targetParentId = targetParentCard ? targetParentCard.dataset.taskId : null;
-                                const movedSubtaskId = itemEl.dataset.subtaskId; // To musi być podzadanie
-
-                                if (targetParentId && movedSubtaskId) {
-                                    // Sprawdź czy wrzucamy do WŁASNEGO rodzica (nie można przenieść do innego zadania w ten sposób)
-                                    const originalParentId = itemEl.dataset.parentId;
-                                    
-                                    if (targetParentId !== originalParentId) {
-                                        showNotification("Nie można przenieść podzadania do innego zadania głównego w tym widoku.", "Błąd");
-                                        render(); // Cofnij wizualnie
-                                        return;
-                                    }
-
-                                    // Znajdź rodzica, aby pobrać jego status
-                                    const { task: parentTask, project } = findTask(targetParentId);
-                                    if (parentTask && project) {
-                                        // SYNCHRONIZACJA: Ustaw status podzadania na taki sam jak rodzica
-                                        const newStatus = parentTask.status;
-                                        const newColId = parentTask.customColumnId;
-                                        
-                                        // Wywołaj aktualizację
-                                        await handleDroppedTask(movedSubtaskId, newStatus, newColId);
-                                    }
-                                }
-                                draggedTaskId = null;
-                                return; // Koniec obsługi dla re-nesting
-                            }
-
-                            // 2. Standardowa obsługa upuszczenia do KOLUMNY (jak wcześniej)
                             const newColumn = evt.to.closest('.kanban-column');
                             const oldColumn = evt.from.closest('.kanban-column');
                             
+                            // --- LOGIKA 1: Upuszczenie do RODZICA (Re-nesting) w widoku projektu ---
+                            // (Ta sama logika co na Dashboardzie, aby zachować spójność zachowania)
+                            if (evt.to.classList.contains('subtask-family-container')) {
+                                const targetParentCard = evt.to.closest('.task-card');
+                                const targetParentId = targetParentCard ? targetParentCard.dataset.taskId : null;
+                                const movedSubtaskId = itemEl.dataset.subtaskId;
+
+                                if (targetParentId && movedSubtaskId) {
+                                     const originalParentId = itemEl.dataset.parentId;
+                                     // W widoku projektu nie można przenosić między zadaniami w ten sposób
+                                     // (chyba że chcesz na to pozwolić, ale tu blokujemy dla bezpieczeństwa)
+                                     if (targetParentId !== originalParentId) {
+                                        // showNotification("Przenoszenie między zadaniami jest zablokowane.", "Info");
+                                        // render(); 
+                                        // return;
+                                     }
+                                     // Tutaj zazwyczaj nic nie trzeba robić, bo w widoku projektu 
+                                     // hierarchia jest sztywna, ale Sortable wymaga obsługi zdarzenia.
+                                }
+                                return;
+                            }
+                            
+                            // --- LOGIKA 2: Upuszczenie do KOLUMNY ---
                             if (!newColumn) return;
 
+                            // SCENARIUSZ A: Przeniesienie do INNEJ kolumny (Zmiana statusu)
                             if (newColumn !== oldColumn) {
                                 const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
                                 Object.defineProperty(dropEvent, 'target', { value: newColumn, writable: false });
                                 kanbanBoardEl.dispatchEvent(dropEvent);
-                            } else {
-                                // Reorganizacja w kolumnie (tylko dla zadań głównych, subtaski sortuje się inaczej)
-                                // Na dashboardzie sortowanie jest automatyczne (wg daty), więc to pomijamy
+                            } 
+                            // SCENARIUSZ B: Reorganizacja w TEJ SAMEJ kolumnie
+                            else {
+                                await persistColumnOrder(newColumn);
                             }
                             
                             draggedTaskId = null;
                         }
                     });
-                    window.dashboardSortableInstances.push(sortable);
+                    window.sortableInstances.push(sortable);
                 });
             }
-            // === KONIEC NOWEGO KODU ===
+            // === KONIEC POPRAWKI ===
         }
        
         /**
@@ -33596,6 +33589,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
