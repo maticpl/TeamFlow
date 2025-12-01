@@ -1259,12 +1259,11 @@
             flex-direction: column; 
             max-height: 100%; 
             
-            /* KLUCZOWA ZMIANA: flex: 1 0 450px */
-            flex: 1 0 450px; /* ZMIANA: Zezwala na ROZCIĄGANIE (flex-grow: 1) */
+            /* ZMIANA: Ustawienie domyślne, które JS będzie nadpisywać stylem inline na Dashboardzie */
+            /* Dla widoku projektu (grid) szerokość jest kontrolowana przez grid-template-columns / auto-flow */
+            /* Dla widoku dashboard (flex) używamy flex: 1 0 360px z JS */
             
-            /* USUNIĘTO: width: 450px; */
-            
-            min-width: 450px; /* Dodatkowe zabezpieczenie minimalnej szerokości */
+            min-width: 0; /* Reset, aby flex działał poprawnie */
             max-width: 100%; 
         }
         .kanban-column-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 0 4px; gap: 8px; }
@@ -16300,21 +16299,27 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 window.dashboardSortableInstances.push(sortable);
             });
         }
-       /**
+      /**
              * Renderuje tablicę Kanban na Dashboardzie, łącząc kolumny o tych samych nazwach z różnych projektów.
-             * Obsługuje zadania główne i podzadania jako niezależne kafelki.
              */
             const renderMyTasksKanban = (items, targetElement) => {
                 targetElement.innerHTML = '';
                 
-                // 1. Konfiguracja kontenera (Poziomy przewijany pasek)
-                targetElement.style.display = 'flex';
-                targetElement.style.flexWrap = 'nowrap'; // Ważne: Nie zawijaj kolumn
-                targetElement.style.gap = '16px';
-                targetElement.style.paddingBottom = '16px';
-                targetElement.style.overflowX = 'auto';
-                targetElement.style.alignItems = 'flex-start';
-                targetElement.className = 'kanban-board-mini kanban-board'; 
+                // 1. Konfiguracja kontenera (Wymuszenie Flexboxa do przewijania)
+                // ZMIANA: Usuwamy klasę 'kanban-board-mini', która narzucała Grid.
+                targetElement.className = 'kanban-board'; 
+                
+                // Nadpisujemy style inline, aby zagwarantować zachowanie "lewo-prawo" i scrollowanie
+                targetElement.style.cssText = `
+                    display: flex;
+                    flex-wrap: nowrap;      /* Nie zawijaj kolumn do nowego wiersza */
+                    overflow-x: auto;       /* Włącz przewijanie poziome */
+                    gap: 16px;
+                    padding-bottom: 24px;   /* Miejsce na pasek przewijania */
+                    align-items: flex-start; /* Wyrównaj kolumny do góry */
+                    width: 100%;            /* Zajmij całą szerokość */
+                    min-height: 0;
+                `;
 
                 if (items.length === 0) {
                     targetElement.innerHTML = '<p class="no-tasks-message" style="margin: auto;">Brak aktywnych zadań do wyświetlenia.</p>';
@@ -16322,7 +16327,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
 
                 // 2. Mapa Kolumn (Buckets)
-                // Klucz: Znormalizowana nazwa kolumny (np. 'custom_do_testow')
                 const columnsMap = new Map();
                 
                 const getOrCreateColumn = (key, title, baseStatus) => {
@@ -16350,87 +16354,61 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     if (status === 'todo') {
                         getOrCreateColumn('todo', STATUSES.todo, 'todo').items.push(item);
                     } else if (status === 'done') {
-                         // Tutaj można dodać filtr daty dla 'done', jeśli chcesz ukrywać stare
                          getOrCreateColumn('done', STATUSES.done, 'done').items.push(item);
                     } else if (status === 'inprogress') {
-                        // Zadanie jest "W trakcie" - sprawdzamy czy ma dedykowaną kolumnę w swoim projekcie
                         if (customColId) {
-                            // Pobieramy definicję kolumny z projektu, do którego należy zadanie
                             const colDef = (item.project.customColumns || []).find(c => c.id === customColId);
-                            
                             if (colDef) {
-                                // SCALANIE PO NAZWIE:
-                                // Normalizujemy nazwę (małe litery, usuwamy spacje), aby "Testy" i "testy" były tym samym
                                 const rawTitle = colDef.title;
                                 const normalizedKey = `custom_${rawTitle.trim().toLowerCase().replace(/\s+/g, '_')}`;
-                                
                                 getOrCreateColumn(normalizedKey, rawTitle, 'inprogress').items.push(item);
                             } else {
-                                // Jeśli ID jest w zadaniu, ale kolumny nie ma w projekcie (np. usunięta) -> Domyślna "W trakcie"
                                 getOrCreateColumn('inprogress_default', STATUSES.inprogress, 'inprogress').items.push(item);
                             }
                         } else {
-                            // Standardowe "W trakcie" (bez ID)
                             getOrCreateColumn('inprogress_default', STATUSES.inprogress, 'inprogress').items.push(item);
                         }
                     }
                 });
 
                 // 4. Ustalanie kolejności kolumn
-                // Kolejność: Do realizacji -> [Kolumny Niestandardowe A-Z] -> W trakcie (Domyślna) -> Wykonane
                 const sortedKeys = Array.from(columnsMap.keys()).sort((a, b) => {
                     if (a === 'todo') return -1;
                     if (b === 'todo') return 1;
                     if (a === 'done') return 1;
                     if (b === 'done') return -1;
-                    
-                    // Domyślna "W trakcie" na końcu przed "Done"
                     if (a === 'inprogress_default') return 1;
                     if (b === 'inprogress_default') return -1;
-
-                    return a.localeCompare(b); // Reszta alfabetycznie
+                    return a.localeCompare(b);
                 });
 
                 // 5. Generowanie HTML
                 sortedKeys.forEach(key => {
                     const colData = columnsMap.get(key);
                     
-                    // Ukryj puste kolumny niestandardowe (opcjonalne, dla czytelności)
-                    // Ale pokaż standardowe zawsze
                     const isStandard = ['todo', 'inprogress_default', 'done'].includes(key);
                     if (!isStandard && colData.items.length === 0) return;
-                    if (key === 'inprogress_default' && colData.items.length === 0) return; // Ukryj domyślną "W trakcie" jeśli pusta, a są inne customowe
+                    if (key === 'inprogress_default' && colData.items.length === 0) return;
 
-                    // Generowanie kafelków
                     const cardsHTML = colData.items.map(item => {
                         if (item.type === 'main') {
-                            // ZADANIE GŁÓWNE
                             return createTaskCardHTML(item.data, true, item.project, colData.status, item.customColumnId);
                         } else {
-                            // PODZADANIE (Niezależny kafelek)
                             const { sub, parent } = item.data;
                             return createVisualSubtaskCardHTML(sub, parent, item.project, 'standalone');
                         }
                     }).join('');
 
-                    // === NOWA LOGIKA: Obsługa zwijania dla Dashboardu ===
-                    // Używamy klucza 'dashboard' w obiekcie collapsedColumns
+                    // === LOGIKA STANU ZWINIĘCIA ===
                     const dashboardCollapsed = state.ui.collapsedColumns['dashboard'] || [];
-                    // Identyfikatorem kolumny jest 'key' (np. 'todo', 'custom_analiza')
                     const isCollapsed = dashboardCollapsed.includes(key);
                     const collapsedClass = isCollapsed ? 'collapsed' : '';
 
-                    // === NOWA LOGIKA: Licznik zadań i Suma Wysiłku ===
-                    // Musimy to wygenerować, ponieważ w stanie zwiniętym CSS ukrywa standardowe liczniki
-                    // a pokazuje te wewnątrz .kanban-header-counts (zgodnie z logiką z widoku projektu)
-                    
-                    // Obliczanie sumy estymacji dla tej kolumny (opcjonalne, dla spójności)
+                    // Logika sumowania estymacji (dla licznika w nagłówku)
                     let estimationSum = 0;
                     let actualSum = 0;
                     colData.items.forEach(item => {
                          const taskData = item.type === 'main' ? item.data : item.data.sub;
-                         // Proste sumowanie, pomijamy głębszą logikę jednostek dla dashboardu, aby nie komplikować
-                         // Zakładamy, że jeśli są dane, to je sumujemy
                          estimationSum += parseFloat(taskData.estimation || taskData.effort || 0);
                          actualSum += parseFloat(taskData.actualEffort || 0);
                     });
@@ -16441,21 +16419,27 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         if (actualSum > estimationSum) color = "var(--danger-primary)";
                         else if (actualSum > 0 && actualSum < estimationSum) color = "var(--success-primary)";
                         
-                        // Jednostka domyślna 'h/pkt' bo na dashboardzie mieszają się projekty
-                        estimationSumHTML = `<span class="task-estimation-sum" title="Suma Szacowana / Rzeczywista" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">
+                        estimationSumHTML = `<span class="task-estimation-sum" title="Suma" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">
                             ${estimationSum}/${actualSum}
                         </span>`;
                     }
 
-                    // HTML Kolumny
-                    // ZMIANA: Usunięto style inline (min-width, max-width, flex).
-                    // Teraz kolumna używa stylów z CSS (.kanban-column ma flex: 1 0 450px), co zapewnia rozciąganie.
-                    // Dodano przycisk zwijania (.collapse-column-btn).
-                    // Dodano kontenery .kanban-header-counts.
-                    // Ustawiono dataset.columnId na 'key', aby listener wiedział co zwinąć.
+                    // === STYLE KOLUMNY (Flexbox Scaling) ===
+                    // flex: 1 0 360px -> 
+                    // 1 (grow): rozciągnij się, jeśli jest miejsce (np. inne są zwinięte).
+                    // 0 (shrink): nie kurcz się poniżej bazy (chyba że kontener wymusi, ale overflow:auto pozwoli scrollować).
+                    // 360px (basis): bazowa szerokość.
+                    
+                    const flexStyle = isCollapsed 
+                        ? 'flex: 0 0 40px;' // Zwinięta: sztywno 40px
+                        : 'flex: 1 0 360px;'; // Rozwinięta: elastycznie, min 360px
 
                     const columnHTML = `
-                        <div class="kanban-column ${collapsedClass}" data-status="${colData.status}" data-column-id="${key}">
+                        <div class="kanban-column ${collapsedClass}" 
+                             data-status="${colData.status}" 
+                             data-column-id="${key}"
+                             style="${flexStyle} transition: flex-basis 0.3s ease, width 0.3s ease; max-width: 100%;">
+                             
                             <div class="kanban-column-header">
                                 <h3>${colData.title}</h3>
                                 
@@ -16466,7 +16450,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                                 </button>
 
                                 <div class="kanban-header-counts" style="display: flex; gap: 6px; margin-left: auto;">
-                                    <span class="task-count" title="Liczba zadań w kolumnie">${colData.items.length}</span>
+                                    <span class="task-count">${colData.items.length}</span>
                                     ${estimationSumHTML}
                                 </div>
                             </div>
@@ -33443,6 +33427,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
