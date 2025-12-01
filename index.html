@@ -15711,12 +15711,40 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             const modal = document.getElementById('project-report-modal');
             document.getElementById('report-project-name').textContent = `Raport: ${project.name}`;
+            // Zapisz ID projektu w modalu dla przycisków interaktywnych
+            modal.dataset.projectId = projectId;
+
             // --- NOWE: WSTAWIENIE OPISU PROJEKTU ---
             const reportDescEl = document.getElementById('report-project-description');
             if (reportDescEl) {
                 reportDescEl.textContent = project.description || "Brak opisu projektu.";
             }
             // --- KONIEC ---
+
+            // --- NOWE: RENDEROWANIE LISTY PODSUMOWANIA ---
+            const summaryListEl = document.getElementById('report-summary-items-list');
+            if (summaryListEl) {
+                summaryListEl.innerHTML = '';
+                const items = project.summaryItems || [];
+                
+                if (items.length === 0) {
+                    // Opcjonalnie: Pusty stan, ale tutaj formularz jest od razu pod spodem, więc może być puste
+                }
+
+                items.forEach((item, index) => {
+                    const li = document.createElement('li');
+                    li.style.cssText = "display: flex; gap: 12px; padding: 8px; border-bottom: 1px dashed var(--border-color); align-items: flex-start;";
+                    
+                    li.innerHTML = `
+                        <div style="flex: 1; font-weight: 600; color: var(--text-primary); font-size: 13px;">${item.label}:</div>
+                        <div style="flex: 2; color: var(--text-secondary); font-size: 13px; white-space: pre-wrap;">${item.value}</div>
+                        <button class="delete-attachment-btn js-delete-summary-item" data-index="${index}" title="Usuń">&times;</button>
+                    `;
+                    summaryListEl.appendChild(li);
+                });
+            }
+            // --- KONIEC ---
+
            // --- ZMIENNE STATYSTYCZNE (ROZDZIELONE) ---
             // Obiekt dla Zadań Głównych
             const statsMain = {
@@ -32091,6 +32119,101 @@ welcomeModal.okBtn.addEventListener('click', async () => {
             }
         }
         // === KONIEC NOWYCH LISTENERÓW ===
+       // === NOWE LISTENERY DLA PODSUMOWANIA W RAPORCIE ===
+        
+        const reportAddSummaryBtn = document.getElementById('report-add-summary-btn');
+        const reportSummaryLabelInput = document.getElementById('report-summary-label-input');
+        const reportSummaryValueInput = document.getElementById('report-summary-value-input');
+        const reportSummaryList = document.getElementById('report-summary-items-list');
+
+        if (reportAddSummaryBtn) {
+            reportAddSummaryBtn.addEventListener('click', async () => {
+                const projectId = document.getElementById('project-report-modal').dataset.projectId;
+                const label = reportSummaryLabelInput.value.trim();
+                const value = reportSummaryValueInput.value.trim();
+
+                if (!projectId) return;
+                if (!label || !value) {
+                    showNotification("Wypełnij oba pola: Nazwę i Treść.", "Błąd");
+                    return;
+                }
+
+                // Znajdź projekt w stanie (aktywny lub zakończony)
+                const project = state.completedProjects.find(p => p.id === projectId) || state.projects.find(p => p.id === projectId);
+                if (!project) return;
+
+                // Zablokuj przycisk
+                reportAddSummaryBtn.disabled = true;
+                reportAddSummaryBtn.textContent = '...';
+
+                try {
+                    // Aktualizuj tablicę lokalnie
+                    const newItem = { label, value };
+                    const currentItems = project.summaryItems || [];
+                    const newItems = [...currentItems, newItem];
+
+                    // Znajdź referencję do dokumentu (sprawdź obie kolekcje)
+                    const projectDocRef = state.projects.some(p => p.id === projectId) 
+                        ? doc(projectsRef, projectId) 
+                        : doc(completedProjectsRef, projectId);
+
+                    // Zapisz w bazie
+                    await updateDoc(projectDocRef, { summaryItems: newItems });
+                    
+                    // Zaktualizuj stan lokalny (dla płynności, chociaż onSnapshot i tak by to zrobił)
+                    project.summaryItems = newItems;
+
+                    // Odśwież widok listy w modalu (bez zamykania)
+                    openProjectReportModal(projectId);
+
+                    // Wyczyść inputy
+                    reportSummaryLabelInput.value = '';
+                    reportSummaryValueInput.value = '';
+                    reportSummaryLabelInput.focus();
+
+                } catch (error) {
+                    console.error("Błąd dodawania podsumowania:", error);
+                    showNotification("Nie udało się zapisać.", "Błąd");
+                } finally {
+                    reportAddSummaryBtn.disabled = false;
+                    reportAddSummaryBtn.textContent = 'Dodaj';
+                }
+            });
+        }
+
+        // Delegacja usuwania elementów z listy podsumowania
+        if (reportSummaryList) {
+            reportSummaryList.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('js-delete-summary-item')) {
+                    const indexToRemove = parseInt(e.target.dataset.index, 10);
+                    const projectId = document.getElementById('project-report-modal').dataset.projectId;
+                    
+                    const project = state.completedProjects.find(p => p.id === projectId) || state.projects.find(p => p.id === projectId);
+                    if (!project) return;
+
+                    if (confirm("Czy na pewno usunąć tę pozycję?")) {
+                        try {
+                            const currentItems = project.summaryItems || [];
+                            const newItems = currentItems.filter((_, idx) => idx !== indexToRemove);
+
+                            const projectDocRef = state.projects.some(p => p.id === projectId) 
+                                ? doc(projectsRef, projectId) 
+                                : doc(completedProjectsRef, projectId);
+
+                            await updateDoc(projectDocRef, { summaryItems: newItems });
+                            
+                            project.summaryItems = newItems;
+                            openProjectReportModal(projectId); // Odśwież
+
+                        } catch (error) {
+                            console.error("Błąd usuwania pozycji:", error);
+                            showNotification("Nie udało się usunąć.", "Błąd");
+                        }
+                    }
+                }
+            });
+        }
+        // === KONIEC NOWYCH LISTENERÓW ===
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
 </script>
@@ -33761,9 +33884,26 @@ welcomeModal.okBtn.addEventListener('click', async () => {
         </div>
         <div class="form-modal-content" style="padding: 24px; background-color: var(--bg-primary);">
             
-            <div class="report-section">
+           <div class="report-section">
                 <h3 class="report-section-title">📝 Opis Projektu</h3>
                 <p id="report-project-description" style="white-space: pre-wrap; color: var(--text-primary); line-height: 1.6; font-size: 14px;">-</p>
+            </div>
+            <div class="report-section">
+                <h3 class="report-section-title">📌 Podsumowanie i Wnioski</h3>
+                
+                <ul id="report-summary-items-list" style="list-style: none; padding: 0; margin-bottom: 16px;"></ul>
+
+                <div style="display: flex; gap: 8px; align-items: flex-start;">
+                    <div style="flex: 1;">
+                        <input type="text" id="report-summary-label-input" placeholder="Nazwa (np. Podziękowania)" 
+                               style="width: 100%; padding: 8px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-secondary); color: var(--text-primary); font-size: 13px;">
+                    </div>
+                    <div style="flex: 2;">
+                         <textarea id="report-summary-value-input" rows="1" placeholder="Treść (np. Jan Kowalski, Anna Nowak...)" 
+                                   style="width: 100%; padding: 8px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-secondary); color: var(--text-primary); font-size: 13px; resize: vertical;"></textarea>
+                    </div>
+                    <button id="report-add-summary-btn" class="btn btn-secondary" style="padding: 8px 12px;">Dodaj</button>
+                </div>
             </div>
             <div class="report-section">
                 <h3 class="report-section-title">⏱️ Efektywność Czasowa</h3>
@@ -33844,6 +33984,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
