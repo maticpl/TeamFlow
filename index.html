@@ -21382,12 +21382,15 @@ if (editorNewTaskDescription) {
             editProjectModal.descriptionTextarea.value = project.description || '';
             editProjectModal.estimationTypeSelect.value = project.estimationType || 'none';
             
-            // Pobieramy listę administratorów i super userów
-            const adminIds = project.admins || [];
-            const superUserIds = project.superUsers || []; 
+            // === ZMIANA: Inicjalizacja tymczasowych tablic ról dla trybu edycji ===
+            // Tworzymy kopie tablic, aby edycja nie wpływała na obiekt projektu przed zapisem
+            editProjectModal.currentAdminIds = [...(project.admins || [])];
+            editProjectModal.currentSuperUserIds = [...(project.superUsers || [])];
+            // === KONIEC ZMIANY ===
             
             // 1. Budujemy lewą kolumnę
-            buildTeamMembersAccordion(editProjectModal.membersContainer, project.members, project.ownerId, adminIds, true, superUserIds);
+            // Przekazujemy nasze tymczasowe tablice
+            buildTeamMembersAccordion(editProjectModal.membersContainer, project.members, project.ownerId, editProjectModal.currentAdminIds, true, editProjectModal.currentSuperUserIds);
             
             // 2. Inicjujemy prawą kolumnę
             const rightCol = document.getElementById('edit-project-selected-list');
@@ -21395,8 +21398,8 @@ if (editorNewTaskDescription) {
                 editProjectModal.membersContainer,
                 rightCol,
                 project.ownerId,
-                adminIds,
-                superUserIds
+                editProjectModal.currentAdminIds,     // Używamy tymczasowych
+                editProjectModal.currentSuperUserIds  // Używamy tymczasowych
             );
 
             const budgetData = project.budget;
@@ -24646,59 +24649,9 @@ if (transferOwnershipModal.form) {
             }
         };
 
-        // C. PRAWA KOLUMNA (Kliknięcie)
-        const newProjectRightCol = document.getElementById('new-project-selected-list');
-        if (newProjectRightCol) {
-            newProjectRightCol.onclick = (e) => {
-                const userId = e.target.closest('.selected-member-row')?.dataset.userId;
-                if (!userId) return;
-
-                // 1. Usuwanie
-                if (e.target.closest('.selected-member-remove')) {
-                    const pill = newProjectModal.membersContainer.querySelector(`.member-pill[data-user-id="${userId}"]`);
-                    if (pill) {
-                        pill.classList.remove('selected');
-                        // Sprzątanie ról
-                        newProjectModal.currentAdminIds = newProjectModal.currentAdminIds.filter(id => id !== userId);
-                        newProjectModal.currentSuperUserIds = newProjectModal.currentSuperUserIds.filter(id => id !== userId);
-                        
-                        renderSelectedMembersColumn(
-                            newProjectModal.membersContainer, newProjectRightCol, state.currentUser.uid,
-                            newProjectModal.currentAdminIds, newProjectModal.currentSuperUserIds
-                        );
-                    }
-                    return;
-                }
-
-                // 2. Role (Admin/SuperUser)
-                const roleBtn = e.target.closest('.role-btn');
-                if (roleBtn) {
-                    const roleType = roleBtn.dataset.role;
-                    
-                    if (roleType === 'admin') {
-                        if (newProjectModal.currentAdminIds.includes(userId)) {
-                            newProjectModal.currentAdminIds = newProjectModal.currentAdminIds.filter(id => id !== userId);
-                        } else {
-                            newProjectModal.currentAdminIds.push(userId);
-                        }
-                    } else if (roleType === 'superuser') {
-                        if (newProjectModal.currentSuperUserIds.includes(userId)) {
-                            newProjectModal.currentSuperUserIds = newProjectModal.currentSuperUserIds.filter(id => id !== userId);
-                        } else {
-                            newProjectModal.currentSuperUserIds.push(userId);
-                        }
-                    }
-
-                    renderSelectedMembersColumn(
-                        newProjectModal.membersContainer, newProjectRightCol, state.currentUser.uid,
-                        newProjectModal.currentAdminIds, newProjectModal.currentSuperUserIds
-                    );
-                }
-            };
-        }
+        
 
        // === ZAKTUALIZOWANY LISTENER: Kliknięcie w prawej kolumnie (Nowy Projekt) ===
-        
         if (newProjectRightCol) {
             newProjectRightCol.addEventListener('click', (e) => {
                 const userId = e.target.closest('.selected-member-row')?.dataset.userId;
@@ -24710,7 +24663,7 @@ if (transferOwnershipModal.form) {
                     if (pill) {
                         pill.classList.remove('selected');
                         
-                        // Usuń też z ról, żeby nie zostały śmieci
+                        // Usuń też z ról
                         newProjectModal.currentAdminIds = newProjectModal.currentAdminIds.filter(id => id !== userId);
                         newProjectModal.currentSuperUserIds = newProjectModal.currentSuperUserIds.filter(id => id !== userId);
 
@@ -24729,13 +24682,19 @@ if (transferOwnershipModal.form) {
                 // B. Obsługa RÓL (Admin / Super User)
                 const roleBtn = e.target.closest('.role-btn');
                 if (roleBtn) {
-                    const roleType = roleBtn.dataset.role; // 'admin' lub 'superuser'
+                    const roleType = roleBtn.dataset.role;
+                    const pill = newProjectModal.membersContainer.querySelector(`.member-pill[data-user-id="${userId}"]`);
                     
                     if (roleType === 'admin') {
                         if (newProjectModal.currentAdminIds.includes(userId)) {
                             newProjectModal.currentAdminIds = newProjectModal.currentAdminIds.filter(id => id !== userId);
                         } else {
                             newProjectModal.currentAdminIds.push(userId);
+                        }
+                        // Synchronizacja ikony po lewej
+                        if (pill) {
+                            const leftBtn = pill.querySelector('.admin-toggle-btn');
+                            if (leftBtn) leftBtn.classList.toggle('is-admin', newProjectModal.currentAdminIds.includes(userId));
                         }
                     } 
                     else if (roleType === 'superuser') {
@@ -24744,25 +24703,11 @@ if (transferOwnershipModal.form) {
                         } else {
                             newProjectModal.currentSuperUserIds.push(userId);
                         }
-                    }
-
-                    // Przerenderuj prawą kolumnę, aby zaktualizować kolory, podpisy i stan przycisków
-                    // UWAGA: Musimy też "symulować" zmiany w lewej kolumnie, aby funkcja renderująca to widziała? 
-                    // Nie, bo zaktualizowaliśmy 'renderSelectedMembersColumn' w poprzednim kroku, aby brała tablice jako argumenty priorytetowe 
-                    // (dla przycisków w prawej kolumnie), ALE... 
-                    
-                    // WAIT: Moja funkcja renderująca z poprzedniego kroku (KROK 2 w poprzedniej odp) 
-                    // patrzyła na klasy w LEWEJ kolumnie ("is-admin").
-                    // Musimy to zsynchronizować. 
-                    
-                    // Uaktualnijmy klasy w lewej kolumnie dla spójności wizualnej (ukryte przyciski)
-                    const leftPill = newProjectModal.membersContainer.querySelector(`.member-pill[data-user-id="${userId}"]`);
-                    if (leftPill) {
-                        const adminBtn = leftPill.querySelector('.admin-toggle-btn');
-                        const superBtn = leftPill.querySelector('.superuser-toggle-btn');
-                        
-                        if (adminBtn) adminBtn.classList.toggle('is-admin', newProjectModal.currentAdminIds.includes(userId));
-                        if (superBtn) superBtn.classList.toggle('is-superuser', newProjectModal.currentSuperUserIds.includes(userId));
+                        // Synchronizacja ikony po lewej
+                        if (pill) {
+                            const leftBtn = pill.querySelector('.superuser-toggle-btn');
+                            if (leftBtn) leftBtn.classList.toggle('is-superuser', newProjectModal.currentSuperUserIds.includes(userId));
+                        }
                     }
 
                     // Odśwież prawą kolumnę z nowymi danymi
@@ -24775,32 +24720,6 @@ if (transferOwnershipModal.form) {
                     );
                 }
             });
-            
-            // --- Dodatek: Obsługa kliknięcia w LEWEJ kolumnie musi przekazać aktualne tablice ---
-            // Musimy zaktualizować ten mały fragment listenera lewej kolumny z poprzedniego kroku
-            // (Znajdź: newProjectModal.membersContainer.addEventListener)
-            newProjectModal.membersContainer.onclick = (e) => {
-                 // ... (zachowaj logikę akordeonu)
-                 const header = e.target.closest('.department-header');
-                 const pill = e.target.closest('.member-pill:not(.disabled)');
-                 
-                 if (header) {
-                     header.classList.toggle('active');
-                     const content = header.nextElementSibling;
-                     if(content) content.classList.toggle('collapsed');
-                 } else if (pill) {
-                     pill.classList.toggle('selected');
-                     
-                     // ODŚWIEŻ PRAWĄ KOLUMNĘ Z ZACHOWANIEM TABLIC
-                     renderSelectedMembersColumn(
-                        newProjectModal.membersContainer, 
-                        newProjectRightCol, 
-                        state.currentUser.uid, 
-                        newProjectModal.currentAdminIds || [], 
-                        newProjectModal.currentSuperUserIds || []
-                    );
-                 }
-            };
         }
 // Listener do obsługi akordeonu i pigułek w oknie "Edytuj Projekt"
 editProjectModal.membersContainer.addEventListener('click', (e) => {
@@ -24817,27 +24736,38 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             usersContainer.classList.toggle('collapsed');
         }
     } else if (crownBtn) {
-        // Logika do przełączania admina
+        // === ZMIANA: Aktualizacja stanu tymczasowego Admina ===
         e.stopPropagation(); 
-        crownBtn.classList.toggle('is-admin');
+        const userId = crownBtn.dataset.userId;
         
-        // Zaktualizuj tytuł
-        if (crownBtn.classList.contains('is-admin')) {
-            crownBtn.title = 'Odbierz uprawnienia administratora projektu';
-        } else {
+        if (editProjectModal.currentAdminIds.includes(userId)) {
+            editProjectModal.currentAdminIds = editProjectModal.currentAdminIds.filter(id => id !== userId);
+            crownBtn.classList.remove('is-admin');
             crownBtn.title = 'Nadaj uprawnienia administratora projektu';
-        }
-        
-    } else if (superUserBtn) { // <-- NOWY BLOK
-        // Logika do przełączania SuperUsera
-        e.stopPropagation();
-        superUserBtn.classList.toggle('is-superuser');
-
-        if (superUserBtn.classList.contains('is-superuser')) {
-            superUserBtn.title = 'Odbierz uprawnienia SuperUsera (Zarządzanie zadaniami)';
         } else {
-            superUserBtn.title = 'Nadaj uprawnienia SuperUsera (Zarządzanie zadaniami)';
+            editProjectModal.currentAdminIds.push(userId);
+            crownBtn.classList.add('is-admin');
+            crownBtn.title = 'Odbierz uprawnienia administratora projektu';
         }
+        // Odśwież prawą kolumnę, aby pokazała zmianę
+        refreshEditRightColumn();
+
+    } else if (superUserBtn) { 
+        // === ZMIANA: Aktualizacja stanu tymczasowego SuperUsera ===
+        e.stopPropagation();
+        const userId = superUserBtn.dataset.userId;
+
+        if (editProjectModal.currentSuperUserIds.includes(userId)) {
+            editProjectModal.currentSuperUserIds = editProjectModal.currentSuperUserIds.filter(id => id !== userId);
+            superUserBtn.classList.remove('is-superuser');
+            superUserBtn.title = 'Nadaj uprawnienia SuperUsera (Zarządzanie zadaniami)';
+        } else {
+            editProjectModal.currentSuperUserIds.push(userId);
+            superUserBtn.classList.add('is-superuser');
+            superUserBtn.title = 'Odbierz uprawnienia SuperUsera (Zarządzanie zadaniami)';
+        }
+        // Odśwież prawą kolumnę, aby pokazała zmianę
+        refreshEditRightColumn();
 
     } else if (pill) {
         // Logika do zaznaczania użytkowników
@@ -24860,7 +24790,22 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
         }
     }
 });
-
+// Funkcja pomocnicza do odświeżania prawej kolumny w edycji
+function refreshEditRightColumn() {
+    const projectId = editProjectModal.overlay.dataset.projectId;
+    const project = findProject(projectId);
+    const rightCol = document.getElementById('edit-project-selected-list');
+    
+    if (project) {
+        renderSelectedMembersColumn(
+            editProjectModal.membersContainer,
+            rightCol,
+            project.ownerId,
+            editProjectModal.currentAdminIds,     // Przekazujemy AKTUALNE tablice
+            editProjectModal.currentSuperUserIds  // Przekazujemy AKTUALNE tablice
+        );
+    }
+}
 // === ZAKTUALIZOWANY LISTENER: Kliknięcia w prawej kolumnie (Edytuj Projekt) ===
 document.getElementById('edit-project-selected-list').addEventListener('click', (e) => {
     const userId = e.target.closest('.selected-member-row')?.dataset.userId;
@@ -24884,7 +24829,7 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
         return;
     }
 
-    // 2. Obsługa RÓL
+   // 2. Obsługa RÓL
     const roleBtn = e.target.closest('.role-btn');
     if (roleBtn) {
         const roleType = roleBtn.dataset.role; // 'admin' lub 'superuser'
@@ -24892,17 +24837,38 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
         
         if (pill) {
             if (roleType === 'admin') {
-                // Znajdź przycisk w lewej kolumnie i kliknij go (symulacja) lub przełącz klasę
+                // Aktualizacja tablicy
+                if (editProjectModal.currentAdminIds.includes(userId)) {
+                    editProjectModal.currentAdminIds = editProjectModal.currentAdminIds.filter(id => id !== userId);
+                } else {
+                    editProjectModal.currentAdminIds.push(userId);
+                }
+                
+                // Synchronizacja wizualna lewej kolumny (ikona)
                 const leftBtn = pill.querySelector('.admin-toggle-btn');
-                if (leftBtn) leftBtn.classList.toggle('is-admin');
+                if (leftBtn) leftBtn.classList.toggle('is-admin', editProjectModal.currentAdminIds.includes(userId));
             } 
             else if (roleType === 'superuser') {
+                // Aktualizacja tablicy
+                if (editProjectModal.currentSuperUserIds.includes(userId)) {
+                    editProjectModal.currentSuperUserIds = editProjectModal.currentSuperUserIds.filter(id => id !== userId);
+                } else {
+                    editProjectModal.currentSuperUserIds.push(userId);
+                }
+
+                // Synchronizacja wizualna lewej kolumny (ikona)
                 const leftBtn = pill.querySelector('.superuser-toggle-btn');
-                if (leftBtn) leftBtn.classList.toggle('is-superuser');
+                if (leftBtn) leftBtn.classList.toggle('is-superuser', editProjectModal.currentSuperUserIds.includes(userId));
             }
 
-            // 3. Odśwież prawą kolumnę (zaktualizuje etykiety i stany przycisków)
-            renderSelectedMembersColumn(leftContainer, rightContainer, project.ownerId, project.admins || [], project.superUsers || []);
+            // 3. Odśwież prawą kolumnę używając ZAKTUALIZOWANYCH tablic
+            renderSelectedMembersColumn(
+                leftContainer, 
+                rightContainer, 
+                project.ownerId, 
+                editProjectModal.currentAdminIds, 
+                editProjectModal.currentSuperUserIds
+            );
         }
     }
 });
@@ -25129,15 +25095,18 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
                 submitBtn.textContent = 'Zapisywanie...';
 
                 const selectedMembers = Array.from(editProjectModal.membersContainer.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
-                const selectedAdminIds = Array.from(editProjectModal.membersContainer.querySelectorAll('.admin-toggle-btn.is-admin')).map(btn => btn.dataset.userId);
-                // === NOWE: Zbieranie SuperUserów ===
-                const selectedSuperUserIds = Array.from(editProjectModal.membersContainer.querySelectorAll('.superuser-toggle-btn.is-superuser')).map(btn => btn.dataset.userId);
+                
+                // === ZMIANA: Pobieramy role z naszych tymczasowych tablic ===
+                // Filtrujemy je, aby upewnić się, że ID nadal są w 'selectedMembers' (na wypadek gdyby kogoś odznaczono)
+                const finalAdminIds = editProjectModal.currentAdminIds.filter(id => selectedMembers.includes(id));
+                const finalSuperUserIds = editProjectModal.currentSuperUserIds.filter(id => selectedMembers.includes(id));
+                // === KONIEC ZMIANY ===
 
                 const projectUpdates = {
                     name: newName,
                     members: selectedMembers,
-                    admins: selectedAdminIds,
-                    superUsers: selectedSuperUserIds, // <-- ZAPISUJEMY DO BAZY
+                    admins: finalAdminIds,      // Używamy zmiennej
+                    superUsers: finalSuperUserIds, // Używamy zmiennej
                     startDate: editProjectModal.startDateInput.value,
                     endDate: editProjectModal.endDateInput.value,
                     priority: editProjectModal.prioritySelect.value,
@@ -34996,6 +34965,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
