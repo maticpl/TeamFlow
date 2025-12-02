@@ -24600,20 +24600,24 @@ if (transferOwnershipModal.form) {
             const formattedDate = today.toISOString().split('T')[0];
             newProjectModal.startDateInput.value = formattedDate;
 
-            // 1. Budujemy Lewą Kolumnę
+            // === NOWOŚĆ: Inicjalizacja tymczasowych tablic ról dla nowego projektu ===
+            newProjectModal.currentAdminIds = [];
+            newProjectModal.currentSuperUserIds = [];
+            // === KONIEC ===
+
+            // 1. Budujemy Lewą Kolumnę (Akordeon) - Domyślnie zaznaczony tylko ja
             buildTeamMembersAccordion(newProjectModal.membersContainer, [state.currentUser.uid]);
-            
-            // 2. Renderujemy Prawą Kolumnę (Inicjalizacja - tylko ja jako właściciel)
-            // Pobieramy kontener prawej kolumny po ID
+
+            // 2. Renderujemy Prawą Kolumnę (Inicjalizacja)
             const rightCol = document.getElementById('new-project-selected-list');
             renderSelectedMembersColumn(
                 newProjectModal.membersContainer, 
-                rightCol, 
-                state.currentUser.uid, // Owner ID (ja)
-                [], // Admini (brak)
-                []  // SuperUsers (brak)
+                rightCol,                         
+                state.currentUser.uid,            
+                newProjectModal.currentAdminIds, // Przekazujemy puste tablice
+                newProjectModal.currentSuperUserIds                                
             );
-
+            
             openModal(newProjectModal.overlay);
         });
 
@@ -24642,28 +24646,110 @@ if (transferOwnershipModal.form) {
             }
         });
 
-        // === ZAKTUALIZOWANY LISTENER: Kliknięcia w prawej kolumnie (Nowy Projekt) ===
+       // === ZAKTUALIZOWANY LISTENER: Kliknięcie w prawej kolumnie (Nowy Projekt) ===
         const newProjectRightCol = document.getElementById('new-project-selected-list');
         if (newProjectRightCol) {
             newProjectRightCol.addEventListener('click', (e) => {
-                // 1. Obsługa USUWANIA
-                const removeBtn = e.target.closest('.selected-member-remove');
-                if (removeBtn) {
-                    const userIdToRemove = removeBtn.closest('.selected-member-row').dataset.userId;
-                    const pill = newProjectModal.membersContainer.querySelector(`.member-pill[data-user-id="${userIdToRemove}"]`);
+                const userId = e.target.closest('.selected-member-row')?.dataset.userId;
+                if (!userId) return;
+
+                // A. Obsługa USUWANIA
+                if (e.target.closest('.selected-member-remove')) {
+                    const pill = newProjectModal.membersContainer.querySelector(`.member-pill[data-user-id="${userId}"]`);
                     if (pill) {
                         pill.classList.remove('selected');
-                        renderSelectedMembersColumn(newProjectModal.membersContainer, newProjectRightCol, state.currentUser.uid, [], []);
+                        
+                        // Usuń też z ról, żeby nie zostały śmieci
+                        newProjectModal.currentAdminIds = newProjectModal.currentAdminIds.filter(id => id !== userId);
+                        newProjectModal.currentSuperUserIds = newProjectModal.currentSuperUserIds.filter(id => id !== userId);
+
+                        // Odśwież
+                        renderSelectedMembersColumn(
+                            newProjectModal.membersContainer, 
+                            newProjectRightCol, 
+                            state.currentUser.uid, 
+                            newProjectModal.currentAdminIds, 
+                            newProjectModal.currentSuperUserIds
+                        );
                     }
                     return;
                 }
 
-                // 2. Obsługa RÓL (Admin / Super User) - Dla Nowego Projektu zazwyczaj nie ustawiamy tego od razu, 
-                // ale dodaję logikę dla spójności, gdybyś chciał to włączyć. W nowym projekcie pigułki mogą nie mieć przycisków ról w HTML lewej kolumny.
-                // W obecnym kodzie buildTeamMembersAccordion dodaje przyciski tylko jeśli projectOwnerId jest zdefiniowany.
-                // Dla nowego projektu właścicielem jestem JA, więc inni nie mają przycisków w lewej kolumnie, dopóki projekt nie powstanie.
-                // *Dlatego w Nowym Projekcie przyciski ról mogą być nieaktywne lub ukryte w lewej kolumnie, co obsłuży funkcja renderująca.*
+                // B. Obsługa RÓL (Admin / Super User)
+                const roleBtn = e.target.closest('.role-btn');
+                if (roleBtn) {
+                    const roleType = roleBtn.dataset.role; // 'admin' lub 'superuser'
+                    
+                    if (roleType === 'admin') {
+                        if (newProjectModal.currentAdminIds.includes(userId)) {
+                            newProjectModal.currentAdminIds = newProjectModal.currentAdminIds.filter(id => id !== userId);
+                        } else {
+                            newProjectModal.currentAdminIds.push(userId);
+                        }
+                    } 
+                    else if (roleType === 'superuser') {
+                        if (newProjectModal.currentSuperUserIds.includes(userId)) {
+                            newProjectModal.currentSuperUserIds = newProjectModal.currentSuperUserIds.filter(id => id !== userId);
+                        } else {
+                            newProjectModal.currentSuperUserIds.push(userId);
+                        }
+                    }
+
+                    // Przerenderuj prawą kolumnę, aby zaktualizować kolory, podpisy i stan przycisków
+                    // UWAGA: Musimy też "symulować" zmiany w lewej kolumnie, aby funkcja renderująca to widziała? 
+                    // Nie, bo zaktualizowaliśmy 'renderSelectedMembersColumn' w poprzednim kroku, aby brała tablice jako argumenty priorytetowe 
+                    // (dla przycisków w prawej kolumnie), ALE... 
+                    
+                    // WAIT: Moja funkcja renderująca z poprzedniego kroku (KROK 2 w poprzedniej odp) 
+                    // patrzyła na klasy w LEWEJ kolumnie ("is-admin").
+                    // Musimy to zsynchronizować. 
+                    
+                    // Uaktualnijmy klasy w lewej kolumnie dla spójności wizualnej (ukryte przyciski)
+                    const leftPill = newProjectModal.membersContainer.querySelector(`.member-pill[data-user-id="${userId}"]`);
+                    if (leftPill) {
+                        const adminBtn = leftPill.querySelector('.admin-toggle-btn');
+                        const superBtn = leftPill.querySelector('.superuser-toggle-btn');
+                        
+                        if (adminBtn) adminBtn.classList.toggle('is-admin', newProjectModal.currentAdminIds.includes(userId));
+                        if (superBtn) superBtn.classList.toggle('is-superuser', newProjectModal.currentSuperUserIds.includes(userId));
+                    }
+
+                    // Odśwież prawą kolumnę z nowymi danymi
+                    renderSelectedMembersColumn(
+                        newProjectModal.membersContainer, 
+                        newProjectRightCol, 
+                        state.currentUser.uid, 
+                        newProjectModal.currentAdminIds, 
+                        newProjectModal.currentSuperUserIds
+                    );
+                }
             });
+            
+            // --- Dodatek: Obsługa kliknięcia w LEWEJ kolumnie musi przekazać aktualne tablice ---
+            // Musimy zaktualizować ten mały fragment listenera lewej kolumny z poprzedniego kroku
+            // (Znajdź: newProjectModal.membersContainer.addEventListener)
+            newProjectModal.membersContainer.onclick = (e) => {
+                 // ... (zachowaj logikę akordeonu)
+                 const header = e.target.closest('.department-header');
+                 const pill = e.target.closest('.member-pill:not(.disabled)');
+                 
+                 if (header) {
+                     header.classList.toggle('active');
+                     const content = header.nextElementSibling;
+                     if(content) content.classList.toggle('collapsed');
+                 } else if (pill) {
+                     pill.classList.toggle('selected');
+                     
+                     // ODŚWIEŻ PRAWĄ KOLUMNĘ Z ZACHOWANIEM TABLIC
+                     renderSelectedMembersColumn(
+                        newProjectModal.membersContainer, 
+                        newProjectRightCol, 
+                        state.currentUser.uid, 
+                        newProjectModal.currentAdminIds || [], 
+                        newProjectModal.currentSuperUserIds || []
+                    );
+                 }
+            };
         }
 // Listener do obsługi akordeonu i pigułek w oknie "Edytuj Projekt"
 editProjectModal.membersContainer.addEventListener('click', (e) => {
@@ -24885,6 +24971,10 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
                     name: newName,
                     ownerId: state.currentUser.uid,
                     members: selectedMembers,
+                    // === NOWOŚĆ: Zapis ról ===
+                    admins: newProjectModal.currentAdminIds || [],
+                    superUsers: newProjectModal.currentSuperUserIds || [],
+                    // === KONIEC ===
                     groupId: state.ui.activeGroupId,
                     description: newDescription,
                     startDate: newProjectModal.startDateInput.value,
@@ -34855,6 +34945,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
