@@ -16636,10 +16636,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 sortedKeys.forEach(key => {
                     const colData = columnsMap.get(key);
                     
-                    // === NAPRAWA BŁĘDU: Definicja brakującej zmiennej dla Dashboardu ===
-                    // W widoku Dashboardu nie wyświetlamy sondaży w kolumnach, więc ustawiamy pustą tablicę.
+                    // ZMIENNA 1: Definicja pustej tablicy sondaży dla Dashboardu (Naprawa ReferenceError)
                     let pollsInColumn = []; 
-                    // ===================================================================
 
                     // Definiujemy kolumny standardowe
                     const isStandard = ['todo', 'inprogress_default', 'done'].includes(key);
@@ -16647,26 +16645,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     // ZASADA 1: Ukryj kolumny NIESTANDARDOWE, jeśli są puste
                     if (!isStandard && colData.items.length === 0) return;
 
-                    // USUNIĘTO: Wymuszone sortowanie 'colData.items' po dacie.
-                    // Teraz polegamy na sortowaniu 'combinedItems' poniżej, które łączy customOrder z datą.
-
-                    // Generowanie kafelków
-                    // UWAGA: To jest mapowanie wstępne - właściwe generowanie HTML następuje po posortowaniu combinedItems
-                    // W Twoim kodzie oryginalnym struktura była:
-                    // 1. Sort colData.items
-                    // 2. Generowanie cardsHTML (BŁĄD logiczny w oryginale: generowałeś HTML z colData, a potem tworzyłeś combinedItems?)
-                    
-                    // === POPRAWKA LOGIKI RENDEROWANIA ===
-                    // W oryginale (w Kroku 18) wprowadziłem 'combinedItems', ale tutaj w kodzie widzę, że pętla 'sortedKeys'
-                    // najpierw sortuje colData, a potem... zaraz, w poprzednim kroku 'columnContentHTML' był budowany z 'combinedItems'.
-                    // Musimy upewnić się, że logika jest spójna.
-
                     // 3. SCALANIE: Utwórz wspólną tablicę wszystkich elementów
                     let combinedItems = [];
 
-                    // Dodaj Zadania Główne z tej kolumny
+                    // Dodaj Zadania Główne i Podzadania do jednej listy
                     colData.items.forEach(item => {
-                        // Jeśli item to Main Task (ma pole data i project)
                         if (item.type === 'main') {
                             combinedItems.push({
                                 type: 'main',
@@ -16675,9 +16658,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                                 // Używamy customOrder. Jeśli brak, dajemy 999999 (na koniec)
                                 order: (item.data.customOrder !== undefined) ? item.data.customOrder : 999999
                             });
-                        } 
-                        // Jeśli item to Subtask (w Twojej strukturze colData.items trzyma już obiekty z typem)
-                        else {
+                        } else {
                             combinedItems.push({
                                 type: 'subtask',
                                 data: item.data, 
@@ -16692,42 +16673,42 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         const orderA = a.order;
                         const orderB = b.order;
 
-                        // 1. Najpierw sortuj wg ręcznie ustalonej kolejności (Drag & Drop)
+                        // 1. Najpierw sortuj wg ręcznie ustalonej kolejności
                         if (orderA !== orderB) {
                             return orderA - orderB;
                         }
 
-                        // 2. Jeśli kolejność ręczna jest taka sama (np. domyślne 999999), sortuj wg daty (rosnąco)
-                        // Funkcja pomocnicza do wyciągania daty
+                        // 2. Jeśli kolejność ręczna jest taka sama, sortuj wg daty
+                        const sortOrder = state.ui.sortMyTasksByDate || 'asc';
+                        
                         const getDate = (item) => {
                             let dateVal = null;
                             if (item.type === 'main') dateVal = item.data.dueDate;
-                            else dateVal = item.data.sub.dueDate; // item.type === 'subtask'
-                            return dateVal ? new Date(dateVal).getTime() : Infinity; // Infinity wrzuca na koniec
+                            else dateVal = item.data.sub.dueDate;
+                            return dateVal ? new Date(dateVal).getTime() : (sortOrder === 'asc' ? Infinity : -Infinity);
                         };
 
-                        return getDate(a) - getDate(b);
+                        const valA = getDate(a);
+                        const valB = getDate(b);
+
+                        return sortOrder === 'asc' ? valA - valB : valB - valA;
                     });
 
-                    // 5. GENEROWANIE HTML: Iteruj po posortowanej liście combinedItems
-                    let columnContentHTML = '';
-                    let totalRenderedTasks = 0;
+                    // 5. GENEROWANIE HTML (Naprawa zmiennej cardsHTML)
+                    let cardsHTML = ''; // <--- ZMIENNA 2: Używamy poprawnej nazwy 'cardsHTML'
 
-                    // Najpierw Sondaże (zawsze na górze)
+                    // Najpierw Sondaże (jeśli jakieś są)
                     if (state.ui.currentProjectFilters.showPolls && pollsInColumn.length > 0) {
-                        columnContentHTML += pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
-                        totalRenderedTasks += pollsInColumn.length;
+                        cardsHTML += pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
                     }
 
-                    columnContentHTML += combinedItems.map(item => {
-                        totalRenderedTasks++;
-
+                    // Potem Zadania
+                    cardsHTML += combinedItems.map(item => {
                         if (item.type === 'main') {
                             const task = item.data;
-                            const taskNumber = taskIndexMap[task.id];
+                            const taskNumber = taskIndexMap[task.id]; // To będzie undefined (OK dla dashboardu)
                             return createTaskCardHTML(task, isInteractive, item.project, colData.status, item.customColumnId, taskNumber);
                         } else {
-                            // item.type === 'subtask'
                             const { sub, parent } = item.data;
                             const parentNumber = taskIndexMap[parent.id];
                             const subIndex = (parent.subtasks || []).findIndex(s => s.id === sub.id) + 1;
@@ -16737,46 +16718,33 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         }
                     }).join('');
 
-                    // === NOWA LOGIKA: Obsługa zwijania dla Dashboardu ===
-                    // Używamy klucza 'dashboard' w obiekcie collapsedColumns
-                    const dashboardCollapsed = state.ui.collapsedColumns['dashboard'] || [];
-                    // Identyfikatorem kolumny jest 'key' (np. 'todo', 'custom_analiza')
-                    const isCollapsed = dashboardCollapsed.includes(key);
-                    const collapsedClass = isCollapsed ? 'collapsed' : '';
+                    // Liczniki dla nagłówka
+                    let totalCount = combinedItems.length + pollsInColumn.length;
 
-                    // === NOWA LOGIKA: Licznik zadań i Suma Wysiłku ===
-                    // Musimy to wygenerować, ponieważ w stanie zwiniętym CSS ukrywa standardowe liczniki
-                    // a pokazuje te wewnątrz .kanban-header-counts (zgodnie z logiką z widoku projektu)
-                    
-                    // Obliczanie sumy estymacji dla tej kolumny (opcjonalne, dla spójności)
+                    // Logika sumowania wysiłku
+                    let estimationSumHTML = '';
                     let estimationSum = 0;
                     let actualSum = 0;
                     colData.items.forEach(item => {
                          const taskData = item.type === 'main' ? item.data : item.data.sub;
-                         // Proste sumowanie, pomijamy głębszą logikę jednostek dla dashboardu, aby nie komplikować
-                         // Zakładamy, że jeśli są dane, to je sumujemy
                          estimationSum += parseFloat(taskData.estimation || taskData.effort || 0);
                          actualSum += parseFloat(taskData.actualEffort || 0);
                     });
                     
-                    let estimationSumHTML = '';
                     if (estimationSum > 0 || actualSum > 0) {
                         let color = "var(--text-secondary)";
                         if (actualSum > estimationSum) color = "var(--danger-primary)";
                         else if (actualSum > 0 && actualSum < estimationSum) color = "var(--success-primary)";
                         
-                        // Jednostka domyślna 'h/pkt' bo na dashboardzie mieszają się projekty
                         estimationSumHTML = `<span class="task-estimation-sum" title="Suma Szacowana / Rzeczywista" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">
                             ${estimationSum}/${actualSum}
                         </span>`;
                     }
 
-                    // HTML Kolumny
-                    // ZMIANA: Usunięto style inline (min-width, max-width, flex).
-                    // Teraz kolumna używa stylów z CSS (.kanban-column ma flex: 1 0 450px), co zapewnia rozciąganie.
-                    // Dodano przycisk zwijania (.collapse-column-btn).
-                    // Dodano kontenery .kanban-header-counts.
-                    // Ustawiono dataset.columnId na 'key', aby listener wiedział co zwinąć.
+                    // === NOWA LOGIKA: Obsługa zwijania dla Dashboardu ===
+                    const dashboardCollapsed = state.ui.collapsedColumns['dashboard'] || [];
+                    const isCollapsed = dashboardCollapsed.includes(key);
+                    const collapsedClass = isCollapsed ? 'collapsed' : '';
 
                     const columnHTML = `
                         <div class="kanban-column ${collapsedClass}" data-status="${colData.status}" data-column-id="${key}">
@@ -16790,12 +16758,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                                 </button>
 
                                 <div class="kanban-header-counts" style="display: flex; gap: 6px; margin-left: auto;">
-                                    <span class="task-count" title="Liczba zadań w kolumnie">${colData.items.length}</span>
+                                    <span class="task-count" title="Liczba zadań w kolumnie">${totalCount}</span>
                                     ${estimationSumHTML}
                                 </div>
                             </div>
                             <ul class="kanban-tasks">
-                                ${cardsHTML}
+                                ${cardsHTML} 
                             </ul>
                         </div>
                     `;
@@ -34392,6 +34360,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
