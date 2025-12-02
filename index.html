@@ -5942,6 +5942,52 @@
         .admin-toggle-btn.is-admin:hover svg {
             transform: scale(1.1);
         }
+
+        /* === NOWE STYLE DLA SUPER USERA === */
+        .superuser-toggle-btn {
+            background: none;
+            border: none;
+            padding: 0 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            border-radius: 4px;
+            opacity: 0.7;
+            margin-right: 4px; /* Odstęp od korony */
+        }
+        
+        .superuser-toggle-btn svg {
+            width: 20px;
+            height: 20px;
+            color: var(--text-primary); 
+            stroke: currentColor;
+            stroke-width: 2px;
+            fill: none;
+            transition: all 0.2s ease-out;
+        }
+
+        .superuser-toggle-btn:not(.is-superuser):hover svg {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+
+        .superuser-toggle-btn.is-superuser {
+            opacity: 1;
+        }
+        
+        .superuser-toggle-btn.is-superuser svg {
+            color: #8b5cf6; /* Fioletowy kolor dla SuperUsera */
+            stroke: #8b5cf6;
+            fill: rgba(139, 92, 246, 0.1); /* Lekkie wypełnienie */
+        }
+
+        /* Lepszy kontrast na zaznaczonych pigułkach */
+        .member-pill.selected .superuser-toggle-btn:not(.is-superuser) svg {
+            color: var(--text-on-accent);
+            opacity: 1;
+        }
+        /* === KONIEC NOWYCH STYLI === */
+
         /* === KONIEC: NOWE STYLE DLA PRZYCISKU ADMINISTRATORA PROJEKTU === */
         /* === POCZĄTEK: NOWE STYLE DLA PANELU BOCZNEGO AI (WERSJA HYBRYDOWA) === */
         
@@ -11585,6 +11631,11 @@ let state = {
                 return true;
             }
 
+            // 2b. Sprawdź, czy jest SuperUserem (NOWE)
+            if ((project.superUsers || []).includes(userId)) {
+                return true;
+            }
+
             // 3. Sprawdź, czy jest przypisany do zadania (działa dla 'single' i 'multi')
             if ((task.assignees || []).includes(userId)) {
                 return true;
@@ -13691,8 +13742,8 @@ async function handleRadarNodeDragEnd(e) {
         }
        
 // NOWA, UNIWERSALNA FUNKCJA DO BUDOWANIA AKORDEONU Z CZŁONKAMI ZESPOŁU (WERSJA NAPRAWIONA)
-// ZMIANA: Dodano parametr 'shouldLockOwner' (domyślnie true), aby kontrolować blokowanie właściciela
-function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null, adminIds = [], shouldLockOwner = true) {
+// ZMIANA: Dodano parametr 'superUserIds'
+function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], projectOwnerId = null, adminIds = [], shouldLockOwner = true, superUserIds = []) {
     containerElement.innerHTML = ''; // Zawsze czyścimy kontener na starcie
 
     const activeGroupId = state.ui.activeGroupId;
@@ -13771,10 +13822,27 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             const avatarHTML = renderAvatarHTML(user, 'member-pill-avatar');
             
-            let crownHTML = '';
+            let actionsHTML = ''; // Zmieniono nazwę zmiennej z crownHTML na actionsHTML
+            
             if (projectOwnerId && !isOwner) {
                 const isAdmin = (adminIds || []).includes(user.id);
-                 crownHTML = `
+                const isSuperUser = (superUserIds || []).includes(user.id);
+
+                // IKONA SUPER USERA
+                actionsHTML += `
+                    <button type="button" 
+                            class="superuser-toggle-btn ${isSuperUser ? 'is-superuser' : ''}" 
+                            data-user-id="${user.id}" 
+                            title="${isSuperUser ? 'Odbierz uprawnienia SuperUsera (Zarządzanie zadaniami)' : 'Nadaj uprawnienia SuperUsera (Zarządzanie zadaniami)'}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24">
+                            <rect x="3" y="4" width="18" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2"/>
+                            <path d="M15 9c0-1.4-1.2-2.5-3-2.5S9 7.6 9 9c0 1.3 1.1 1.9 3 2.6s3 1.2 3 2.4c0 1.4-1.2 2.5-3 2.5s-3-1.1-3-2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                `;
+
+                // IKONA ADMINA (KORONA)
+                actionsHTML += `
                     <button type="button" 
                             class="admin-toggle-btn ${isAdmin ? 'is-admin' : ''}" 
                             data-user-id="${user.id}" 
@@ -13789,12 +13857,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const pill = document.createElement('div');
             // === ZMIANA: Używamy zmiennej isDisabled zamiast isOwner ===
             pill.className = `member-pill ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}`;
-            
-            // === ZMIANA: Style dla wiersza listy ===
-            pill.style.width = '100%'; // Rozciągnij na całą szerokość
-            pill.style.justifyContent = 'flex-start'; // Wyrównaj do lewej
-            pill.style.borderRadius = '4px'; // Mniejsze zaokrąglenie dla listy
-            // === KONIEC ZMIANY ===
+            pill.style.width = '100%'; 
+            pill.style.justifyContent = 'flex-start'; 
+            pill.style.borderRadius = '4px'; 
 
             pill.dataset.userId = user.id;
             pill.title = user.name || user.email;
@@ -13805,7 +13870,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 <span style="color: var(--text-secondary); font-size: 12px; font-weight: 600; width: 25px; text-align: right; margin-right: 8px;">${index + 1}.</span>
                 ${avatarHTML} 
                 <span style="margin-left: 8px;">${user.name || user.email}</span> 
-                ${crownHTML}
+                
+                <div style="margin-left: auto; display: flex; gap: 2px;">
+                    ${actionsHTML}
+                </div>
             `;
             // === KONIEC ZMIANY ===
             
@@ -17313,11 +17381,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // --- UPRAWNIENIA ---
             const isProjectOwner = project && project.ownerId === currentUserId;
             const isProjectAdmin = project && (project.admins || []).includes(currentUserId);
+            const isProjectSuperUser = project && (project.superUsers || []).includes(currentUserId); // <-- NOWA ZMIENNA
+            
             const isMainTaskCreator = parentTask.createdBy === currentUserId;
             const isSubtaskCreator = subtask.createdBy === currentUserId;
             const isSubtaskAssignee = (subtask.assignees || []).includes(currentUserId);
 
-            const hasAccess = isProjectOwner || isProjectAdmin || isMainTaskCreator || isSubtaskCreator || isSubtaskAssignee;
+            // Dodajemy isProjectSuperUser do warunku dostępu
+            const hasAccess = isProjectOwner || isProjectAdmin || isProjectSuperUser || isMainTaskCreator || isSubtaskCreator || isSubtaskAssignee;
             const accessTooltip = !hasAccess ? 'title="Brak dostępu do szczegółów"' : '';
 
             // Używamy statusu do określenia czy zakończone
@@ -17328,13 +17399,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const isCompletedByMe = (subtask.completedBy || []).includes(currentUserId);
             // ===================================================
 
-            // Dziedziczenie koloru tła od rodzica
+           // Dziedziczenie koloru tła od rodzica
            let customStyle = '';
             if (parentTask.backgroundColor) {
                 customStyle = `style="background-color: ${parentTask.backgroundColor};"`;
             }
 
-            const canIComplete = isSubtaskAssignee || isProjectOwner || isProjectAdmin;
+            // Dodajemy isProjectSuperUser do warunku ukończenia
+            const canIComplete = isSubtaskAssignee || isProjectOwner || isProjectAdmin || isProjectSuperUser;
 
             // === POPRAWKA: Logika Checkboxa ===
             // Checkbox jest zaznaczony jeśli:
@@ -18531,13 +18603,13 @@ function handleTaskFormChange(e) {
             const currentUserId = state.currentUser.uid;
             const isOwner = project.ownerId === currentUserId;
             const isAdmin = (project.admins || []).includes(currentUserId);
+            const isSuperUser = (project.superUsers || []).includes(currentUserId); // <-- NOWE
             const isCreator = task.createdBy === currentUserId;
-            // Sprawdzamy, czy użytkownik jest przypisany do zadania
             const isAssignee = (task.assignees || []).includes(currentUserId);
 
             // === NOWA LOGIKA: BLOKADA DOSTĘPU (Privacy Guard) ===
-            // Dostęp mają: Właściciel, Admin, Twórca LUB Przypisany
-            const hasAccess = isOwner || isAdmin || isCreator || isAssignee;
+            // Dostęp mają: Właściciel, Admin, SuperUser, Twórca LUB Przypisany
+            const hasAccess = isOwner || isAdmin || isSuperUser || isCreator || isAssignee;
 
             if (!hasAccess) {
                 showNotification("Nie możesz zobaczyć szczegółów zadania. To zadanie jest przypisane do innej osoby.", "Brak dostępu");
@@ -18546,8 +18618,9 @@ function handleTaskFormChange(e) {
             // === KONIEC BLOKADY ===
 
             // Uprawnienie do EDYCJI
-            // Zwykły przypisany członek (assignee) ma TYLKO odczyt, chyba że jest też twórcą/adminem.
-            const canEdit = isOwner || isAdmin || isCreator;
+            // Zwykły przypisany członek (assignee) ma TYLKO odczyt, chyba że jest też twórcą/adminem/superUserem.
+            // SuperUser ma pełne prawo edycji zadań.
+            const canEdit = isOwner || isAdmin || isSuperUser || isCreator;
 
             // 3. Konfiguracja UI w zależności od uprawnień
             if (canEdit) {
@@ -21038,9 +21111,12 @@ if (editorNewTaskDescription) {
             editProjectModal.descriptionTextarea.value = project.description || '';
             editProjectModal.estimationTypeSelect.value = project.estimationType || 'none';
             
-            // Pobieramy listę administratorów
+            // Pobieramy listę administratorów i super userów
             const adminIds = project.admins || [];
-            buildTeamMembersAccordion(editProjectModal.membersContainer, project.members, project.ownerId, adminIds);
+            const superUserIds = project.superUsers || []; // <-- NOWA LINIA
+            
+            // Przekazujemy superUserIds jako ostatni parametr
+            buildTeamMembersAccordion(editProjectModal.membersContainer, project.members, project.ownerId, adminIds, true, superUserIds);
             
             const budgetData = project.budget;
             // Resetuj stan budżetu przed wczytaniem
@@ -24257,10 +24333,11 @@ if (transferOwnershipModal.form) {
         pill.classList.toggle('selected');
     }
 });
-        // Listener do obsługi akordeonu i pigułek w oknie "Edytuj Projekt"
+// Listener do obsługi akordeonu i pigułek w oknie "Edytuj Projekt"
 editProjectModal.membersContainer.addEventListener('click', (e) => {
     const header = e.target.closest('.department-header');
-    const crownBtn = e.target.closest('.admin-toggle-btn'); // <-- KROK 4.1: Sprawdź kliknięcie na koronę
+    const crownBtn = e.target.closest('.admin-toggle-btn'); 
+    const superUserBtn = e.target.closest('.superuser-toggle-btn'); // <-- NOWE
     const pill = e.target.closest('.member-pill:not(.disabled)');
 
     if (header) {
@@ -24270,21 +24347,31 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
             header.classList.toggle('active');
             usersContainer.classList.toggle('collapsed');
         }
-    // KROK 4.2: Dodano blok 'else if' dla korony
     } else if (crownBtn) {
         // Logika do przełączania admina
-        e.stopPropagation(); // <-- Zatrzymaj bąbelkowanie, aby nie (od)znaczyć pigułki!
+        e.stopPropagation(); 
         crownBtn.classList.toggle('is-admin');
         
-        // Zaktualizuj tytuł (tooltip)
+        // Zaktualizuj tytuł
         if (crownBtn.classList.contains('is-admin')) {
             crownBtn.title = 'Odbierz uprawnienia administratora projektu';
         } else {
             crownBtn.title = 'Nadaj uprawnienia administratora projektu';
         }
         
+    } else if (superUserBtn) { // <-- NOWY BLOK
+        // Logika do przełączania SuperUsera
+        e.stopPropagation();
+        superUserBtn.classList.toggle('is-superuser');
+
+        if (superUserBtn.classList.contains('is-superuser')) {
+            superUserBtn.title = 'Odbierz uprawnienia SuperUsera (Zarządzanie zadaniami)';
+        } else {
+            superUserBtn.title = 'Nadaj uprawnienia SuperUsera (Zarządzanie zadaniami)';
+        }
+
     } else if (pill) {
-        // Logika do zaznaczania użytkowników (bez zmian)
+        // Logika do zaznaczania użytkowników
         pill.classList.toggle('selected');
     }
 });
@@ -24508,11 +24595,14 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
 
                 const selectedMembers = Array.from(editProjectModal.membersContainer.querySelectorAll('.member-pill.selected')).map(pill => pill.dataset.userId);
                 const selectedAdminIds = Array.from(editProjectModal.membersContainer.querySelectorAll('.admin-toggle-btn.is-admin')).map(btn => btn.dataset.userId);
+                // === NOWE: Zbieranie SuperUserów ===
+                const selectedSuperUserIds = Array.from(editProjectModal.membersContainer.querySelectorAll('.superuser-toggle-btn.is-superuser')).map(btn => btn.dataset.userId);
 
                 const projectUpdates = {
                     name: newName,
                     members: selectedMembers,
                     admins: selectedAdminIds,
+                    superUsers: selectedSuperUserIds, // <-- ZAPISUJEMY DO BAZY
                     startDate: editProjectModal.startDateInput.value,
                     endDate: editProjectModal.endDateInput.value,
                     priority: editProjectModal.prioritySelect.value,
@@ -25222,7 +25312,8 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
           let updatedTask = { ...task };
           const oldStatus = updatedTask.status;
           const currentUserId = state.currentUser.uid;
-          const isOverride = project.ownerId === currentUserId || (project.admins || []).includes(currentUserId);
+          // Definicja Override: Właściciel, Admin LUB SuperUser
+          const isOverride = project.ownerId === currentUserId || (project.admins || []).includes(currentUserId) || (project.superUsers || []).includes(currentUserId);
           const isChecked = checkbox.checked; // Nowy docelowy stan checkboxa
 
           // --- BLOKADA 1: Podstawowe uprawnienia (Auth) ---
@@ -27468,7 +27559,8 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             }
 
             const currentUserId = state.currentUser.uid;
-            const isOverride = (project.ownerId === currentUserId || (project.admins || []).includes(currentUserId));
+            // Definicja Override: Właściciel, Admin LUB SuperUser
+            const isOverride = (project.ownerId === currentUserId || (project.admins || []).includes(currentUserId) || (project.superUsers || []).includes(currentUserId));
 
             // === OBSŁUGA PODZADANIA (PRZESUWANIE KAFELKA PODZADANIA) ===
             if (isSubtask) {
@@ -27993,8 +28085,14 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             const { task, project } = findTask(taskId);
 
             if (!task || !project) return;
-            if (task.createdBy !== state.currentUser.uid && project.ownerId !== state.currentUser.uid) {
-                showNotification("Nie masz uprawnień do usunięcia tego zadania. Musisz być twórcą zadania lub właścicielem projektu.", "Błąd");
+
+            // Sprawdzamy czy użytkownik jest adminem lub super userem
+            const isAdminOrSuper = (project.admins || []).includes(state.currentUser.uid) || 
+                                   (project.superUsers || []).includes(state.currentUser.uid);
+
+            // Rozszerzamy warunek: Twórca LUB Właściciel LUB (Admin/SuperUser)
+            if (task.createdBy !== state.currentUser.uid && project.ownerId !== state.currentUser.uid && !isAdminOrSuper) {
+                showNotification("Nie masz uprawnień do usunięcia tego zadania.", "Błąd");
                 return;
             }
 
@@ -30318,7 +30416,10 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
                      subtaskChanged = true;
 
-                     const isOverride = project.ownerId === currentUserId || (project.admins || []).includes(currentUserId);
+                     // Dodajemy sprawdzenie tablicy superUsers
+                     const isOverride = project.ownerId === currentUserId || 
+                                        (project.admins || []).includes(currentUserId) || 
+                                        (project.superUsers || []).includes(currentUserId);
 
                      let newCompletedBy = [...(s.completedBy || [])];
                      let isNowCompleted = s.isCompleted;
@@ -30457,6 +30558,7 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              const canDelete = mainTask.createdBy === state.currentUser.uid ||
                                project.ownerId === state.currentUser.uid ||
                                (project.admins || []).includes(state.currentUser.uid) || 
+                               (project.superUsers || []).includes(state.currentUser.uid) || // <-- NOWY WARUNEK
                                (subtaskToDelete.assignees || []).includes(state.currentUser.uid);
 
              if (!canDelete) {
@@ -34359,6 +34461,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
