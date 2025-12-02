@@ -14059,9 +14059,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
     });
 }
       /**
-         * ZAKTUALIZOWANA FUNKCJA: Renderuje prawą kolumnę z interaktywnym wyborem ról.
+         * NOWA FUNKCJA: Renderuje prawą kolumnę z listą wybranych i interaktywnymi rolami.
          */
         function renderSelectedMembersColumn(leftContainer, rightContainer, ownerId = null, adminIds = [], superUserIds = []) {
+            // 1. Pobierz zaznaczone w lewej kolumnie
             const selectedPills = Array.from(leftContainer.querySelectorAll('.member-pill.selected'));
             
             rightContainer.innerHTML = ''; 
@@ -14075,33 +14076,27 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 const userId = pill.dataset.userId;
                 const user = findUser(userId);
                 if (!user) return;
-                
+
                 const isOwner = userId === ownerId;
+                const isAdmin = adminIds.includes(userId);
+                const isSuperUser = superUserIds.includes(userId);
 
-                // === OD CZYT ROLES Z LEWEJ KOLUMNY (Źródło Prawdy) ===
-                // Sprawdzamy, czy w lewej kolumnie przyciski mają klasę 'is-admin' / 'is-superuser'
-                const adminBtnSource = pill.querySelector('.admin-toggle-btn');
-                const superBtnSource = pill.querySelector('.superuser-toggle-btn');
-                
-                const isAdmin = adminBtnSource && adminBtnSource.classList.contains('is-admin');
-                const isSuperUser = superBtnSource && superBtnSource.classList.contains('is-superuser');
-
-                // Ustal Etykietę i Kolor
+                // Etykieta roli
                 let roleLabel = 'Uczestnik';
-                let roleColor = 'var(--bg-tertiary)'; 
+                let roleColor = 'var(--bg-tertiary)';
                 
                 if (isOwner) {
                     roleLabel = 'Właściciel';
-                    roleColor = '#fef3c7'; // Złoty
+                    roleColor = '#fef3c7';
                 } else if (isSuperUser) {
                     roleLabel = 'Super User';
-                    roleColor = '#f3e8ff'; // Fioletowy
+                    roleColor = '#f3e8ff';
                 } else if (isAdmin) {
                     roleLabel = 'Admin';
-                    roleColor = '#e0f2fe'; // Niebieski
+                    roleColor = '#e0f2fe';
                 }
 
-                // Przyciski sterowania rolami (nie dla Właściciela)
+                // Przyciski ról (nie dla właściciela)
                 let roleActionsHTML = '';
                 if (!isOwner) {
                     roleActionsHTML = `
@@ -14120,18 +14115,16 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         </div>
                     `;
                 } else {
-                    // Dla właściciela pusty separator
                     roleActionsHTML = `<div style="margin-left: auto; margin-right: 8px;"></div>`;
                 }
 
+                // Przycisk usuwania (tylko jeśli nie zablokowany - np. właściciel)
                 const isLocked = pill.classList.contains('disabled');
-                const removeBtnHTML = isLocked 
-                    ? '' 
-                    : `<button type="button" class="selected-member-remove" title="Usuń z listy">&times;</button>`;
+                const removeBtnHTML = isLocked ? '' : `<button type="button" class="selected-member-remove" title="Usuń z listy">&times;</button>`;
 
                 const row = document.createElement('div');
                 row.className = 'selected-member-row';
-                row.dataset.userId = userId; 
+                row.dataset.userId = userId;
                 
                 row.innerHTML = `
                     <div class="selected-member-info" style="flex-grow: 1;">
@@ -14146,7 +14139,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     ${roleActionsHTML}
                     ${removeBtnHTML}
                 `;
-
                 rightContainer.appendChild(row);
             });
         }
@@ -24590,61 +24582,120 @@ if (transferOwnershipModal.form) {
             }
         });
 
-       newProjectBtn.addEventListener('click', () => {
-            // ... (resetowanie formularza - bez zmian) ...
+       // A. OTWIERANIE MODALA NOWEGO PROJEKTU
+        newProjectBtn.addEventListener('click', () => {
             newProjectModal.form.reset();
             newProjectModal.memberSearchInput.value = '';
             newProjectModal.memberSearchResults.innerHTML = '';
             newProjectModal.memberSearchResults.classList.remove('visible');
+            
             const today = new Date();
             const formattedDate = today.toISOString().split('T')[0];
             newProjectModal.startDateInput.value = formattedDate;
 
-            // === NOWOŚĆ: Inicjalizacja tymczasowych tablic ról dla nowego projektu ===
+            // 1. Inicjalizacja tymczasowych ról
             newProjectModal.currentAdminIds = [];
             newProjectModal.currentSuperUserIds = [];
-            // === KONIEC ===
 
-            // 1. Budujemy Lewą Kolumnę (Akordeon) - Domyślnie zaznaczony tylko ja
+            // 2. Budowa Lewej Kolumny (Akordeon)
             buildTeamMembersAccordion(newProjectModal.membersContainer, [state.currentUser.uid]);
-
-            // 2. Renderujemy Prawą Kolumnę (Inicjalizacja)
+            
+            // 3. Render Prawej Kolumny (Start)
             const rightCol = document.getElementById('new-project-selected-list');
             renderSelectedMembersColumn(
                 newProjectModal.membersContainer, 
-                rightCol,                         
-                state.currentUser.uid,            
-                newProjectModal.currentAdminIds, // Przekazujemy puste tablice
-                newProjectModal.currentSuperUserIds                                
+                rightCol, 
+                state.currentUser.uid, 
+                newProjectModal.currentAdminIds, 
+                newProjectModal.currentSuperUserIds
             );
             
             openModal(newProjectModal.overlay);
         });
 
-        newProjectModal.membersContainer.addEventListener('click', (e) => {
+        // B. LEWA KOLUMNA (Kliknięcie)
+        // Używamy onclick dla pewności nadpisania starych listenerów
+        newProjectModal.membersContainer.onclick = (e) => {
             const header = e.target.closest('.department-header');
             const pill = e.target.closest('.member-pill:not(.disabled)');
 
             if (header) {
                 const usersContainer = header.nextElementSibling;
-                if (usersContainer && usersContainer.classList.contains('department-users')) {
+                if (usersContainer) {
                     header.classList.toggle('active');
                     usersContainer.classList.toggle('collapsed');
                 }
             } else if (pill) {
                 pill.classList.toggle('selected');
                 
-                // === NOWOŚĆ: Odśwież prawą kolumnę po kliknięciu w lewej ===
+                const userId = pill.dataset.userId;
+                const isSelected = pill.classList.contains('selected');
+
+                // Jeśli odznaczono, usuń z ról
+                if (!isSelected) {
+                    newProjectModal.currentAdminIds = newProjectModal.currentAdminIds.filter(id => id !== userId);
+                    newProjectModal.currentSuperUserIds = newProjectModal.currentSuperUserIds.filter(id => id !== userId);
+                }
+                
+                // Odśwież prawą
                 const rightCol = document.getElementById('new-project-selected-list');
                 renderSelectedMembersColumn(
-                    newProjectModal.membersContainer, 
-                    rightCol, 
-                    state.currentUser.uid, // Owner ID
-                    [], 
-                    []
+                    newProjectModal.membersContainer, rightCol, state.currentUser.uid, 
+                    newProjectModal.currentAdminIds, newProjectModal.currentSuperUserIds
                 );
             }
-        });
+        };
+
+        // C. PRAWA KOLUMNA (Kliknięcie)
+        const newProjectRightCol = document.getElementById('new-project-selected-list');
+        if (newProjectRightCol) {
+            newProjectRightCol.onclick = (e) => {
+                const userId = e.target.closest('.selected-member-row')?.dataset.userId;
+                if (!userId) return;
+
+                // 1. Usuwanie
+                if (e.target.closest('.selected-member-remove')) {
+                    const pill = newProjectModal.membersContainer.querySelector(`.member-pill[data-user-id="${userId}"]`);
+                    if (pill) {
+                        pill.classList.remove('selected');
+                        // Sprzątanie ról
+                        newProjectModal.currentAdminIds = newProjectModal.currentAdminIds.filter(id => id !== userId);
+                        newProjectModal.currentSuperUserIds = newProjectModal.currentSuperUserIds.filter(id => id !== userId);
+                        
+                        renderSelectedMembersColumn(
+                            newProjectModal.membersContainer, newProjectRightCol, state.currentUser.uid,
+                            newProjectModal.currentAdminIds, newProjectModal.currentSuperUserIds
+                        );
+                    }
+                    return;
+                }
+
+                // 2. Role (Admin/SuperUser)
+                const roleBtn = e.target.closest('.role-btn');
+                if (roleBtn) {
+                    const roleType = roleBtn.dataset.role;
+                    
+                    if (roleType === 'admin') {
+                        if (newProjectModal.currentAdminIds.includes(userId)) {
+                            newProjectModal.currentAdminIds = newProjectModal.currentAdminIds.filter(id => id !== userId);
+                        } else {
+                            newProjectModal.currentAdminIds.push(userId);
+                        }
+                    } else if (roleType === 'superuser') {
+                        if (newProjectModal.currentSuperUserIds.includes(userId)) {
+                            newProjectModal.currentSuperUserIds = newProjectModal.currentSuperUserIds.filter(id => id !== userId);
+                        } else {
+                            newProjectModal.currentSuperUserIds.push(userId);
+                        }
+                    }
+
+                    renderSelectedMembersColumn(
+                        newProjectModal.membersContainer, newProjectRightCol, state.currentUser.uid,
+                        newProjectModal.currentAdminIds, newProjectModal.currentSuperUserIds
+                    );
+                }
+            };
+        }
 
        // === ZAKTUALIZOWANY LISTENER: Kliknięcie w prawej kolumnie (Nowy Projekt) ===
         const newProjectRightCol = document.getElementById('new-project-selected-list');
@@ -34945,6 +34996,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
