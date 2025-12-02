@@ -16534,16 +16534,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
            const renderMyTasksKanban = (items, targetElement) => {
                 targetElement.innerHTML = '';
                 
-                // === NAPRAWA BŁĘDU (CRITICAL): Definicja interaktywności ===
-                // Dashboard jest interaktywny (można klikać/przesuwać), więc ustawiamy na true.
-                const isInteractive = true;
-                // ===========================================================
-
-                // === NAPRAWA BŁĘDU: Definicja pustej mapy indeksów ===
-                // Na Dashboardzie nie numerujemy zadań (WBS), więc mapa jest pusta.
-                const taskIndexMap = {}; 
-                // =====================================================
-
                 // 1. Konfiguracja kontenera (Poziomy przewijany pasek)
                 targetElement.style.display = 'flex';
                 targetElement.style.flexWrap = 'nowrap'; // Ważne: Nie zawijaj kolumn
@@ -16636,115 +16626,95 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 sortedKeys.forEach(key => {
                     const colData = columnsMap.get(key);
                     
-                    // ZMIENNA 1: Definicja pustej tablicy sondaży dla Dashboardu (Naprawa ReferenceError)
-                    let pollsInColumn = []; 
-
                     // Definiujemy kolumny standardowe
                     const isStandard = ['todo', 'inprogress_default', 'done'].includes(key);
                     
                     // ZASADA 1: Ukryj kolumny NIESTANDARDOWE, jeśli są puste
                     if (!isStandard && colData.items.length === 0) return;
 
-                    // 3. SCALANIE: Utwórz wspólną tablicę wszystkich elementów
-                    let combinedItems = [];
+                    // === NOWE: SORTOWANIE WG DATY (MAIN + STANDALONE SUBTASKS) ===
+                    const sortOrder = state.ui.sortMyTasksByDate || 'asc';
 
-                    // Dodaj Zadania Główne i Podzadania do jednej listy
-                    colData.items.forEach(item => {
-                        if (item.type === 'main') {
-                            combinedItems.push({
-                                type: 'main',
-                                data: item.data,
-                                project: item.project,
-                                // Używamy customOrder. Jeśli brak, dajemy 999999 (na koniec)
-                                order: (item.data.customOrder !== undefined) ? item.data.customOrder : 999999
-                            });
-                        } else {
-                            combinedItems.push({
-                                type: 'subtask',
-                                data: item.data, 
-                                project: item.project,
-                                order: (item.data.sub.customOrder !== undefined) ? item.data.sub.customOrder : 999999
-                            });
-                        }
-                    });
-
-                    // 4. SORTOWANIE HYBRYDOWE: Custom Order (Priorytet) -> Data (Fallback)
-                    combinedItems.sort((a, b) => {
-                        const orderA = a.order;
-                        const orderB = b.order;
-
-                        // 1. Najpierw sortuj wg ręcznie ustalonej kolejności
-                        if (orderA !== orderB) {
-                            return orderA - orderB;
-                        }
-
-                        // 2. Jeśli kolejność ręczna jest taka sama, sortuj wg daty
-                        const sortOrder = state.ui.sortMyTasksByDate || 'asc';
-                        
+                    colData.items.sort((a, b) => {
+                        // Funkcja pomocnicza do wyciągania daty z obu typów obiektów
                         const getDate = (item) => {
                             let dateVal = null;
-                            if (item.type === 'main') dateVal = item.data.dueDate;
-                            else dateVal = item.data.sub.dueDate;
-                            return dateVal ? new Date(dateVal).getTime() : (sortOrder === 'asc' ? Infinity : -Infinity);
+                            if (item.type === 'main') {
+                                dateVal = item.data.dueDate;
+                            } else { // item.type === 'subtask'
+                                dateVal = item.data.sub.dueDate;
+                            }
+                            return dateVal ? new Date(dateVal).getTime() : null;
                         };
 
-                        const valA = getDate(a);
-                        const valB = getDate(b);
+                        const timeA = getDate(a);
+                        const timeB = getDate(b);
 
-                        return sortOrder === 'asc' ? valA - valB : valB - valA;
+                        // Ustal wartość dla braku daty (Infinity wrzuca na koniec)
+                        const valA = timeA !== null ? timeA : (sortOrder === 'asc' ? Infinity : -Infinity);
+                        const valB = timeB !== null ? timeB : (sortOrder === 'asc' ? Infinity : -Infinity);
+
+                        if (valA !== valB) {
+                            return sortOrder === 'asc' ? valA - valB : valB - valA;
+                        }
+
+                        // Jeśli daty są równe, zachowaj stabilność (lub sortuj po ID/Tytule)
+                        return 0;
                     });
+                    // === KONIEC SORTOWANIA ===
 
-                    // 5. GENEROWANIE HTML (Naprawa zmiennej cardsHTML)
-                    let cardsHTML = ''; // <--- ZMIENNA 2: Używamy poprawnej nazwy 'cardsHTML'
-
-                    // Najpierw Sondaże (jeśli jakieś są)
-                    if (state.ui.currentProjectFilters.showPolls && pollsInColumn.length > 0) {
-                        cardsHTML += pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
-                    }
-
-                    // Potem Zadania
-                    cardsHTML += combinedItems.map(item => {
+                    // Generowanie kafelków
+                    const cardsHTML = colData.items.map(item => {
                         if (item.type === 'main') {
-                            const task = item.data;
-                            const taskNumber = taskIndexMap[task.id]; // To będzie undefined (OK dla dashboardu)
-                            return createTaskCardHTML(task, isInteractive, item.project, colData.status, item.customColumnId, taskNumber);
+                            // ZADANIE GŁÓWNE
+                            return createTaskCardHTML(item.data, true, item.project, colData.status, item.customColumnId);
                         } else {
+                            // PODZADANIE (Niezależny kafelek)
                             const { sub, parent } = item.data;
-                            const parentNumber = taskIndexMap[parent.id];
-                            const subIndex = (parent.subtasks || []).findIndex(s => s.id === sub.id) + 1;
-                            const wbsNumber = parentNumber ? `${parentNumber}.${subIndex}` : '';
-                            
-                            return createVisualSubtaskCardHTML(sub, parent, item.project, 'standalone', wbsNumber);
+                            return createVisualSubtaskCardHTML(sub, parent, item.project, 'standalone');
                         }
                     }).join('');
 
-                    // Liczniki dla nagłówka
-                    let totalCount = combinedItems.length + pollsInColumn.length;
+                    // === NOWA LOGIKA: Obsługa zwijania dla Dashboardu ===
+                    // Używamy klucza 'dashboard' w obiekcie collapsedColumns
+                    const dashboardCollapsed = state.ui.collapsedColumns['dashboard'] || [];
+                    // Identyfikatorem kolumny jest 'key' (np. 'todo', 'custom_analiza')
+                    const isCollapsed = dashboardCollapsed.includes(key);
+                    const collapsedClass = isCollapsed ? 'collapsed' : '';
 
-                    // Logika sumowania wysiłku
-                    let estimationSumHTML = '';
+                    // === NOWA LOGIKA: Licznik zadań i Suma Wysiłku ===
+                    // Musimy to wygenerować, ponieważ w stanie zwiniętym CSS ukrywa standardowe liczniki
+                    // a pokazuje te wewnątrz .kanban-header-counts (zgodnie z logiką z widoku projektu)
+                    
+                    // Obliczanie sumy estymacji dla tej kolumny (opcjonalne, dla spójności)
                     let estimationSum = 0;
                     let actualSum = 0;
                     colData.items.forEach(item => {
                          const taskData = item.type === 'main' ? item.data : item.data.sub;
+                         // Proste sumowanie, pomijamy głębszą logikę jednostek dla dashboardu, aby nie komplikować
+                         // Zakładamy, że jeśli są dane, to je sumujemy
                          estimationSum += parseFloat(taskData.estimation || taskData.effort || 0);
                          actualSum += parseFloat(taskData.actualEffort || 0);
                     });
                     
+                    let estimationSumHTML = '';
                     if (estimationSum > 0 || actualSum > 0) {
                         let color = "var(--text-secondary)";
                         if (actualSum > estimationSum) color = "var(--danger-primary)";
                         else if (actualSum > 0 && actualSum < estimationSum) color = "var(--success-primary)";
                         
+                        // Jednostka domyślna 'h/pkt' bo na dashboardzie mieszają się projekty
                         estimationSumHTML = `<span class="task-estimation-sum" title="Suma Szacowana / Rzeczywista" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">
                             ${estimationSum}/${actualSum}
                         </span>`;
                     }
 
-                    // === NOWA LOGIKA: Obsługa zwijania dla Dashboardu ===
-                    const dashboardCollapsed = state.ui.collapsedColumns['dashboard'] || [];
-                    const isCollapsed = dashboardCollapsed.includes(key);
-                    const collapsedClass = isCollapsed ? 'collapsed' : '';
+                    // HTML Kolumny
+                    // ZMIANA: Usunięto style inline (min-width, max-width, flex).
+                    // Teraz kolumna używa stylów z CSS (.kanban-column ma flex: 1 0 450px), co zapewnia rozciąganie.
+                    // Dodano przycisk zwijania (.collapse-column-btn).
+                    // Dodano kontenery .kanban-header-counts.
+                    // Ustawiono dataset.columnId na 'key', aby listener wiedział co zwinąć.
 
                     const columnHTML = `
                         <div class="kanban-column ${collapsedClass}" data-status="${colData.status}" data-column-id="${key}">
@@ -16758,12 +16728,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                                 </button>
 
                                 <div class="kanban-header-counts" style="display: flex; gap: 6px; margin-left: auto;">
-                                    <span class="task-count" title="Liczba zadań w kolumnie">${totalCount}</span>
+                                    <span class="task-count" title="Liczba zadań w kolumnie">${colData.items.length}</span>
                                     ${estimationSumHTML}
                                 </div>
                             </div>
                             <ul class="kanban-tasks">
-                                ${cardsHTML} 
+                                ${cardsHTML}
                             </ul>
                         </div>
                     `;
@@ -27264,59 +27234,46 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 const project = findProject(state.currentProjectId);
                 if (!project) return;
 
-                // 1. Toggle kierunku
+                // 1. Toggle kierunku (dla UX, żeby wiedzieć jak sortować)
                 const currentOrder = state.ui.projectSortOrders[state.currentProjectId] || 'asc';
                 const newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
                 state.ui.projectSortOrders[state.currentProjectId] = newOrder;
 
-                // Komunikat informujący, że to resetuje ręczny porządek
-                showNotification(`Resetowanie kolejności do: Data ${newOrder === 'asc' ? 'rosnąco' : 'malejąco'}...`, "Info");
+                showNotification("Porządkowanie zadań według daty...", "Info");
 
-                // 2. GLOBALNE SORTOWANIE (PŁASKIE)
-                // Tworzymy jedną listę zawierającą wszystkie byty (zadania i podzadania)
-                let allEntities = [];
+                // 2. Zbierzemy wszystkie zadania (i podzadania) i nadamy im nowy customOrder
+                // Logika jest skomplikowana, bo customOrder jest per kolumna (nie globalny),
+                // ale najprościej jest posortować całą tablicę `tasks` wg daty i nadać im indeksy 0..N.
+                // To zadziała, bo `renderKanbanBoard` dzieli je potem na kolumny, zachowując względną kolejność indeksów.
 
-                project.tasks.forEach(t => {
-                    // Dodaj zadanie główne
-                    allEntities.push({ type: 'main', id: t.id, date: t.dueDate, obj: t });
-                    
-                    // Dodaj jego podzadania
-                    if (t.subtasks && t.subtasks.length > 0) {
-                        t.subtasks.forEach(sub => {
-                            allEntities.push({ type: 'subtask', id: sub.id, date: sub.dueDate, obj: sub });
+                const sortedTasks = [...project.tasks];
+                
+                // Funkcja pomocnicza do wyciągania czasu
+                const getTime = (t) => t.dueDate ? new Date(t.dueDate).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
+
+                // Sortujemy główne zadania
+                sortedTasks.sort((a, b) => {
+                    return newOrder === 'asc' ? getTime(a) - getTime(b) : getTime(b) - getTime(a);
+                });
+
+                // Nadajemy nowe indeksy (globalnie dla listy, co przełoży się na kolejność w kolumnach)
+                const updatedTasks = sortedTasks.map((t, index) => {
+                    // Sortujemy też podzadania wewnątrz zadania
+                    let sortedSubtasks = t.subtasks || [];
+                    if (sortedSubtasks.length > 0) {
+                        sortedSubtasks.sort((sa, sb) => {
+                             const sTimeA = sa.dueDate ? new Date(sa.dueDate).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
+                             const sTimeB = sb.dueDate ? new Date(sb.dueDate).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
+                             return newOrder === 'asc' ? sTimeA - sTimeB : sTimeB - sTimeA;
                         });
-                    }
-                });
-
-                // Funkcja pomocnicza do czasu
-                const getTime = (dateStr) => dateStr ? new Date(dateStr).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
-
-                // Sortujemy wszystko razem
-                allEntities.sort((a, b) => {
-                    return newOrder === 'asc' ? getTime(a.date) - getTime(b.date) : getTime(b.date) - getTime(a.date);
-                });
-
-                // Tworzymy mapę: ID -> Nowy Globalny Index
-                const rankMap = new Map();
-                allEntities.forEach((item, index) => {
-                    rankMap.set(item.id, index); // Index 0..N w skali całego projektu
-                });
-
-                // Aplikujemy nowe indeksy do struktury projektu
-                const updatedTasks = project.tasks.map(t => {
-                    // Aktualizuj podzadania
-                    let updatedSubtasks = t.subtasks || [];
-                    if (updatedSubtasks.length > 0) {
-                        updatedSubtasks = updatedSubtasks.map(sub => ({
-                            ...sub,
-                            customOrder: rankMap.has(sub.id) ? rankMap.get(sub.id) : 999999
-                        }));
+                        // Nadaj im też order
+                        sortedSubtasks = sortedSubtasks.map((sub, subIndex) => ({ ...sub, customOrder: subIndex }));
                     }
 
-                    return {
-                        ...t,
-                        customOrder: rankMap.has(t.id) ? rankMap.get(t.id) : 999999,
-                        subtasks: updatedSubtasks
+                    return { 
+                        ...t, 
+                        customOrder: index, // Nadpisujemy customOrder wynikający z daty
+                        subtasks: sortedSubtasks
                     };
                 });
 
@@ -27324,8 +27281,8 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 try {
                      const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                      await updateDoc(projectDocRef, { tasks: updatedTasks });
-                     saveUiState(); 
-                     // onSnapshot odświeży widok, a nowa logika renderKanbanBoard użyje tych nowych customOrder
+                     saveUiState(); // Zapisz preferencję kierunku
+                     // render() wywoła się sam przez onSnapshot
                 } catch (e) {
                     console.error("Błąd sortowania:", e);
                     showNotification("Błąd zapisu sortowania.", "Błąd");
@@ -27641,69 +27598,57 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             const { project } = findTask(projectId) || { project: findProject(projectId) };
             if (!project) return;
 
-            // 1. Pobierz kafelki z kolumny
-            // UWAGA: Używamy :scope > ..., aby pobrać tylko bezpośrednie dzieci (karty), 
-            // a nie zagnieżdżone w nich inne karty (co nie powinno mieć miejsca, ale dla bezpieczeństwa)
-            // W SortableJS karty są w elemencie 'ul.kanban-tasks'. 
-            // Argument 'columnElement' w wywołaniu 'onEnd' to 'evt.to', czyli właśnie ten UL.
-            const cards = Array.from(columnElement.children).filter(el => 
-                el.classList.contains('task-card') || el.classList.contains('subtask-visual-card')
-            );
+            // 1. Pobierz wszystkie kafelki w tej kolumnie w aktualnej kolejności DOM
+            // (Zarówno .task-card jak i .subtask-visual-card)
+            const cards = Array.from(columnElement.querySelectorAll('.task-card, .subtask-visual-card'));
             
             if (cards.length === 0) return;
 
-            console.log(`[persistColumnOrder] Zapisywanie kolejności dla ${cards.length} elementów...`);
-
-            // 2. Mapa kolejności
+            // 2. Stwórz mapę nowej kolejności: { "ID_ELEMENTU": NOWY_INDEX }
             const orderMap = new Map();
             cards.forEach((card, index) => {
+                // Dla podzadania bierzemy subtaskId, dla zadania taskId
                 const id = card.dataset.subtaskId || card.dataset.taskId;
                 if (id) orderMap.set(id, index);
             });
 
-            // 3. Aktualizacja w pamięci
+            // 3. Zaktualizuj strukturę danych projektu w pamięci (lokalnie)
             let tasksUpdated = false;
             const updatedTasks = project.tasks.map(t => {
                 let taskModified = false;
                 let newTask = { ...t };
 
-                // A. Zadanie Główne
+                // A. Sprawdź, czy to Zadanie Główne ma nową pozycję
                 if (orderMap.has(t.id)) {
                     newTask.customOrder = orderMap.get(t.id);
                     taskModified = true;
                 }
 
-                // B. Podzadania
+                // B. Sprawdź, czy jakiekolwiek jego Podzadanie ma nową pozycję
                 if (newTask.subtasks && newTask.subtasks.length > 0) {
                     const updatedSubtasks = newTask.subtasks.map(sub => {
                         if (orderMap.has(sub.id)) {
                             taskModified = true;
-                            // Ważne: Aktualizujemy customOrder podzadania
                             return { ...sub, customOrder: orderMap.get(sub.id) };
                         }
                         return sub;
                     });
-                    // Sprawdzamy czy tablica podzadań faktycznie się zmieniła (dla optymalizacji taskModified)
-                    if (JSON.stringify(newTask.subtasks) !== JSON.stringify(updatedSubtasks)) {
-                         newTask.subtasks = updatedSubtasks;
-                         taskModified = true; // Oznaczamy zadanie główne jako zmienione, bo jego podzadanie się zmieniło
-                    }
+                    newTask.subtasks = updatedSubtasks;
                 }
 
                 if (taskModified) tasksUpdated = true;
                 return newTask;
             });
 
-            if (!tasksUpdated) {
-                console.log("[persistColumnOrder] Brak zmian w strukturze danych.");
-                return; 
-            }
+            if (!tasksUpdated) return; // Nic się nie zmieniło w tej kolumnie
 
-            // 4. Zapis do Firestore
+            // 4. Zapisz do Firestore
             try {
                 const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                
+                // Używamy updateDoc, aby nadpisać tablicę tasks nowymi wartościami customOrder
                 await updateDoc(projectDocRef, { tasks: updatedTasks });
-                console.log('[persistColumnOrder] Kolejność zaktualizowana w bazie.');
+                console.log('Kolejność kolumny zaktualizowana.');
             } catch (error) {
                 console.error("Błąd zapisu kolejności:", error);
                 showNotification("Nie udało się zapisać kolejności.", "Błąd");
@@ -34387,12 +34332,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
-
-
-
-
-
-
 
 
 
