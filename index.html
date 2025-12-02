@@ -12835,19 +12835,15 @@ function drawRadarChart(allProjects) {
     svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
     svg.classList.add("radar-svg");
 
-   // --- DEFINICJE ---
+  // --- DEFINICJE ---
     const defs = document.createElementNS(svgNS, "defs");
-    // Generujemy unikalne ID, aby uniknąć konfliktów przy przerysowywaniu (filtry)
-    const uniqueClipId = `radar-clip-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-
+    
+    // ZMIANA: Usunięto clipPath, ponieważ przechodzimy na stabilniejszą metodę <pattern>
     defs.innerHTML = `
         <radialGradient id="radar-glow" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
             <stop offset="0%" stop-color="var(--accent-primary)" stop-opacity="0.1" />
             <stop offset="100%" stop-color="var(--bg-primary)" stop-opacity="0" />
         </radialGradient>
-        <clipPath id="${uniqueClipId}">
-            <circle cx="0" cy="0" r="14" />
-        </clipPath>
     `;
     svg.appendChild(defs);
 
@@ -13289,26 +13285,45 @@ function drawRadarChart(allProjects) {
         g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
 
         if (pos.userObj.photoURL) {
-            // === NAPRAWA DEFINITYWNA: Natywny SVG Image + ClipPath ===
-            // Zastępujemy foreignObject (HTML w SVG) czystym elementem obrazka SVG.
-            // Wykorzystujemy zdefiniowany wcześniej w <defs> clipPath id="radar-avatar-clip".
+            // === NAPRAWA OSTATECZNA: Wypełnienie Wzorcem (Pattern Fill) ===
+            // Ta metoda jest najstabilniejsza. Zamiast przycinać obrazek,
+            // tworzymy "farbę" (pattern) ze zdjęcia i malujemy nią koło.
             
+            // 1. Generujemy unikalne ID dla wzorca tego konkretnego użytkownika
+            const patternId = `pat-${pos.userObj.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+            
+            // 2. Tworzymy definicję wzorca
+            const pattern = document.createElementNS(svgNS, "pattern");
+            pattern.setAttribute("id", patternId);
+            pattern.setAttribute("patternContentUnits", "objectBoundingBox"); // Skalowanie 0..1
+            pattern.setAttribute("width", "100%");
+            pattern.setAttribute("height", "100%");
+            
+            // 3. Wstawiamy obrazek do wzorca
             const img = document.createElementNS(svgNS, "image");
-            img.setAttribute("x", -14);
-            img.setAttribute("y", -14);
-            img.setAttribute("width", 28);
-            img.setAttribute("height", 28);
             img.setAttribute("href", pos.userObj.photoURL);
+            img.setAttribute("width", "1");  // 1 = 100% w objectBoundingBox
+            img.setAttribute("height", "1"); // 1 = 100% w objectBoundingBox
+            img.setAttribute("preserveAspectRatio", "xMidYMid slice"); // Odpowiednik object-fit: cover
             
-            // Kluczowe: Przycięcie do koła (używamy dynamicznego ID)
-            img.setAttribute("clip-path", `url(#${uniqueClipId})`);
+            pattern.appendChild(img);
             
-            // Zachowanie proporcji (odpowiednik object-fit: cover)
-            img.setAttribute("preserveAspectRatio", "xMidYMid slice");
+            // 4. Dodajemy wzorzec do sekcji <defs> (która jest zdefiniowana na początku funkcji)
+            defs.appendChild(pattern);
             
-            img.style.pointerEvents = "none"; // Tooltip jest na grupie 'g'
+            // 5. Rysujemy koło wypełnione tym wzorcem
+            const circle = document.createElementNS(svgNS, "circle");
+            circle.setAttribute("cx", 0);
+            circle.setAttribute("cy", 0);
+            circle.setAttribute("r", 14);
+            circle.style.fill = `url(#${patternId})`; // Wypełnij zdjęciem
+            circle.style.pointerEvents = "none";
 
-            g.appendChild(img);
+            // Opcjonalnie: Delikatna ramka, aby zdjęcie nie zlewało się z tłem
+            circle.style.stroke = "rgba(255,255,255,0.2)";
+            circle.style.strokeWidth = "1px";
+
+            g.appendChild(circle);
         } else {
             // Fallback na inicjały (gdy brak zdjęcia)
             const circle = document.createElementNS(svgNS, "circle");
@@ -35056,6 +35071,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
