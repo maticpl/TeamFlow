@@ -7405,6 +7405,48 @@ body.compact-mode .comment-item {
             display: block; 
         }
 
+        /* === NOWE STYLE: WARSTWA HTML DLA RADARU === */
+        #radar-movable-layer {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            /* Wymiary muszą być identyczne jak w JS (size = 920) */
+            width: 920px;  
+            height: 920px; 
+            transform-origin: center center;
+            /* Przesunięcie o połowę, aby środek był w centrum */
+            margin-top: -460px; 
+            margin-left: -460px;
+            pointer-events: none; /* Pozwala klikać "przez" warstwę w tło do przesuwania */
+        }
+
+        .radar-avatar-html {
+            position: absolute;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background-size: cover;
+            background-position: center;
+            border: 2px solid var(--accent-primary);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            cursor: pointer;
+            z-index: 10; /* Musi być nad SVG */
+            pointer-events: auto; /* Przywraca klikalność dla awatara */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-primary);
+            background-color: var(--bg-tertiary);
+            transition: transform 0.2s;
+        }
+        .radar-avatar-html:hover {
+            transform: scale(1.2);
+            z-index: 100;
+            border-color: var(--text-primary);
+        }
+
         /* Tarcza - ZWIĘKSZONA WIDOCZNOŚĆ */
         .radar-ring {
             fill: none;
@@ -12822,23 +12864,32 @@ function drawRadarChart(allProjects) {
         modeSwitcher.appendChild(btn);
     });
 
+    });
     container.appendChild(modeSwitcher);
-    // ==========================================
+
+    // === ZMIANA: TWORZENIE WARSTWY RUCHOMEJ (HTML Container) ===
+    const movableLayer = document.createElement('div');
+    movableLayer.id = 'radar-movable-layer';
+    container.appendChild(movableLayer);
 
     // 2. Konfiguracja Wymiarów SVG
-    const size = 920; // ZMNIEJSZONO Z 960 (Dopasowanie do CSS)
+    const size = 920; 
     const center = size / 2;
     const radius = size / 2 - 140;
 
     const svgNS = "http://www.w3.org/2000/svg";
-    // KLUCZOWE: Definicja przestrzeni nazw XLink (wymagana dla obrazków w wielu przeglądarkach)
-    const xlinkNS = "http://www.w3.org/1999/xlink"; 
+    // const xlinkNS ... (Usunięto: niepotrzebne dla HTML)
 
     const svg = document.createElementNS(svgNS, "svg");
     svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
-    svg.classList.add("radar-svg");
-    // Dodajemy atrybut xmlns:xlink do głównego SVG dla bezpieczeństwa
-    svg.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:xlink", xlinkNS);
+    // Usuwamy klasę .radar-svg z samego SVG, bo style przejmuje kontener, 
+    // ale ustawiamy width/height na 100% aby wypełnił warstwę
+    svg.style.width = "100%";
+    svg.style.height = "100%";
+    svg.style.overflow = "visible";
+    
+    // WAŻNE: SVG dodajemy teraz do warstwy ruchomej!
+    movableLayer.appendChild(svg);
 
     // --- DEFINICJE ---
     const defs = document.createElementNS(svgNS, "defs");
@@ -13239,7 +13290,9 @@ function drawRadarChart(allProjects) {
         });
     });
 
-   // 7. Rysowanie Awatarów (Metoda ForeignObject - Niezawodna)
+   // === 7. RYSOWANIE AWATARÓW (JAKO ELEMENTY HTML) ===
+    // Zamiast rysować w SVG, tworzymy DIV-y i dodajemy do movableLayer
+    
     Object.values(userPositions).forEach(pos => {
         if (!pos.userObj) return;
         
@@ -13283,103 +13336,32 @@ function drawRadarChart(allProjects) {
         }
         placedNodes.push({ x: ax, y: ay, r: avatarRadius });
 
-        const g = document.createElementNS(svgNS, "g");
-        g.classList.add("radar-avatar-group");
-        g.setAttribute("transform", `translate(${ax}, ${ay})`);
-        g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
-
-        if (pos.userObj.photoURL) {
-            // === NAPRAWA ABSOLUTNA: Pattern Fill z XLINK ===
-            // Problem białych kółek wynika zazwyczaj z braku obsługi 'href' w <image>
-            // przez niektóre silniki SVG. Wymagany jest 'xlink:href'.
-            
-            const patternId = `pattern-${pos.userObj.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-            
-            // 1. Tworzymy wzorzec (Texture)
-            const pattern = document.createElementNS(svgNS, "pattern");
-            pattern.setAttribute("id", patternId);
-            pattern.setAttribute("patternContentUnits", "objectBoundingBox"); // Skalowanie relatywne (0..1)
-            pattern.setAttribute("width", "100%");
-            pattern.setAttribute("height", "100%");
-            
-            // 2. Tworzymy obrazek wewnątrz wzorca
-            const img = document.createElementNS(svgNS, "image");
-            // WAŻNE: Ustawiamy link na dwa sposoby dla 100% kompatybilności
-            img.setAttribute("href", pos.userObj.photoURL); 
-            img.setAttributeNS(xlinkNS, "href", pos.userObj.photoURL); 
-            
-            img.setAttribute("width", "1");  // 1 = 100% szerokości obiektu
-            img.setAttribute("height", "1"); // 1 = 100% wysokości obiektu
-            img.setAttribute("preserveAspectRatio", "xMidYMid slice"); // Crop: cover
-            
-            pattern.appendChild(img);
-            defs.appendChild(pattern); // Dodajemy do globalnych definicji
-            
-            // 3. Rysujemy tło (szare kółko - fallback)
-            const bgCircle = document.createElementNS(svgNS, "circle");
-            bgCircle.setAttribute("cx", 0);
-            bgCircle.setAttribute("cy", 0);
-            bgCircle.setAttribute("r", 14);
-            bgCircle.setAttribute("fill", "#e5e7eb"); // Jasnoszary
-            g.appendChild(bgCircle);
-
-            // 4. Rysujemy koło wypełnione zdjęciem (Pattern)
-            const avatarCircle = document.createElementNS(svgNS, "circle");
-            avatarCircle.setAttribute("cx", 0);
-            avatarCircle.setAttribute("cy", 0);
-            avatarCircle.setAttribute("r", 14);
-            avatarCircle.setAttribute("fill", `url(#${patternId})`); // Wypełniamy teksturą ze zdjęcia
-            avatarCircle.style.pointerEvents = "none";
-            
-            g.appendChild(avatarCircle);
-            
-            // 5. Ramka estetyczna (Stroke)
-            const borderCircle = document.createElementNS(svgNS, "circle");
-            borderCircle.setAttribute("cx", 0);
-            borderCircle.setAttribute("cy", 0);
-            borderCircle.setAttribute("r", 14);
-            borderCircle.setAttribute("fill", "none");
-            borderCircle.setAttribute("stroke", "rgba(0,0,0,0.1)");
-            borderCircle.setAttribute("stroke-width", "1");
-            g.appendChild(borderCircle);
-
-        } else {
-            // Fallback na inicjały (gdy brak zdjęcia)
-            const circle = document.createElementNS(svgNS, "circle");
-            circle.setAttribute("cx", 0);
-            circle.setAttribute("cy", 0);
-            circle.setAttribute("r", 14);
-            circle.style.fill = pos.userObj.avatarColor || "var(--bg-secondary)";
-            
-            const initials = (pos.userObj.name || pos.userObj.email).substring(0, 2).toUpperCase();
-            const text = document.createElementNS(svgNS, "text");
-            text.setAttribute("x", 0);
-            text.setAttribute("y", 4);
-            text.textContent = initials;
-            text.classList.add("radar-avatar-text");
-            text.style.fontSize = "10px";
-            text.style.fontWeight = "700";
-            text.style.fill = "var(--text-primary)";
-            text.style.textAnchor = "middle";
-            text.style.pointerEvents = "none";
-
-            g.appendChild(circle);
-            g.appendChild(text);
-        }
-
-        // Opcjonalna obwódka (Stroke) dla estetyki
-        const strokeCircle = document.createElementNS(svgNS, "circle");
-        strokeCircle.setAttribute("cx", 0);
-        strokeCircle.setAttribute("cy", 0);
-        strokeCircle.setAttribute("r", 14);
-        strokeCircle.setAttribute("fill", "none");
-        strokeCircle.classList.add("radar-avatar-circle");
-        strokeCircle.style.stroke = "var(--accent-primary)";
-        strokeCircle.style.strokeWidth = "2px";
+        // === TWORZENIE ELEMENTU HTML ===
+        const avatarDiv = document.createElement('div');
+        avatarDiv.className = 'radar-avatar-html';
         
-        g.appendChild(strokeCircle);
-        svg.appendChild(g);
+        // POZYCJONOWANIE: Odjmujemy 14px (promień), aby środek diva był w punkcie ax,ay
+        avatarDiv.style.left = `${ax - 14}px`;
+        avatarDiv.style.top = `${ay - 14}px`;
+        
+        if (pos.userObj.photoURL) {
+            // Używamy zwykłego background-image, co gwarantuje wyświetlenie
+            avatarDiv.style.backgroundImage = `url('${pos.userObj.photoURL}')`;
+            avatarDiv.innerHTML = ''; 
+        } else {
+            const initials = (pos.userObj.name || pos.userObj.email).substring(0, 2).toUpperCase();
+            avatarDiv.textContent = initials;
+            avatarDiv.style.backgroundColor = pos.userObj.avatarColor || "var(--bg-tertiary)";
+        }
+        
+        avatarDiv.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
+        
+        // Dodajemy do warstwy HTML, a nie do SVG!
+        movableLayer.appendChild(avatarDiv);
     });
+
+    // Po wygenerowaniu HTML, inicjalizujemy dymki dla nowej klasy
+    tippy('.radar-avatar-html', { allowHTML: true, theme: 'light' });
 
     // 8. Etykiety Projektów
     projectLabels.forEach(lbl => {
@@ -13407,10 +13389,12 @@ function drawRadarChart(allProjects) {
     let startPanX = 0;
     let startPanY = 0;
 
-    const updateRadarTransform = () => {
-        svg.style.transform = `translate(${radarTranslateX}px, ${radarTranslateY}px) scale(${radarScale})`;
-        svg.style.transformOrigin = 'center center';
-        svg.style.transition = isRadarPanning ? 'none' : 'transform 0.1s ease-out';
+   const updateRadarTransform = () => {
+        // ZMIANA: Aplikujemy transformację do kontenera HTML, a nie do SVG
+        movableLayer.style.transform = `translate(${radarTranslateX}px, ${radarTranslateY}px) scale(${radarScale})`;
+        // Transition usuwamy stąd, można dodać w CSS jeśli potrzebna płynność przy kółku myszy, 
+        // ale przy Pan (przesuwaniu) musi być 'none'.
+        movableLayer.style.transition = isRadarPanning ? 'none' : 'transform 0.1s ease-out';
     };
 
     container.onwheel = null;
@@ -35090,6 +35074,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
