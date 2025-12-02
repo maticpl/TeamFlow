@@ -16632,93 +16632,46 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     // ZASADA 1: Ukryj kolumny NIESTANDARDOWE, jeśli są puste
                     if (!isStandard && colData.items.length === 0) return;
 
-                    // USUNIĘTO: Wymuszone sortowanie 'colData.items' po dacie.
-                    // Teraz polegamy na sortowaniu 'combinedItems' poniżej, które łączy customOrder z datą.
+                    // === NOWE: SORTOWANIE WG DATY (MAIN + STANDALONE SUBTASKS) ===
+                    const sortOrder = state.ui.sortMyTasksByDate || 'asc';
 
-                    // Generowanie kafelków
-                    // UWAGA: To jest mapowanie wstępne - właściwe generowanie HTML następuje po posortowaniu combinedItems
-                    // W Twoim kodzie oryginalnym struktura była:
-                    // 1. Sort colData.items
-                    // 2. Generowanie cardsHTML (BŁĄD logiczny w oryginale: generowałeś HTML z colData, a potem tworzyłeś combinedItems?)
-                    
-                    // === POPRAWKA LOGIKI RENDEROWANIA ===
-                    // W oryginale (w Kroku 18) wprowadziłem 'combinedItems', ale tutaj w kodzie widzę, że pętla 'sortedKeys'
-                    // najpierw sortuje colData, a potem... zaraz, w poprzednim kroku 'columnContentHTML' był budowany z 'combinedItems'.
-                    // Musimy upewnić się, że logika jest spójna.
-
-                    // 3. SCALANIE: Utwórz wspólną tablicę wszystkich elementów
-                    let combinedItems = [];
-
-                    // Dodaj Zadania Główne z tej kolumny
-                    colData.items.forEach(item => {
-                        // Jeśli item to Main Task (ma pole data i project)
-                        if (item.type === 'main') {
-                            combinedItems.push({
-                                type: 'main',
-                                data: item.data,
-                                project: item.project,
-                                // Używamy customOrder. Jeśli brak, dajemy 999999 (na koniec)
-                                order: (item.data.customOrder !== undefined) ? item.data.customOrder : 999999
-                            });
-                        } 
-                        // Jeśli item to Subtask (w Twojej strukturze colData.items trzyma już obiekty z typem)
-                        else {
-                            combinedItems.push({
-                                type: 'subtask',
-                                data: item.data, 
-                                project: item.project,
-                                order: (item.data.sub.customOrder !== undefined) ? item.data.sub.customOrder : 999999
-                            });
-                        }
-                    });
-
-                    // 4. SORTOWANIE HYBRYDOWE: Custom Order (Priorytet) -> Data (Fallback)
-                    combinedItems.sort((a, b) => {
-                        const orderA = a.order;
-                        const orderB = b.order;
-
-                        // 1. Najpierw sortuj wg ręcznie ustalonej kolejności (Drag & Drop)
-                        if (orderA !== orderB) {
-                            return orderA - orderB;
-                        }
-
-                        // 2. Jeśli kolejność ręczna jest taka sama (np. domyślne 999999), sortuj wg daty (rosnąco)
-                        // Funkcja pomocnicza do wyciągania daty
+                    colData.items.sort((a, b) => {
+                        // Funkcja pomocnicza do wyciągania daty z obu typów obiektów
                         const getDate = (item) => {
                             let dateVal = null;
-                            if (item.type === 'main') dateVal = item.data.dueDate;
-                            else dateVal = item.data.sub.dueDate; // item.type === 'subtask'
-                            return dateVal ? new Date(dateVal).getTime() : Infinity; // Infinity wrzuca na koniec
+                            if (item.type === 'main') {
+                                dateVal = item.data.dueDate;
+                            } else { // item.type === 'subtask'
+                                dateVal = item.data.sub.dueDate;
+                            }
+                            return dateVal ? new Date(dateVal).getTime() : null;
                         };
 
-                        return getDate(a) - getDate(b);
+                        const timeA = getDate(a);
+                        const timeB = getDate(b);
+
+                        // Ustal wartość dla braku daty (Infinity wrzuca na koniec)
+                        const valA = timeA !== null ? timeA : (sortOrder === 'asc' ? Infinity : -Infinity);
+                        const valB = timeB !== null ? timeB : (sortOrder === 'asc' ? Infinity : -Infinity);
+
+                        if (valA !== valB) {
+                            return sortOrder === 'asc' ? valA - valB : valB - valA;
+                        }
+
+                        // Jeśli daty są równe, zachowaj stabilność (lub sortuj po ID/Tytule)
+                        return 0;
                     });
+                    // === KONIEC SORTOWANIA ===
 
-                    // 5. GENEROWANIE HTML: Iteruj po posortowanej liście combinedItems
-                    let columnContentHTML = '';
-                    let totalRenderedTasks = 0;
-
-                    // Najpierw Sondaże (zawsze na górze)
-                    if (state.ui.currentProjectFilters.showPolls && pollsInColumn.length > 0) {
-                        columnContentHTML += pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
-                        totalRenderedTasks += pollsInColumn.length;
-                    }
-
-                    columnContentHTML += combinedItems.map(item => {
-                        totalRenderedTasks++;
-
+                    // Generowanie kafelków
+                    const cardsHTML = colData.items.map(item => {
                         if (item.type === 'main') {
-                            const task = item.data;
-                            const taskNumber = taskIndexMap[task.id];
-                            return createTaskCardHTML(task, isInteractive, item.project, colData.status, item.customColumnId, taskNumber);
+                            // ZADANIE GŁÓWNE
+                            return createTaskCardHTML(item.data, true, item.project, colData.status, item.customColumnId);
                         } else {
-                            // item.type === 'subtask'
+                            // PODZADANIE (Niezależny kafelek)
                             const { sub, parent } = item.data;
-                            const parentNumber = taskIndexMap[parent.id];
-                            const subIndex = (parent.subtasks || []).findIndex(s => s.id === sub.id) + 1;
-                            const wbsNumber = parentNumber ? `${parentNumber}.${subIndex}` : '';
-                            
-                            return createVisualSubtaskCardHTML(sub, parent, item.project, 'standalone', wbsNumber);
+                            return createVisualSubtaskCardHTML(sub, parent, item.project, 'standalone');
                         }
                     }).join('');
 
@@ -16980,8 +16933,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     combinedItems.push({
                         type: 'main',
                         data: task,
-                        project: project, // Upewnij się, że przekazujemy projekt
-                        // Używamy customOrder. Jeśli brak (nowe zadanie), dajemy 0 (poczatek) lub dużą liczbę (koniec)
+                        // Używamy customOrder. Jeśli brak, dajemy bardzo dużą liczbę (na koniec)
                         order: (task.customOrder !== undefined) ? task.customOrder : 999999
                     });
                 });
@@ -16991,7 +16943,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     combinedItems.push({
                         type: 'subtask',
                         data: item, 
-                        project: project,
                         // Używamy customOrder z PODZADANIA
                         order: (item.sub.customOrder !== undefined) ? item.sub.customOrder : 999999
                     });
@@ -18071,11 +18022,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 ${
                     (task.subtasks && task.subtasks.length > 0 && hasAccess) 
                     ? `<div class="subtask-family-container ${state.ui.expandSubtasksByDefault ? '' : 'collapsed'}">
-                        ${[...task.subtasks] // Tworzymy kopię tablicy
-                            // NOWE: Sortowanie wg customOrder przed renderowaniem
-                            .sort((a, b) => (a.customOrder || 0) - (b.customOrder || 0))
-                            
-                            // KROK A: Przypisz oryginalny indeks (dla numeracji WBS)
+                        ${task.subtasks
+                            // KROK A: Najpierw przypisz oryginalny indeks każdemu podzadaniu
                             .map((sub, index) => ({ sub, index: index + 1 })) 
                             
                             // KROK B: Filtruj widoczność
@@ -27281,27 +27229,29 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 const project = findProject(state.currentProjectId);
                 if (!project) return;
 
-                // 1. Toggle kierunku
+                // 1. Toggle kierunku (dla UX, żeby wiedzieć jak sortować)
                 const currentOrder = state.ui.projectSortOrders[state.currentProjectId] || 'asc';
                 const newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
                 state.ui.projectSortOrders[state.currentProjectId] = newOrder;
 
-                // Komunikat informujący, że to resetuje ręczny porządek
-                showNotification(`Resetowanie kolejności do: Data ${newOrder === 'asc' ? 'rosnąco' : 'malejąco'}...`, "Info");
+                showNotification("Porządkowanie zadań według daty...", "Info");
 
                 // 2. Zbierzemy wszystkie zadania (i podzadania) i nadamy im nowy customOrder
-                // Sortujemy całą listę zadań (niezależnie od kolumn, bo customOrder jest liczbą całkowitą)
+                // Logika jest skomplikowana, bo customOrder jest per kolumna (nie globalny),
+                // ale najprościej jest posortować całą tablicę `tasks` wg daty i nadać im indeksy 0..N.
+                // To zadziała, bo `renderKanbanBoard` dzieli je potem na kolumny, zachowując względną kolejność indeksów.
+
                 const sortedTasks = [...project.tasks];
                 
                 // Funkcja pomocnicza do wyciągania czasu
                 const getTime = (t) => t.dueDate ? new Date(t.dueDate).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
 
-                // Sortujemy główne zadania wg Daty
+                // Sortujemy główne zadania
                 sortedTasks.sort((a, b) => {
                     return newOrder === 'asc' ? getTime(a) - getTime(b) : getTime(b) - getTime(a);
                 });
 
-                // Nadajemy nowe indeksy (0, 1, 2...)
+                // Nadajemy nowe indeksy (globalnie dla listy, co przełoży się na kolejność w kolumnach)
                 const updatedTasks = sortedTasks.map((t, index) => {
                     // Sortujemy też podzadania wewnątrz zadania
                     let sortedSubtasks = t.subtasks || [];
@@ -27317,7 +27267,7 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
 
                     return { 
                         ...t, 
-                        customOrder: index, // Zapisujemy wynik sortowania daty jako "sztywną" kolejność
+                        customOrder: index, // Nadpisujemy customOrder wynikający z daty
                         subtasks: sortedSubtasks
                     };
                 });
@@ -27326,8 +27276,8 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 try {
                      const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
                      await updateDoc(projectDocRef, { tasks: updatedTasks });
-                     saveUiState(); 
-                     // onSnapshot odświeży widok, a nowa logika renderKanbanBoard użyje tych nowych customOrder
+                     saveUiState(); // Zapisz preferencję kierunku
+                     // render() wywoła się sam przez onSnapshot
                 } catch (e) {
                     console.error("Błąd sortowania:", e);
                     showNotification("Błąd zapisu sortowania.", "Błąd");
@@ -34377,8 +34327,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
-
-
 
 
 
