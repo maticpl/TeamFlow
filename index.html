@@ -16948,9 +16948,41 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     });
                 });
 
-                // 4. SORTOWANIE: Według kolejności własnej (Drag & Drop)
+                // 4. SORTOWANIE: Według daty LUB kolejności własnej
+                // Pobieramy aktualny tryb sortowania dla tego projektu (domyślnie 'asc' lub 'original' w zależności od logiki inicjalizacji)
+                // W kodzie przycisku sortowania używasz 'asc' jako domyślnego stanu UI, więc tu też tak przyjmiemy,
+                // chyba że wolisz 'original' dla drag&drop. Tu zakładam spójność z przyciskiem.
+                const currentSortOrder = state.ui.projectSortOrders[project.id] || 'original';
+
                 combinedItems.sort((a, b) => {
-                    // Sortujemy wyłącznie po zapisanym indeksie 'order' (customOrder)
+                    // Helper do wyciągania daty
+                    const getDate = (item) => {
+                        let dateVal = null;
+                        if (item.type === 'main') {
+                            dateVal = item.data.dueDate;
+                        } else { // item.type === 'subtask'
+                            // W strukturze 'standalone' podzadanie jest w item.data.sub
+                            dateVal = item.data.sub.dueDate;
+                        }
+                        return dateVal ? new Date(dateVal).getTime() : null;
+                    };
+
+                    // A. Logika sortowania po dacie (jeśli włączona)
+                    if (currentSortOrder === 'asc' || currentSortOrder === 'desc') {
+                        const timeA = getDate(a);
+                        const timeB = getDate(b);
+
+                        // Elementy bez daty wrzucamy na koniec (Infinity dla ASC, -Infinity dla DESC)
+                        const valA = timeA !== null ? timeA : (currentSortOrder === 'asc' ? Infinity : -Infinity);
+                        const valB = timeB !== null ? timeB : (currentSortOrder === 'asc' ? Infinity : -Infinity);
+
+                        if (valA !== valB) {
+                            return currentSortOrder === 'asc' ? valA - valB : valB - valA;
+                        }
+                    }
+
+                    // B. Fallback: Sortowanie po customOrder (Drag & Drop)
+                    // Działa gdy tryb to 'original' LUB gdy daty są identyczne
                     return (a.order || 0) - (b.order || 0);
                 });
 
@@ -34327,6 +34359,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
