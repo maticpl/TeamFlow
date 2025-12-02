@@ -27272,36 +27272,51 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 // Komunikat informujący, że to resetuje ręczny porządek
                 showNotification(`Resetowanie kolejności do: Data ${newOrder === 'asc' ? 'rosnąco' : 'malejąco'}...`, "Info");
 
-                // 2. Zbierzemy wszystkie zadania (i podzadania) i nadamy im nowy customOrder
-                // Sortujemy całą listę zadań (niezależnie od kolumn, bo customOrder jest liczbą całkowitą)
-                const sortedTasks = [...project.tasks];
-                
-                // Funkcja pomocnicza do wyciągania czasu
-                const getTime = (t) => t.dueDate ? new Date(t.dueDate).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
+                // 2. GLOBALNE SORTOWANIE (PŁASKIE)
+                // Tworzymy jedną listę zawierającą wszystkie byty (zadania i podzadania)
+                let allEntities = [];
 
-                // Sortujemy główne zadania wg Daty
-                sortedTasks.sort((a, b) => {
-                    return newOrder === 'asc' ? getTime(a) - getTime(b) : getTime(b) - getTime(a);
+                project.tasks.forEach(t => {
+                    // Dodaj zadanie główne
+                    allEntities.push({ type: 'main', id: t.id, date: t.dueDate, obj: t });
+                    
+                    // Dodaj jego podzadania
+                    if (t.subtasks && t.subtasks.length > 0) {
+                        t.subtasks.forEach(sub => {
+                            allEntities.push({ type: 'subtask', id: sub.id, date: sub.dueDate, obj: sub });
+                        });
+                    }
                 });
 
-                // Nadajemy nowe indeksy (0, 1, 2...)
-                const updatedTasks = sortedTasks.map((t, index) => {
-                    // Sortujemy też podzadania wewnątrz zadania
-                    let sortedSubtasks = t.subtasks || [];
-                    if (sortedSubtasks.length > 0) {
-                        sortedSubtasks.sort((sa, sb) => {
-                             const sTimeA = sa.dueDate ? new Date(sa.dueDate).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
-                             const sTimeB = sb.dueDate ? new Date(sb.dueDate).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
-                             return newOrder === 'asc' ? sTimeA - sTimeB : sTimeB - sTimeA;
-                        });
-                        // Nadaj im też order
-                        sortedSubtasks = sortedSubtasks.map((sub, subIndex) => ({ ...sub, customOrder: subIndex }));
+                // Funkcja pomocnicza do czasu
+                const getTime = (dateStr) => dateStr ? new Date(dateStr).getTime() : (newOrder === 'asc' ? Infinity : -Infinity);
+
+                // Sortujemy wszystko razem
+                allEntities.sort((a, b) => {
+                    return newOrder === 'asc' ? getTime(a.date) - getTime(b.date) : getTime(b.date) - getTime(a.date);
+                });
+
+                // Tworzymy mapę: ID -> Nowy Globalny Index
+                const rankMap = new Map();
+                allEntities.forEach((item, index) => {
+                    rankMap.set(item.id, index); // Index 0..N w skali całego projektu
+                });
+
+                // Aplikujemy nowe indeksy do struktury projektu
+                const updatedTasks = project.tasks.map(t => {
+                    // Aktualizuj podzadania
+                    let updatedSubtasks = t.subtasks || [];
+                    if (updatedSubtasks.length > 0) {
+                        updatedSubtasks = updatedSubtasks.map(sub => ({
+                            ...sub,
+                            customOrder: rankMap.has(sub.id) ? rankMap.get(sub.id) : 999999
+                        }));
                     }
 
-                    return { 
-                        ...t, 
-                        customOrder: index, // Zapisujemy wynik sortowania daty jako "sztywną" kolejność
-                        subtasks: sortedSubtasks
+                    return {
+                        ...t,
+                        customOrder: rankMap.has(t.id) ? rankMap.get(t.id) : 999999,
+                        subtasks: updatedSubtasks
                     };
                 });
 
@@ -27626,57 +27641,69 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             const { project } = findTask(projectId) || { project: findProject(projectId) };
             if (!project) return;
 
-            // 1. Pobierz wszystkie kafelki w tej kolumnie w aktualnej kolejności DOM
-            // (Zarówno .task-card jak i .subtask-visual-card)
-            const cards = Array.from(columnElement.querySelectorAll('.task-card, .subtask-visual-card'));
+            // 1. Pobierz kafelki z kolumny
+            // UWAGA: Używamy :scope > ..., aby pobrać tylko bezpośrednie dzieci (karty), 
+            // a nie zagnieżdżone w nich inne karty (co nie powinno mieć miejsca, ale dla bezpieczeństwa)
+            // W SortableJS karty są w elemencie 'ul.kanban-tasks'. 
+            // Argument 'columnElement' w wywołaniu 'onEnd' to 'evt.to', czyli właśnie ten UL.
+            const cards = Array.from(columnElement.children).filter(el => 
+                el.classList.contains('task-card') || el.classList.contains('subtask-visual-card')
+            );
             
             if (cards.length === 0) return;
 
-            // 2. Stwórz mapę nowej kolejności: { "ID_ELEMENTU": NOWY_INDEX }
+            console.log(`[persistColumnOrder] Zapisywanie kolejności dla ${cards.length} elementów...`);
+
+            // 2. Mapa kolejności
             const orderMap = new Map();
             cards.forEach((card, index) => {
-                // Dla podzadania bierzemy subtaskId, dla zadania taskId
                 const id = card.dataset.subtaskId || card.dataset.taskId;
                 if (id) orderMap.set(id, index);
             });
 
-            // 3. Zaktualizuj strukturę danych projektu w pamięci (lokalnie)
+            // 3. Aktualizacja w pamięci
             let tasksUpdated = false;
             const updatedTasks = project.tasks.map(t => {
                 let taskModified = false;
                 let newTask = { ...t };
 
-                // A. Sprawdź, czy to Zadanie Główne ma nową pozycję
+                // A. Zadanie Główne
                 if (orderMap.has(t.id)) {
                     newTask.customOrder = orderMap.get(t.id);
                     taskModified = true;
                 }
 
-                // B. Sprawdź, czy jakiekolwiek jego Podzadanie ma nową pozycję
+                // B. Podzadania
                 if (newTask.subtasks && newTask.subtasks.length > 0) {
                     const updatedSubtasks = newTask.subtasks.map(sub => {
                         if (orderMap.has(sub.id)) {
                             taskModified = true;
+                            // Ważne: Aktualizujemy customOrder podzadania
                             return { ...sub, customOrder: orderMap.get(sub.id) };
                         }
                         return sub;
                     });
-                    newTask.subtasks = updatedSubtasks;
+                    // Sprawdzamy czy tablica podzadań faktycznie się zmieniła (dla optymalizacji taskModified)
+                    if (JSON.stringify(newTask.subtasks) !== JSON.stringify(updatedSubtasks)) {
+                         newTask.subtasks = updatedSubtasks;
+                         taskModified = true; // Oznaczamy zadanie główne jako zmienione, bo jego podzadanie się zmieniło
+                    }
                 }
 
                 if (taskModified) tasksUpdated = true;
                 return newTask;
             });
 
-            if (!tasksUpdated) return; // Nic się nie zmieniło w tej kolumnie
+            if (!tasksUpdated) {
+                console.log("[persistColumnOrder] Brak zmian w strukturze danych.");
+                return; 
+            }
 
-            // 4. Zapisz do Firestore
+            // 4. Zapis do Firestore
             try {
                 const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
-                
-                // Używamy updateDoc, aby nadpisać tablicę tasks nowymi wartościami customOrder
                 await updateDoc(projectDocRef, { tasks: updatedTasks });
-                console.log('Kolejność kolumny zaktualizowana.');
+                console.log('[persistColumnOrder] Kolejność zaktualizowana w bazie.');
             } catch (error) {
                 console.error("Błąd zapisu kolejności:", error);
                 showNotification("Nie udało się zapisać kolejności.", "Błąd");
@@ -34360,6 +34387,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
