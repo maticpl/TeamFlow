@@ -13370,7 +13370,6 @@ function drawRadarChart(allProjects) {
         avatarDiv.style.top = `${ay - 14}px`;
         
         if (pos.userObj.photoURL) {
-            // Używamy zwykłego background-image, co gwarantuje wyświetlenie
             avatarDiv.style.backgroundImage = `url('${pos.userObj.photoURL}')`;
             avatarDiv.innerHTML = ''; 
         } else {
@@ -13380,6 +13379,13 @@ function drawRadarChart(allProjects) {
         }
         
         avatarDiv.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
+        
+        // === NOWE: Listener kliknięcia w awatar ===
+        avatarDiv.addEventListener('click', (e) => {
+            e.stopPropagation(); // Zapobiegamy eventom mapy (pan/zoom)
+            openUserTasksModal(pos.userObj.id);
+        });
+        // ==========================================
         
         // Dodajemy do warstwy HTML, a nie do SVG!
         movableLayer.appendChild(avatarDiv);
@@ -22209,7 +22215,122 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
             list: document.getElementById('trash-list'),
             openBtn: document.getElementById('open-trash-btn')
         };
+        // === NOWE: Modal Zadań Użytkownika (z Radaru) ===
+        const userTasksModal = {
+            overlay: document.getElementById('user-tasks-modal'),
+            title: document.getElementById('user-tasks-modal-title'),
+            content: document.getElementById('user-tasks-modal-content')
+        };
 
+        /**
+         * Otwiera modal z listą zadań konkretnego użytkownika, pogrupowaną projektami.
+         */
+        function openUserTasksModal(userId) {
+            const user = findUser(userId);
+            if (!user) return;
+
+            userTasksModal.title.textContent = `Zadania: ${user.name || user.email}`;
+            userTasksModal.content.innerHTML = '';
+
+            // 1. Pobierz wszystkie aktywne projekty (bez Inboxa, jeśli chcemy, lub z nim)
+            const allProjects = state.projects; 
+            let hasAnyTask = false;
+
+            // 2. Iteruj po projektach
+            allProjects.forEach(project => {
+                // Znajdź zadania przypisane do tego usera w tym projekcie
+                // (Bierzemy pod uwagę zadania główne oraz podzadania)
+                
+                // A. Zadania Główne
+                const assignedMainTasks = (project.tasks || []).filter(t => 
+                    t.status !== 'done' && (t.assignees || []).includes(userId)
+                );
+                
+                // B. Podzadania (niezależne od statusu rodzica, jeśli są przypisane do usera i nieukończone)
+                // Uwaga: createTaskCardHTML dla podzadań wymaga specyficznej struktury, 
+                // tutaj dla uproszczenia skupimy się na zadaniach głównych, 
+                // lub musielibyśmy użyć createVisualSubtaskCardHTML.
+                // Zgodnie z prośbą "identyczne kafelki jak w widoku projektu", skupmy się na Main Tasks 
+                // (lub sformatujmy podzadania jako kafelki main jeśli logika na to pozwala).
+                
+                // Na razie wyświetlamy ZADANIA GŁÓWNE, w których user bierze udział.
+                
+                if (assignedMainTasks.length > 0) {
+                    hasAnyTask = true;
+
+                    // Kontener dla projektu
+                    const projectGroup = document.createElement('div');
+                    projectGroup.style.marginBottom = '24px';
+
+                    // Nagłówek Projektu
+                    const header = document.createElement('h3');
+                    header.style.cssText = 'font-size: 14px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 12px; padding-bottom: 4px; border-bottom: 2px solid var(--border-color);';
+                    header.textContent = project.name;
+                    projectGroup.appendChild(header);
+
+                    // Lista zadań (używamy klasy kanban-tasks, żeby style kafelków działały)
+                    const listUl = document.createElement('ul');
+                    listUl.className = 'kanban-tasks';
+                    listUl.style.padding = '0'; // Reset paddingu w modalu
+
+                    // Generowanie kafelków
+                    assignedMainTasks.forEach(task => {
+                        // Używamy istniejącej funkcji. 
+                        // isInteractive = true (żeby działały checkboxy)
+                        // project = project
+                        const cardHTML = createTaskCardHTML(migrateTask(task), true, project);
+                        listUl.insertAdjacentHTML('beforeend', cardHTML);
+                    });
+
+                    projectGroup.appendChild(listUl);
+                    userTasksModal.content.appendChild(projectGroup);
+                }
+            });
+
+            if (!hasAnyTask) {
+                userTasksModal.content.innerHTML = '<p class="no-tasks-message">Ten użytkownik nie ma aktualnie przypisanych aktywnych zadań.</p>';
+            }
+
+            openModal(userTasksModal.overlay);
+        }
+       // === NOWY LISTENER: Obsługa kliknięć w modalu zadań użytkownika ===
+        if (userTasksModal.content) {
+            userTasksModal.content.addEventListener('click', (e) => {
+                // 1. Kliknięcie w CHECKBOX (Ukończenie zadania)
+                const checkbox = e.target.closest('.task-card-checkbox');
+                if (checkbox) {
+                    // Używamy istniejącej funkcji handleTaskCheckboxClick
+                    // Ona wymaga eventu i elementu checkbox
+                    handleTaskCheckboxClick(checkbox, e);
+                    return;
+                }
+
+                // 2. Kliknięcie w KAFELEK (Otwarcie szczegółów)
+                const taskCard = e.target.closest('.task-card');
+                // Ignorujemy jeśli kliknięto w interaktywne elementy wewnątrz karty (np. dzwonek, link)
+                // (Istniejące funkcje obsługują to przez stopPropagation, ale w delegacji musimy uważać)
+                if (taskCard) {
+                    // Sprawdź czy nie kliknięto w "pod-elementy" funkcyjne, które mają własne listenery
+                    // W tym widoku upraszczamy - kliknięcie w kartę otwiera modal.
+                    // Jeśli kliknięto w specyficzne przyciski (np. .task-subscription-bell),
+                    // trzeba by dodać ich obsługę TUTAJ, ponieważ są one dynamiczne.
+                    
+                    // DLA UPROSZCZENIA: W tym widoku ("Tylko podgląd/szybka akcja") 
+                    // obsługujemy głównie otwarcie szczegółów.
+                    
+                    const taskId = taskCard.dataset.taskId;
+                    if (taskId) {
+                        // Opcjonalnie: Zamknij modal listy, żeby nie było bałaganu w z-index
+                        // closeModal(userTasksModal.overlay);
+                        // setTimeout(() => openTaskModal(taskId), 100);
+                        
+                        // LUB: Otwórz "na wierzchu" (zależy od CSS z-index). 
+                        // System obsługuje stos modali.
+                        openTaskModal(taskId); 
+                    }
+                }
+            });
+        }
         /**
          * Otwiera modal kosza dla bieżącego projektu.
          */
@@ -35100,9 +35221,22 @@ welcomeModal.okBtn.addEventListener('click', async () => {
         </div>
     </div>
 </div>
-
+<div class="modal-overlay" id="user-tasks-modal">
+        <div class="modal" style="max-width: 600px; height: 80vh;">
+            <div class="modal-header">
+                <h2 id="user-tasks-modal-title">Zadania użytkownika</h2>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content" id="user-tasks-modal-content" style="background-color: var(--bg-primary); padding: 20px; overflow-y: auto;">
+                </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary modal-close-btn">Zamknij</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
+
 
 
 
