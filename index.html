@@ -2074,6 +2074,55 @@
             color: var(--danger-primary);
         }
 
+        /* === NOWE STYLE: Przyciski ról w prawej kolumnie === */
+        .role-actions {
+            display: flex;
+            gap: 4px;
+            margin-left: auto; /* Wypycha przyciski na prawo */
+            padding-right: 8px;
+            border-right: 1px solid var(--border-color);
+            margin-right: 8px;
+        }
+
+        .role-btn {
+            background: none;
+            border: 1px solid transparent;
+            cursor: pointer;
+            padding: 2px;
+            border-radius: 4px;
+            color: var(--text-secondary);
+            opacity: 0.5;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .role-btn:hover {
+            background-color: var(--bg-tertiary);
+            opacity: 1;
+        }
+
+        /* Stan aktywny dla przycisków */
+        .role-btn.active {
+            opacity: 1;
+            background-color: rgba(79, 70, 229, 0.1); /* Tło akcentu */
+            border-color: rgba(79, 70, 229, 0.2);
+        }
+        
+        /* Kolor Korony (Admin) */
+        .role-btn.active.is-admin-btn svg {
+            color: #f59e0b; /* Bursztyn */
+            fill: #f59e0b;
+        }
+        
+        /* Kolor Kwadratu (Super User) */
+        .role-btn.active.is-superuser-btn svg {
+            color: #8b5cf6; /* Fiolet */
+            fill: #8b5cf6;
+        }
+        /* === KONIEC === */
+
         @media (max-width: 768px) {
             .members-dual-view {
                 grid-template-columns: 1fr; /* Na mobile jedna pod drugą */
@@ -14000,49 +14049,72 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         containerElement.appendChild(groupDiv);
     });
 }
-       /**
-         * NOWA FUNKCJA: Renderuje prawą kolumnę z listą wybranych uczestników.
-         * @param {HTMLElement} leftContainer - Kontener lewej kolumny (akordeon).
-         * @param {HTMLElement} rightContainer - Kontener prawej kolumny (lista).
-         * @param {string} ownerId - ID właściciela projektu (do oznaczenia roli).
-         * @param {Array} adminIds - Tablica ID administratorów.
-         * @param {Array} superUserIds - Tablica ID super userów.
+      /**
+         * ZAKTUALIZOWANA FUNKCJA: Renderuje prawą kolumnę z interaktywnym wyborem ról.
          */
         function renderSelectedMembersColumn(leftContainer, rightContainer, ownerId = null, adminIds = [], superUserIds = []) {
-            // 1. Pobierz wszystkie zaznaczone pigułki z lewej kolumny
             const selectedPills = Array.from(leftContainer.querySelectorAll('.member-pill.selected'));
             
-            rightContainer.innerHTML = ''; // Wyczyść prawą kolumnę
+            rightContainer.innerHTML = ''; 
 
             if (selectedPills.length === 0) {
                 rightContainer.innerHTML = '<p style="color: var(--text-secondary); font-size: 13px; text-align: center; margin-top: 20px;">Brak wybranych osób.</p>';
                 return;
             }
 
-            // 2. Dla każdego zaznaczonego stwórz wiersz
             selectedPills.forEach(pill => {
                 const userId = pill.dataset.userId;
                 const user = findUser(userId);
                 if (!user) return;
-
-                // Określ rolę
-                let roleLabel = 'Uczestnik';
-                let roleColor = 'var(--bg-tertiary)'; // Szary
                 
-                if (userId === ownerId) {
+                const isOwner = userId === ownerId;
+
+                // === OD CZYT ROLES Z LEWEJ KOLUMNY (Źródło Prawdy) ===
+                // Sprawdzamy, czy w lewej kolumnie przyciski mają klasę 'is-admin' / 'is-superuser'
+                const adminBtnSource = pill.querySelector('.admin-toggle-btn');
+                const superBtnSource = pill.querySelector('.superuser-toggle-btn');
+                
+                const isAdmin = adminBtnSource && adminBtnSource.classList.contains('is-admin');
+                const isSuperUser = superBtnSource && superBtnSource.classList.contains('is-superuser');
+
+                // Ustal Etykietę i Kolor
+                let roleLabel = 'Uczestnik';
+                let roleColor = 'var(--bg-tertiary)'; 
+                
+                if (isOwner) {
                     roleLabel = 'Właściciel';
-                    roleColor = '#fef3c7'; // Złoty (tło)
-                } else if (adminIds.includes(userId)) {
-                    roleLabel = 'Admin';
-                    roleColor = '#e0f2fe'; // Niebieski
-                } else if (superUserIds.includes(userId)) {
+                    roleColor = '#fef3c7'; // Złoty
+                } else if (isSuperUser) {
                     roleLabel = 'Super User';
                     roleColor = '#f3e8ff'; // Fioletowy
+                } else if (isAdmin) {
+                    roleLabel = 'Admin';
+                    roleColor = '#e0f2fe'; // Niebieski
                 }
 
-                // Przycisk usuwania (nie pokazuj dla właściciela w trybie edycji, jeśli zablokowany)
-                // Ale zgodnie z prośbą "możnaby nacisnąć x", dodajemy go. 
-                // Jeśli pigułka w lewej kolumnie ma klasę 'disabled', to znaczy że nie można jej odznaczyć.
+                // Przyciski sterowania rolami (nie dla Właściciela)
+                let roleActionsHTML = '';
+                if (!isOwner) {
+                    roleActionsHTML = `
+                        <div class="role-actions">
+                            <button type="button" class="role-btn is-superuser-btn ${isSuperUser ? 'active' : ''}" title="Przełącz Super Usera" data-role="superuser">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none">
+                                    <rect x="3" y="4" width="18" height="16" rx="4" />
+                                    <path d="M15 9c0-1.4-1.2-2.5-3-2.5S9 7.6 9 9c0 1.3 1.1 1.9 3 2.6s3 1.2 3 2.4c0 1.4-1.2 2.5-3 2.5s-3-1.1-3-2.5" />
+                                </svg>
+                            </button>
+                            <button type="button" class="role-btn is-admin-btn ${isAdmin ? 'active' : ''}" title="Przełącz Administratora" data-role="admin">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.31h5.418a.563.563 0 01.31.988l-4.12 3.288a.563.563 0 00-.217.544l1.37 4.848a.562.562 0 01-.84.622l-4.48-3.096a.563.563 0 00-.65 0l-4.48 3.096a.562.562 0 01-.84-.622l1.37-4.848a.563.563 0 00-.217-.544l-4.12-3.288a.563.563 0 01.31-.988h5.418a.563.563 0 00.475-.31L11.48 3.5z" />
+                                </svg>
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    // Dla właściciela pusty separator
+                    roleActionsHTML = `<div style="margin-left: auto; margin-right: 8px;"></div>`;
+                }
+
                 const isLocked = pill.classList.contains('disabled');
                 const removeBtnHTML = isLocked 
                     ? '' 
@@ -14050,10 +14122,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
                 const row = document.createElement('div');
                 row.className = 'selected-member-row';
-                row.dataset.userId = userId; // Ważne dla listenera usuwania
+                row.dataset.userId = userId; 
                 
                 row.innerHTML = `
-                    <div class="selected-member-info">
+                    <div class="selected-member-info" style="flex-grow: 1;">
                         ${renderAvatarHTML(user, 'member-pill-avatar')}
                         <div style="display:flex; flex-direction:column;">
                             <span style="font-weight: 500;">${user.name || user.email}</span>
@@ -14062,6 +14134,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             </span>
                         </div>
                     </div>
+                    ${roleActionsHTML}
                     ${removeBtnHTML}
                 `;
 
@@ -24560,29 +24633,29 @@ if (transferOwnershipModal.form) {
             }
         });
 
-        // === NOWY LISTENER: Kliknięcie "X" w prawej kolumnie (Nowy Projekt) ===
-        document.getElementById('new-project-selected-list').addEventListener('click', (e) => {
-            const removeBtn = e.target.closest('.selected-member-remove');
-            if (!removeBtn) return;
+        // === ZAKTUALIZOWANY LISTENER: Kliknięcia w prawej kolumnie (Nowy Projekt) ===
+        const newProjectRightCol = document.getElementById('new-project-selected-list');
+        if (newProjectRightCol) {
+            newProjectRightCol.addEventListener('click', (e) => {
+                // 1. Obsługa USUWANIA
+                const removeBtn = e.target.closest('.selected-member-remove');
+                if (removeBtn) {
+                    const userIdToRemove = removeBtn.closest('.selected-member-row').dataset.userId;
+                    const pill = newProjectModal.membersContainer.querySelector(`.member-pill[data-user-id="${userIdToRemove}"]`);
+                    if (pill) {
+                        pill.classList.remove('selected');
+                        renderSelectedMembersColumn(newProjectModal.membersContainer, newProjectRightCol, state.currentUser.uid, [], []);
+                    }
+                    return;
+                }
 
-            const userIdToRemove = removeBtn.closest('.selected-member-row').dataset.userId;
-            
-            // Znajdź odpowiednią pigułkę w lewej kolumnie i odznacz ją
-            const pill = newProjectModal.membersContainer.querySelector(`.member-pill[data-user-id="${userIdToRemove}"]`);
-            if (pill) {
-                pill.classList.remove('selected');
-                
-                // Ponownie przerysuj prawą kolumnę
-                const rightCol = document.getElementById('new-project-selected-list');
-                renderSelectedMembersColumn(
-                    newProjectModal.membersContainer, 
-                    rightCol, 
-                    state.currentUser.uid, 
-                    [], 
-                    []
-                );
-            }
-        });
+                // 2. Obsługa RÓL (Admin / Super User) - Dla Nowego Projektu zazwyczaj nie ustawiamy tego od razu, 
+                // ale dodaję logikę dla spójności, gdybyś chciał to włączyć. W nowym projekcie pigułki mogą nie mieć przycisków ról w HTML lewej kolumny.
+                // W obecnym kodzie buildTeamMembersAccordion dodaje przyciski tylko jeśli projectOwnerId jest zdefiniowany.
+                // Dla nowego projektu właścicielem jestem JA, więc inni nie mają przycisków w lewej kolumnie, dopóki projekt nie powstanie.
+                // *Dlatego w Nowym Projekcie przyciski ról mogą być nieaktywne lub ukryte w lewej kolumnie, co obsłuży funkcja renderująca.*
+            });
+        }
 // Listener do obsługi akordeonu i pigułek w oknie "Edytuj Projekt"
 editProjectModal.membersContainer.addEventListener('click', (e) => {
     const header = e.target.closest('.department-header');
@@ -24642,31 +24715,48 @@ editProjectModal.membersContainer.addEventListener('click', (e) => {
     }
 });
 
-// === NOWY LISTENER: Kliknięcie "X" w prawej kolumnie (Edytuj Projekt) ===
+// === ZAKTUALIZOWANY LISTENER: Kliknięcia w prawej kolumnie (Edytuj Projekt) ===
 document.getElementById('edit-project-selected-list').addEventListener('click', (e) => {
-    const removeBtn = e.target.closest('.selected-member-remove');
-    if (!removeBtn) return;
-
-    const userIdToRemove = removeBtn.closest('.selected-member-row').dataset.userId;
+    const userId = e.target.closest('.selected-member-row')?.dataset.userId;
+    if (!userId) return;
     
-    // Znajdź pigułkę i odznacz
-    const pill = editProjectModal.membersContainer.querySelector(`.member-pill[data-user-id="${userIdToRemove}"]`);
-    if (pill) {
-        pill.classList.remove('selected');
-        
-        // Odśwież prawą kolumnę
-        const projectId = editProjectModal.overlay.dataset.projectId;
-        const project = findProject(projectId);
-        const rightCol = document.getElementById('edit-project-selected-list');
+    const projectId = editProjectModal.overlay.dataset.projectId;
+    const project = findProject(projectId);
+    if (!project) return;
 
-        if (project) {
-            renderSelectedMembersColumn(
-                editProjectModal.membersContainer,
-                rightCol,
-                project.ownerId,
-                project.admins || [],
-                project.superUsers || []
-            );
+    const leftContainer = editProjectModal.membersContainer;
+    const rightContainer = document.getElementById('edit-project-selected-list');
+
+    // 1. Obsługa USUWANIA
+    if (e.target.closest('.selected-member-remove')) {
+        const pill = leftContainer.querySelector(`.member-pill[data-user-id="${userId}"]`);
+        if (pill) {
+            pill.classList.remove('selected');
+            // Odśwież
+            renderSelectedMembersColumn(leftContainer, rightContainer, project.ownerId, project.admins || [], project.superUsers || []);
+        }
+        return;
+    }
+
+    // 2. Obsługa RÓL
+    const roleBtn = e.target.closest('.role-btn');
+    if (roleBtn) {
+        const roleType = roleBtn.dataset.role; // 'admin' lub 'superuser'
+        const pill = leftContainer.querySelector(`.member-pill[data-user-id="${userId}"]`);
+        
+        if (pill) {
+            if (roleType === 'admin') {
+                // Znajdź przycisk w lewej kolumnie i kliknij go (symulacja) lub przełącz klasę
+                const leftBtn = pill.querySelector('.admin-toggle-btn');
+                if (leftBtn) leftBtn.classList.toggle('is-admin');
+            } 
+            else if (roleType === 'superuser') {
+                const leftBtn = pill.querySelector('.superuser-toggle-btn');
+                if (leftBtn) leftBtn.classList.toggle('is-superuser');
+            }
+
+            // 3. Odśwież prawą kolumnę (zaktualizuje etykiety i stany przycisków)
+            renderSelectedMembersColumn(leftContainer, rightContainer, project.ownerId, project.admins || [], project.superUsers || []);
         }
     }
 });
@@ -34756,6 +34846,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
