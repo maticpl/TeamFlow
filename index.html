@@ -13285,45 +13285,60 @@ function drawRadarChart(allProjects) {
         g.setAttribute("data-tippy-content", `<strong>${pos.userObj.name}</strong><br>Aktywne zadania: ${pos.count}`);
 
         if (pos.userObj.photoURL) {
-            // === NAPRAWA OSTATECZNA: Wypełnienie Wzorcem (Pattern Fill) ===
-            // Ta metoda jest najstabilniejsza. Zamiast przycinać obrazek,
-            // tworzymy "farbę" (pattern) ze zdjęcia i malujemy nią koło.
+            // === NAPRAWA DEFINITYWNA V2: Lokalny ClipPath ===
+            // Tworzymy definicję przycięcia BEZPOŚREDNIO w grupie elementu.
+            // To eliminuje problemy z gubieniem referencji ID w globalnym <defs>.
             
-            // 1. Generujemy unikalne ID dla wzorca tego konkretnego użytkownika
-            const patternId = `pat-${pos.userObj.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+            // 1. Generujemy unikalne ID dla przycięcia tego konkretnego awatara
+            const uniqueClipId = `clip-${pos.userObj.id}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+            // 2. Tworzymy element <clipPath>
+            const clipPath = document.createElementNS(svgNS, "clipPath");
+            clipPath.setAttribute("id", uniqueClipId);
             
-            // 2. Tworzymy definicję wzorca
-            const pattern = document.createElementNS(svgNS, "pattern");
-            pattern.setAttribute("id", patternId);
-            pattern.setAttribute("patternContentUnits", "objectBoundingBox"); // Skalowanie 0..1
-            pattern.setAttribute("width", "100%");
-            pattern.setAttribute("height", "100%");
+            // Definiujemy kształt przycięcia (koło)
+            const clipShape = document.createElementNS(svgNS, "circle");
+            clipShape.setAttribute("cx", 0);
+            clipShape.setAttribute("cy", 0);
+            clipShape.setAttribute("r", 14); // Promień awatara
+            clipPath.appendChild(clipShape);
             
-            // 3. Wstawiamy obrazek do wzorca
+            // Dodajemy clipPath do grupy 'g' (lokalnie)
+            g.appendChild(clipPath);
+
+            // 3. Rysujemy tło (szare kółko) - zapobiega "dziurom" podczas ładowania
+            const bgCircle = document.createElementNS(svgNS, "circle");
+            bgCircle.setAttribute("cx", 0);
+            bgCircle.setAttribute("cy", 0);
+            bgCircle.setAttribute("r", 14);
+            bgCircle.setAttribute("fill", "var(--bg-tertiary)"); // Kolor tła aplikacji
+            g.appendChild(bgCircle);
+
+            // 4. Rysujemy Obrazek
             const img = document.createElementNS(svgNS, "image");
+            img.setAttribute("x", -14); // Pozycjonowanie (center - radius)
+            img.setAttribute("y", -14);
+            img.setAttribute("width", 28); // Średnica
+            img.setAttribute("height", 28);
             img.setAttribute("href", pos.userObj.photoURL);
-            img.setAttribute("width", "1");  // 1 = 100% w objectBoundingBox
-            img.setAttribute("height", "1"); // 1 = 100% w objectBoundingBox
-            img.setAttribute("preserveAspectRatio", "xMidYMid slice"); // Odpowiednik object-fit: cover
             
-            pattern.appendChild(img);
+            // Kluczowe ustawienia
+            img.setAttribute("preserveAspectRatio", "xMidYMid slice"); // Crop (object-fit: cover)
+            img.setAttribute("clip-path", `url(#${uniqueClipId})`); // Przypisanie przycięcia
+            img.style.pointerEvents = "none"; // Kliknięcia przechodzą do grupy
             
-            // 4. Dodajemy wzorzec do sekcji <defs> (która jest zdefiniowana na początku funkcji)
-            defs.appendChild(pattern);
+            g.appendChild(img);
             
-            // 5. Rysujemy koło wypełnione tym wzorcem
-            const circle = document.createElementNS(svgNS, "circle");
-            circle.setAttribute("cx", 0);
-            circle.setAttribute("cy", 0);
-            circle.setAttribute("r", 14);
-            circle.style.fill = `url(#${patternId})`; // Wypełnij zdjęciem
-            circle.style.pointerEvents = "none";
+            // 5. Opcjonalna ramka na wierzchu (dla estetyki)
+            const borderCircle = document.createElementNS(svgNS, "circle");
+            borderCircle.setAttribute("cx", 0);
+            borderCircle.setAttribute("cy", 0);
+            borderCircle.setAttribute("r", 14);
+            borderCircle.setAttribute("fill", "none");
+            borderCircle.setAttribute("stroke", "rgba(0,0,0,0.1)");
+            borderCircle.setAttribute("stroke-width", "1");
+            g.appendChild(borderCircle);
 
-            // Opcjonalnie: Delikatna ramka, aby zdjęcie nie zlewało się z tłem
-            circle.style.stroke = "rgba(255,255,255,0.2)";
-            circle.style.strokeWidth = "1px";
-
-            g.appendChild(circle);
         } else {
             // Fallback na inicjały (gdy brak zdjęcia)
             const circle = document.createElementNS(svgNS, "circle");
@@ -35071,6 +35086,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
 </body>
 </html>
+
 
 
 
