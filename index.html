@@ -7911,7 +7911,120 @@ body.compact-mode .comment-item {
         #radar-focus-menu .project-menu-item.active svg {
             color: var(--accent-primary);
         }
+        /* === STYLE DLA SUPER-KAFELKA SPRINTU === */
+.task-card-sprint-content {
+    background-color: var(--bg-secondary);
+    border: 2px solid #8b5cf6; /* Fioletowa ramka wyróżniająca */
+    border-radius: var(--border-radius);
+    padding: 12px;
+    box-shadow: 0 4px 6px -1px rgba(139, 92, 246, 0.1), 0 2px 4px -1px rgba(139, 92, 246, 0.06);
+    position: relative;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.task-card-sprint-content:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(139, 92, 246, 0.15);
+}
+
+.sprint-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.sprint-badge {
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: 700;
+    background-color: #8b5cf6;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+}
+
+.sprint-dates {
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.sprint-progress-section {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border-color);
+}
+
+.sprint-progress-bar {
+    height: 8px;
+    background-color: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+
+.sprint-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #a78bfa, #8b5cf6);
+    border-radius: 4px;
+    transition: width 0.5s ease-out;
+}
+
+.sprint-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.sprint-focus-btn {
+    width: 100%;
+    margin-top: 12px;
+    padding: 6px;
+    background-color: rgba(139, 92, 246, 0.1);
+    color: #8b5cf6;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.sprint-focus-btn:hover {
+    background-color: #8b5cf6;
+    color: white;
+}
+        /* === POPRAWKA WARSTW (Z-INDEX) DLA SPRINTU I ZADAŃ === */
         
+        /* 1. Modal Sprintu (Centrum Dowodzenia) */
+        /* Musi być nad Sidebarem (z-index: 2000 w Twoim kodzie) */
+        #sprint-creation-modal {
+            z-index: 2050 !important;
+        }
+
+        /* 2. Modal Nowego Zadania (Otwierany ze Sprintu) */
+        /* Musi być NAJWYŻEJ, żeby był widoczny nad Sprintem */
+        #new-task-modal {
+            z-index: 2100 !important;
+        }
+
+        /* Opcjonalnie: Modal wyboru koloru/bannera (też może być otwierany z nowego zadania) */
+        #background-color-modal,
+        #cover-templates-modal,
+        #task-cover-croppie-modal {
+            z-index: 2200 !important; /* Jeszcze wyżej */
+        }
     </style>
 
 </head>
@@ -18475,6 +18588,79 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         }
             // ZMIANA: Dodano szósty argument: taskNumber (domyślnie pusty string)
         function createTaskCardHTML(task, isInteractive, project, targetStatus = null, targetCustomColumnId = undefined, taskNumber = '') {
+            
+            // ============================================================
+            // === NOWE: WIZUALIZACJA SUPER-KAFELKA SPRINTU ===
+            // ============================================================
+            if (task.type === 'sprint') {
+                // 1. Obliczenia Punktów (Capacity vs Delivered)
+                const capacity = parseFloat(task.estimation) || 0; // Zadeklarowana pojemność
+                let deliveredPoints = 0;
+                let totalSubtasks = 0;
+                let doneSubtasks = 0;
+
+                if (task.subtasks && task.subtasks.length > 0) {
+                    totalSubtasks = task.subtasks.length;
+                    task.subtasks.forEach(sub => {
+                        // Punkty dowiezione to punkty zadań, które są 'done'
+                        // (Sprawdzamy status, bo w sprincie podzadania mają pełny cykl życia)
+                        const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                        if (subStatus === 'done') {
+                            deliveredPoints += parseFloat(sub.effort || sub.estimation || 0);
+                            doneSubtasks++;
+                        }
+                    });
+                }
+
+                // Procent postępu punktowego
+                const progressPercent = capacity > 0 ? Math.min((deliveredPoints / capacity) * 100, 100) : 0;
+                
+                // Daty
+                const dateRange = task.startDate && task.dueDate 
+                    ? `${new Date(task.startDate).toLocaleDateString('pl-PL', {day:'numeric', month:'short'})} - ${new Date(task.dueDate).toLocaleDateString('pl-PL', {day:'numeric', month:'short'})}`
+                    : 'Brak dat';
+
+                // HTML Super-Kafelka
+                return `
+                <li class="task-card" draggable="${isInteractive}" data-task-id="${task.id}" style="margin-bottom: 16px;">
+                    <div class="task-card-sprint-content">
+                        <div class="sprint-header">
+                            <span class="sprint-badge">SPRINT / CYKL</span>
+                            </div>
+                        
+                        <h4 style="font-size: 16px; font-weight: 700; margin-bottom: 4px; color: var(--text-primary);">${task.title}</h4>
+                        
+                        <div class="sprint-dates">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px;">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0h18" />
+                            </svg>
+                            ${dateRange}
+                        </div>
+
+                        <div class="sprint-progress-section">
+                            <div class="sprint-progress-bar">
+                                <div class="sprint-progress-fill" style="width: ${progressPercent}%;"></div>
+                            </div>
+                            <div class="sprint-stats">
+                                <span>${doneSubtasks}/${totalSubtasks} zadań</span>
+                                <span style="color: #8b5cf6;">${deliveredPoints}/${capacity} pkt</span>
+                            </div>
+                        </div>
+
+                        <button class="sprint-focus-btn js-enter-sprint-focus" data-sprint-id="${task.id}">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px; height:16px;">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                            </svg>
+                            Wejdź w tryb FOKUS
+                        </button>
+                    </div>
+                </li>
+                `;
+            }
+            // ============================================================
+            // === KONIEC BLOKU SPRINTU - DALEJ ZWYKŁE ZADANIA ===
+            // ============================================================
+
             // === NOWA LOGIKA: Privacy Guard (Ograniczenie widoczności) ===
             const currentUserId = state.currentUser.uid;
             // Używamy findProject jeśli project nie jest przekazany bezpośrednio
@@ -36014,6 +36200,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div> 
 </body>
 </html>
+
 
 
 
