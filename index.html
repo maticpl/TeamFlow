@@ -8614,6 +8614,14 @@ body.compact-mode .comment-item {
             <button id="fab-menu-toggle" class="fab-add-task">+</button>
             
             <div id="fab-menu" class="fab-menu-container hidden">
+                <div class="fab-menu-item" id="fab-action-new-sprint">
+                    <span class="fab-menu-label">Nowy Sprint / Cykl</span>
+                    <button class="fab-add-task fab-menu-btn" style="background-color: #8b5cf6;" title="Zaplanuj Sprint">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 28px; height: 28px;">
+                           <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                    </button>
+                </div>
                 <div class="fab-menu-item" id="fab-action-new-poll">
                     <span class="fab-menu-label">Nowy sondaż</span>
                     <button class="fab-add-task fab-menu-btn" style="background-color: #16a34a;" title="Dodaj nowy sondaż">
@@ -12364,6 +12372,247 @@ function hasChecklistPermission(user, project, task, item) {
             };
         }
         // === KONIEC NOWEJ FUNKCJI ===
+       // --- 1. ZMIENNE GLOBALNE DLA SPRINTU ---
+const sprintModal = {
+    overlay: document.getElementById('sprint-creation-modal'),
+    nameInput: document.getElementById('sprint-name-input'),
+    startDate: document.getElementById('sprint-start-date'),
+    endDate: document.getElementById('sprint-end-date'),
+    capacityInput: document.getElementById('sprint-capacity-input'),
+    addTaskBtn: document.getElementById('sprint-add-task-btn'),
+    saveBtn: document.getElementById('save-sprint-btn'),
+    
+    // Listy (Dropzones)
+    backlogList: document.getElementById('sprint-backlog-list'),
+    todoList: document.getElementById('sprint-board-todo'),
+    inprogressList: document.getElementById('sprint-board-inprogress'),
+    doneList: document.getElementById('sprint-board-done'),
+    
+    // Liczniki
+    pointsCounter: document.getElementById('sprint-points-counter'),
+    costEstimate: document.getElementById('sprint-cost-estimate')
+};
+
+// Tymczasowy magazyn na zadania w sprincie (przed zapisem do bazy)
+let sprintDraftTasks = []; 
+let isSprintCreationMode = false; // Flaga: czy jesteśmy w trybie tworzenia sprintu?
+
+// --- 2. OTWIERANIE MODALA SPRINTU ---
+const fabNewSprintBtn = document.getElementById('fab-action-new-sprint');
+
+if (fabNewSprintBtn) {
+    fabNewSprintBtn.addEventListener('click', () => {
+        // Reset stanu
+        sprintDraftTasks = [];
+        isSprintCreationMode = true;
+        
+        sprintModal.nameInput.value = '';
+        sprintModal.capacityInput.value = '';
+        
+        // Domyślne daty (dziś + 14 dni)
+        const today = new Date();
+        const twoWeeks = new Date();
+        twoWeeks.setDate(today.getDate() + 14);
+        sprintModal.startDate.value = today.toISOString().split('T')[0];
+        sprintModal.endDate.value = twoWeeks.toISOString().split('T')[0];
+        
+        // Wyczyść listy
+        sprintModal.backlogList.innerHTML = '';
+        sprintModal.todoList.innerHTML = '';
+        sprintModal.inprogressList.innerHTML = '';
+        sprintModal.doneList.innerHTML = '';
+        
+        updateSprintStats();
+        
+        // Zamknij menu FAB
+        document.getElementById('fab-menu-toggle').classList.remove('active');
+        document.getElementById('fab-menu').classList.add('hidden');
+        
+        // Otwórz modal
+        openModal(sprintModal.overlay);
+        
+        // Inicjalizacja Drag & Drop dla tych 4 list
+        initSprintDragAndDrop();
+    });
+}
+
+// --- 3. OBSŁUGA DODAWANIA ZADANIA DO SPRINTU (REUSE NEW-TASK-MODAL) ---
+sprintModal.addTaskBtn.addEventListener('click', () => {
+    // Otwieramy standardowe okno "Nowe Zadanie", ale...
+    // Musimy wiedzieć, że jesteśmy w trybie sprintu.
+    // Używamy globalnej flagi `isSprintCreationMode`.
+    
+    // Otwórz standardowy modal
+    openNewTaskModal({ isFab: false, isSpecial: false });
+    
+    // Nadpisz logikę przycisku "Zapisz" w tamtym modalu
+    // Zamiast wysyłać do Firebase, przechwycimy dane.
+    // (To wymaga modyfikacji funkcji saveTaskFromModal lub obsługi flagi w niej)
+});
+
+// --- 4. FUNKCJA AKTUALIZUJĄCA WIDOK SPRINTU (Z listy `sprintDraftTasks`) ---
+function renderSprintDraftTasks() {
+    // Wyczyść listy wizualnie
+    sprintModal.backlogList.innerHTML = '';
+    sprintModal.todoList.innerHTML = '';
+    sprintModal.inprogressList.innerHTML = '';
+    sprintModal.doneList.innerHTML = '';
+
+    sprintDraftTasks.forEach((task, index) => {
+        // Tworzymy "Mini Kartę" (uproszczoną)
+        const cardHTML = `
+            <li class="task-card" data-temp-index="${index}" style="margin-bottom: 8px; cursor: grab;">
+                <div class="task-card-main-content priority-${task.priority}">
+                    <div style="display:flex; justify-content:space-between;">
+                        <h4 style="font-size:13px; margin:0;">${task.title}</h4>
+                        <span style="font-size:11px; font-weight:bold; color:var(--accent-primary);">${task.estimation || 0} pkt</span>
+                    </div>
+                    <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;">
+                        ${task.assignees.length > 0 ? task.assignees.length + ' osób' : 'Nieprzypisane'}
+                    </div>
+                </div>
+            </li>
+        `;
+
+        // Decydujemy gdzie wrzucić (domyślnie backlogList, chyba że ustalimy status)
+        // W tym kreatorze "Backlog" (lewa kolumna) to po prostu lista startowa.
+        // Jeśli użytkownik przesunie do Todo/InProgres/Done, to aktualizujemy status w obiekcie.
+        
+        let targetList = sprintModal.backlogList;
+        if (task.status === 'todo') targetList = sprintModal.todoList;
+        else if (task.status === 'inprogress') targetList = sprintModal.inprogressList;
+        else if (task.status === 'done') targetList = sprintModal.doneList;
+        
+        // Jeśli status jest 'todo', ale nie został jeszcze przesunięty na tablicę (jest nowy),
+        // domyślnie ląduje w lewej kolumnie (backlogList) jako "Do zaplanowania".
+        // Przyjmijmy konwencję: 'backlog' to status tymczasowy w kreatorze.
+        
+        if (task.tempStatus === 'backlog') {
+             sprintModal.backlogList.insertAdjacentHTML('beforeend', cardHTML);
+        } else if (task.tempStatus === 'todo') {
+             sprintModal.todoList.insertAdjacentHTML('beforeend', cardHTML);
+        } else if (task.tempStatus === 'inprogress') {
+             sprintModal.inprogressList.insertAdjacentHTML('beforeend', cardHTML);
+        } else if (task.tempStatus === 'done') {
+             sprintModal.doneList.insertAdjacentHTML('beforeend', cardHTML);
+        } else {
+             // Domyślnie lewa kolumna
+             sprintModal.backlogList.insertAdjacentHTML('beforeend', cardHTML);
+        }
+    });
+    
+    updateSprintStats();
+}
+
+function updateSprintStats() {
+    let totalPoints = 0;
+    let totalCost = 0;
+    
+    sprintDraftTasks.forEach(t => {
+        totalPoints += parseFloat(t.estimation || 0);
+        // Prosta estymacja kosztu (np. jeśli jest budżet)
+        if (t.budgetItems) {
+            t.budgetItems.forEach(item => totalCost += parseFloat(item.amount || 0));
+        }
+    });
+    
+    const capacity = parseFloat(sprintModal.capacityInput.value) || 0;
+    sprintModal.pointsCounter.textContent = `${totalPoints} / ${capacity} pkt`;
+    sprintModal.pointsCounter.style.color = (capacity > 0 && totalPoints > capacity) ? 'var(--danger-primary)' : 'var(--text-primary)';
+    
+    sprintModal.costEstimate.textContent = totalCost.toLocaleString('pl-PL', {style: 'currency', currency: 'PLN'});
+}
+
+// --- 5. DRAG & DROP W KREATORZE ---
+function initSprintDragAndDrop() {
+    const lists = [sprintModal.backlogList, sprintModal.todoList, sprintModal.inprogressList, sprintModal.doneList];
+    
+    lists.forEach(list => {
+        new Sortable(list, {
+            group: 'sprint-builder',
+            animation: 150,
+            onEnd: (evt) => {
+                const itemEl = evt.item;
+                const newStatus = evt.to.dataset.status; // backlog, todo, inprogress, done
+                const index = itemEl.dataset.tempIndex;
+                
+                // Aktualizuj status w pamięci tymczasowej
+                if (sprintDraftTasks[index]) {
+                    sprintDraftTasks[index].tempStatus = newStatus;
+                    // Mapowanie na prawdziwy status zadania
+                    if (newStatus !== 'backlog') {
+                        sprintDraftTasks[index].status = newStatus;
+                    } else {
+                        sprintDraftTasks[index].status = 'todo'; // Domyślnie w bazie
+                    }
+                }
+                updateSprintStats();
+            }
+        });
+    });
+}
+
+// --- 6. ZAPIS SPRINTU (FINALIZACJA) ---
+sprintModal.saveBtn.addEventListener('click', async () => {
+    const title = sprintModal.nameInput.value.trim();
+    if (!title) {
+        showNotification("Podaj nazwę sprintu.", "Błąd");
+        return;
+    }
+    
+    sprintModal.saveBtn.disabled = true;
+    sprintModal.saveBtn.textContent = 'Tworzenie Sprintu...';
+    
+    try {
+        // A. Utwórz obiekt "Super-Zadania" (Sprintu)
+        const sprintTask = {
+            id: `sprint_${Date.now()}`,
+            title: title,
+            type: 'sprint', // NOWY TYP!
+            description: `Cel sprintu: ${title}`,
+            startDate: sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null,
+            dueDate: sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null,
+            estimation: parseFloat(sprintModal.capacityInput.value) || 0, // Pojemność
+            
+            status: 'todo', // Sprint zaczyna w Todo
+            projectId: state.currentProjectId,
+            createdBy: state.currentUser.uid,
+            createdAt: Date.now(),
+            assignees: [], // Sprint należy do wszystkich
+            
+            // Tutaj wrzucamy zadania składowe jako PODZADANIA tego sprintu
+            subtasks: sprintDraftTasks.map(t => ({
+                ...t,
+                isSubtaskInSprint: true // Znacznik
+            })),
+            
+            // Obliczamy sumaryczny budżet
+            budgetItems: [] // Można tu zagregować
+        };
+        
+        // B. Zapisz do Firestore (jako zwykłe zadanie w kolekcji projects)
+        const projectDocRef = doc(db, `artifacts/${appId}/public/data/projects`, state.currentProjectId);
+        const projectSnap = await getDoc(projectDocRef);
+        
+        if (projectSnap.exists()) {
+            const currentTasks = projectSnap.data().tasks || [];
+            const updatedTasks = [...currentTasks, sprintTask];
+            
+            await updateDoc(projectDocRef, { tasks: updatedTasks });
+            
+            showNotification("Sprint utworzony pomyślnie!", "Sukces");
+            closeModal(sprintModal.overlay);
+            isSprintCreationMode = false; // Wyłącz tryb
+        }
+        
+    } catch (e) {
+        console.error(e);
+        showNotification("Błąd zapisu sprintu.", "Błąd");
+    } finally {
+        sprintModal.saveBtn.disabled = false;
+        sprintModal.saveBtn.textContent = 'Utwórz Sprint';
+    }
+});
       // === ZAKTUALIZOWANA FUNKCJA (Wersja 2.1): Obliczanie budżetu per użytkownik (z podziałem kosztów) ===
         function calculateGlobalUserBudgetSummary() {
             const userBudgets = {}; // Obiekt do agregacji: { userId: { name, avatar, reserved, spent, total } }
@@ -16369,7 +16618,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 });
             }
             // --- KONIEC ---
-
+            
            // --- ZMIENNE STATYSTYCZNE (ROZDZIELONE) ---
             // Obiekt dla Zadań Głównych
             const statsMain = {
@@ -25850,8 +26099,56 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
         // --- KONIEC NOWEGO LISTENERA ---
 
         newTaskModal.form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const submitBtn = e.target.querySelector('button[type="submit"]');
+            e.preventDefault();
+
+            // ============================================================
+            // === NOWE: PRZECHWYCENIE DLA KREATORA SPRINTU (INTERCEPTOR) ===
+            // ============================================================
+            if (typeof isSprintCreationMode !== 'undefined' && isSprintCreationMode) {
+                
+                // 1. Walidacja
+                const title = newTaskModal.title.value.trim();
+                if (!title) { showNotification("Tytuł wymagany.", "Błąd"); return; }
+                
+                // 2. Pobieranie danych
+                const assignees = Array.from(newTaskModal.assigneesList.querySelectorAll('.member-pill.selected'))
+                           .map(pill => pill.dataset.userId);
+                
+                const estVal = parseFloat(newTaskModal.effortInput.value);
+                const estimation = (estVal > 0) ? estVal : null;
+                
+                const priority = newTaskModal.priority.value;
+
+                // 3. Budowa obiektu tymczasowego (DRAFT)
+                const tempTask = {
+                    id: `draft_${Date.now()}`,
+                    title: title,
+                    status: 'todo', 
+                    tempStatus: 'backlog', // Domyślnie lewa kolumna
+                    priority: priority,
+                    assignees: assignees,
+                    estimation: estimation,
+                    description: newTaskModal.description.value,
+                    type: assignees.length > 1 ? 'multi' : 'single',
+                    completedBy: [],
+                    subtasks: [],
+                    budgetItems: []
+                };
+                
+                // 4. Dodaj do tablicy draftu i odśwież widok sprintu
+                if (typeof sprintDraftTasks !== 'undefined') {
+                    sprintDraftTasks.push(tempTask);
+                    if (typeof renderSprintDraftTasks === 'function') renderSprintDraftTasks();
+                }
+                
+                closeModal(newTaskModal.overlay);
+                return; // STOP - PRZERYWAMY FUNKCJĘ, ABY NIE WYSŁAĆ DO FIREBASE
+            }
+            // ============================================================
+            // === KONIEC BLOKU SPRINTU ===
+            // ============================================================
+
+            const submitBtn = e.target.querySelector('button[type="submit"]');
 
     try {
         submitBtn.disabled = true;
@@ -35613,8 +35910,111 @@ welcomeModal.okBtn.addEventListener('click', async () => {
         </div>
     </div>
 </div>
+   <div class="modal-overlay" id="sprint-creation-modal">
+        <div class="modal" style="width: 98vw; max-width: 1400px; height: 92vh; max-height: none; padding: 0; display: flex; flex-direction: column;">
+            <div class="modal-header" style="background-color: var(--bg-secondary); border-bottom: 1px solid var(--border-color); padding: 16px 24px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="background-color: rgba(139, 92, 246, 0.1); padding: 8px; border-radius: 8px; color: #8b5cf6;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" /></svg>
+                    </div>
+                    <div>
+                        <h2 style="font-size: 20px; margin: 0;">Planowanie Sprintu / Cyklu</h2>
+                        <p style="font-size: 12px; color: var(--text-secondary);">Zdefiniuj cel, budżet i zakres prac.</p>
+                    </div>
+                </div>
+                <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+
+            <div class="sprint-creation-body" style="display: flex; flex-grow: 1; overflow: hidden;">
+                
+                <div class="sprint-creation-sidebar" style="width: 400px; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background-color: var(--bg-primary);">
+                    <div style="padding: 24px; overflow-y: auto; flex-grow: 1;">
+                        
+                        <div class="form-group">
+                            <label>Nazwa Sprintu</label>
+                            <input type="text" id="sprint-name-input" placeholder="np. Sprint #4 - Optymalizacja" style="font-weight: 600; font-size: 16px;">
+                        </div>
+                        
+                        <div class="form-group" style="display: flex; gap: 12px;">
+                            <div style="flex: 1;">
+                                <label>Start</label>
+                                <input type="date" id="sprint-start-date">
+                            </div>
+                            <div style="flex: 1;">
+                                <label>Koniec</label>
+                                <input type="date" id="sprint-end-date">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Pojemność (Capacity Points)</label>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="number" id="sprint-capacity-input" placeholder="np. 40" style="width: 100px;">
+                                <span style="font-size: 12px; color: var(--text-secondary);">pkt</span>
+                            </div>
+                        </div>
+
+                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 20px 0;">
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <h4 style="font-size: 14px; text-transform: uppercase; color: var(--text-secondary);">Zadania w Sprincie</h4>
+                            <span id="sprint-points-counter" style="font-size: 12px; font-weight: 600; background: var(--bg-tertiary); padding: 2px 8px; border-radius: 10px;">0 / 0 pkt</span>
+                        </div>
+
+                        <button id="sprint-add-task-btn" class="new-project-btn" style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 16px;">
+                            <span>+ Dodaj Zadanie</span>
+                        </button>
+
+                        <div id="sprint-backlog-container" class="kanban-column" style="background: var(--bg-secondary); border: 1px solid var(--border-color); min-height: 200px; width: 100%;">
+                            <div class="kanban-column-header" style="padding: 8px;">
+                                <h3 style="font-size: 12px;">Do zaplanowania</h3>
+                            </div>
+                            <ul class="kanban-tasks" id="sprint-backlog-list" data-status="backlog">
+                                </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sprint-creation-board" style="flex-grow: 1; background-color: var(--bg-secondary); padding: 24px; display: flex; flex-direction: column;">
+                    <h3 style="margin-bottom: 16px; font-size: 16px;">Tablica Sprintu (Symulacja)</h3>
+                    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">Przeciągnij zadania z lewej kolumny, aby ustalić ich status początkowy.</p>
+                    
+                    <div class="kanban-board-mini" style="display: flex; gap: 16px; height: 100%; overflow-x: auto; align-items: stretch;">
+                        
+                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary);">
+                            <div class="kanban-column-header"><h3>Do realizacji</h3></div>
+                            <ul class="kanban-tasks" id="sprint-board-todo" data-status="todo"></ul>
+                        </div>
+
+                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary);">
+                            <div class="kanban-column-header"><h3>W trakcie</h3></div>
+                            <ul class="kanban-tasks" id="sprint-board-inprogress" data-status="inprogress"></ul>
+                        </div>
+
+                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary);">
+                            <div class="kanban-column-header"><h3>Wykonane</h3></div>
+                            <ul class="kanban-tasks" id="sprint-board-done" data-status="done"></ul>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="modal-footer" style="background-color: var(--bg-secondary); border-top: 1px solid var(--border-color); padding: 16px 24px;">
+                <div style="margin-right: auto; font-size: 13px;">
+                    Koszt estymowany: <strong id="sprint-cost-estimate">0.00 PLN</strong>
+                </div>
+                <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+                <button type="button" id="save-sprint-btn" class="btn btn-primary" style="background-color: #8b5cf6; border-color: #8b5cf6;">
+                    Utwórz Sprint
+                </button>
+            </div>
+        </div>
+    </div> 
 </body>
 </html>
+
 
 
 
