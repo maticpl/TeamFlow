@@ -15911,7 +15911,37 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 kanbanBoardEl.innerHTML = '<p>Wybierz projekt lub stwórz nowy, aby zacząć.</p>';
                 return;
             }
-            projectNameHeaderEl.textContent = project.name;
+            // === NOWA LOGIKA: NAGŁÓWEK W TRYBIE FOKUS ===
+            if (state.ui.focusedSprintId) {
+                // Znajdź sprint, na którym się skupiamy
+                const sprint = project.tasks.find(t => t.id === state.ui.focusedSprintId);
+                const sprintTitle = sprint ? `FOKUS: ${sprint.title}` : 'Tryb Fokus';
+                
+                // Podmień tytuł na nawigację z przyciskiem "Wróć"
+                projectNameHeaderEl.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <button id="exit-focus-btn" class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 12px; display: flex; gap: 4px; align-items: center; border-color: #8b5cf6; color: #8b5cf6;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 19l-7-7 7-7"/></svg>
+                            Wróć do Tablicy
+                        </button>
+                        <span style="color: var(--text-primary);">${sprintTitle}</span>
+                    </div>
+                `;
+                
+                // Dodaj listener do przycisku powrotu (jednorazowo)
+                setTimeout(() => {
+                    document.getElementById('exit-focus-btn')?.addEventListener('click', () => {
+                        state.ui.focusedSprintId = null; // Czyść ID sprintu
+                        render(); // Przeładuj widok (wróci do normy)
+                    });
+                }, 0);
+
+            } else {
+                // Standardowy tytuł
+                projectNameHeaderEl.textContent = project.name;
+            }
+            // === KONIEC ===
+
             mobileHeaderTitle.textContent = project.name;
             projectMembersHeaderEl.innerHTML = (project.members || [])
     .map(memberId => findUser(memberId))
@@ -17896,25 +17926,59 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // 3. SCALANIE: Utwórz wspólną tablicę wszystkich elementów
                 let combinedItems = [];
 
-                // Dodaj Zadania Główne
-                tasksInColumn.forEach(task => {
-                    combinedItems.push({
-                        type: 'main',
-                        data: task,
-                        // Używamy customOrder. Jeśli brak, dajemy bardzo dużą liczbę (na koniec)
-                        order: (task.customOrder !== undefined) ? task.customOrder : 999999
-                    });
-                });
+                // === NOWA LOGIKA: TRYB FOKUS NA SPRINCIE ===
+                if (state.ui.focusedSprintId) {
+                    // A. JESTEŚMY W ŚRODKU SPRINTU
+                    // Szukamy obiektu sprintu (to zadanie w tym projekcie)
+                    const sprintTask = tasks.find(t => t.id === state.ui.focusedSprintId);
+                    
+                    if (sprintTask && sprintTask.subtasks) {
+                        sprintTask.subtasks.forEach(sub => {
+                            // Sprawdź, czy to podzadanie pasuje do tej kolumny (statusu)
+                            const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                            let matches = false;
 
-                // Dodaj Podzadania Niezależne
-                standaloneSubtasks.forEach(item => {
-                    combinedItems.push({
-                        type: 'subtask',
-                        data: item, 
-                        // Używamy customOrder z PODZADANIA
-                        order: (item.sub.customOrder !== undefined) ? item.sub.customOrder : 999999
+                            if (colData.isCustom) {
+                                matches = (subStatus === 'inprogress' && sub.customColumnId === colData.id);
+                            } else if (colData.status === 'inprogress') {
+                                matches = (subStatus === 'inprogress' && !sub.customColumnId);
+                            } else {
+                                matches = (subStatus === colData.status);
+                            }
+
+                            if (matches) {
+                                // Dodaj jako 'subtask' (niezależny kafelek wizualny)
+                                combinedItems.push({
+                                    type: 'subtask',
+                                    // Struktura {sub, parent} wymagana przez createVisualSubtaskCardHTML
+                                    data: { sub: sub, parent: sprintTask }, 
+                                    order: (sub.customOrder !== undefined) ? sub.customOrder : 999999
+                                });
+                            }
+                        });
+                    }
+                } else {
+                    // B. STANDARDOWY WIDOK (ZADANIA + ODLEJONE PODZADANIA + SPRINTY-KAFELKI)
+                    
+                    // Dodaj Zadania Główne (w tym Sprinty jako super-kafelki)
+                    tasksInColumn.forEach(task => {
+                        combinedItems.push({
+                            type: 'main',
+                            data: task,
+                            order: (task.customOrder !== undefined) ? task.customOrder : 999999
+                        });
                     });
-                });
+
+                    // Dodaj Podzadania Niezależne
+                    standaloneSubtasks.forEach(item => {
+                        combinedItems.push({
+                            type: 'subtask',
+                            data: item, 
+                            order: (item.sub.customOrder !== undefined) ? item.sub.customOrder : 999999
+                        });
+                    });
+                }
+                // === KONIEC ZMIANY ===
 
                 // 4. SORTOWANIE: Według daty LUB kolejności własnej
                 // Pobieramy aktualny tryb sortowania dla tego projektu (domyślnie 'asc' lub 'original' w zależności od logiki inicjalizacji)
@@ -27463,7 +27527,19 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 state.ui.currentView = 'projects';
                 saveUiState();
                 render();
+            } 
+            // === NOWE: OBSŁUGA PRZYCISKU FOKUS SPRINTU ===
+            else if (e.target.closest('.js-enter-sprint-focus')) {
+                e.preventDefault();
+                e.stopPropagation();
+                const sprintId = e.target.closest('.js-enter-sprint-focus').dataset.sprintId;
+                // Zapisz ID sprintu w stanie UI
+                state.ui.focusedSprintId = sprintId;
+                
+                showNotification("Wchodzę w tryb skupienia na sprincie.", "Info");
+                render(); // Przerysuj widok (teraz renderKanbanBoard wykryje ID)
             }
+            // === KONIEC ===
         });
         function renderDashboardDetailsModal(type) {
             const allMyTasks = getAllMyTasks();
@@ -36200,6 +36276,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div> 
 </body>
 </html>
+
 
 
 
