@@ -12562,7 +12562,38 @@ sprintModal.addTaskBtn.addEventListener('click', () => {
     // Zamiast wysyłać do Firebase, przechwycimy dane.
     // (To wymaga modyfikacji funkcji saveTaskFromModal lub obsługi flagi w niej)
 });
+// --- NOWA FUNKCJA: OTWIERANIE SPRINTU DO EDYCJI ---
+function openEditSprintModal(sprintId) {
+    const { task: sprint, project } = findTask(sprintId);
+    if (!sprint || sprint.type !== 'sprint') return;
 
+    isSprintCreationMode = true;
+    sprintModal.overlay.dataset.editingSprintId = sprint.id;
+
+    sprintModal.nameInput.value = sprint.title;
+    sprintModal.capacityInput.value = sprint.estimation || '';
+    
+    if (sprint.startDate) sprintModal.startDate.value = sprint.startDate.split('T')[0];
+    if (sprint.dueDate) sprintModal.endDate.value = sprint.dueDate.split('T')[0];
+
+    // === ZMIANA: Pobieranie zadań powiązanych z listy projektu ===
+    sprintDraftTasks = [];
+    if (project.tasks) {
+        // Filtrujemy zadania, które mają parentSprintId == sprint.id
+        const sprintChildren = project.tasks.filter(t => t.parentSprintId === sprint.id);
+        
+        sprintDraftTasks = sprintChildren.map(t => ({
+            ...t,
+            tempStatus: t.status || 'todo' 
+        }));
+    }
+    // === KONIEC ===
+
+    renderSprintDraftTasks();
+    sprintModal.saveBtn.textContent = 'Zapisz zmiany w Sprincie';
+    openModal(sprintModal.overlay);
+    initSprintDragAndDrop();
+}
 // --- 4. FUNKCJA AKTUALIZUJĄCA WIDOK SPRINTU (Z listy `sprintDraftTasks`) ---
 function renderSprintDraftTasks() {
     // Wyczyść listy wizualnie
@@ -12665,7 +12696,7 @@ function initSprintDragAndDrop() {
     });
 }
 
-// --- 6. ZAPIS SPRINTU (FINALIZACJA) ---
+// --- ZMODYFIKOWANY LISTENER: ZAPIS / AKTUALIZACJA SPRINTU ---
 sprintModal.saveBtn.addEventListener('click', async () => {
     const title = sprintModal.nameInput.value.trim();
     if (!title) {
@@ -12674,49 +12705,90 @@ sprintModal.saveBtn.addEventListener('click', async () => {
     }
     
     sprintModal.saveBtn.disabled = true;
-    sprintModal.saveBtn.textContent = 'Tworzenie Sprintu...';
+    sprintModal.saveBtn.textContent = 'Zapisywanie...';
     
     try {
-        // A. Utwórz obiekt "Super-Zadania" (Sprintu)
-        const sprintTask = {
-            id: `sprint_${Date.now()}`,
-            title: title,
-            type: 'sprint', // NOWY TYP!
-            description: `Cel sprintu: ${title}`,
-            startDate: sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null,
-            dueDate: sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null,
-            estimation: parseFloat(sprintModal.capacityInput.value) || 0, // Pojemność
-            
-            status: 'todo', // Sprint zaczyna w Todo
-            projectId: state.currentProjectId,
-            createdBy: state.currentUser.uid,
-            createdAt: Date.now(),
-            assignees: [], // Sprint należy do wszystkich
-            
-            // Tutaj wrzucamy zadania składowe jako PODZADANIA tego sprintu
-            subtasks: sprintDraftTasks.map(t => ({
-                ...t,
-                isSubtaskInSprint: true // Znacznik
-            })),
-            
-            // Obliczamy sumaryczny budżet
-            budgetItems: [] // Można tu zagregować
-        };
-        
-        // B. Zapisz do Firestore (jako zwykłe zadanie w kolekcji projects)
         const projectDocRef = doc(db, `artifacts/${appId}/public/data/projects`, state.currentProjectId);
         const projectSnap = await getDoc(projectDocRef);
         
-        if (projectSnap.exists()) {
-            const currentTasks = projectSnap.data().tasks || [];
-            const updatedTasks = [...currentTasks, sprintTask];
-            
-            await updateDoc(projectDocRef, { tasks: updatedTasks });
-            
-            showNotification("Sprint utworzony pomyślnie!", "Sukces");
-            closeModal(sprintModal.overlay);
-            isSprintCreationMode = false; // Wyłącz tryb
+        if (!projectSnap.exists()) throw new Error("Projekt nie istnieje.");
+        
+        let allTasks = projectSnap.data().tasks || [];
+        
+        // 1. Ustal ID Sprintu (istniejący lub nowy)
+        const editingId = sprintModal.overlay.dataset.editingSprintId;
+        const sprintId = editingId || `sprint_${Date.now()}`;
+        
+        // 2. Przygotuj Obiekt Sprintu (To jest "Super-Zadanie")
+        const sprintTask = {
+            id: sprintId,
+            title: title,
+            type: 'sprint',
+            description: `Cel sprintu: ${title}`,
+            startDate: sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null,
+            dueDate: sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null,
+            estimation: parseFloat(sprintModal.capacityInput.value) || 0,
+            status: 'todo', // Status samego sprintu (można rozbudować logikę)
+            projectId: state.currentProjectId,
+            createdBy: state.currentUser.uid,
+            createdAt: Date.now(),
+            assignees: [],
+            subtasks: [], // PUSTE! Zadania nie są już podzadaniami
+            budgetItems: []
+        };
+
+        // 3. Aktualizuj listę zadań w projekcie
+        
+        // A. Jeśli edytujemy, najpierw zaktualizuj sam obiekt Sprintu w tablicy
+        if (editingId) {
+            const idx = allTasks.findIndex(t => t.id === editingId);
+            if (idx !== -1) {
+                // Zachowaj status sprintu, jeśli był zmieniony na tablicy
+                sprintTask.status = allTasks[idx].status; 
+                allTasks[idx] = sprintTask;
+            }
+        } else {
+            allTasks.push(sprintTask);
         }
+
+        // B. Przetwórz zadania ze Sprintu (Drafty -> Prawdziwe Zadania)
+        sprintDraftTasks.forEach(draft => {
+            // Czy to nowe zadanie (draft) czy edycja istniejącego?
+            const isNew = draft.id.startsWith('draft_');
+            
+            let taskToSave = {
+                ...draft,
+                parentSprintId: sprintId, // KLUCZOWE: Przypisanie do sprintu
+                projectId: state.currentProjectId,
+                // Upewnij się, że status jest poprawny
+                status: draft.status || 'todo'
+            };
+
+            if (isNew) {
+                // Generuj prawdziwe ID
+                taskToSave.id = `task_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
+                // Wyczyść flagi draftu
+                delete taskToSave.tempStatus;
+                
+                allTasks.push(taskToSave);
+            } else {
+                // Aktualizacja istniejącego zadania (jeśli było edytowane w oknie sprintu)
+                const idx = allTasks.findIndex(t => t.id === draft.id);
+                if (idx !== -1) {
+                    // Nadpisz tylko polami z draftu, zachowując resztę (np. historię)
+                    allTasks[idx] = { ...allTasks[idx], ...taskToSave };
+                    delete allTasks[idx].tempStatus;
+                }
+            }
+        });
+
+        // 4. Zapisz wszystko do bazy
+        await updateDoc(projectDocRef, { tasks: allTasks });
+        
+        showNotification("Sprint i zadania zapisane!", "Sukces");
+        closeModal(sprintModal.overlay);
+        isSprintCreationMode = false;
+        delete sprintModal.overlay.dataset.editingSprintId;
         
     } catch (e) {
         console.error(e);
@@ -17925,60 +17997,54 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
                 // 3. SCALANIE: Utwórz wspólną tablicę wszystkich elementów
                 let combinedItems = [];
+                
+                // Pobierz wszystkie zadania z projektu (bo teraz sprint i jego dzieci są na tej samej liście)
+                // tasks to parametr funkcji renderKanbanBoard
 
-                // === NOWA LOGIKA: TRYB FOKUS NA SPRINCIE ===
+                // === NOWA LOGIKA: FILTROWANIE HYBRYDOWE ===
                 if (state.ui.focusedSprintId) {
-                    // A. JESTEŚMY W ŚRODKU SPRINTU
-                    // Szukamy obiektu sprintu (to zadanie w tym projekcie)
-                    const sprintTask = tasks.find(t => t.id === state.ui.focusedSprintId);
-                    
-                    if (sprintTask && sprintTask.subtasks) {
-                        sprintTask.subtasks.forEach(sub => {
-                            // Sprawdź, czy to podzadanie pasuje do tej kolumny (statusu)
-                            const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
-                            let matches = false;
-
-                            if (colData.isCustom) {
-                                matches = (subStatus === 'inprogress' && sub.customColumnId === colData.id);
-                            } else if (colData.status === 'inprogress') {
-                                matches = (subStatus === 'inprogress' && !sub.customColumnId);
-                            } else {
-                                matches = (subStatus === colData.status);
-                            }
-
-                            if (matches) {
-                                // Dodaj jako 'subtask' (niezależny kafelek wizualny)
-                                combinedItems.push({
-                                    type: 'subtask',
-                                    // Struktura {sub, parent} wymagana przez createVisualSubtaskCardHTML
-                                    data: { sub: sub, parent: sprintTask }, 
-                                    order: (sub.customOrder !== undefined) ? sub.customOrder : 999999
-                                });
-                            }
-                        });
-                    }
-                } else {
-                    // B. STANDARDOWY WIDOK (ZADANIA + ODLEJONE PODZADANIA + SPRINTY-KAFELKI)
-                    
-                    // Dodaj Zadania Główne (w tym Sprinty jako super-kafelki)
+                    // A. TRYB FOKUS: Pokaż tylko dzieci wybranego sprintu
                     tasksInColumn.forEach(task => {
-                        combinedItems.push({
-                            type: 'main',
-                            data: task,
-                            order: (task.customOrder !== undefined) ? task.customOrder : 999999
-                        });
+                        // Pokaż zadanie JEŚLI należy do tego sprintu
+                        if (task.parentSprintId === state.ui.focusedSprintId) {
+                             combinedItems.push({
+                                type: 'main', // Teraz to są normalne zadania główne!
+                                data: task,
+                                order: (task.customOrder !== undefined) ? task.customOrder : 999999
+                            });
+                        }
+                    });
+                    
+                    // W trybie fokus nie pokazujemy podzadań niezależnych z innych zadań, 
+                    // chyba że należą do zadań z tego sprintu. (Dla uproszczenia pomijamy ten edge case).
+
+                } else {
+                    // B. WIDOK OGÓLNY: Pokaż Sprinty i Zadania Luźne (bez rodzica-sprintu)
+                    tasksInColumn.forEach(task => {
+                        // Warunek: Pokaż, jeśli to Sprint LUB jeśli to zadanie bez przypisanego sprintu
+                        if (task.type === 'sprint' || !task.parentSprintId) {
+                            combinedItems.push({
+                                type: 'main',
+                                data: task,
+                                order: (task.customOrder !== undefined) ? task.customOrder : 999999
+                            });
+                        }
                     });
 
-                    // Dodaj Podzadania Niezależne
+                    // Dodaj Podzadania Niezależne (tylko dla widocznych zadań)
                     standaloneSubtasks.forEach(item => {
-                        combinedItems.push({
-                            type: 'subtask',
-                            data: item, 
-                            order: (item.sub.customOrder !== undefined) ? item.sub.customOrder : 999999
-                        });
+                        // Pokaż podzadanie tylko jeśli jego rodzic też byłby widoczny (czyli nie ma sprintu)
+                        // LUB jeśli rodzicem jest Sprint (ale to obsłużyliśmy wyżej jako Task)
+                        if (!item.parent.parentSprintId) {
+                             combinedItems.push({
+                                type: 'subtask',
+                                data: item, 
+                                order: (item.sub.customOrder !== undefined) ? item.sub.customOrder : 999999
+                            });
+                        }
                     });
                 }
-                // === KONIEC ZMIANY ===
+                // === KONIEC NOWEJ LOGIKI ===
 
                 // 4. SORTOWANIE: Według daty LUB kolejności własnej
                 // Pobieramy aktualny tryb sortowania dla tego projektu (domyślnie 'asc' lub 'original' w zależności od logiki inicjalizacji)
@@ -18657,26 +18723,27 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // === NOWE: WIZUALIZACJA SUPER-KAFELKA SPRINTU ===
             // ============================================================
             if (task.type === 'sprint') {
-                // 1. Obliczenia Punktów (Capacity vs Delivered)
-                const capacity = parseFloat(task.estimation) || 0; // Zadeklarowana pojemność
+                const capacity = parseFloat(task.estimation) || 0;
                 let deliveredPoints = 0;
                 let totalSubtasks = 0;
                 let doneSubtasks = 0;
 
-                if (task.subtasks && task.subtasks.length > 0) {
-                    totalSubtasks = task.subtasks.length;
-                    task.subtasks.forEach(sub => {
-                        // Punkty dowiezione to punkty zadań, które są 'done'
-                        // (Sprawdzamy status, bo w sprincie podzadania mają pełny cykl życia)
-                        const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
-                        if (subStatus === 'done') {
-                            deliveredPoints += parseFloat(sub.effort || sub.estimation || 0);
+                // === ZMIANA: Liczenie na podstawie zadań w projekcie ===
+                if (project && project.tasks) {
+                    // Znajdź dzieci tego sprintu
+                    const children = project.tasks.filter(t => t.parentSprintId === task.id);
+                    totalSubtasks = children.length;
+                    
+                    children.forEach(child => {
+                        if (child.status === 'done') {
                             doneSubtasks++;
+                            // Pobierz punkty (estymacja)
+                            deliveredPoints += parseFloat(child.estimation || 0);
                         }
                     });
                 }
+                // === KONIEC ===
 
-                // Procent postępu punktowego
                 const progressPercent = capacity > 0 ? Math.min((deliveredPoints / capacity) * 100, 100) : 0;
                 
                 // Daty
@@ -27034,17 +27101,21 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
             // === KONIEC NOWEJ LOGIKI ===
 
 
-            // NOWY WARUNEK: Jeśli kliknięcie pochodzi z listy "Mój dzień", ignoruj je,
-            // ponieważ ma ono swój własny, dedykowany listener.
-            if (e.target.closest('.my-day-list')) {
-                return;
-            }
-
-            // === NOWA LOGIKA: Sprawdzenie triggerów podzadań ORAZ zadań multi ===
+            // === NOWE: KLIKNIĘCIE W KAFELEK SPRINTU -> OTWIERA MODAL SPRINTU ===
+            const sprintContent = e.target.closest('.task-card-sprint-content');
             
-           // ... (kod powyżej bez zmian, np. ignorowanie my-day-list) ...
-
-            // 1a. IKONA PODZADAŃ (Przełączanie widoku: Lista <-> Kafelki)
+            // Jeśli kliknięto w treść sprintu, ALE NIE w przycisk FOKUS (bo on ma swoją logikę)
+            if (sprintContent && !e.target.closest('.js-enter-sprint-focus')) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const card = sprintContent.closest('.task-card');
+                if (card) {
+                    const sprintId = card.dataset.taskId;
+                    openEditSprintModal(sprintId);
+                }
+                return; // Stop, nie otwieraj zwykłego modala zadania
+            }
             const subtaskToggleBtn = e.target.closest('.js-toggle-subtasks');
             if (subtaskToggleBtn) {
                 e.preventDefault(); 
@@ -27506,7 +27577,28 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 }
                 return; 
             }
-
+            // ===================================================================
+            // === NOWE: KLIKNIĘCIE W KAFELEK SPRINTU -> OTWIERA MODAL SPRINTU ===
+            const sprintContent = e.target.closest('.task-card-sprint-content');
+            
+            // Jeśli kliknięto w treść sprintu, ALE NIE w przycisk FOKUS (bo on ma swoją logikę)
+            if (sprintContent && !e.target.closest('.js-enter-sprint-focus')) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const card = sprintContent.closest('.task-card');
+                if (card) {
+                    const sprintId = card.dataset.taskId;
+                    // Upewnij się, że funkcja openEditSprintModal jest zdefiniowana
+                    if (typeof openEditSprintModal === 'function') {
+                        openEditSprintModal(sprintId);
+                    } else {
+                        console.error("Funkcja openEditSprintModal nie została znaleziona!");
+                    }
+                }
+                return; // Stop, nie otwieraj zwykłego modala zadania
+            }
+            // ===================================================================
             // ============================================================
             // === NOWE: PRIORYTET DLA PRZYCISKU FOKUS (Przed kartą!) ===
             // ============================================================
@@ -36293,6 +36385,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div> 
 </body>
 </html>
+
 
 
 
