@@ -15496,59 +15496,38 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     renderCurrentProjectView();
                     // === POCZĄTEK NOWEJ LOGIKI DLA MENU MOBILNEGO ===
                     if (isMobile) {
+                        // 1. Definiujemy projekt (NAPRAWA BŁĘDU)
                         const project = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
                         
-                        // === NAPRAWA BŁĘDU: Definicja uprawnień lokalnie ===
+                        // 2. Definiujemy uprawnienia (NAPRAWA BŁĘDU)
                         const isOwner = project && (project.ownerId === state.currentUser.uid);
                         const isAdmin = project && (project.admins || []).includes(state.currentUser.uid);
                         const canManageProject = project && (isOwner || isAdmin);
-                        // === KONIEC NAPRAWY ===
 
-                        if (project && canManageProject) { // <-- ZMIANA WARUNKU
+                        // 3. Teraz możemy bezpiecznie użyć zmiennych
+                        if (project && canManageProject) { 
                             mobileProjectActionsToggle.style.display = 'flex'; // Pokaż przycisk menu akcji
 
                             // Dynamiczne wypełnianie i pokazywanie/ukrywanie opcji w menu
                             const menuUl = mobileProjectActionsMenu.querySelector('ul');
-                        if (menuUl) {
-                            const isCompleted = !!findCompletedProject(state.currentProjectId);
-                            // === POCZĄTEK ZMIANY: Rozbudowana logika uprawnień (mobilna) ===
-                            const isOwner = project.ownerId === state.currentUser.uid;
-                            const isAdmin = (project.admins || []).includes(state.currentUser.uid);
-            
-                            const canEditProject = (isOwner || isAdmin) && !project.isInbox;
-                            const canDeleteOrComplete = isOwner && !project.isInbox;
+                            if (menuUl) {
+                                const isCompleted = !!findCompletedProject(state.currentProjectId);
+                                
+                                const canEditProject = (isOwner || isAdmin) && !project.isInbox;
+                                const canDeleteOrComplete = isOwner && !project.isInbox;
 
-                            // ZMIANA: Szczegóły widoczne tylko, jeśli można edytować
-                            menuUl.querySelector('a[data-action="details"]').parentElement.style.display = canEditProject ? 'block' : 'none'; 
-                            menuUl.querySelector('a[data-action="edit"]').parentElement.style.display = canEditProject ? 'block' : 'none'; // Edycja dla Właściciela LUB Admina
-                            menuUl.querySelector('a[data-action="complete"]').parentElement.style.display = (canDeleteOrComplete && !isCompleted) ? 'block' : 'none'; // Zakończ tylko dla Właściciela
-                            menuUl.querySelector('a[data-action="delete"]').parentElement.style.display = canDeleteOrComplete ? 'block' : 'none'; // Usuń tylko dla Właściciela
-                            // === KONIEC ZMIANY ===
+                                // ... reszta kodu bez zmian ...
+                                menuUl.querySelector('a[data-action="details"]').parentElement.style.display = canEditProject ? 'block' : 'none'; 
+                                menuUl.querySelector('a[data-action="edit"]').parentElement.style.display = canEditProject ? 'block' : 'none';
+                                menuUl.querySelector('a[data-action="complete"]').parentElement.style.display = (canDeleteOrComplete && !isCompleted) ? 'block' : 'none';
+                                menuUl.querySelector('a[data-action="delete"]').parentElement.style.display = canDeleteOrComplete ? 'block' : 'none';
+                            }
+                        } else {
+                             // Ukryj przycisk, jeśli brak uprawnień
+                             mobileProjectActionsToggle.style.display = 'none';
                         }
                     }
-                    }
-                   // === LOGIKA UI DLA TYPU PROJEKTU ===
-            if (project.type === 'sprint') {
-                // Ukryj menu "Nowe Zadanie" w FAB
-                if (fabActionNewTask) fabActionNewTask.style.display = 'none';
-                // Pokaż menu "Nowy Sprint" (jeśli było ukryte)
-                const fabSprint = document.getElementById('fab-action-new-sprint');
-                if (fabSprint) fabSprint.style.display = 'flex';
-                
-                // Opcjonalnie: Zmień domyślne zachowanie czerwonego przycisku "+" (Special Task)
-                // W projektach Sprint ten przycisk może od razu otwierać kreator sprintu zamiast Inboxa?
-                // Na razie zostawiamy bez zmian (Inbox), bo to osobny projekt.
-            } else {
-                // Projekt Klasyczny
-                if (fabActionNewTask) fabActionNewTask.style.display = 'flex';
-                // W klasycznym ukrywamy tworzenie sprintu? Decyzja należy do Ciebie. 
-                // Jeśli klasyczny nie ma mieć sprintów, ukrywamy:
-                const fabSprint = document.getElementById('fab-action-new-sprint');
-                if (fabSprint) fabSprint.style.display = 'none';
-            }
-            // === KONIEC ===
-
-            // === KONIEC NOWEJ LOGIKI DLA MENU MOBILNEGO ===
+                    // === KONIEC NOWEJ LOGIKI DLA MENU MOBILNEGO ===
         } else if (isDashboardView) {
                     setupChatListener(null); // <--- NOWA LINIA
                     renderMyDashboardView();
@@ -16164,6 +16143,21 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             
             // Upewnij się, że wiadomość o statusie filtra jest aktualna (dla wizualnego feedbacku na przycisku)
             updateFilterStatusMessage();
+            // === LOGIKA UI DLA TYPU PROJEKTU (WKLEJ TUTAJ) ===
+            // Sprawdzamy typ projektu i sterujemy widocznością przycisków FAB
+            if (project.type === 'sprint') {
+                // DLA SPRINTU: Ukryj "Nowe Zadanie", Pokaż "Nowy Sprint"
+                if (fabActionNewTask) fabActionNewTask.style.display = 'none';
+                const fabSprint = document.getElementById('fab-action-new-sprint');
+                if (fabSprint) fabSprint.style.display = 'flex';
+                
+            } else {
+                // DLA KLASYCZNEGO: Pokaż "Nowe Zadanie", Ukryj "Nowy Sprint"
+                if (fabActionNewTask) fabActionNewTask.style.display = 'flex';
+                const fabSprint = document.getElementById('fab-action-new-sprint');
+                if (fabSprint) fabSprint.style.display = 'none';
+            }
+            // === KONIEC LOGIKI UI ===
         }
         
         /**
@@ -36553,6 +36547,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div> 
 </body>
 </html>
+
 
 
 
