@@ -8853,10 +8853,17 @@ body.compact-mode .comment-item {
                         <h2 style="font-size: 24px; font-weight: 700; margin-bottom: 4px;">Do zaplanowania</h2>
                         <p style="color: var(--text-secondary); font-size: 14px;">Lista zadań oczekujących na przydział do Sprintu.</p>
                     </div>
-                    <button id="add-backlog-task-btn" class="btn btn-primary" style="padding: 10px 20px; display: flex; align-items: center; gap: 8px;">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 18px; height: 18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                        Dodaj zadanie
-                    </button>
+                    
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <select id="backlog-project-filter" style="padding: 10px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-secondary); color: var(--text-primary); font-weight: 500; cursor: pointer; min-width: 200px;">
+                            <option value="all">Wszystkie projekty</option>
+                        </select>
+
+                        <button id="add-backlog-task-btn" class="btn btn-primary" style="padding: 10px 20px; display: flex; align-items: center; gap: 8px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 18px; height: 18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                            Dodaj zadanie
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="backlog-list-container" style="background-color: var(--bg-secondary); border-radius: var(--border-radius); border: 1px solid var(--border-color); flex-grow: 1; overflow-y: auto; padding: 0;">
@@ -15367,6 +15374,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             );
         }
       // === NOWA FUNKCJA: Renderowanie widoku "Do zaplanowania" ===
+        // === ZAKTUALIZOWANA FUNKCJA: Renderowanie widoku "Do zaplanowania" z filtrem ===
         function renderPlanningBacklogView() {
             // 1. Ukryj inne widoki
             kanbanBoardEl.style.display = 'none';
@@ -15389,52 +15397,72 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             if (filterBtn) filterBtn.style.display = 'none';
 
             const listEl = document.getElementById('planning-backlog-list');
+            const filterSelect = document.getElementById('backlog-project-filter');
             listEl.innerHTML = '';
 
-            // 4. Pobierz zadania (Logika Globalna vs Projektowa)
-            const projectId = state.currentProjectId;
-            let backlogTasks = [];
+            // 4. Wypełnij Selecta Projektami (tylko jeśli jest pusty lub ma tylko opcję 'all')
+            // Sprawdzamy state.projects
+            const activeProjects = state.projects.filter(p => !p.isInbox);
+            
+            // Zapamiętaj obecny wybór (aby nie resetować przy odświeżaniu)
+            const currentSelection = filterSelect.value || 'all';
+            
+            let optionsHTML = '<option value="all">Wszystkie projekty</option>';
+            activeProjects.forEach(p => {
+                optionsHTML += `<option value="${p.id}">${p.name}</option>`;
+            });
+            filterSelect.innerHTML = optionsHTML;
+            filterSelect.value = currentSelection;
 
-            if (projectId) {
-                // Jesteśmy w konkretnym projekcie
-                const project = findProject(projectId);
-                if (project) {
-                    backlogTasks = (project.tasks || [])
-                        .filter(t => t.status === 'backlog')
-                        .map(t => ({ ...t, projectName: project.name })); // Dodajemy nazwę projektu
-                }
-            } else {
-                // Jesteśmy w widoku globalnym - pobierz ze wszystkich projektów
-                const allProjects = state.projects.filter(p => !p.isInbox); // Opcjonalnie bez Inboxa
-                backlogTasks = allProjects.flatMap(p => 
+            // 5. Pobierz zadania w zależności od filtra
+            let backlogTasks = [];
+            const filterValue = filterSelect.value;
+
+            if (filterValue === 'all') {
+                // Pobierz ze wszystkich projektów
+                backlogTasks = activeProjects.flatMap(p => 
                     (p.tasks || [])
                     .filter(t => t.status === 'backlog')
                     .map(t => ({ ...t, projectName: p.name }))
                 );
+            } else {
+                // Pobierz z konkretnego projektu
+                const project = findProject(filterValue);
+                if (project) {
+                    backlogTasks = (project.tasks || [])
+                        .filter(t => t.status === 'backlog')
+                        .map(t => ({ ...t, projectName: project.name }));
+                }
             }
 
-            // 5. Sprawdź czy są zadania
+            // 6. Sprawdź czy są zadania
             if (backlogTasks.length === 0) {
-                listEl.innerHTML = '<li style="padding: 20px; text-align: center; color: var(--text-secondary);">Brak zadań w poczekalni. Dodaj nowe zadanie.</li>';
+                const msg = filterValue === 'all' 
+                    ? 'Brak zadań do zaplanowania we wszystkich projektach.' 
+                    : 'Brak zadań do zaplanowania w wybranym projekcie.';
+                listEl.innerHTML = `<li style="padding: 20px; text-align: center; color: var(--text-secondary);">${msg}</li>`;
                 return;
             }
 
-            // 6. Renderuj listę numerowaną
+            // 7. Renderuj listę numerowaną
             listEl.innerHTML = backlogTasks.map(task => {
                 const assigneesHTML = (task.assignees || [])
                     .map(id => findUser(id))
                     .filter(Boolean)
-                    .map(u => renderAvatarHTML(u, 'avatar-comment')) // Małe awatary
+                    .map(u => renderAvatarHTML(u, 'avatar-comment'))
                     .join('');
 
                 const points = task.estimation || task.effort || '-';
-                // Dodajemy nazwę projektu (jeśli jesteśmy w widoku globalnym, warto wiedzieć skąd jest zadanie)
-                const projectBadge = !projectId && task.projectName 
-                    ? `<span style="font-size: 11px; color: var(--text-secondary); margin-right: 8px; border: 1px solid var(--border-color); padding: 2px 6px; border-radius: 4px;">${task.projectName}</span>` 
+                
+                // Etykieta projektu (tylko jeśli wybrano "Wszystkie", dla konkretnego nie trzeba bo wiadomo)
+                const projectLabel = (filterValue === 'all' && task.projectName)
+                    ? `<span style="font-size: 11px; color: var(--text-secondary); background-color: var(--bg-tertiary); padding: 2px 8px; border-radius: 4px; margin-right: 10px; white-space: nowrap; font-weight: 500;">${task.projectName}</span>` 
                     : '';
+
                 return `
                 <li class="backlog-item">
                     <div class="backlog-item-content">
+                        ${projectLabel}
                         <span class="backlog-item-title">${task.title}</span>
                         <div class="backlog-item-meta">
                             <span class="backlog-points" title="Punkty/Wysiłek">${points} pkt</span>
@@ -34859,6 +34887,50 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                 openNewTaskModal({ isBacklogMode: true });
             });
         }
+       // === LISTENERY WIDOKU BACKLOGU ===
+        const backlogFilterSelect = document.getElementById('backlog-project-filter');
+        const addBacklogTaskBtn = document.getElementById('add-backlog-task-btn');
+
+        // 1. Obsługa zmiany filtra (selecta)
+        if (backlogFilterSelect) {
+            backlogFilterSelect.addEventListener('change', () => {
+                // Po prostu przerysuj widok - funkcja renderPlanningBacklogView sama pobierze nową wartość selecta
+                renderPlanningBacklogView();
+            });
+        }
+
+        // 2. Obsługa przycisku "Dodaj zadanie" (Inteligentna)
+        if (addBacklogTaskBtn) {
+            // Najpierw usuwamy stare listenery (klonując element), aby uniknąć duplikatów z poprzednich kroków
+            const newBtn = addBacklogTaskBtn.cloneNode(true);
+            addBacklogTaskBtn.parentNode.replaceChild(newBtn, addBacklogTaskBtn);
+
+            newBtn.addEventListener('click', () => {
+                // Sprawdź co jest wybrane w filtrze
+                const selectedProjectId = backlogFilterSelect ? backlogFilterSelect.value : 'all';
+                
+                if (selectedProjectId && selectedProjectId !== 'all') {
+                    // Jeśli wybrano konkretny projekt -> ustaw go jako bieżący tymczasowo dla modala
+                    // (Dzięki temu modal "Nowe Zadanie" automatycznie go wybierze i ukryje selecta)
+                    state.currentProjectId = selectedProjectId;
+                    
+                    openNewTaskModal({ isBacklogMode: true });
+                    
+                    // Resetujemy currentProjectId na null po otwarciu, żeby nie psuć nawigacji globalnej?
+                    // Nie, lepiej zostawić null w globalnym stanie jeśli jesteśmy w backlogu globalnym.
+                    // Ale openNewTaskModal patrzy na state.currentProjectId.
+                    // Wróćmy do stanu null po zamknięciu modala?
+                    // Uproszczenie: openNewTaskModal w trybie isBacklogMode ukrywa wybór projektu
+                    // TYLKO JEŚLI state.currentProjectId jest ustawione.
+                    // Więc:
+                    
+                } else {
+                    // Jeśli wybrano "Wszystkie" -> ustaw stan na null, użytkownik wybierze projekt w modalu
+                    state.currentProjectId = null;
+                    openNewTaskModal({ isBacklogMode: true });
+                }
+            });
+        }
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
 </script>
@@ -36783,6 +36855,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div> 
 </body>
 </html>
+
 
 
 
