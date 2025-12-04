@@ -8083,6 +8083,101 @@ body.compact-mode .comment-item {
 .project-tile.project-tile-sprint {
     border-left: 4px solid #8b5cf6; /* Fioletowy pasek z lewej */
 }
+        /* === NOWE STYLE: WIDOK DO ZAPLANOWANIA === */
+        .modern-numbered-list {
+            list-style: none;
+            counter-reset: backlog-counter;
+            padding: 0;
+            margin: 0;
+        }
+
+        .backlog-item {
+            display: flex;
+            align-items: center;
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.2s;
+            counter-increment: backlog-counter;
+        }
+
+        .backlog-item:hover {
+            background-color: var(--bg-tertiary);
+        }
+
+        .backlog-item::before {
+            content: counter(backlog-counter);
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            width: 40px;
+            flex-shrink: 0;
+        }
+
+        .backlog-item-content {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .backlog-item-title {
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--text-primary);
+            flex-grow: 1;
+        }
+
+        .backlog-item-meta {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .backlog-points {
+            background-color: rgba(79, 70, 229, 0.1);
+            color: var(--accent-primary);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        /* === NOWE STYLE: MODAL W TRYBIE BACKLOGU (Wyszarzenie) === */
+        .modal-restricted .form-group {
+            opacity: 0.3;
+            pointer-events: none;
+            filter: grayscale(100%);
+            transition: opacity 0.3s;
+        }
+        
+        /* Elementy aktywne w trybie restrykcyjnym */
+        .modal-restricted .form-group.active-field,
+        .modal-restricted .task-modal-tabs {
+            opacity: 1;
+            pointer-events: auto;
+            filter: none;
+        }
+        
+        /* Ukrywanie zbędnych zakładek w pasku w trybie restrykcyjnym */
+        .modal-restricted .task-modal-tab {
+            display: none; /* Domyślnie ukryj wszystkie zakładki */
+        }
+        
+        /* Pokaż tylko wybrane zakładki */
+        .modal-restricted .task-modal-tab[data-tab="description"], 
+        .modal-restricted .task-modal-tab[data-tab="effort"],
+        .modal-restricted .task-modal-tab[data-tab="assignees"] {
+            display: flex;
+            border-bottom: 2px solid var(--accent-primary); /* Podświetlenie */
+            background-color: rgba(79, 70, 229, 0.05);
+        }
+        
+        /* Ukryj przyciski wizualne w nagłówku */
+        .modal-restricted .task-visual-actions {
+            display: none;
+        }
     </style>
 
 </head>
@@ -8259,6 +8354,17 @@ body.compact-mode .comment-item {
               <path d="M12 12 L20.2 7.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
             </svg>
             <span>Omni-Radar</span>
+        </a>
+    </li>
+    <li class="nav-item">
+        <a href="#" data-view="planning-backlog">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+                <path d="M7 3h10a1 1 0 0 1 1 1v15.5L12 16l-6 3.5V4a1 1 0 0 1 1-1z"/>
+                <line x1="9" y1="8" x2="15" y2="8" stroke-linecap="round"/>
+                <line x1="9" y1="11" x2="15" y2="11" stroke-linecap="round"/>
+                <line x1="9" y1="14" x2="15" y2="14" stroke-linecap="round"/>
+            </svg>
+            <span>Do zaplanowania</span>
         </a>
     </li>
 </ul>
@@ -8739,6 +8845,24 @@ body.compact-mode .comment-item {
                 
                 <div id="radar-chart-container" style="flex-grow: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; position: relative;">
                     </div>
+            </div>
+
+            <div id="planning-backlog-view" style="display: none; flex-direction: column; height: 100%;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                    <div>
+                        <h2 style="font-size: 24px; font-weight: 700; margin-bottom: 4px;">Do zaplanowania</h2>
+                        <p style="color: var(--text-secondary); font-size: 14px;">Lista zadań oczekujących na przydział do Sprintu.</p>
+                    </div>
+                    <button id="add-backlog-task-btn" class="btn btn-primary" style="padding: 10px 20px; display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width: 18px; height: 18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                        Dodaj zadanie
+                    </button>
+                </div>
+                
+                <div class="backlog-list-container" style="background-color: var(--bg-secondary); border-radius: var(--border-radius); border: 1px solid var(--border-color); flex-grow: 1; overflow-y: auto; padding: 0;">
+                    <ul id="planning-backlog-list" class="modern-numbered-list">
+                        </ul>
+                </div>
             </div>
 
            <div id="my-day-empty-state" style="display: none;">
@@ -12605,7 +12729,26 @@ if (fabNewSprintBtn) {
         sprintModal.inprogressList.innerHTML = '';
         sprintModal.doneList.innerHTML = '';
         
-        updateSprintStats();
+        // === NOWE: Pobierz zadania z "Do zaplanowania" (Backlogu Projektu) ===
+        const project = findProject(state.currentProjectId);
+        if (project && project.tasks) {
+            // Filtruj zadania ze statusem 'backlog'
+            const backlogTasks = project.tasks.filter(t => t.status === 'backlog');
+            
+            // Dodaj je do tablicy draftu sprintu
+            backlogTasks.forEach(t => {
+                sprintDraftTasks.push({
+                    ...t,
+                    tempStatus: 'backlog' // Wymuś wyświetlenie w lewej kolumnie "Do zaplanowania"
+                });
+            });
+        }
+        // === KONIEC ===
+        
+        // Wyrenderuj zadania (nasz kod renderujący obsłuży tablicę sprintDraftTasks)
+        renderSprintDraftTasks();
+        
+        // updateSprintStats() jest wywoływane wewnątrz renderSprintDraftTasks, więc tu nie trzeba
         
         // Zamknij menu FAB
         document.getElementById('fab-menu-toggle').classList.remove('active');
@@ -15213,7 +15356,69 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             );
         }
-      
+      // === NOWA FUNKCJA: Renderowanie widoku "Do zaplanowania" ===
+        function renderPlanningBacklogView() {
+            // 1. Ukryj inne widoki
+            kanbanBoardEl.style.display = 'none';
+            calendarViewEl.style.display = 'none';
+            const radarView = document.getElementById('radar-view');
+            if (radarView) radarView.style.display = 'none';
+            if (radarUi.toolsWrapper) radarUi.toolsWrapper.style.display = 'none';
+            
+            // 2. Pokaż kontener Backlogu
+            const backlogView = document.getElementById('planning-backlog-view');
+            if (backlogView) backlogView.style.display = 'flex';
+            
+            // 3. Reset nagłówków
+            projectNameHeaderEl.textContent = 'Do zaplanowania';
+            mobileHeaderTitle.textContent = 'Backlog';
+            projectMembersHeaderEl.innerHTML = '';
+            
+            if (projectMenuToggle) projectMenuToggle.style.display = 'none';
+            if (sortBtn) sortBtn.style.display = 'none';
+            if (filterBtn) filterBtn.style.display = 'none';
+
+            const listEl = document.getElementById('planning-backlog-list');
+            listEl.innerHTML = '';
+
+            // 4. Pobierz projekt i zadania
+            const projectId = state.currentProjectId;
+            if (!projectId) {
+                listEl.innerHTML = '<li style="padding: 20px; text-align: center;">Wybierz projekt, aby zarządzać jego backlogiem.</li>';
+                return;
+            }
+            const project = findProject(projectId);
+
+            // 5. Filtruj zadania o statusie 'backlog'
+            const backlogTasks = (project.tasks || []).filter(t => t.status === 'backlog');
+
+            if (backlogTasks.length === 0) {
+                listEl.innerHTML = '<li style="padding: 20px; text-align: center; color: var(--text-secondary);">Brak zadań w poczekalni. Dodaj nowe zadanie.</li>';
+                return;
+            }
+
+            // 6. Renderuj listę numerowaną
+            listEl.innerHTML = backlogTasks.map(task => {
+                const assigneesHTML = (task.assignees || [])
+                    .map(id => findUser(id))
+                    .filter(Boolean)
+                    .map(u => renderAvatarHTML(u, 'avatar-comment')) // Małe awatary
+                    .join('');
+
+                const points = task.estimation || task.effort || '-';
+                
+                return `
+                <li class="backlog-item">
+                    <div class="backlog-item-content">
+                        <span class="backlog-item-title">${task.title}</span>
+                        <div class="backlog-item-meta">
+                            <span class="backlog-points" title="Punkty/Wysiłek">${points} pkt</span>
+                            <div class="task-assignees" style="display: flex;">${assigneesHTML}</div>
+                        </div>
+                    </div>
+                </li>`;
+            }).join('');
+        }
         function render() {
             if (!state.currentUser) return;
             applyTheme();
@@ -15539,6 +15744,18 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 } else if (state.ui.currentView === 'archive') { // <-- DODANY BLOK
                     renderArchiveView();
                 } 
+                // === NOWE: Obsługa widoku Backlogu (Do zaplanowania) ===
+                else if (state.ui.currentView === 'planning-backlog') {
+                    // Ukryj widoki projektu
+                    kanbanBoardEl.style.display = 'none';
+                    
+                    // Ukryj przyciski FAB (mamy własny przycisk w widoku)
+                    if (fabAddSpecialTask) fabAddSpecialTask.style.display = 'none';
+                    if (fabMenuToggle) fabMenuToggle.style.display = 'none';
+                    
+                    renderPlanningBacklogView();
+                }
+                // === KONIEC ===
                 // === NOWE: Obsługa widoku Radaru ===
                 else if (state.ui.currentView === 'radar') {
                     renderRadarView();
@@ -21799,6 +22016,49 @@ if (editorTaskDescription) {
                 isFab = false, isSpecial = false
             } = options;
             
+           // 1. Reset styli modala (usuń klasę restrykcyjną na start)
+            newTaskModal.overlay.classList.remove('modal-restricted');
+            // Reset klas aktywnych pól
+            newTaskModal.overlay.querySelectorAll('.form-group').forEach(el => el.classList.remove('active-field'));
+
+            // 2. Jeśli tryb Backlog -> Dodaj klasę restrykcyjną i oznacz aktywne pola
+            if (isBacklogMode) {
+                newTaskModal.overlay.classList.add('modal-restricted');
+                
+                // Oznaczamy pola jako aktywne (Nazwa, Osoby, Wysiłek)
+                // Tytuł (jest w task-modal-main - nie ma klasy form-group, ale dodamy ją nadrzędnemu divowi jeśli trzeba, 
+                // tu tytuł jest inputem #new-task-title w div.form-group)
+                const titleGroup = document.getElementById('new-task-title').closest('.form-group');
+                if (titleGroup) titleGroup.classList.add('active-field');
+                
+                // Zakładka Osoby (treść)
+                const assigneesTab = document.getElementById('tab-new-task-assignees');
+                if (assigneesTab) {
+                    // Dodajemy klasę do elementów wewnątrz, żeby były aktywne
+                    // W CSS użyliśmy .modal-restricted .task-modal-tab-content.active - to działa
+                }
+                
+                // Zakładka Wysiłek (treść)
+                const effortTab = document.getElementById('tab-new-task-effort');
+                if (effortTab) {
+                     const effortGroup = effortTab.querySelector('.form-group');
+                     if(effortGroup) effortGroup.classList.add('active-field');
+                }
+
+                // Wymuś otwarcie zakładki "Wysiłek" lub "Opis" na start
+                // Ale w trybie backlog, chcemy widzieć "Effort" - zasymulujmy kliknięcie
+                 setTimeout(() => {
+                    const effortBtn = document.getElementById('new-task-tab-effort');
+                    if (effortBtn) {
+                        effortBtn.style.display = 'flex'; // Wymuś widoczność jeśli była ukryta
+                        effortBtn.click();
+                    }
+                }, 60);
+                
+                // Ukryj Project Select (automatycznie bieżący)
+                newTaskModal.projectGroup.style.display = 'none';
+            }
+
             // --- RESET STANU TYMCZASOWEGO BANNRA ---
             newTaskTempBannerData = null;
             if (newTaskModal.openCoverGalleryBtn) {
@@ -26700,12 +26960,17 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
         }
         // === KONIEC ===
 
+        // Sprawdź, czy jesteśmy w widoku backlogu
+        const isBacklogView = state.ui.currentView === 'planning-backlog';
+        
         const newTask = {
                 id: `task${Date.now()}`, title,
                 createdBy: state.currentUser.uid,
                 createdAt: Timestamp.now(), 
                 description: newTaskModal.description.value,
-                status: 'todo', 
+                // === ZMIANA: Jeśli jesteśmy w Backlogu, status to 'backlog', inaczej 'todo' ===
+                status: isBacklogView ? 'backlog' : 'todo', 
+                // === KONIEC ZMIANY ===
                 type: taskType,
                 assignees: assignees,
                 completedBy: [],
@@ -34535,6 +34800,14 @@ welcomeModal.okBtn.addEventListener('click', async () => {
         // Najprościej: Dodaję to do istniejących funkcji renderujących widoki.
 
         // === KONIEC NOWYCH LISTENERÓW ===
+       // === NOWY LISTENER: Przycisk "Dodaj zadanie" w Backlogu ===
+        const addBacklogTaskBtn = document.getElementById('add-backlog-task-btn');
+        if (addBacklogTaskBtn) {
+            addBacklogTaskBtn.addEventListener('click', () => {
+                // Otwórz modal w trybie Backlogu
+                openNewTaskModal({ isBacklogMode: true });
+            });
+        }
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
 </script>
@@ -36459,6 +36732,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div> 
 </body>
 </html>
+
 
 
 
