@@ -8025,6 +8025,64 @@ body.compact-mode .comment-item {
         #task-cover-croppie-modal {
             z-index: 2200 !important; /* Jeszcze wyżej */
         }
+        /* === STYLE DLA PRZEŁĄCZNIKA TYPU PROJEKTU === */
+.project-type-toggle-wrapper {
+    position: relative;
+    display: flex;
+    background-color: var(--bg-tertiary);
+    border-radius: 20px;
+    padding: 4px;
+    user-select: none;
+    margin-right: 16px; /* Odstęp od X */
+}
+
+.project-type-toggle-wrapper input[type="radio"] {
+    display: none;
+}
+
+.project-type-toggle-wrapper label {
+    position: relative;
+    z-index: 2;
+    padding: 6px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.3s;
+    margin-bottom: 0;
+}
+
+.project-type-toggle-wrapper input[type="radio"]:checked + label {
+    color: var(--text-primary);
+}
+
+/* Tło aktywnego elementu (przesuwający się klocek) */
+.project-type-toggle-wrapper .toggle-bg {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    height: calc(100% - 8px);
+    width: 50%; /* Zakładamy równe szerokości */
+    background-color: var(--bg-secondary);
+    border-radius: 16px;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+    z-index: 1;
+}
+
+/* Logika przesuwania tła */
+/* Domyślnie (Classic) jest na lewo (transform 0) */
+#type-sprint:checked ~ .toggle-bg {
+    transform: translateX(100%); /* Przesuń na prawo */
+    background-color: #8b5cf6; /* Fioletowy dla Sprintu */
+}
+#type-sprint:checked + label {
+    color: white;
+}
+        /* Wyróżnienie kafelka Sprintu */
+.project-tile.project-tile-sprint {
+    border-left: 4px solid #8b5cf6; /* Fioletowy pasek z lewej */
+}
     </style>
 
 </head>
@@ -9176,9 +9234,21 @@ body.compact-mode .comment-item {
     <div class="modal-overlay" id="new-project-modal">
         <div class="modal">
             <form id="new-project-form">
-                <div class="modal-header">
-                    <h2>Stwórz nowy projekt</h2>
-                    <button type="button" class="modal-close-btn">&times;</button>
+                <div class="modal-header" style="display: flex; align-items: center; justify-content: space-between;">
+                    <h2 style="margin: 0;">Stwórz nowy projekt</h2>
+                    
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div class="project-type-toggle-wrapper">
+                            <input type="radio" name="project-type-toggle" id="type-classic" value="classic" checked>
+                            <label for="type-classic">Klasyczny</label>
+                            
+                            <input type="radio" name="project-type-toggle" id="type-sprint" value="sprint">
+                            <label for="type-sprint">Sprint / Agile</label>
+                            
+                            <div class="toggle-bg"></div>
+                        </div>
+                        <button type="button" class="modal-close-btn">&times;</button>
+                    </div>
                 </div>
                 <div class="form-modal-content">
                     <div class="form-group">
@@ -14483,6 +14553,23 @@ async function handleRadarNodeDragEnd(e) {
                 const tileClass = isOwner ? 'owner' : 'member';
                 const isFavorite = state.currentUser.favorites.includes(project.id);
                 const owner = findUser(project.ownerId);
+                
+                // === ZMIANA: Obsługa typu SPRINT ===
+                const isSprintProject = project.type === 'sprint';
+                const projectTypeClass = isSprintProject ? 'project-tile-sprint' : '';
+                
+                // Badge (Ikona) dla typu projektu
+                let typeBadge = '';
+                if (isSprintProject) {
+                    typeBadge = `
+                        <div title="Projekt typu Agile/Sprint" style="background-color: #8b5cf6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; margin-right: 8px; display: flex; align-items: center; gap: 4px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 10px; height: 10px;"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                            AGILE
+                        </div>
+                    `;
+                }
+                // === KONIEC ZMIANY ===
+
                 const priorityClass = project.priority === 'high' ? 'priority-high' : (project.priority === 'low' ? 'priority-low' : '');
                 const projectTasks = (project.tasks || []);
                 const totalTasks = projectTasks.length;
@@ -14534,9 +14621,12 @@ async function handleRadarNodeDragEnd(e) {
                 }
                 // --- KONIEC NOWEJ LOGIKI ---
 
-                return `<div class="project-tile ${tileClass} ${priorityClass}" data-id="${project.id}">
+                return `<div class="project-tile ${tileClass} ${priorityClass} ${projectTypeClass}" data-id="${project.id}">
                     <div class="project-tile-header">
-                        <h3 class="js-project-title" title="${project.name}">${project.name}</h3>
+                        <div style="display: flex; align-items: center; overflow: hidden;">
+                            ${typeBadge}
+                            <h3 class="js-project-title" title="${project.name}">${project.name}</h3>
+                        </div>
                         <button class="favorite-btn ${isFavorite ? 'is-favorite' : ''}" data-project-id="${project.id}">
                             <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
                         </button>
@@ -15433,8 +15523,29 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         }
                     }
                     }
-                    // === KONIEC NOWEJ LOGIKI DLA MENU MOBILNEGO ===
-                } else if (isDashboardView) {
+                   // === LOGIKA UI DLA TYPU PROJEKTU ===
+            if (project.type === 'sprint') {
+                // Ukryj menu "Nowe Zadanie" w FAB
+                if (fabActionNewTask) fabActionNewTask.style.display = 'none';
+                // Pokaż menu "Nowy Sprint" (jeśli było ukryte)
+                const fabSprint = document.getElementById('fab-action-new-sprint');
+                if (fabSprint) fabSprint.style.display = 'flex';
+                
+                // Opcjonalnie: Zmień domyślne zachowanie czerwonego przycisku "+" (Special Task)
+                // W projektach Sprint ten przycisk może od razu otwierać kreator sprintu zamiast Inboxa?
+                // Na razie zostawiamy bez zmian (Inbox), bo to osobny projekt.
+            } else {
+                // Projekt Klasyczny
+                if (fabActionNewTask) fabActionNewTask.style.display = 'flex';
+                // W klasycznym ukrywamy tworzenie sprintu? Decyzja należy do Ciebie. 
+                // Jeśli klasyczny nie ma mieć sprintów, ukrywamy:
+                const fabSprint = document.getElementById('fab-action-new-sprint');
+                if (fabSprint) fabSprint.style.display = 'none';
+            }
+            // === KONIEC ===
+
+            // === KONIEC NOWEJ LOGIKI DLA MENU MOBILNEGO ===
+        } else if (isDashboardView) {
                     setupChatListener(null); // <--- NOWA LINIA
                     renderMyDashboardView();
                 } else if (isMyDayView) {
@@ -17845,19 +17956,64 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
             // === POCZĄTEK NOWEJ LOGIKI: Definiowanie listy kolumn ===
             
-            // 1. Zacznij od stałej kolumny "Do realizacji"
-            const columnsToRender = [
-                { id: 'todo', title: STATUSES.todo, status: 'todo', isCustom: false }
-            ];
+            let columnsToRender = [];
 
-            // 2. Dodaj domyślną kolumnę "W trakcie"
-            columnsToRender.push({ 
-                id: 'inprogress_null', // Użyjemy specjalnego ID dla tej kolumny
-                title: STATUSES.inprogress, 
-                status: 'inprogress', 
-                customColumnId: null, // To jest jej identyfikator
-                isCustom: false 
-            });
+            // A. LOGIKA DLA PROJEKTU SPRINT / AGILE
+            if (project.type === 'sprint') {
+                columnsToRender = [
+                    { 
+                        id: 'todo', 
+                        title: 'Baza Sprintów', // Zmieniona nazwa (Backlog Sprintów)
+                        status: 'todo', 
+                        isCustom: false 
+                    },
+                    { 
+                        id: 'inprogress_null', 
+                        title: 'Aktywny Sprint', // Zmieniona nazwa
+                        status: 'inprogress', 
+                        customColumnId: null, 
+                        isCustom: false 
+                    },
+                    { 
+                        id: 'done', 
+                        title: 'Zakończone Sprinty', // Zmieniona nazwa
+                        status: 'done', 
+                        isCustom: false 
+                    }
+                ];
+                // W projektach typu Sprint ignorujemy Custom Columns na głównym widoku (na razie)
+            } 
+            // B. LOGIKA DLA PROJEKTU KLASYCZNEGO
+            else {
+                // 1. Zacznij od stałej kolumny "Do realizacji"
+                columnsToRender.push({ id: 'todo', title: STATUSES.todo, status: 'todo', isCustom: false });
+
+                // 2. Dodaj domyślną kolumnę "W trakcie"
+                columnsToRender.push({ 
+                    id: 'inprogress_null', 
+                    title: STATUSES.inprogress, 
+                    status: 'inprogress', 
+                    customColumnId: null, 
+                    isCustom: false 
+                });
+
+                // 3. Dodaj kolumny użytkownika (tylko dla Classic)
+                if (project.customColumns && project.customColumns.length > 0) {
+                    const sortedCustomColumns = [...project.customColumns].sort((a, b) => (a.order || 0) - (b.order || 0));
+                    sortedCustomColumns.forEach(col => {
+                        columnsToRender.push({
+                            id: col.id,
+                            title: col.title,
+                            status: 'inprogress',
+                            customColumnId: col.id,
+                            isCustom: true
+                        });
+                    });
+                }
+
+                // 4. Zakończ stałą kolumną "Wykonane"
+                columnsToRender.push({ id: 'done', title: STATUSES.done, status: 'done', isCustom: false });
+            }
 
             // 3. Dodaj kolumny użytkownika (jeśli istnieją)
             if (project.customColumns && project.customColumns.length > 0) {
@@ -18149,7 +18305,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
                 
                 // Przycisk dodawania zadania (tylko dla 'todo')
-                const addTaskBtnHTML = (isInteractive && colData.status === 'todo') ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
+                // ZMIANA: Ukrywamy ten przycisk całkowicie dla projektów typu Sprint
+                // Zamiast tego użyjemy FAB lub przycisku "Nowy Sprint" w nagłówku (zostanie dodany później)
+                const showAddTask = isInteractive && colData.status === 'todo' && project.type !== 'sprint';
+                const addTaskBtnHTML = showAddTask ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
 
                 // Złóż kolumnę
                 column.innerHTML = `
@@ -18780,9 +18939,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
                         <button class="sprint-focus-btn js-enter-sprint-focus" data-sprint-id="${task.id}">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px; height:16px;">
-                              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                             </svg>
-                            Wejdź w tryb FOKUS
+                            Szczegóły sprintu
                         </button>
                     </div>
                 </li>
@@ -25983,9 +26143,13 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
                 }
                 const newDescription = newProjectModal.descriptionTextarea.value.trim();
                 
+                // 1. Pobranie wybranego typu projektu
+                const selectedType = document.querySelector('input[name="project-type-toggle"]:checked').value; // 'classic' lub 'sprint'
+
                 // Budowanie obiektu projektu
                 const newProject = {
                     name: newName,
+                    type: selectedType, // <-- ZAPISUJEMY TYP
                     ownerId: state.currentUser.uid,
                     members: selectedMembers,
                     // === NOWOŚĆ: Zapis ról ===
@@ -36385,6 +36549,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div> 
 </body>
 </html>
+
 
 
 
