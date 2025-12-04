@@ -17946,11 +17946,15 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const estimationType = project.estimationType || 'none';
             const unit = (estimationType === 'points') ? 'pkt' : 'g';
 
-            // === 2. DEFINICJA KOLUMN (NAPRAWIONA LOGIKA) ===
+            // === 2. DEFINICJA KOLUMN (LOGIKA DUAL-MODE) ===
             let columnsToRender = [];
 
-            if (project.type === 'sprint') {
-                // --- WIDOK SPRINTU (Tylko 3 kolumny) ---
+            // Sprawdź, czy jesteśmy w głównym widoku projektu Sprint, czy w jego szczegółach (Fokus)
+            // Jeśli focusedSprintId istnieje, to znaczy, że weszliśmy w "Szczegóły sprintu" -> Pokaż klasyczne kolumny
+            const isSprintMainView = (project.type === 'sprint' && !state.ui.focusedSprintId);
+
+            if (isSprintMainView) {
+                // --- WIDOK ZARZĄDZANIA SPRINTAMI (Tylko 3 kolumny) ---
                 columnsToRender = [
                     { 
                         id: 'todo', 
@@ -17967,13 +17971,13 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     },
                     { 
                         id: 'done', 
-                        title: 'Zakończone Sprinty', // Ta kolumna przejmuje rolę "Wykonane"
+                        title: 'Zakończone Sprinty', 
                         status: 'done', 
                         isCustom: false 
                     }
                 ];
             } else {
-                // --- WIDOK KLASYCZNY (Standard + Custom) ---
+                // --- WIDOK ZADAŃ (Klasyczny LUB Szczegóły Sprintu) ---
                 
                 // 1. Do realizacji
                 columnsToRender.push({ 
@@ -17992,7 +17996,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     isCustom: false 
                 });
 
-                // 3. Kolumny Niestandardowe (tylko jeśli są zdefiniowane)
+                // 3. Kolumny Niestandardowe (jeśli są zdefiniowane w projekcie)
+                // W trybie szczegółów sprintu też chcemy widzieć customowe kolumny, jeśli user je dodał
                 if (project.customColumns && project.customColumns.length > 0) {
                     const sortedCustomColumns = [...project.customColumns].sort((a, b) => (a.order || 0) - (b.order || 0));
                     
@@ -18000,14 +18005,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         columnsToRender.push({
                             id: col.id,
                             title: col.title,
-                            status: 'inprogress', // Technicznie to nadal 'inprogress'
+                            status: 'inprogress', 
                             customColumnId: col.id,
                             isCustom: true
                         });
                     });
                 }
 
-                // 4. Wykonane (Tylko raz!)
+                // 4. Wykonane
                 columnsToRender.push({ 
                     id: 'done', 
                     title: STATUSES.done, 
@@ -18127,6 +18132,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             });
                         }
                     });
+                    
+                    // W trybie fokus (szczegóły sprintu) zazwyczaj nie pokazujemy niezależnych podzadań
+                    // z INNYCH zadań (które nie są w tym sprincie).
+                    // Ale jeśli logika biznesowa pozwala na mieszanie, to można tu dodać standaloneSubtasks
+                    // z odpowiednim filtrowaniem. Na razie trzymamy czysty widok sprintu.
+
                 } else {
                     // WIDOK OGÓLNY
                     tasksInColumn.forEach(task => {
@@ -18197,21 +18208,17 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     let estimationSum = 0;
                     let actualSum = 0;
                     
-                    tasksInColumn.forEach(task => {
-                        let taskEst = 0;
-                        let taskAct = 0;
-                        if (task.subtasks && task.subtasks.length > 0) {
-                            task.subtasks.forEach(sub => {
-                                taskEst += parseFloat(sub.effort) || 0;
-                                taskAct += parseFloat(sub.actualEffort) || 0;
-                            });
-                        } else {
-                            taskEst = parseFloat(task.estimation ?? task.effort ?? 0);
-                            const rawActual = task.actualEffort !== undefined && task.actualEffort !== null ? task.actualEffort : taskEst;
-                            taskAct = parseFloat(rawActual);
-                        }
-                        estimationSum += taskEst;
-                        actualSum += taskAct;
+                    // Liczba wysiłku liczona tylko dla widocznych zadań w kolumnie
+                    combinedItems.forEach(item => {
+                        let taskData;
+                        if (item.type === 'main') taskData = item.data;
+                        else taskData = item.data.sub;
+
+                        // Dla sprintów estymacja jest sumą zadań w środku (jeśli zaimplementowano)
+                        // lub po prostu wartością 'estimation' na obiekcie sprintu.
+                        
+                        estimationSum += parseFloat(taskData.estimation || taskData.effort || 0);
+                        actualSum += parseFloat(taskData.actualEffort || 0);
                     });
 
                     if (estimationSum > 0 || actualSum > 0) {
@@ -18224,9 +18231,15 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     }
                 }
                 
-                // Przycisk dodawania (Tylko dla 'todo' i tylko jeśli to NIE jest projekt Sprint)
-                // (W sprincie dodajemy przez FAB lub przycisk w nagłówku)
-                const showAddTask = isInteractive && colData.status === 'todo' && project.type !== 'sprint';
+                // Przycisk dodawania (Tylko dla 'todo' i tylko jeśli to NIE jest główny widok sprintu)
+                // Jeśli jesteśmy w trybie Focus (Szczegóły sprintu), przycisk + jest OK (dodaje zadanie do sprintu)
+                // Ale musimy obsłużyć jego logikę (obecnie otwiera New Task Modal, ale musimy tam wstrzyknąć ID sprintu)
+                // Na razie ukrywamy go w trybie Focus dla bezpieczeństwa, 
+                // bo mamy FAB "Nowe Zadanie", który powinien to obsługiwać.
+                
+                const showAddTask = isInteractive && colData.status === 'todo' && project.type !== 'sprint'; // Dla Classic OK
+                // Dla Sprintu w trybie Focus można by pokazać, ale wymaga to dopracowania logiki "gdzie dodać".
+                
                 const addTaskBtnHTML = showAddTask ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
 
                 column.innerHTML = `
@@ -18277,7 +18290,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             const oldColumn = evt.from.closest('.kanban-column');
                             
                             if (evt.to.classList.contains('subtask-family-container')) {
-                                // Logika zagnieżdżania wewnątrz karty (tutaj tylko blokujemy błędy)
                                 return;
                             }
                             
@@ -36439,6 +36451,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div> 
 </body>
 </html>
+
 
 
 
