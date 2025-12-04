@@ -15381,17 +15381,29 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const listEl = document.getElementById('planning-backlog-list');
             listEl.innerHTML = '';
 
-            // 4. Pobierz projekt i zadania
+            // 4. Pobierz zadania (Logika Globalna vs Projektowa)
             const projectId = state.currentProjectId;
-            if (!projectId) {
-                listEl.innerHTML = '<li style="padding: 20px; text-align: center;">Wybierz projekt, aby zarządzać jego backlogiem.</li>';
-                return;
+            let backlogTasks = [];
+
+            if (projectId) {
+                // Jesteśmy w konkretnym projekcie
+                const project = findProject(projectId);
+                if (project) {
+                    backlogTasks = (project.tasks || [])
+                        .filter(t => t.status === 'backlog')
+                        .map(t => ({ ...t, projectName: project.name })); // Dodajemy nazwę projektu
+                }
+            } else {
+                // Jesteśmy w widoku globalnym - pobierz ze wszystkich projektów
+                const allProjects = state.projects.filter(p => !p.isInbox); // Opcjonalnie bez Inboxa
+                backlogTasks = allProjects.flatMap(p => 
+                    (p.tasks || [])
+                    .filter(t => t.status === 'backlog')
+                    .map(t => ({ ...t, projectName: p.name }))
+                );
             }
-            const project = findProject(projectId);
 
-            // 5. Filtruj zadania o statusie 'backlog'
-            const backlogTasks = (project.tasks || []).filter(t => t.status === 'backlog');
-
+            // 5. Sprawdź czy są zadania
             if (backlogTasks.length === 0) {
                 listEl.innerHTML = '<li style="padding: 20px; text-align: center; color: var(--text-secondary);">Brak zadań w poczekalni. Dodaj nowe zadanie.</li>';
                 return;
@@ -15406,7 +15418,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     .join('');
 
                 const points = task.estimation || task.effort || '-';
-                
+                // Dodajemy nazwę projektu (jeśli jesteśmy w widoku globalnym, warto wiedzieć skąd jest zadanie)
+                const projectBadge = !projectId && task.projectName 
+                    ? `<span style="font-size: 11px; color: var(--text-secondary); margin-right: 8px; border: 1px solid var(--border-color); padding: 2px 6px; border-radius: 4px;">${task.projectName}</span>` 
+                    : '';
                 return `
                 <li class="backlog-item">
                     <div class="backlog-item-content">
@@ -22057,8 +22072,22 @@ if (editorTaskDescription) {
                     }
                 }, 60);
                 
-                // Ukryj Project Select (automatycznie bieżący)
-                newTaskModal.projectGroup.style.display = 'none';
+                // === POPRAWKA: Obsługa wyboru projektu ===
+                if (state.currentProjectId) {
+                    // Jeśli jesteśmy w konkretnym projekcie, ukryj wybór (jest automatyczny)
+                    newTaskModal.projectGroup.style.display = 'none';
+                } else {
+                    // Jeśli jesteśmy w widoku globalnym, POKAŻ wybór i ODBLOKUJ go (active-field)
+                    newTaskModal.projectGroup.style.display = 'block';
+                    newTaskModal.projectGroup.classList.add('active-field');
+                    
+                    // Upewnij się, że lista projektów jest wypełniona (kopiujemy logikę z bloku else funkcji)
+                    const nonInbox = state.projects.filter(p => !p.isInbox);
+                    newTaskModal.projectSelect.innerHTML = nonInbox
+                        .map(p => `<option value="${p.id}">${p.name}</option>`)
+                        .join('');
+                }
+                // === KONIEC POPRAWKI ===
             }
 
             // --- RESET STANU TYMCZASOWEGO BANNRA ---
@@ -36734,6 +36763,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div> 
 </body>
 </html>
+
 
 
 
