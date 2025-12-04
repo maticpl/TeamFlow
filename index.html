@@ -8199,6 +8199,133 @@ body.compact-mode .comment-item {
         .modal-restricted .task-visual-actions {
             display: none;
         }
+        /* === NOWE STYLE: MODAL SPRINTU (LAYOUT 2.0) === */
+        
+        /* Poziomy nagłówek z inputami */
+        .sprint-header-inputs {
+            display: flex;
+            align-items: flex-end;
+            gap: 16px;
+            padding: 16px 24px;
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        
+        .sprint-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .sprint-input-group label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+        
+        .sprint-header-inputs input {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            font-size: 14px;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        /* Główny kontener Split */
+        .sprint-split-view {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden; /* Ważne dla scrollowania kolumn */
+            height: 100%;
+        }
+
+        /* LEWA STRONA: Lista zadań (Backlog) */
+        .sprint-backlog-pane {
+            width: 35%; /* 1/3 szerokości */
+            min-width: 350px;
+            border-right: 1px solid var(--border-color);
+            background-color: var(--bg-primary);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* PRAWA STRONA: Tablica (Board) */
+        .sprint-board-pane {
+            width: 65%;
+            background-color: var(--bg-secondary);
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+        }
+
+        /* --- STYL KOMPAKTOWEJ LISTY ZADAŃ (Backlog) --- */
+        .sprint-task-list-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 0; /* Reset paddingu */
+        }
+
+        /* Pojedynczy wiersz zadania */
+        .sprint-task-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border-color);
+            background-color: var(--bg-secondary);
+            cursor: grab;
+            transition: background-color 0.2s;
+        }
+        
+        .sprint-task-row:hover {
+            background-color: var(--bg-tertiary);
+        }
+        
+        .sprint-task-row.dragging {
+            opacity: 0.5;
+            background-color: var(--accent-primary);
+            color: white;
+        }
+
+        .sprint-row-title {
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-right: 12px;
+            flex-grow: 1;
+        }
+
+        .sprint-row-meta {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+
+        .sprint-row-points {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--accent-primary);
+            background-color: rgba(79, 70, 229, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            min-width: 30px;
+            text-align: center;
+        }
+        
+        /* Minimalizacja awatarów w liście */
+        .sprint-row-avatars .avatar {
+            width: 20px;
+            height: 20px;
+            font-size: 9px;
+            border: 1px solid var(--bg-secondary);
+            margin-left: -6px;
+        }
+        .sprint-row-avatars .avatar:first-child { margin-left: 0; }
     </style>
 
 </head>
@@ -12841,6 +12968,7 @@ function openEditSprintModal(sprintId) {
     initSprintDragAndDrop();
 }
 // --- 4. FUNKCJA AKTUALIZUJĄCA WIDOK SPRINTU (Z listy `sprintDraftTasks`) ---
+// --- 4. FUNKCJA AKTUALIZUJĄCA WIDOK SPRINTU (LISTA + TABLICA) ---
 function renderSprintDraftTasks() {
     // Wyczyść listy wizualnie
     sprintModal.backlogList.innerHTML = '';
@@ -12849,45 +12977,58 @@ function renderSprintDraftTasks() {
     sprintModal.doneList.innerHTML = '';
 
     sprintDraftTasks.forEach((task, index) => {
-        // Tworzymy "Mini Kartę" (uproszczoną)
-        const cardHTML = `
-            <li class="task-card" data-temp-index="${index}" style="margin-bottom: 8px; cursor: grab;">
-                <div class="task-card-main-content priority-${task.priority}">
-                    <div style="display:flex; justify-content:space-between;">
-                        <h4 style="font-size:13px; margin:0;">${task.title}</h4>
-                        <span style="font-size:11px; font-weight:bold; color:var(--accent-primary);">${task.estimation || 0} pkt</span>
-                    </div>
-                    <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;">
-                        ${task.assignees.length > 0 ? task.assignees.length + ' osób' : 'Nieprzypisane'}
-                    </div>
-                </div>
-            </li>
-        `;
+        // Dane do wyświetlenia
+        const points = task.estimation || task.effort || 0;
+        
+        // Generowanie awatarów (dla obu widoków)
+        const assigneesHTML = (task.assignees || [])
+            .map(id => findUser(id))
+            .filter(Boolean)
+            .map(u => renderAvatarHTML(u, 'avatar'))
+            .join('');
 
-        // Decydujemy gdzie wrzucić (domyślnie backlogList, chyba że ustalimy status)
-        // W tym kreatorze "Backlog" (lewa kolumna) to po prostu lista startowa.
-        // Jeśli użytkownik przesunie do Todo/InProgres/Done, to aktualizujemy status w obiekcie.
+        // LOGIKA RENDEROWANIA: Lista vs Kafelki
         
-        let targetList = sprintModal.backlogList;
-        if (task.status === 'todo') targetList = sprintModal.todoList;
-        else if (task.status === 'inprogress') targetList = sprintModal.inprogressList;
-        else if (task.status === 'done') targetList = sprintModal.doneList;
-        
-        // Jeśli status jest 'todo', ale nie został jeszcze przesunięty na tablicę (jest nowy),
-        // domyślnie ląduje w lewej kolumnie (backlogList) jako "Do zaplanowania".
-        // Przyjmijmy konwencję: 'backlog' to status tymczasowy w kreatorze.
-        
-        if (task.tempStatus === 'backlog') {
-             sprintModal.backlogList.insertAdjacentHTML('beforeend', cardHTML);
-        } else if (task.tempStatus === 'todo') {
-             sprintModal.todoList.insertAdjacentHTML('beforeend', cardHTML);
-        } else if (task.tempStatus === 'inprogress') {
-             sprintModal.inprogressList.insertAdjacentHTML('beforeend', cardHTML);
-        } else if (task.tempStatus === 'done') {
-             sprintModal.doneList.insertAdjacentHTML('beforeend', cardHTML);
+        if (task.tempStatus === 'backlog' || !task.tempStatus) {
+            // === WIDOK LISTY (Dla kolumny po lewej) ===
+            const listRowHTML = `
+                <li class="sprint-task-row" data-temp-index="${index}" data-task-id="${task.id}" style="cursor: grab;">
+                    <div class="sprint-row-title" title="${task.title}">${task.title}</div>
+                    
+                    <div class="sprint-row-meta">
+                        <div class="sprint-row-avatars" style="display: flex;">${assigneesHTML}</div>
+                        <span class="sprint-row-points">${points} pkt</span>
+                    </div>
+                </li>
+            `;
+            sprintModal.backlogList.insertAdjacentHTML('beforeend', listRowHTML);
+
         } else {
-             // Domyślnie lewa kolumna
-             sprintModal.backlogList.insertAdjacentHTML('beforeend', cardHTML);
+            // === WIDOK KAFELKA (Dla kolumn po prawej - Kanban) ===
+            // Używamy uproszczonego kafelka, żeby pasował do mini-boardu
+            const cardHTML = `
+                <li class="task-card" data-temp-index="${index}" style="margin-bottom: 8px; cursor: grab;">
+                    <div class="task-card-main-content priority-${task.priority || 'medium'}">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                            <h4 style="font-size:12px; margin:0; word-break:break-word;">${task.title}</h4>
+                            <span style="font-size:10px; font-weight:bold; color:var(--accent-primary); white-space:nowrap;">${points} pkt</span>
+                        </div>
+                        <div style="margin-top:6px; display:flex; justify-content:flex-end;">
+                            <div class="task-assignees" style="transform:scale(0.8); transform-origin:right center;">
+                                ${assigneesHTML}
+                            </div>
+                        </div>
+                    </div>
+                </li>
+            `;
+
+            if (task.tempStatus === 'todo') {
+                 sprintModal.todoList.insertAdjacentHTML('beforeend', cardHTML);
+            } else if (task.tempStatus === 'inprogress') {
+                 sprintModal.inprogressList.insertAdjacentHTML('beforeend', cardHTML);
+            } else if (task.tempStatus === 'done') {
+                 sprintModal.doneList.insertAdjacentHTML('beforeend', cardHTML);
+            }
         }
     });
     
@@ -22248,12 +22389,26 @@ if (editorNewTaskDescription) {
                 // Domyślnie zaznaczamy tylko aktualnego użytkownika
                 initialAssignees = [state.currentUser.uid];
 
-                const inProjectView = state.ui.currentView === 'projects' && state.currentProjectId;
+                } else {
+                // ZWYKŁY FAB lub przycisk "Dodaj nowe zadanie"
+                // Domyślnie zaznaczamy tylko aktualnego użytkownika
+                initialAssignees = [state.currentUser.uid];
+
+                // === POPRAWKA: Ufamy state.currentProjectId niezależnie od widoku ===
+                // (Działa dla widoku Projektu ORAZ dla filtrowanego Backlogu)
+                const inProjectView = !!state.currentProjectId; 
+                
                 if (inProjectView) {
-                    // 1. Jesteśmy w widoku PROJEKTU - domyślnie wybierz ten projekt.
+                    // 1. Wybrano konkretny projekt - domyślnie wybierz ten projekt.
                     targetProject = findProject(state.currentProjectId);
                     if (targetProject) {
                         newTaskModal.projectSelect.innerHTML = `<option value="${targetProject.id}" selected>${targetProject.name}</option>`;
+                        
+                        // Ukryj pole wyboru, chyba że jesteśmy w trybie Backlog (tam chcemy widzieć, gdzie dodajemy, choć zablokowane/ustawione)
+                        // W poprzednim kroku ustaliliśmy logikę dla Backlogu wyżej, 
+                        // ale tutaj dla pewności ukrywamy, bo logika "isBacklogMode" na początku funkcji
+                        // i tak decyduje o wyświetlaniu (active-field).
+                        // Dla spójności: jeśli projekt jest ustalony, ukrywamy wybór, żeby nie mieszać.
                         newTaskModal.projectGroup.style.display = 'none';
                     }
                 
@@ -36774,88 +36929,76 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
    <div class="modal-overlay" id="sprint-creation-modal" style="padding: 0;">
         <div class="modal" style="width: 100%; height: 100%; max-width: none; max-height: none; padding: 0; border-radius: 0; display: flex; flex-direction: column;">
-            <div class="modal-header" style="background-color: var(--bg-secondary); border-bottom: 1px solid var(--border-color); padding: 16px 24px;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <div style="background-color: rgba(139, 92, 246, 0.1); padding: 8px; border-radius: 8px; color: #8b5cf6;">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" /></svg>
-                    </div>
-                    <div>
-                        <h2 style="font-size: 20px; margin: 0;">Planowanie Sprintu / Cyklu</h2>
-                        <p style="font-size: 12px; color: var(--text-secondary);">Zdefiniuj cel, budżet i zakres prac.</p>
-                    </div>
-                </div>
+            
+            <div class="modal-header" style="padding: 12px 24px; border-bottom: 1px solid var(--border-color); flex-shrink: 0;">
+                <h2 style="font-size: 18px; margin: 0;">Kreator Sprintu</h2>
                 <button type="button" class="modal-close-btn">&times;</button>
             </div>
 
-            <div class="sprint-creation-body" style="display: flex; flex-grow: 1; overflow: hidden;">
+            <div class="sprint-header-inputs">
+                <div class="sprint-input-group" style="flex: 2;">
+                    <label>Nazwa Sprintu</label>
+                    <input type="text" id="sprint-name-input" placeholder="np. Sprint #4 - Optymalizacja" style="font-weight: 600;">
+                </div>
                 
-                <div class="sprint-creation-sidebar" style="width: 400px; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background-color: var(--bg-primary);">
-                    <div style="padding: 24px; overflow-y: auto; flex-grow: 1;">
-                        
-                        <div class="form-group">
-                            <label>Nazwa Sprintu</label>
-                            <input type="text" id="sprint-name-input" placeholder="np. Sprint #4 - Optymalizacja" style="font-weight: 600; font-size: 16px;">
-                        </div>
-                        
-                        <div class="form-group" style="display: flex; gap: 12px;">
-                            <div style="flex: 1;">
-                                <label>Start</label>
-                                <input type="date" id="sprint-start-date">
-                            </div>
-                            <div style="flex: 1;">
-                                <label>Koniec</label>
-                                <input type="date" id="sprint-end-date">
-                            </div>
-                        </div>
+                <div class="sprint-input-group" style="flex: 1;">
+                    <label>Start</label>
+                    <input type="date" id="sprint-start-date">
+                </div>
+                
+                <div class="sprint-input-group" style="flex: 1;">
+                    <label>Koniec</label>
+                    <input type="date" id="sprint-end-date">
+                </div>
 
-                        <div class="form-group">
-                            <label>Pojemność (Capacity Points)</label>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <input type="number" id="sprint-capacity-input" placeholder="np. 40" style="width: 100px;">
-                                <span style="font-size: 12px; color: var(--text-secondary);">pkt</span>
-                            </div>
-                        </div>
+                <div class="sprint-input-group" style="width: 100px;">
+                    <label title="Pojemność zespołu (Story Points)">Capacity</label>
+                    <input type="number" id="sprint-capacity-input" placeholder="np. 40">
+                </div>
 
-                        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 20px 0;">
+                <div class="sprint-input-group" style="justify-content: flex-end; padding-bottom: 4px;">
+                     <span id="sprint-points-counter" style="font-size: 14px; font-weight: 700; color: var(--text-secondary);">0 / 0 pkt</span>
+                </div>
+            </div>
 
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                            <h4 style="font-size: 14px; text-transform: uppercase; color: var(--text-secondary);">Zadania w Sprincie</h4>
-                            <span id="sprint-points-counter" style="font-size: 12px; font-weight: 600; background: var(--bg-tertiary); padding: 2px 8px; border-radius: 10px;">0 / 0 pkt</span>
-                        </div>
-
-                        <button id="sprint-add-task-btn" class="new-project-btn" style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 16px;">
-                            <span>+ Dodaj Zadanie</span>
-                        </button>
-
-                        <div id="sprint-backlog-container" class="kanban-column" style="background: var(--bg-secondary); border: 1px solid var(--border-color); min-height: 200px; width: 100%;">
-                            <div class="kanban-column-header" style="padding: 8px;">
-                                <h3 style="font-size: 12px;">Do zaplanowania</h3>
-                            </div>
-                            <ul class="kanban-tasks" id="sprint-backlog-list" data-status="backlog">
-                                </ul>
-                        </div>
+            <div class="sprint-split-view">
+                
+                <div class="sprint-backlog-pane">
+                    <div style="padding: 12px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; background-color: var(--bg-tertiary);">
+                        <h4 style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); margin: 0;">Do zaplanowania (Backlog)</h4>
+                        <button id="sprint-add-task-btn" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; height: 24px;">+ Dodaj</button>
+                    </div>
+                    
+                    <div id="sprint-backlog-container" class="sprint-task-list-container">
+                        <ul class="kanban-tasks" id="sprint-backlog-list" data-status="backlog" style="list-style: none; padding: 0; margin: 0;">
+                            </ul>
+                    </div>
+                    
+                    <div style="padding: 8px 12px; border-top: 1px solid var(--border-color); font-size: 11px; color: var(--text-secondary); text-align: right;">
+                        Estymowany koszt zadań: <strong id="sprint-cost-estimate">0.00 PLN</strong>
                     </div>
                 </div>
 
-                <div class="sprint-creation-board" style="flex-grow: 1; background-color: var(--bg-secondary); padding: 24px; display: flex; flex-direction: column;">
-                    <h3 style="margin-bottom: 16px; font-size: 16px;">Tablica Sprintu (Symulacja)</h3>
-                    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">Przeciągnij zadania z lewej kolumny, aby ustalić ich status początkowy.</p>
+                <div class="sprint-board-pane">
+                    <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="font-size: 14px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">Status początkowy zadań w sprincie</h3>
+                    </div>
                     
-                    <div class="kanban-board-mini" style="display: flex; gap: 16px; height: 100%; overflow-x: auto; align-items: stretch;">
+                    <div class="kanban-board-mini" style="display: flex; gap: 12px; height: 100%; overflow-x: auto; align-items: stretch; padding-bottom: 0;">
                         
-                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary);">
-                            <div class="kanban-column-header"><h3>Do realizacji</h3></div>
-                            <ul class="kanban-tasks" id="sprint-board-todo" data-status="todo"></ul>
+                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary); min-width: 200px;">
+                            <div class="kanban-column-header" style="padding: 8px;"><h3>Do realizacji</h3></div>
+                            <ul class="kanban-tasks" id="sprint-board-todo" data-status="todo" style="padding: 8px; overflow-y: auto; height: calc(100% - 40px);"></ul>
                         </div>
 
-                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary);">
-                            <div class="kanban-column-header"><h3>W trakcie</h3></div>
-                            <ul class="kanban-tasks" id="sprint-board-inprogress" data-status="inprogress"></ul>
+                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary); min-width: 200px;">
+                            <div class="kanban-column-header" style="padding: 8px;"><h3>W trakcie</h3></div>
+                            <ul class="kanban-tasks" id="sprint-board-inprogress" data-status="inprogress" style="padding: 8px; overflow-y: auto; height: calc(100% - 40px);"></ul>
                         </div>
 
-                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary);">
-                            <div class="kanban-column-header"><h3>Wykonane</h3></div>
-                            <ul class="kanban-tasks" id="sprint-board-done" data-status="done"></ul>
+                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary); min-width: 200px;">
+                            <div class="kanban-column-header" style="padding: 8px;"><h3>Wykonane</h3></div>
+                            <ul class="kanban-tasks" id="sprint-board-done" data-status="done" style="padding: 8px; overflow-y: auto; height: calc(100% - 40px);"></ul>
                         </div>
 
                     </div>
@@ -36863,19 +37006,17 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 
             </div>
 
-            <div class="modal-footer" style="background-color: var(--bg-secondary); border-top: 1px solid var(--border-color); padding: 16px 24px;">
-                <div style="margin-right: auto; font-size: 13px;">
-                    Koszt estymowany: <strong id="sprint-cost-estimate">0.00 PLN</strong>
-                </div>
+            <div class="modal-footer" style="background-color: var(--bg-secondary); border-top: 1px solid var(--border-color); padding: 12px 24px; flex-shrink: 0;">
                 <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
                 <button type="button" id="save-sprint-btn" class="btn btn-primary" style="background-color: #8b5cf6; border-color: #8b5cf6;">
-                    Utwórz Sprint
+                    Zapisz Sprint
                 </button>
             </div>
         </div>
-    </div> 
+    </div>
 </body>
 </html>
+
 
 
 
