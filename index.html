@@ -8095,7 +8095,33 @@ body.compact-mode .comment-item {
             flex-direction: column;
             gap: 0; /* Brak odstępów, bo używamy border-bottom */
         }
+        /* Styl dla kontenera ikon w widoku listy (wiersza) */
+        .row-task-icons {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: 16px; /* Odstęp od sekcji po prawej (avatary/punkty) */
+            color: var(--text-secondary);
+        }
+        
+        .row-task-icons .icon-item {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            font-size: 11px;
+            font-weight: 500;
+        }
 
+        .row-task-icons svg {
+            width: 14px;
+            height: 14px;
+            opacity: 0.8;
+        }
+
+        /* Specyficzne kolory dla ikon */
+        .row-task-icons .icon-priority-high { color: var(--danger-primary); }
+        .row-task-icons .icon-priority-low { color: var(--success-primary); }
+        .row-task-icons .icon-budget { color: #F2C76B; } /* Złoty */
         .backlog-item {
             display: flex;
             align-items: center;
@@ -13001,13 +13027,20 @@ function renderSprintDraftTasks() {
         // LOGIKA RENDEROWANIA: Lista vs Kafelki
         
         if (task.tempStatus === 'backlog' || !task.tempStatus) {
+            
+            // === NOWE: Generowanie ikon dla listy sprintu ===
+            const iconsHTML = generateRowIconsHTML(task);
+            // === KONIEC ===
+
             // === WIDOK LISTY (Dla kolumny po lewej) ===
             const listRowHTML = `
                 <li class="sprint-task-row" data-temp-index="${index}" data-task-id="${task.id}" style="cursor: grab;">
                     <div class="sprint-row-title" title="${task.title}">${task.title}</div>
                     
                     <div class="sprint-row-meta">
-                        <div class="sprint-row-avatars" style="display: flex;">${assigneesHTML}</div>
+                        ${iconsHTML}
+
+                        <div class="sprint-row-avatars" style="display: flex; margin-right: 12px;">${assigneesHTML}</div>
                         <span class="sprint-row-points">${points} pkt</span>
                     </div>
                 </li>
@@ -15546,6 +15579,61 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 }
             );
         }
+       /**
+         * NOWA FUNKCJA POMOCNICZA: Generuje ikony dla widoku wierszowego (Backlog / Sprint).
+         */
+        function generateRowIconsHTML(task) {
+            let icons = [];
+
+            // 1. Priorytet (jeśli wysoki lub niski)
+            if (task.priority === 'high') {
+                icons.push(`<div class="icon-item icon-priority-high" title="Wysoki priorytet"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M11.953 2C6.465 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.493 2 11.953 2zM12 17h-1v-2h1v2zm0-4h-1V7h1v6z"/></svg></div>`);
+            } else if (task.priority === 'low') {
+                icons.push(`<div class="icon-item icon-priority-low" title="Niski priorytet"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8zm.5-11h-1v6h1V9zm0 8h-1v-1h1v1z"/></svg></div>`);
+            }
+
+            // 2. Cykliczność
+            if (task.recurrence) {
+                icons.push(`<div class="icon-item" title="Zadanie cykliczne"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></div>`);
+            }
+
+            // 3. Opis (jeśli istnieje)
+            if (task.description) {
+                icons.push(`<div class="icon-item" title="Zawiera opis"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" /></svg></div>`);
+            }
+
+            // 4. Podzadania
+            if (task.subtasks && task.subtasks.length > 0) {
+                const done = task.subtasks.filter(s => s.isCompleted || s.status === 'done').length;
+                const total = task.subtasks.length;
+                icons.push(`<div class="icon-item" title="Podzadania: ${done}/${total}"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg><span>${done}/${total}</span></div>`);
+            }
+
+            // 5. Lista kontrolna
+            if (task.checklist && task.checklist.length > 0) {
+                const done = task.checklist.filter(i => i.isCompleted).length;
+                const total = task.checklist.length;
+                icons.push(`<div class="icon-item" title="Lista: ${done}/${total}"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>${done}/${total}</span></div>`);
+            }
+
+            // 6. Komentarze
+            if (task.comments && task.comments.length > 0) {
+                icons.push(`<div class="icon-item" title="Komentarze: ${task.comments.length}"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg><span>${task.comments.length}</span></div>`);
+            }
+
+            // 7. Załączniki
+            if (task.attachments && task.attachments.length > 0) {
+                icons.push(`<div class="icon-item" title="Załączniki: ${task.attachments.length}"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg><span>${task.attachments.length}</span></div>`);
+            }
+
+            // 8. Budżet
+            const totalBudget = (task.budgetItems || []).reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
+            if (totalBudget > 0) {
+                icons.push(`<div class="icon-item icon-budget" title="Zadanie ma budżet"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.11-1.54-3.5-3.27h2.14c.35.9.87 1.35 1.94 1.35.88 0 1.42-.35 1.42-1.05 0-1.28-3.78-1.65-3.78-4.67 0-1.38 1.13-2.47 2.78-2.83V6h2.67v1.82c1.39.27 2.61 1.15 3.13 2.66h-2.06c-.33-.79-.9-1.18-1.9-1.18-.76 0-1.36.28-1.36.9 0 1.23 3.78 1.55 3.78 4.64 0 1.53-1.2 2.66-2.84 2.93z"/></svg></div>`);
+            }
+
+            return icons.length > 0 ? `<div class="row-task-icons">${icons.join('')}</div>` : '';
+        }
       // === NOWA FUNKCJA: Renderowanie widoku "Do zaplanowania" ===
         // === ZAKTUALIZOWANA FUNKCJA: Renderowanie widoku "Do zaplanowania" z filtrem ===
         function renderPlanningBacklogView() {
@@ -15629,7 +15717,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 // Pobieramy punkty lub myślnik
                 const points = task.estimation || task.effort || '-';
                 
-                // Etykieta projektu (przeniesiona na prawo, stylizowana delikatniej)
+                // === NOWE: Generowanie ikon ===
+                const iconsHTML = generateRowIconsHTML(task);
+                // === KONIEC ===
+
+                // Etykieta projektu
                 const projectLabel = (filterValue === 'all' && task.projectName)
                     ? `<span style="font-size: 11px; color: var(--text-secondary); margin-right: 12px; white-space: nowrap;">${task.projectName}</span>` 
                     : '';
@@ -15641,6 +15733,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     </div>
 
                     <div class="backlog-item-meta" style="display: flex; align-items: center; flex-shrink: 0;">
+                        
+                        ${iconsHTML}
+
                         ${projectLabel}
                         
                         <div class="task-assignees" style="display: flex; margin-right: 16px; padding-left: 6px;">${assigneesHTML}</div>
@@ -37112,6 +37207,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
