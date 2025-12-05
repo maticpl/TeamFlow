@@ -8005,6 +8005,61 @@ body.compact-mode .comment-item {
     background-color: #8b5cf6;
     color: white;
 }
+        /* === NOWE STYLE DLA PRZYCISKÓW STEROWANIA SPRINTEM === */
+.sprint-controls {
+    margin-top: 12px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border-color);
+}
+
+.sprint-action-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+/* Przycisk PLAY (Start) */
+.sprint-btn-start {
+    background-color: var(--success-primary); /* Zielony */
+    color: white;
+}
+.sprint-btn-start:hover {
+    transform: scale(1.1);
+    background-color: #15803d;
+}
+
+/* Przycisk PLAY (Zablokowany/Wyszarzony) */
+.sprint-btn-start:disabled {
+    background-color: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    opacity: 0.5;
+}
+
+/* Przycisk FINISH (Koniec) */
+.sprint-btn-finish {
+    background-color: white;
+    color: var(--success-primary);
+    border: 2px solid var(--success-primary);
+}
+.sprint-btn-finish:hover {
+    background-color: var(--success-primary);
+    color: white;
+    transform: scale(1.1);
+}
+/* === KONIEC NOWYCH STYLI === */
         /* === POPRAWKA WARSTW (Z-INDEX) DLA SPRINTU I ZADAŃ === */
         
         /* 1. Modal Sprintu (Centrum Dowodzenia) */
@@ -18710,7 +18765,11 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             const allPolls = state.polls.filter(poll => poll.projectId === project.id);
             const estimationType = project.estimationType || 'none';
             const unit = (estimationType === 'points') ? 'pkt' : 'g';
-
+            // === NOWE: Sprawdź, czy istnieje aktywny sprint (status 'inprogress') ===
+            // Używamy tego, aby zablokować przyciski "Play" w innych sprintach
+            const activeSprint = (project.tasks || []).find(t => t.type === 'sprint' && t.status === 'inprogress');
+            const isAnySprintActive = !!activeSprint;
+            // === KONIEC ===
             // === 2. DEFINICJA KOLUMN (LOGIKA DUAL-MODE) ===
             let columnsToRender = [];
 
@@ -18963,7 +19022,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     if (item.type === 'main') {
                         const task = item.data;
                         const taskNumber = taskIndexMap[task.id];
-                        return createTaskCardHTML(task, isInteractive, project, colData.status, colData.customColumnId, taskNumber);
+                        // === ZMIANA: Przekazujemy isAnySprintActive jako 7 argument ===
+                        return createTaskCardHTML(task, isInteractive, project, colData.status, colData.customColumnId, taskNumber, isAnySprintActive);
                     } else {
                         const { sub, parent } = item.data;
                         const parentNumber = taskIndexMap[parent.id];
@@ -19558,36 +19618,65 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // ============================================================
             if (task.type === 'sprint') {
                 const capacity = parseFloat(task.estimation) || 0;
+                // ... (obliczenia postępu bez zmian) ...
                 let deliveredPoints = 0;
                 let totalSubtasks = 0;
                 let doneSubtasks = 0;
 
-                // === ZMIANA: Liczenie na podstawie zadań w projekcie ===
                 if (project && project.tasks) {
-                    // Znajdź dzieci tego sprintu
                     const children = project.tasks.filter(t => t.parentSprintId === task.id);
                     totalSubtasks = children.length;
-                    
                     children.forEach(child => {
                         if (child.status === 'done') {
                             doneSubtasks++;
-                            // Pobierz punkty (estymacja)
                             deliveredPoints += parseFloat(child.estimation || 0);
                         }
                     });
                 }
-                // === KONIEC ===
-
                 const progressPercent = capacity > 0 ? Math.min((deliveredPoints / capacity) * 100, 100) : 0;
                 
-                // Daty
                 const dateRange = task.startDate && task.dueDate 
                     ? `${new Date(task.startDate).toLocaleDateString('pl-PL', {day:'numeric', month:'short'})} - ${new Date(task.dueDate).toLocaleDateString('pl-PL', {day:'numeric', month:'short'})}`
                     : 'Brak dat';
 
+                // === NOWE: LOGIKA PRZYCISKÓW SPRINTU ===
+                let controlBtnHTML = '';
+                
+                if (task.status === 'todo') {
+                    // Przycisk PLAY (Start)
+                    // Zablokowany, jeśli inny sprint jest już w trakcie (isAnySprintActive)
+                    const isDisabled = isAnySprintActive ? 'disabled' : '';
+                    const title = isDisabled ? 'Zakończ aktywny sprint, aby rozpocząć ten.' : 'Rozpocznij ten sprint';
+                    
+                    controlBtnHTML = `
+                        <button class="sprint-action-btn sprint-btn-start js-start-sprint" data-sprint-id="${task.id}" ${isDisabled} title="${title}">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="28" height="28">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                        </button>
+                    `;
+                } else if (task.status === 'inprogress') {
+                    // Przycisk FINISH (Zakończ) - używamy SVG dostarczonego przez Ciebie
+                    controlBtnHTML = `
+                        <button class="sprint-action-btn sprint-btn-finish js-finish-sprint" data-sprint-id="${task.id}" title="Zakończ sprint">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24">
+                              <title>Zakończ sprint</title>
+                              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/>
+                              <path d="M8 12.5l3 3 5-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                    `;
+                } else if (task.status === 'done') {
+                    // Sprint zakończony - brak przycisków lub informacja
+                    // Możemy ukryć sekcję controls lub pokazać status
+                    controlBtnHTML = `<span style="font-size: 12px; color: var(--success-primary); font-weight: 600;">✓ Zakończony</span>`;
+                }
+                // === KONIEC LOGIKI PRZYCISKÓW ===
+
                 // HTML Super-Kafelka
+                // ZMIANA: draggable="false" (blokada przesuwania sprintów)
                 return `
-                <li class="task-card" draggable="${isInteractive}" data-task-id="${task.id}" style="margin-bottom: 16px;">
+                <li class="task-card" draggable="false" data-task-id="${task.id}" style="margin-bottom: 16px; cursor: default;">
                     <div class="task-card-sprint-content">
                         <div class="sprint-header">
                             <span class="sprint-badge">SPRINT / CYKL</span>
@@ -19610,6 +19699,10 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                                 <span>${doneSubtasks}/${totalSubtasks} zadań</span>
                                 <span style="color: #8b5cf6;">${deliveredPoints}/${capacity} pkt</span>
                             </div>
+                        </div>
+                        
+                        <div class="sprint-controls">
+                             ${controlBtnHTML}
                         </div>
 
                         <button class="sprint-focus-btn js-enter-sprint-focus" data-sprint-id="${task.id}">
@@ -28644,6 +28737,75 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 showNotification("Wchodzę w tryb skupienia na sprincie.", "Info");
                 render(); // Przerysuj widok (teraz renderKanbanBoard wykryje ID)
             }
+             // === NOWE: ROZPOCZĘCIE SPRINTU (PLAY) ===
+            else if (e.target.closest('.js-start-sprint')) {
+                e.preventDefault();
+                e.stopPropagation();
+                const btn = e.target.closest('.js-start-sprint');
+                // Sprawdź, czy przycisk nie jest zablokowany (disabled)
+                if (btn.disabled) return;
+                
+                const sprintId = btn.dataset.sprintId;
+                const projectId = state.currentProjectId;
+                const project = findProject(projectId);
+
+                if (project && sprintId) {
+                    // Zaktualizuj status sprintu na 'inprogress'
+                    const updatedTasks = project.tasks.map(t => 
+                        t.id === sprintId ? { ...t, status: 'inprogress' } : t
+                    );
+                    
+                    const projectDocRef = doc(projectsRef, projectId);
+                    
+                    // Optymistyczna aktualizacja (opcjonalnie) lub czekanie na updateDoc
+                    showNotification("Sprint rozpoczęty! Powodzenia.", "Sukces");
+                    
+                    updateDoc(projectDocRef, { tasks: updatedTasks }).catch(err => {
+                        console.error("Błąd startu sprintu:", err);
+                        showNotification("Błąd startu sprintu.", "Błąd");
+                    });
+                    // Render zostanie wywołany automatycznie przez onSnapshot
+                }
+            }
+
+            // === NOWE: ZAKOŃCZENIE SPRINTU (FINISH) ===
+            else if (e.target.closest('.js-finish-sprint')) {
+                e.preventDefault();
+                e.stopPropagation();
+                const btn = e.target.closest('.js-finish-sprint');
+                const sprintId = btn.dataset.sprintId;
+                const projectId = state.currentProjectId;
+                const project = findProject(projectId);
+
+                if (project && sprintId) {
+                    const sprintTask = project.tasks.find(t => t.id === sprintId);
+                    
+                    showConfirmation(
+                        `Zakończyć Sprint "${sprintTask.title}"?`,
+                        "Sprint zostanie przeniesiony do zakończonych. Będziesz mógł rozpocząć kolejny.",
+                        (confirmed) => {
+                            if (confirmed) {
+                                // Zaktualizuj status sprintu na 'done'
+                                const updatedTasks = project.tasks.map(t => 
+                                    t.id === sprintId ? { ...t, status: 'done', completedAt: new Date() } : t // Dodajemy completedAt dla porządku
+                                );
+                                
+                                const projectDocRef = doc(projectsRef, projectId);
+                                
+                                updateDoc(projectDocRef, { tasks: updatedTasks }).then(() => {
+                                    showConfetti();
+                                    showNotification("Sprint zakończony! Dobra robota.", "Sukces");
+                                }).catch(err => {
+                                    console.error("Błąd kończenia sprintu:", err);
+                                    showNotification("Błąd kończenia sprintu.", "Błąd");
+                                });
+                            }
+                        },
+                        false // Przycisk nie jest czerwony (nie jest to destrukcyjna akcja typu delete)
+                    );
+                }
+            }
+            // === KONIEC ===
             // === KONIEC ===
         });
         function renderDashboardDetailsModal(type) {
@@ -37538,6 +37700,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
