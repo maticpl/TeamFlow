@@ -13080,18 +13080,35 @@ function openEditSprintModal(sprintId) {
     if (sprint.startDate) sprintModal.startDate.value = sprint.startDate.split('T')[0];
     if (sprint.dueDate) sprintModal.endDate.value = sprint.dueDate.split('T')[0];
 
-    // === ZMIANA: Pobieranie zadań powiązanych z listy projektu ===
+    // === NAPRAWA: Pobieranie zadań przypisanych ORAZ dostępnych w Backlogu ===
     sprintDraftTasks = [];
     if (project.tasks) {
-        // Filtrujemy zadania, które mają parentSprintId == sprint.id
+        // 1. Zadania już będące w sprincie
         const sprintChildren = project.tasks.filter(t => t.parentSprintId === sprint.id);
         
-        sprintDraftTasks = sprintChildren.map(t => ({
+        // 2. Zadania z Backlogu (nieprzypisane do żadnego sprintu)
+        const availableBacklogTasks = project.tasks.filter(t => 
+            t.status === 'backlog' && 
+            !t.parentSprintId && 
+            t.id !== sprint.id // Zabezpieczenie, żeby nie pobrać samego sprintu
+        );
+
+        // 3. Łączenie list
+        // Dzieciom sprintu ustawiamy tempStatus na ich obecny status (np. todo, done)
+        const mappedChildren = sprintChildren.map(t => ({
             ...t,
-            tempStatus: t.status || 'todo' 
+            tempStatus: t.status || 'todo'
         }));
+
+        // Zadaniom z backlogu wymuszamy tempStatus 'backlog' (lewa kolumna)
+        const mappedBacklog = availableBacklogTasks.map(t => ({
+            ...t,
+            tempStatus: 'backlog'
+        }));
+
+        sprintDraftTasks = [...mappedChildren, ...mappedBacklog];
     }
-    // === KONIEC ===
+    // === KONIEC NAPRAWY ===
 
     renderSprintDraftTasks();
     sprintModal.saveBtn.textContent = 'Zapisz zmiany w Sprincie';
@@ -13282,15 +13299,22 @@ sprintModal.saveBtn.addEventListener('click', async () => {
 
         // B. Przetwórz zadania ze Sprintu (Drafty -> Prawdziwe Zadania)
         sprintDraftTasks.forEach(draft => {
-            // Czy to nowe zadanie (draft) czy edycja istniejącego?
             const isNew = draft.id.startsWith('draft_');
             
+            // === NAPRAWA LOGIKI PRZYPISYWANIA ===
+            // Sprawdź, gdzie zadanie wylądowało (tempStatus jest ustawiany przez Drag&Drop)
+            const isBacklog = draft.tempStatus === 'backlog';
+
             let taskToSave = {
                 ...draft,
-                parentSprintId: sprintId, // KLUCZOWE: Przypisanie do sprintu
+                // Jeśli zadanie jest w kolumnie Backlog -> Usuń parentSprintId (null)
+                // Jeśli zadanie jest w kolumnach Sprintu -> Przypisz ID sprintu
+                parentSprintId: isBacklog ? null : sprintId, 
+                
                 projectId: state.currentProjectId,
-                // Upewnij się, że status jest poprawny
-                status: draft.status || 'todo'
+                
+                // Ustaw właściwy status (jeśli backlog to backlog, w przeciwnym razie status z kolumny)
+                status: isBacklog ? 'backlog' : (draft.status || 'todo')
             };
 
             if (isNew) {
@@ -37450,6 +37474,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
