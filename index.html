@@ -22412,13 +22412,44 @@ if (editorNewTaskDescription) {
                     newTaskModal.projectSelect.innerHTML = `<option value="${inboxProject.id}" selected>${inboxProject.name}</option>`;
                     newTaskModal.projectGroup.style.display = 'none';
                 } else {
-                    // 3. Jesteśmy na PULPICIE/MÓJ DZIEŃ (przycisk na górze) lub w widoku 'all-projects'
-                    const nonInbox = state.projects.filter(p => !p.isInbox);
-                    const preselect = (inboxProject && inboxProject.id) || (nonInbox[0] && nonInbox[0].id) || '';
-                    newTaskModal.projectSelect.innerHTML = state.projects
+                    // 3. Jesteśmy na PULPICIE/MÓJ DZIEŃ (przycisk na górze), w widoku 'all-projects' LUB w BACKLOGU
+                    
+                    let availableProjects = [];
+                    let preselect = '';
+
+                    // ZMIANA: Różna logika dla trybu Backlogu i trybu standardowego
+                    if (isBacklogMode) {
+                        // W Backlogu pokazujemy TYLKO projekty Agile (Sprint)
+                        availableProjects = state.projects.filter(p => !p.isInbox && p.type === 'sprint');
+                        // Domyślnie wybieramy pierwszy projekt Agile (nie Inboxa!)
+                        preselect = (availableProjects[0] && availableProjects[0].id) || '';
+                    } else {
+                        // Standardowo: Wszystkie projekty oprócz Inboxa (do wyświetlenia)
+                        // Ale do selecta wrzucamy `state.projects` (wszystkie), bo tak było w oryginale (mapowanie po wszystkich)
+                        // Jednak dla porządku, trzymajmy się listy `nonInbox` dla selecta w trybie dodawania, 
+                        // chyba że chcemy pozwolić wybrać Inboxa ręcznie.
+                        // Przywracam logikę oryginalną: filtrowanie nonInbox dla zmiennej pomocniczej, ale wyświetlanie odpowiednich.
+                        
+                        availableProjects = state.projects.filter(p => !p.isInbox);
+                        // Domyślnie Inbox lub pierwszy projekt
+                        preselect = (inboxProject && inboxProject.id) || (availableProjects[0] && availableProjects[0].id) || '';
+                        
+                        // Jeśli nie jesteśmy w backlogu, chcemy pokazać na liście też inne projekty (zgodnie z oryginałem)
+                        // Więc nadpisujemy availableProjects na pełną listę (lub bez inboxa, zależnie od preferencji).
+                        // Tutaj użyję filtrowania !isInbox dla spójności z Backlogiem, żeby nie wrzucać do "Skrzynki" przez pomyłkę z listy.
+                    }
+
+                    newTaskModal.projectSelect.innerHTML = availableProjects
                         .map(p => `<option value="${p.id}" ${p.id === preselect ? 'selected' : ''}>${p.name}</option>`)
                         .join('');
+                        
                     newTaskModal.projectGroup.style.display = 'block';
+                    
+                    // Jeśli jesteśmy w Backlogu, musimy upewnić się, że pole jest widoczne i aktywne (nie wyszarzone)
+                    if (isBacklogMode) {
+                        newTaskModal.projectGroup.classList.add('active-field');
+                    }
+                    
                     targetProject = findProject(preselect);
                 }
             }
@@ -37010,6 +37041,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
