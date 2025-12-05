@@ -18833,56 +18833,63 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     const collapsedClass = isCollapsed ? 'collapsed' : '';
 
                    
-                    // Obliczanie sumy estymacji dla tej kolumny
+                    // --- NOWA LOGIKA SUMOWANIA (POPRAWKA) ---
                     let estimationSum = 0;
                     let actualSum = 0;
-                    let tooltipText = "Suma Szacowana / Rzeczywista"; // Domyślny tooltip
+                    let tooltipText = "Szacowane / Rzeczywiste";
 
                     colData.items.forEach(item => {
                          const taskData = item.type === 'main' ? item.data : item.data.sub;
+                         const isSprintCard = (item.type === 'main' && taskData.type === 'sprint');
 
-                         if (typeof isSprintMainView !== 'undefined' && isSprintMainView && item.type === 'main' && taskData.type === 'sprint') {
-                             // === LOGIKA DLA SPRINTU (AGILE) ===
+                         if (isSprintMainView && isSprintCard) {
+                             // === TO JEST KAFELEK SPRINTU ===
                              
-                             // 1. Oblicz punkty wewnątrz sprintu
-                             let sprintChildrenPoints = 0;
-                             let sprintChildrenDonePoints = 0;
-                             
+                             // 1. Pobierz Capacity z samego Sprintu (Prawa strona)
+                             const sprintCapacity = parseFloat(taskData.estimation || 0);
+
+                             // 2. Policz punkty zadań przypisanych do tego Sprintu (Lewa strona)
+                             let totalChildrenPoints = 0;
+                             let doneChildrenPoints = 0;
+
                              if (project && project.tasks) {
+                                 // Szukamy zadań, które należą do tego sprintu
                                  const children = project.tasks.filter(t => t.parentSprintId === taskData.id);
+                                 
                                  children.forEach(child => {
+                                     // Pobieramy punkty dziecka (estimation lub effort)
                                      const pts = parseFloat(child.estimation || child.effort || 0);
-                                     sprintChildrenPoints += pts;
+                                     totalChildrenPoints += pts;
+                                     
                                      if (child.status === 'done') {
-                                         sprintChildrenDonePoints += pts;
+                                         doneChildrenPoints += pts;
                                      }
                                  });
                              }
-                             
-                             const capacity = parseFloat(taskData.estimation || 0);
 
+                             // 3. Przypisz do odpowiednich zmiennych w zależności od kolumny
                              if (colData.id === 'todo') {
-                                 // KOLUMNA BAZA (TODO):
-                                 // Lewa: Punkty zadań w sprincie
-                                 // Prawa: Suma Capacity
-                                 estimationSum += sprintChildrenPoints;
-                                 actualSum += capacity;
-                                 tooltipText = "Suma punktów zadań / Suma Capacity";
+                                 // KOLUMNA BAZA: Lewa = Wszystkie zadania w sprincie, Prawa = Capacity
+                                 estimationSum += totalChildrenPoints;
+                                 actualSum += sprintCapacity;
+                                 tooltipText = "Suma punktów zadań / Zaplanowane Capacity";
+                                 
                              } else if (colData.id === 'done') {
-                                 // KOLUMNA ZAKOŃCZONE (DONE):
-                                 // Lewa: Velocity (Dowiezione)
-                                 // Prawa: Planowane Capacity
-                                 estimationSum += sprintChildrenDonePoints;
-                                 actualSum += capacity;
-                                 tooltipText = "Velocity (Dowiezione) / Planowane Capacity";
+                                 // KOLUMNA ZAKOŃCZONE: Lewa = Dowiezione (Done), Prawa = Capacity
+                                 estimationSum += doneChildrenPoints;
+                                 actualSum += sprintCapacity;
+                                 tooltipText = "Dowiezione punkty (Velocity) / Zaplanowane Capacity";
+                                 
                              } else {
-                                 // KOLUMNA AKTYWNY (IN PROGRESS): Bez zmian (logika standardowa dla kafelka)
-                                 estimationSum += parseFloat(taskData.estimation || 0);
-                                 actualSum += parseFloat(taskData.actualEffort || 0);
+                                 // INNE KOLUMNY (np. Aktywny): Domyślne zachowanie lub wg potrzeb
+                                 // Tutaj: Pokazujemy postęp (Dowiezione / Wszystkie w sprincie)
+                                 estimationSum += totalChildrenPoints;
+                                 actualSum += doneChildrenPoints;
+                                 tooltipText = "Wszystkie punkty / Dowiezione punkty";
                              }
 
                          } else {
-                             // === LOGIKA STANDARDOWA ===
+                             // === TO JEST ZWYKŁE ZADANIE (LUB WIDOK KLASYCZNY) ===
                              estimationSum += parseFloat(taskData.estimation || taskData.effort || 0);
                              actualSum += parseFloat(taskData.actualEffort || 0);
                          }
@@ -18890,26 +18897,30 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     
                     let estimationSumHTML = '';
                     
-                    // Renderowanie HTML licznika
                     if (estimationSum > 0 || actualSum > 0) {
                         let color = "var(--text-secondary)";
                         
-                        // Ustalanie koloru (logika uniwersalna)
-                        if (typeof isSprintMainView !== 'undefined' && isSprintMainView && colData.id === 'done') {
-                            // Dla zakończonych sprintów: Jeśli dowieźliśmy więcej lub równo capacity -> Zielony
-                            if (estimationSum >= actualSum && actualSum > 0) color = "var(--success-primary)";
-                            // Jeśli dowieźliśmy mniej -> Neutralny/Ostrzegawczy (zależnie od preferencji, tu zostawiam secondary)
+                        // Logika kolorów dla Sprintów
+                        if (isSprintMainView) {
+                            if (colData.id === 'done') {
+                                // Zielony, jeśli dowieziono, neutralny w przeciwnym razie
+                                color = "var(--success-primary)"; 
+                            } else if (colData.id === 'todo') {
+                                // Czerwony, jeśli zaplanowano więcej niż Capacity (Przeładowanie)
+                                if (estimationSum > actualSum && actualSum > 0) {
+                                    color = "var(--danger-primary)";
+                                }
+                            }
                         } else {
-                            // Standardowa logika (np. przekroczenie czasu)
+                            // Logika dla zwykłych zadań (przekroczenie czasu)
                             if (actualSum > estimationSum) color = "var(--danger-primary)";
                             else if (actualSum > 0 && actualSum < estimationSum) color = "var(--success-primary)";
                         }
-                        
-                        // Jednostka domyślna 'h/pkt' bo na dashboardzie mieszają się projekty
-                        // Jeśli jesteśmy w sprincie, jednostka to zazwyczaj 'pkt'
-                        const displayUnit = (typeof isSprintMainView !== 'undefined' && isSprintMainView) ? 'pkt' : '';
 
-                        estimationSumHTML = `<span class="task-estimation-sum" title="${tooltipText}" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">
+                        // Jednostka
+                        const displayUnit = isSprintMainView ? 'pkt' : (typeof unit !== 'undefined' ? unit : '');
+
+                        estimationSumHTML = `<span class="task-estimation-sum" title="${tooltipText}" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary)); border: 1px solid ${color};">
                             ${estimationSum}/${actualSum} ${displayUnit}
                         </span>`;
                     }
@@ -38093,6 +38104,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
