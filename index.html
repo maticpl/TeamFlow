@@ -19678,9 +19678,8 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 return `
                 <li class="task-card" draggable="false" data-task-id="${task.id}" style="margin-bottom: 16px; cursor: default;">
                     <div class="task-card-sprint-content">
-                        <div class="sprint-header">
-                            <span class="sprint-badge">SPRINT / CYKL</span>
-                            </div>
+                        <div class="sprint-header" style="align-items: center;"> <span class="sprint-badge">SPRINT / CYKL</span>
+                             ${controlBtnHTML} </div>
                         
                         <h4 style="font-size: 16px; font-weight: 700; margin-bottom: 4px; color: var(--text-primary);">${task.title}</h4>
                         
@@ -19701,10 +19700,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             </div>
                         </div>
                         
-                        <div class="sprint-controls">
-                             ${controlBtnHTML}
-                        </div>
-
                         <button class="sprint-focus-btn js-enter-sprint-focus" data-sprint-id="${task.id}">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px; height:16px;">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
@@ -28195,7 +28190,74 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
             }
             // --- KONIEC NOWEGO KODU ---
 
+            // === 2. PRIORYTET: ROZPOCZĘCIE SPRINTU (PLAY) - WKLEJONE TUTAJ ===
+            const startSprintBtn = e.target.closest('.js-start-sprint');
+            if (startSprintBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                // Sprawdź, czy przycisk nie jest zablokowany (disabled)
+                if (startSprintBtn.disabled) return;
+                
+                const sprintId = startSprintBtn.dataset.sprintId;
+                const projectId = state.currentProjectId;
+                const project = findProject(projectId);
 
+                if (project && sprintId) {
+                    // Zaktualizuj status sprintu na 'inprogress'
+                    const updatedTasks = project.tasks.map(t => 
+                        t.id === sprintId ? { ...t, status: 'inprogress' } : t
+                    );
+                    
+                    const projectDocRef = doc(projectsRef, projectId);
+                    
+                    showNotification("Sprint rozpoczęty! Powodzenia.", "Sukces");
+                    
+                    updateDoc(projectDocRef, { tasks: updatedTasks }).catch(err => {
+                        console.error("Błąd startu sprintu:", err);
+                        showNotification("Błąd startu sprintu.", "Błąd");
+                    });
+                }
+                return; // WAŻNE: Zatrzymaj tutaj, żeby nie otworzyło modala!
+            }
+
+            // === 3. PRIORYTET: ZAKOŃCZENIE SPRINTU (FINISH) - WKLEJONE TUTAJ ===
+            const finishSprintBtn = e.target.closest('.js-finish-sprint');
+            if (finishSprintBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const sprintId = finishSprintBtn.dataset.sprintId;
+                const projectId = state.currentProjectId;
+                const project = findProject(projectId);
+
+                if (project && sprintId) {
+                    const sprintTask = project.tasks.find(t => t.id === sprintId);
+                    
+                    showConfirmation(
+                        `Zakończyć Sprint "${sprintTask.title}"?`,
+                        "Sprint zostanie przeniesiony do zakończonych. Będziesz mógł rozpocząć kolejny.",
+                        (confirmed) => {
+                            if (confirmed) {
+                                // Zaktualizuj status sprintu na 'done'
+                                const updatedTasks = project.tasks.map(t => 
+                                    t.id === sprintId ? { ...t, status: 'done', completedAt: new Date() } : t 
+                                );
+                                
+                                const projectDocRef = doc(projectsRef, projectId);
+                                
+                                updateDoc(projectDocRef, { tasks: updatedTasks }).then(() => {
+                                    showConfetti();
+                                    showNotification("Sprint zakończony! Dobra robota.", "Sukces");
+                                }).catch(err => {
+                                    console.error("Błąd kończenia sprintu:", err);
+                                    showNotification("Błąd kończenia sprintu.", "Błąd");
+                                });
+                            }
+                        },
+                        false 
+                    );
+                }
+                return; // WAŻNE: Zatrzymaj tutaj!
+            }
             // === NOWA LOGIKA: PRZECHWYCENIE KLIKNIĘĆ W TRYBIE ZAZNACZANIA ===
             if (state.ui.isSelectModeActive) {
                 
@@ -28737,76 +28799,7 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 showNotification("Wchodzę w tryb skupienia na sprincie.", "Info");
                 render(); // Przerysuj widok (teraz renderKanbanBoard wykryje ID)
             }
-             // === NOWE: ROZPOCZĘCIE SPRINTU (PLAY) ===
-            else if (e.target.closest('.js-start-sprint')) {
-                e.preventDefault();
-                e.stopPropagation();
-                const btn = e.target.closest('.js-start-sprint');
-                // Sprawdź, czy przycisk nie jest zablokowany (disabled)
-                if (btn.disabled) return;
-                
-                const sprintId = btn.dataset.sprintId;
-                const projectId = state.currentProjectId;
-                const project = findProject(projectId);
-
-                if (project && sprintId) {
-                    // Zaktualizuj status sprintu na 'inprogress'
-                    const updatedTasks = project.tasks.map(t => 
-                        t.id === sprintId ? { ...t, status: 'inprogress' } : t
-                    );
-                    
-                    const projectDocRef = doc(projectsRef, projectId);
-                    
-                    // Optymistyczna aktualizacja (opcjonalnie) lub czekanie na updateDoc
-                    showNotification("Sprint rozpoczęty! Powodzenia.", "Sukces");
-                    
-                    updateDoc(projectDocRef, { tasks: updatedTasks }).catch(err => {
-                        console.error("Błąd startu sprintu:", err);
-                        showNotification("Błąd startu sprintu.", "Błąd");
-                    });
-                    // Render zostanie wywołany automatycznie przez onSnapshot
-                }
-            }
-
-            // === NOWE: ZAKOŃCZENIE SPRINTU (FINISH) ===
-            else if (e.target.closest('.js-finish-sprint')) {
-                e.preventDefault();
-                e.stopPropagation();
-                const btn = e.target.closest('.js-finish-sprint');
-                const sprintId = btn.dataset.sprintId;
-                const projectId = state.currentProjectId;
-                const project = findProject(projectId);
-
-                if (project && sprintId) {
-                    const sprintTask = project.tasks.find(t => t.id === sprintId);
-                    
-                    showConfirmation(
-                        `Zakończyć Sprint "${sprintTask.title}"?`,
-                        "Sprint zostanie przeniesiony do zakończonych. Będziesz mógł rozpocząć kolejny.",
-                        (confirmed) => {
-                            if (confirmed) {
-                                // Zaktualizuj status sprintu na 'done'
-                                const updatedTasks = project.tasks.map(t => 
-                                    t.id === sprintId ? { ...t, status: 'done', completedAt: new Date() } : t // Dodajemy completedAt dla porządku
-                                );
-                                
-                                const projectDocRef = doc(projectsRef, projectId);
-                                
-                                updateDoc(projectDocRef, { tasks: updatedTasks }).then(() => {
-                                    showConfetti();
-                                    showNotification("Sprint zakończony! Dobra robota.", "Sukces");
-                                }).catch(err => {
-                                    console.error("Błąd kończenia sprintu:", err);
-                                    showNotification("Błąd kończenia sprintu.", "Błąd");
-                                });
-                            }
-                        },
-                        false // Przycisk nie jest czerwony (nie jest to destrukcyjna akcja typu delete)
-                    );
-                }
-            }
-            // === KONIEC ===
-            // === KONIEC ===
+             
         });
         function renderDashboardDetailsModal(type) {
             const allMyTasks = getAllMyTasks();
@@ -37700,6 +37693,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
