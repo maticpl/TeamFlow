@@ -15622,7 +15622,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             if (task.subtasks && task.subtasks.length > 0) {
                 const done = task.subtasks.filter(s => s.isCompleted || s.status === 'done').length;
                 const total = task.subtasks.length;
-                // ZMIANA: Używamy ikony Check-Circle (zgodnej z kafelkami) zamiast ikony listy
+                // CHANGE: Using the Check-Circle icon (consistent with Kanban cards) instead of the clipboard list icon
                 icons.push(`<div class="icon-item" title="Podzadania: ${done}/${total}"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg><span>${done}/${total}</span></div>`);
             }
 
@@ -33269,13 +33269,15 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
          * Jeśli użytkownik ukończył wszystkie swoje podzadania, jego część zadania głównego jest zaliczana.
          * Działa zarówno dla currentUser, jak i dla innych (gdy admin edytuje).
          */
-        async function checkSubtasksAndCompleteParticipants(mainTask, project) {
-            // ZMIANA: Dodano warunek mainTask.status === 'backlog', aby nie ruszać zadań z planowania
-            if (!mainTask || !project || mainTask.type !== 'multi' || mainTask.status === 'done' || mainTask.status === 'backlog') {
-                return;
-            }
-
-            let updatedTask = { ...mainTask };
+        async function checkAndCompleteMainTask(mainTask, project) {
+             if (!mainTask || !project) {
+                 console.warn(`checkAndCompleteMainTask: Invalid task or project data.`);
+                 return;
+             }
+             
+             // CHANGE: Added condition mainTask.status === 'backlog'
+             // If task is 'done' or 'backlog', do nothing (we don't want auto-completion in backlog)
+             if (mainTask.status === 'done' || mainTask.status === 'backlog') return;
             let hasChanges = false;
             const oldStatus = updatedTask.status;
             const usersWhoCompleted = [];
@@ -33305,19 +33307,24 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             if (!hasChanges) return; // Brak zmian, wychodzimy
 
             // Przelicz status zadania głównego
-            const isMainTaskNowCompleted = updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
+                     // CHANGE: We recalculate status ONLY if the task is NOT in the Backlog.
+                     // Tasks in Backlog must remain 'backlog' regardless of subtask progress.
+                     if (mainTask.status !== 'backlog') {
+                         const isMainTaskNowCompleted = updatedTask.assignees.every(id => updatedTask.completedBy.includes(id));
 
-            if (isMainTaskNowCompleted) {
-                updatedTask.status = 'done';
-            } else if (updatedTask.completedBy.length > 0) {
-                updatedTask.status = 'inprogress';
-            }
+                         if (isMainTaskNowCompleted) {
+                             updatedTask.status = 'done';
+                         } else if (updatedTask.completedBy.length > 0) {
+                             updatedTask.status = 'inprogress';
+                         }
+                     }
+                     // If it is in backlog, updatedTask.status remains unchanged (i.e., 'backlog')
 
-            // Logowanie zmian statusu
-            if (updatedTask.status !== oldStatus) {
-                if (updatedTask.status === 'done') showConfetti();
-                updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
-            }
+                     // Logowanie zmian statusu
+                     if (updatedTask.status !== oldStatus) {
+                         if (updatedTask.status === 'done') showConfetti();
+                         updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                     }
             
             // Dodajemy log aktywności (technicznie robi to "system" w imieniu użytkownika/admina)
             // Używamy typu 'completion', ale uwaga: w historii pojawi się, że zrobił to Current User (Admin)
@@ -37230,6 +37237,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
