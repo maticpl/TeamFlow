@@ -18833,64 +18833,76 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     const collapsedClass = isCollapsed ? 'collapsed' : '';
 
                    
-                    // --- NOWA LOGIKA SUMOWANIA (POPRAWKA) ---
+                    // --- NOWA LOGIKA SUMOWANIA (ULTIMATE FIX) ---
                     let estimationSum = 0;
                     let actualSum = 0;
                     let tooltipText = "Szacowane / Rzeczywiste";
 
+                    // 1. Pobieramy PEŁNĄ listę zadań projektu z bazy (globalnego stanu), 
+                    // aby mieć dostęp do dzieci sprintu, nawet jeśli są ukryte w obecnym widoku.
+                    const fullProjectData = findProject(state.currentProjectId);
+                    const allTasksSource = fullProjectData ? (fullProjectData.tasks || []) : [];
+
                     colData.items.forEach(item => {
                          const taskData = item.type === 'main' ? item.data : item.data.sub;
-                         const isSprintCard = (item.type === 'main' && taskData.type === 'sprint');
+                         
+                         // Sprawdzamy typ bezpośrednio w danych
+                         const isSprintItem = taskData.type === 'sprint';
 
-                         if (isSprintMainView && isSprintCard) {
-                             // === TO JEST KAFELEK SPRINTU (WIDOK ZARZĄDZANIA) ===
+                         if (isSprintItem) {
+                             // === LOGIKA DLA SPRINTU (KONTENER) ===
                              
-                             // 1. Pobierz Capacity z samego Sprintu
+                             // A. Pobierz Capacity z samego Sprintu (np. 24)
                              const sprintCapacity = parseFloat(taskData.estimation || 0);
 
-                             // 2. Policz punkty zadań wewnątrz tego sprintu
+                             // B. Znajdź WSZYSTKIE zadania należące do tego sprintu w całym projekcie
+                             // (Niezależnie od tego, co jest teraz wyświetlane na ekranie)
+                             const children = allTasksSource.filter(t => t.parentSprintId === taskData.id);
+                             
                              let totalChildrenPoints = 0;
                              let doneChildrenPoints = 0;
 
-                             if (project && project.tasks) {
-                                 const children = project.tasks.filter(t => t.parentSprintId === taskData.id);
+                             children.forEach(child => {
+                                 // Sumujemy punkty dzieci
+                                 const pts = parseFloat(child.estimation || child.effort || 0);
+                                 totalChildrenPoints += pts;
                                  
-                                 children.forEach(child => {
-                                     const pts = parseFloat(child.estimation || child.effort || 0);
-                                     totalChildrenPoints += pts;
-                                     if (child.status === 'done') {
-                                         doneChildrenPoints += pts;
-                                     }
-                                 });
-                             }
+                                 // Sprawdzamy status dziecka
+                                 if (child.status === 'done') {
+                                     doneChildrenPoints += pts;
+                                 }
+                             });
 
-                             // 3. Logika sumowania zależna od kolumny
+                             // C. Przypisz do nagłówka w zależności od kolumny
                              if (colData.id === 'todo') {
-                                 // KOLUMNA BAZA (Backlog Sprintów): 
-                                 // Lewa = Ile punktów napakowano (Zakres), Prawa = Capacity
+                                 // KOLUMNA "DO REALIZACJI" (Baza Sprintów):
+                                 // Lewa: Suma punktów zadań w środku (Scope)
+                                 // Prawa: Capacity
                                  estimationSum += totalChildrenPoints;
                                  actualSum += sprintCapacity;
-                                 tooltipText = "Suma punktów zadań / Zaplanowane Capacity";
+                                 tooltipText = "Suma punktów zadań / Pojemność (Capacity)";
                                  
                              } else if (colData.id === 'done') {
-                                 // KOLUMNA ZAKOŃCZONE: 
-                                 // Lewa = Dowiezione (Done), Prawa = Capacity (Velocity check)
+                                 // KOLUMNA "ZAKOŃCZONE":
+                                 // Lewa: Dowiezione punkty (Velocity)
+                                 // Prawa: Capacity
                                  estimationSum += doneChildrenPoints;
                                  actualSum += sprintCapacity;
-                                 tooltipText = "Dowiezione punkty / Zaplanowane Capacity";
+                                 tooltipText = "Dowiezione punkty / Pojemność (Capacity)";
                                  
                              } else {
-                                 // KOLUMNA AKTYWNA (Środek): 
-                                 // Lewa = Dowiezione, Prawa = Wszystkie w sprincie (Postęp)
+                                 // ŚRODKOWA (Aktywny):
+                                 // Lewa: Dowiezione
+                                 // Prawa: Wszystkie w sprincie
                                  estimationSum += doneChildrenPoints;
                                  actualSum += totalChildrenPoints;
-                                 tooltipText = "Dowiezione punkty / Wszystkie punkty w sprincie";
+                                 tooltipText = "Postęp: Dowiezione / Wszystkie w sprincie";
                              }
 
                          } else {
-                             // === TO JEST ZWYKŁE ZADANIE (LUB WIDOK KLASYCZNY) ===
-                             // WAŻNE: Ignorujemy karty typu 'sprint', jeśli trafiły tu przez pomyłkę (zabezpieczenie przed podwójnym liczeniem)
-                             if (taskData.type !== 'sprint') {
+                             // === LOGIKA DLA ZWYKŁYCH ZADAŃ ===
+                             // Zabezpieczenie: Nie licz sprintów jako zadań, jeśli jakimś cudem tu trafiły
+                             if (!isSprintItem) {
                                  estimationSum += parseFloat(taskData.estimation || taskData.effort || 0);
                                  actualSum += parseFloat(taskData.actualEffort || 0);
                              }
@@ -38106,6 +38118,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
