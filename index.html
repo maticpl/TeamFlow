@@ -8551,7 +8551,28 @@ body.compact-mode .comment-item {
             border-bottom: none; /* Usunięcie linii pod nagłówkiem */
             flex-shrink: 0; /* Zapobiega zgniataniu nagłówka */
         }
+        /* === NOWE STYLE: Animacja Sprintu (SVG) === */
+        .sprint-lifecycle-svg {
+            color: var(--text-secondary); /* Domyślny kolor ramek */
+            overflow: visible;
+        }
 
+        /* Styl ruchomego kwadracika */
+        #sprint-anim-task {
+            fill: var(--accent-primary); /* Kolor akcentu (fioletowy) */
+            transition: x 1.4s cubic-bezier(0.4, 0.0, 0.2, 1); /* Płynna animacja */
+        }
+
+        /* Pozycje kwadracika */
+        .sprint-anim-state-1 #sprint-anim-task { x: 18px; }  /* Start (Backlog) */
+        .sprint-anim-state-2 #sprint-anim-task { x: 78px; }  /* Active (Środek) */
+        .sprint-anim-state-3 #sprint-anim-task { x: 138px; } /* Done (Koniec) */
+        
+        /* Aktywne ramki tła (opcjonalnie podświetlane) */
+        .sprint-anim-state-1 .rect-backlog { stroke: var(--accent-primary); stroke-opacity: 0.5; }
+        .sprint-anim-state-2 .rect-active { stroke: var(--accent-primary); stroke-opacity: 0.5; }
+        .sprint-anim-state-3 .rect-done { stroke: var(--success-primary); stroke-opacity: 0.5; }
+        
         .kanban-column.sprint-active-slot .kanban-column-header h3 {
             font-family: var(--font-family-header);
             font-size: 18px;
@@ -18760,7 +18781,30 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                     // === NOWA LOGIKA: Licznik zadań i Suma Wysiłku ===
                     // Musimy to wygenerować, ponieważ w stanie zwiniętym CSS ukrywa standardowe liczniki
                     // a pokazuje te wewnątrz .kanban-header-counts (zgodnie z logiką z widoku projektu)
-                    
+                    // === NOWE: Generowanie Animacji SVG dla środkowej kolumny Sprintu ===
+                    let sprintAnimationHTML = '';
+                    if (isSprintMainView && colData.id === 'inprogress_null') {
+                        // Ustal klasę początkową na podstawie tego, czy sprint jest aktywny
+                        // isAnySprintActive jest przekazywane do funkcji renderKanbanBoard (zdefiniowane wcześniej)
+                        const animStateClass = isAnySprintActive ? 'sprint-anim-state-2' : 'sprint-anim-state-1';
+
+                        sprintAnimationHTML = `
+                        <div class="sprint-animation-wrapper ${animStateClass}" id="sprint-lifecycle-anim" style="margin-bottom: 10px;">
+                            <svg class="sprint-lifecycle-svg" width="180" height="80" viewBox="0 0 180 80">
+                              <rect class="rect-backlog" x="10" y="20" width="40" height="40" rx="6"
+                                    stroke="currentColor" fill="none" stroke-width="3"/>
+                            
+                              <rect class="rect-active" x="70" y="20" width="40" height="40" rx="6"
+                                    stroke="currentColor" fill="none" stroke-width="3"/>
+                            
+                              <rect class="rect-done" x="130" y="20" width="40" height="40" rx="6"
+                                    stroke="currentColor" fill="none" stroke-width="3"/>
+                            
+                              <rect id="sprint-anim-task" x="18" y="28" width="24" height="24" rx="4" />
+                            </svg>
+                        </div>`;
+                    }
+                    // === KONIEC NOWEGO KODU ===
                     // Obliczanie sumy estymacji dla tej kolumny (opcjonalne, dla spójności)
                     let estimationSum = 0;
                     let actualSum = 0;
@@ -18795,8 +18839,7 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                         <div class="kanban-column ${collapsedClass}" data-status="${colData.status}" data-column-id="${key}">
                             <div class="kanban-column-header">
                                 <h3>${colData.title}</h3>
-                                
-                                <button class="collapse-column-btn" title="Zwiń/Rozwiń kolumnę">
+                                ${sprintAnimationHTML} <button class="collapse-column-btn" title="Zwiń/Rozwiń kolumnę">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                                     </svg>
@@ -28285,7 +28328,6 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
             if (startSprintBtn) {
                 e.preventDefault();
                 e.stopPropagation();
-                // Sprawdź, czy przycisk nie jest zablokowany (disabled)
                 if (startSprintBtn.disabled) return;
                 
                 const sprintId = startSprintBtn.dataset.sprintId;
@@ -28293,6 +28335,15 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
                 const project = findProject(projectId);
 
                 if (project && sprintId) {
+                    // === NOWE: Uruchom animację (1 -> 2) ===
+                    const animWrapper = document.getElementById('sprint-lifecycle-anim');
+                    if (animWrapper) {
+                        // Wymuś klasę stanu 2 (Active)
+                        animWrapper.classList.remove('sprint-anim-state-1');
+                        animWrapper.classList.add('sprint-anim-state-2');
+                    }
+                    // === KONIEC ===
+
                     // Zaktualizuj status sprintu na 'inprogress'
                     const updatedTasks = project.tasks.map(t => 
                         t.id === sprintId ? { ...t, status: 'inprogress' } : t
@@ -28390,18 +28441,38 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
 
                                     // C. Przenieś zadania
                                     updatedTasks = updatedTasks.map(t => {
-                                        // Sprawdź czy to jedno z niedokończonych zadań tego sprintu
+                                        // ... (bez zmian)
                                         if (incompleteTasks.some(inc => inc.id === t.id)) {
                                             return {
                                                 ...t,
-                                                parentSprintId: newSprintId, // Przepnij do nowego
-                                                status: 'todo' // Zresetuj status na "Do realizacji" w nowym sprincie
+                                                parentSprintId: newSprintId, 
+                                                status: 'todo' 
                                             };
                                         }
                                         return t;
                                     });
                                 }
                                 
+                                // === NOWE: Uruchom animację (2 -> 3, potem reset) ===
+                                const animWrapper = document.getElementById('sprint-lifecycle-anim');
+                                if (animWrapper) {
+                                    // Przesuń do Done (prawo)
+                                    animWrapper.classList.remove('sprint-anim-state-2');
+                                    animWrapper.classList.add('sprint-anim-state-3');
+                                    
+                                    // Po 3 sekundach (jak w opisie)
+                                    setTimeout(() => {
+                                        // Animacja "zniknięcia" lub po prostu szybki powrót?
+                                        // Użytkownik chciał: "wraca na 1 kwadracik"
+                                        if (animWrapper) {
+                                            // Usuń klasę transition, żeby skoczył natychmiast (opcjonalne, ale tu robimy płynnie wg transition CSS)
+                                            animWrapper.classList.remove('sprint-anim-state-3');
+                                            animWrapper.classList.add('sprint-anim-state-1');
+                                        }
+                                    }, 3000);
+                                }
+                                // === KONIEC ===
+
                                 const projectDocRef = doc(projectsRef, projectId);
                                 
                                 updateDoc(projectDocRef, { tasks: updatedTasks }).then(() => {
@@ -37857,6 +37928,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
