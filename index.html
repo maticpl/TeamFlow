@@ -13194,7 +13194,10 @@ if (fabNewSprintBtn) {
             });
         }
         // === KONIEC ===
-        
+        // Listener do aktualizacji Capacity na żywo
+if (sprintModal.capacityInput) {
+    sprintModal.capacityInput.addEventListener('input', updateSprintStats);
+}
         // Wyrenderuj zadania (nasz kod renderujący obsłuży tablicę sprintDraftTasks)
         renderSprintDraftTasks();
         
@@ -13391,21 +13394,43 @@ function renderSprintDraftTasks() {
 
 function updateSprintStats() {
     let totalPoints = 0;
-    let totalCost = 0;
+    let totalCost = 0; // Koszt zadań w sprincie
+    let backlogCost = 0; // Koszt zadań w backlogu (dla informacji pod lewą kolumną)
     
     sprintDraftTasks.forEach(t => {
-        totalPoints += parseFloat(t.estimation || 0);
-        // Prosta estymacja kosztu (np. jeśli jest budżet)
+        const est = parseFloat(t.estimation || t.effort || 0);
+        
+        // Oblicz koszt tego zadania
+        let taskCost = 0;
         if (t.budgetItems) {
-            t.budgetItems.forEach(item => totalCost += parseFloat(item.amount || 0));
+            t.budgetItems.forEach(item => taskCost += parseFloat(item.amount || 0));
+        }
+
+        // ZMIANA: Sumuj punkty TYLKO jeśli zadanie jest na Tablicy (nie w Backlogu)
+        // Zadania w lewej kolumnie mają tempStatus = 'backlog' (lub undefined na starcie, jeśli tak to ustawiliśmy, ale w mojej logice wymuszaliśmy 'backlog')
+        if (t.tempStatus && t.tempStatus !== 'backlog') {
+            totalPoints += est;
+            totalCost += taskCost; // Koszt też liczymy tylko dla wybranych
+        } else {
+            // Opcjonalnie: Zliczamy koszt backlogu oddzielnie
+            backlogCost += taskCost;
         }
     });
     
     const capacity = parseFloat(sprintModal.capacityInput.value) || 0;
     sprintModal.pointsCounter.textContent = `${totalPoints} / ${capacity} pkt`;
-    sprintModal.pointsCounter.style.color = (capacity > 0 && totalPoints > capacity) ? 'var(--danger-primary)' : 'var(--text-primary)';
     
-    sprintModal.costEstimate.textContent = totalCost.toLocaleString('pl-PL', {style: 'currency', currency: 'PLN'});
+    // Zmiana koloru na czerwony, jeśli przekroczono capacity
+    sprintModal.pointsCounter.style.color = (capacity > 0 && totalPoints > capacity) ? 'var(--danger-primary)' : 'var(--text-secondary)';
+    
+    // Aktualizacja kosztu pod lewą kolumną (pokazuje koszt tego co zostało w backlogu)
+    // LUB kosztu tego co w sprincie? Zazwyczaj "Estymowany koszt zadań" pod Backlogiem dotyczy Backlogu.
+    // Ale w Twoim kodzie HTML ten element jest pod listą Backlogu.
+    // Zostawmy tak jak było w Twoim UI, albo zaktualizujmy by pokazywał koszt Backlogu:
+    sprintModal.costEstimate.textContent = backlogCost.toLocaleString('pl-PL', {style: 'currency', currency: 'PLN'});
+    
+    // Jeśli chcesz widzieć koszt sprintu, trzeba by dodać nowy element w UI po prawej stronie.
+    // Na razie zostawiam aktualizację istniejącego elementu (pod Backlogiem).
 }
 
 // --- 5. DRAG & DROP W KREATORZE ---
@@ -38006,6 +38031,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
