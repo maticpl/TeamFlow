@@ -8083,45 +8083,61 @@ body.compact-mode .comment-item {
 .project-tile.project-tile-sprint {
     border-left: 4px solid #8b5cf6; /* Fioletowy pasek z lewej */
 }
-        /* === NOWE STYLE: WIDOK DO ZAPLANOWANIA (SIATKA 2-KOLUMNOWA) === */
+        /* === NOWE STYLE: WIDOK DO ZAPLANOWANIA (LISTA WIERSZOWA - SPÓJNA ZE SPRINTEM) === */
         .modern-numbered-list {
             list-style: none;
             counter-reset: backlog-counter;
-            padding: 16px; /* Dodajemy padding do kontenera */
+            padding: 0; /* Reset paddingu */
             margin: 0;
             
-            /* ZMIANA NA GRID */
-            display: grid;
-            grid-template-columns: repeat(2, 1fr); /* Dwie równe kolumny */
-            gap: 16px; /* Odstęp między kafelkami */
+            /* ZMIANA NA LISTĘ PIONOWĄ */
+            display: flex;
+            flex-direction: column;
+            gap: 0; /* Brak odstępów, bo używamy border-bottom */
         }
 
         .backlog-item {
             display: flex;
             align-items: center;
-            padding: 12px 16px; /* Nieco mniejszy padding wewnątrz karty */
+            justify-content: space-between; /* Rozsuwamy lewą i prawą stronę */
+            padding: 12px 24px; /* Padding jak w liście sprintu */
             
-            /* ZMIANA STYLU NA KARTĘ */
-            background-color: var(--bg-secondary); /* Tło */
-            border: 1px solid var(--border-color); /* Pełna ramka */
-            border-radius: var(--border-radius); /* Zaokrąglenie */
-            box-shadow: var(--shadow-sm); /* Lekki cień */
+            /* ZMIANA STYLU NA WIERSZ */
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color); /* Tylko linia na dole */
+            border-radius: 0; /* Brak zaokrąglenia */
+            box-shadow: none; /* Brak cienia */
             
-            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+            transition: background-color 0.2s;
             counter-increment: backlog-counter;
         }
 
-        .backlog-item:hover {
-            /* Efekt uniesienia zamiast tylko zmiany tła */
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-md);
-            border-color: var(--accent-primary);
+        /* Ostatni element bez linii na dole */
+        .backlog-item:last-child {
+            border-bottom: none;
         }
 
-        /* Responsywność: Na telefonach wróć do 1 kolumny */
+        .backlog-item:hover {
+            background-color: var(--bg-tertiary); /* Tylko zmiana tła, bez uniesienia */
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Responsywność - bez zmian układu, bo to i tak lista */
         @media (max-width: 768px) {
             .modern-numbered-list {
-                grid-template-columns: 1fr;
+                /* Brak specyficznych zmian dla gridu */
+            }
+            .backlog-item {
+                padding: 12px 16px; /* Mniejszy padding na mobile */
+                flex-direction: column; /* Na mobile wiersze mogą się łamać */
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .backlog-item-meta {
+                width: 100%;
+                justify-content: space-between;
+                margin-top: 4px;
             }
         }
 
@@ -15602,30 +15618,37 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                 return;
             }
 
-            // 7. Renderuj listę numerowaną
+            // 7. Renderuj listę numerowaną (WIERSZOWĄ)
             listEl.innerHTML = backlogTasks.map(task => {
+                // Używamy małych avatarów jak w sprincie
                 const assigneesHTML = (task.assignees || [])
                     .map(id => findUser(id))
                     .filter(Boolean)
-                    .map(u => renderAvatarHTML(u, 'avatar-comment'))
+                    .map(u => renderAvatarHTML(u, 'avatar').replace('class="avatar"', 'class="avatar" style="width:24px; height:24px; font-size:10px; margin-left:-6px; border:2px solid var(--bg-secondary);"'))
                     .join('');
 
+                // Pobieramy punkty lub myślnik
                 const points = task.estimation || task.effort || '-';
                 
-                // Etykieta projektu (tylko jeśli wybrano "Wszystkie", dla konkretnego nie trzeba bo wiadomo)
+                // Etykieta projektu (przeniesiona na prawo, stylizowana delikatniej)
                 const projectLabel = (filterValue === 'all' && task.projectName)
-                    ? `<span style="font-size: 11px; color: var(--text-secondary); background-color: var(--bg-tertiary); padding: 2px 8px; border-radius: 4px; margin-right: 10px; white-space: nowrap; font-weight: 500;">${task.projectName}</span>` 
+                    ? `<span style="font-size: 11px; color: var(--text-secondary); margin-right: 12px; white-space: nowrap;">${task.projectName}</span>` 
                     : '';
 
                 return `
-                <li class="backlog-item">
-                    <div class="backlog-item-content">
+                <li class="backlog-item" data-task-id="${task.id}" style="cursor: default;">
+                    <div style="display: flex; align-items: center; flex-grow: 1; min-width: 0; margin-right: 16px;">
+                        <span class="backlog-item-title" style="font-size: 14px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${task.title}</span>
+                    </div>
+
+                    <div class="backlog-item-meta" style="display: flex; align-items: center; flex-shrink: 0;">
                         ${projectLabel}
-                        <span class="backlog-item-title">${task.title}</span>
-                        <div class="backlog-item-meta">
-                            <span class="backlog-points" title="Punkty/Wysiłek">${points} pkt</span>
-                            <div class="task-assignees" style="display: flex;">${assigneesHTML}</div>
-                        </div>
+                        
+                        <div class="task-assignees" style="display: flex; margin-right: 16px; padding-left: 6px;">${assigneesHTML}</div>
+                        
+                        <span class="backlog-points" title="Punkty/Wysiłek" style="background-color: rgba(79, 70, 229, 0.1); color: var(--accent-primary); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; min-width: 30px; text-align: center;">
+                            ${points}
+                        </span>
                     </div>
                 </li>`;
             }).join('');
@@ -37053,6 +37076,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
