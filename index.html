@@ -28250,7 +28250,7 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
                 return; // WAŻNE: Zatrzymaj tutaj, żeby nie otworzyło modala!
             }
 
-            // === 3. PRIORYTET: ZAKOŃCZENIE SPRINTU (FINISH) - WKLEJONE TUTAJ ===
+            // === 3. PRIORYTET: ZAKOŃCZENIE SPRINTU (FINISH) ===
             const finishSprintBtn = e.target.closest('.js-finish-sprint');
             if (finishSprintBtn) {
                 e.preventDefault();
@@ -28262,21 +28262,95 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
                 if (project && sprintId) {
                     const sprintTask = project.tasks.find(t => t.id === sprintId);
                     
+                    // 1. Znajdź niedokończone zadania w tym sprincie
+                    const incompleteTasks = (project.tasks || []).filter(t => 
+                        t.parentSprintId === sprintId && 
+                        t.status !== 'done'
+                    );
+
+                    let confirmTitle = `Zakończyć Sprint "${sprintTask.title}"?`;
+                    let confirmMsg = "Sprint zostanie przeniesiony do zakończonych.";
+                    let willCreateNewSprint = false;
+
+                    if (incompleteTasks.length > 0) {
+                        // 2. Oblicz numer nowego sprintu
+                        const existingSprintsCount = project.tasks.filter(t => t.type === 'sprint').length;
+                        const nextNum = existingSprintsCount + 1;
+                        const newSprintName = `Sprint #${nextNum}`;
+
+                        confirmMsg = `Sprint zawiera <strong>${incompleteTasks.length}</strong> niedokończonych zadań. <br><br>Zostaną one automatycznie przeniesione do nowego: <strong>${newSprintName}</strong>.`;
+                        willCreateNewSprint = true;
+                    } else {
+                        confirmMsg += " Wszystkie zadania zostały wykonane. Będziesz mógł rozpocząć kolejny sprint.";
+                    }
+                    
                     showConfirmation(
-                        `Zakończyć Sprint "${sprintTask.title}"?`,
-                        "Sprint zostanie przeniesiony do zakończonych. Będziesz mógł rozpocząć kolejny.",
+                        confirmTitle,
+                        confirmMsg,
                         (confirmed) => {
                             if (confirmed) {
-                                // Zaktualizuj status sprintu na 'done'
-                                const updatedTasks = project.tasks.map(t => 
+                                let updatedTasks = [...project.tasks];
+
+                                // A. Zamknij obecny sprint
+                                updatedTasks = updatedTasks.map(t => 
                                     t.id === sprintId ? { ...t, status: 'done', completedAt: new Date() } : t 
                                 );
+
+                                if (willCreateNewSprint) {
+                                    // B. Utwórz nowy sprint
+                                    const nextNum = project.tasks.filter(t => t.type === 'sprint').length + 1;
+                                    const newSprintId = `sprint_${Date.now()}`;
+                                    
+                                    // Daty domyślne: Start = Jutro, Koniec = Jutro + 14 dni
+                                    const tomorrow = new Date();
+                                    tomorrow.setDate(tomorrow.getDate() + 1);
+                                    const twoWeeksLater = new Date(tomorrow);
+                                    twoWeeksLater.setDate(twoWeeksLater.getDate() + 14);
+
+                                    const pad = (n) => String(n).padStart(2, '0');
+                                    const startDateStr = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth()+1)}-${pad(tomorrow.getDate())}`;
+                                    const endDateStr = `${twoWeeksLater.getFullYear()}-${pad(twoWeeksLater.getMonth()+1)}-${pad(twoWeeksLater.getDate())}`;
+
+                                    const newSprintObj = {
+                                        id: newSprintId,
+                                        title: `Sprint #${nextNum}`, // Sam numer
+                                        description: `Automatycznie utworzony po zamknięciu ${sprintTask.title}`,
+                                        type: 'sprint',
+                                        status: 'todo',
+                                        startDate: startDateStr,
+                                        dueDate: endDateStr,
+                                        estimation: sprintTask.estimation || 0, // Przepisujemy capacity ze starego (opcjonalne)
+                                        projectId: projectId,
+                                        createdBy: state.currentUser.uid,
+                                        createdAt: Date.now(),
+                                        assignees: [], subtasks: [], budgetItems: []
+                                    };
+                                    
+                                    updatedTasks.push(newSprintObj);
+
+                                    // C. Przenieś zadania
+                                    updatedTasks = updatedTasks.map(t => {
+                                        // Sprawdź czy to jedno z niedokończonych zadań tego sprintu
+                                        if (incompleteTasks.some(inc => inc.id === t.id)) {
+                                            return {
+                                                ...t,
+                                                parentSprintId: newSprintId, // Przepnij do nowego
+                                                status: 'todo' // Zresetuj status na "Do realizacji" w nowym sprincie
+                                            };
+                                        }
+                                        return t;
+                                    });
+                                }
                                 
                                 const projectDocRef = doc(projectsRef, projectId);
                                 
                                 updateDoc(projectDocRef, { tasks: updatedTasks }).then(() => {
                                     showConfetti();
-                                    showNotification("Sprint zakończony! Dobra robota.", "Sukces");
+                                    if (willCreateNewSprint) {
+                                        showNotification("Sprint zakończony. Zadania przeniesione do nowego sprintu.", "Sukces");
+                                    } else {
+                                        showNotification("Sprint zakończony! Dobra robota.", "Sukces");
+                                    }
                                 }).catch(err => {
                                     console.error("Błąd kończenia sprintu:", err);
                                     showNotification("Błąd kończenia sprintu.", "Błąd");
@@ -37723,6 +37797,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
