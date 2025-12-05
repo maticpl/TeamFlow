@@ -18700,133 +18700,125 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 
                 // 5. Generowanie HTML
                 sortedKeys.forEach(key => {
-                const colData = columnsMap.get(key);
-                
-                // Definiujemy kolumny standardowe
-                const isStandard = ['todo', 'inprogress_null', 'done'].includes(key); // Uwaga: inprogress_null to ID domyślnej
-                
-                // ZASADA 1: Ukryj kolumny NIESTANDARDOWE, jeśli są puste
-                if (!isStandard && colData.items.length === 0) return;
+                    const colData = columnsMap.get(key);
+                    
+                    // Definiujemy kolumny standardowe
+                    const isStandard = ['todo', 'inprogress_default', 'done'].includes(key);
+                    
+                    // ZASADA 1: Ukryj kolumny NIESTANDARDOWE, jeśli są puste
+                    if (!isStandard && colData.items.length === 0) return;
 
-                // Sortowanie
-                const currentSortOrder = state.ui.projectSortOrders[project.id] || 'original';
-                colData.items.sort((a, b) => {
-                    const getDate = (item) => {
-                        let dateVal = null;
-                        if (item.type === 'main') dateVal = item.data.dueDate;
-                        else dateVal = item.data.sub.dueDate;
-                        return dateVal ? new Date(dateVal).getTime() : null;
-                    };
+                    // === NOWE: SORTOWANIE WG DATY (MAIN + STANDALONE SUBTASKS) ===
+                    const sortOrder = state.ui.sortMyTasksByDate || 'asc';
 
-                    if (currentSortOrder === 'asc' || currentSortOrder === 'desc') {
+                    colData.items.sort((a, b) => {
+                        // Funkcja pomocnicza do wyciągania daty z obu typów obiektów
+                        const getDate = (item) => {
+                            let dateVal = null;
+                            if (item.type === 'main') {
+                                dateVal = item.data.dueDate;
+                            } else { // item.type === 'subtask'
+                                dateVal = item.data.sub.dueDate;
+                            }
+                            return dateVal ? new Date(dateVal).getTime() : null;
+                        };
+
                         const timeA = getDate(a);
                         const timeB = getDate(b);
-                        const valA = timeA !== null ? timeA : (currentSortOrder === 'asc' ? Infinity : -Infinity);
-                        const valB = timeB !== null ? timeB : (currentSortOrder === 'asc' ? Infinity : -Infinity);
 
-                        if (valA !== valB) return currentSortOrder === 'asc' ? valA - valB : valB - valA;
-                    }
-                    return (a.order || 0) - (b.order || 0);
-                });
+                        // Ustal wartość dla braku daty (Infinity wrzuca na koniec)
+                        const valA = timeA !== null ? timeA : (sortOrder === 'asc' ? Infinity : -Infinity);
+                        const valB = timeB !== null ? timeB : (sortOrder === 'asc' ? Infinity : -Infinity);
 
-                // Generowanie HTML Kart
-                let columnContentHTML = colData.items.map(item => {
-                    totalRenderedTasks++;
-                    if (item.type === 'main') {
-                        const task = item.data;
-                        const taskNumber = taskIndexMap[task.id];
-                        // Przekazujemy isAnySprintActive (zdefiniowane na początku renderKanbanBoard)
-                        return createTaskCardHTML(task, isInteractive, project, colData.status, colData.customColumnId, taskNumber, isAnySprintActive);
-                    } else {
-                        const { sub, parent } = item.data;
-                        const parentNumber = taskIndexMap[parent.id];
-                        const subIndex = (parent.subtasks || []).findIndex(s => s.id === sub.id) + 1;
-                        const wbsNumber = parentNumber ? `${parentNumber}.${subIndex}` : '';
-                        return createVisualSubtaskCardHTML(sub, parent, project, 'standalone', wbsNumber);
-                    }
-                }).join('');
+                        if (valA !== valB) {
+                            return sortOrder === 'asc' ? valA - valB : valB - valA;
+                        }
 
-                // Sondaże (zawsze na górze, jeśli są)
-                if (colData.status === 'todo' && state.ui.currentProjectFilters.showPolls) {
-                    // Filtrujemy sondaże dla tej kolumny (logika uproszczona w renderKanbanBoard, tutaj wstawiamy gotowe)
-                    const pollsInColumn = allPolls.filter(p => p.status === 'open');
-                    const pollsHTML = pollsInColumn.map(poll => createPollCardHTML(poll)).join('');
-                    columnContentHTML = pollsHTML + columnContentHTML;
-                }
+                        // Jeśli daty są równe, zachowaj stabilność (lub sortuj po ID/Tytule)
+                        return 0;
+                    });
+                    // === KONIEC SORTOWANIA ===
 
-                // Licznik wysiłku
-                let estimationSumHTML = '';
-                if (estimationType !== 'none') {
+                    // Generowanie kafelków
+                    const cardsHTML = colData.items.map(item => {
+                        if (item.type === 'main') {
+                            // ZADANIE GŁÓWNE
+                            return createTaskCardHTML(item.data, true, item.project, colData.status, item.customColumnId);
+                        } else {
+                            // PODZADANIE (Niezależny kafelek)
+                            const { sub, parent } = item.data;
+                            return createVisualSubtaskCardHTML(sub, parent, item.project, 'standalone');
+                        }
+                    }).join('');
+
+                    // === NOWA LOGIKA: Obsługa zwijania dla Dashboardu ===
+                    // Używamy klucza 'dashboard' w obiekcie collapsedColumns
+                    const dashboardCollapsed = state.ui.collapsedColumns['dashboard'] || [];
+                    // Identyfikatorem kolumny jest 'key' (np. 'todo', 'custom_analiza')
+                    const isCollapsed = dashboardCollapsed.includes(key);
+                    const collapsedClass = isCollapsed ? 'collapsed' : '';
+
+                    // === NOWA LOGIKA: Licznik zadań i Suma Wysiłku ===
+                    // Musimy to wygenerować, ponieważ w stanie zwiniętym CSS ukrywa standardowe liczniki
+                    // a pokazuje te wewnątrz .kanban-header-counts (zgodnie z logiką z widoku projektu)
+                    
+                    // Obliczanie sumy estymacji dla tej kolumny (opcjonalne, dla spójności)
                     let estimationSum = 0;
                     let actualSum = 0;
                     colData.items.forEach(item => {
-                        let taskData;
-                        if (item.type === 'main') taskData = item.data;
-                        else taskData = item.data.sub;
-                        estimationSum += parseFloat(taskData.estimation || taskData.effort || 0);
-                        actualSum += parseFloat(taskData.actualEffort || 0);
+                         const taskData = item.type === 'main' ? item.data : item.data.sub;
+                         // Proste sumowanie, pomijamy głębszą logikę jednostek dla dashboardu, aby nie komplikować
+                         // Zakładamy, że jeśli są dane, to je sumujemy
+                         estimationSum += parseFloat(taskData.estimation || taskData.effort || 0);
+                         actualSum += parseFloat(taskData.actualEffort || 0);
                     });
-
+                    
+                    let estimationSumHTML = '';
                     if (estimationSum > 0 || actualSum > 0) {
                         let color = "var(--text-secondary)";
                         if (actualSum > estimationSum) color = "var(--danger-primary)";
                         else if (actualSum > 0 && actualSum < estimationSum) color = "var(--success-primary)";
+                        
+                        // Jednostka domyślna 'h/pkt' bo na dashboardzie mieszają się projekty
                         estimationSumHTML = `<span class="task-estimation-sum" title="Suma Szacowana / Rzeczywista" style="color: ${color}; background-color: color-mix(in srgb, ${color} 10%, var(--bg-primary));">
-                            ${estimationSum}/${actualSum} ${unit}
+                            ${estimationSum}/${actualSum}
                         </span>`;
                     }
-                }
-                
-                const totalCount = colData.items.length; // Uproszczony licznik
 
-                // === NOWA LOGIKA: CZY TO KOLUMNA SPRINTU "W TRAKCIE"? ===
-                // Warunek: Typ projektu to sprint ORAZ status kolumny to 'inprogress'
+                    // HTML Kolumny
+                    // ZMIANA: Usunięto style inline (min-width, max-width, flex).
+                    // Teraz kolumna używa stylów z CSS (.kanban-column ma flex: 1 0 450px), co zapewnia rozciąganie.
+                    // Dodano przycisk zwijania (.collapse-column-btn).
+                    // Dodano kontenery .kanban-header-counts.
+                    // Ustawiono dataset.columnId na 'key', aby listener wiedział co zwinąć.
+
+                    // === NOWA LOGIKA: Renderowanie SCENY dla aktywnego sprintu ===
                 const isSprintMiddleColumn = project.type === 'sprint' && colData.status === 'inprogress';
 
                 if (isSprintMiddleColumn) {
-                    // --- RENDEROWANIE SCENY (STAGE) ---
+                    // W kolumnie środkowej powinien być MAX 1 sprint (activeSprint zdefiniowany na początku funkcji)
+                    // cardsHTML zawiera już wygenerowany HTML kafelka (jeśli sprint jest aktywny)
+                    
                     const hasActiveSprint = colData.items.length > 0;
                     
                     const stageHTML = `
-                        <div class="active-sprint-stage" data-status="inprogress" data-column-id="${key}">
+                        <div class="active-sprint-stage" data-status="inprogress">
                             <div class="active-sprint-label">Aktywny Sprint</div>
                             
                             <div class="sprint-anim-container" id="sprint-anim-stage">
                                 ${hasActiveSprint ? SVG_SPRINT_START : SVG_SPRINT_EMPTY}
                             </div>
 
-                            <div class="kanban-tasks" style="width: 100%; display: flex; justify-content: center; flex-direction: column; align-items: center; min-height: 100px;">
-                                ${hasActiveSprint ? columnContentHTML : '<p style="color: var(--text-secondary); margin-top: 20px; text-align: center;">Naciśnij START na sprincie po lewej,<br>aby przenieść go tutaj.</p>'}
+                            <div class="kanban-tasks" style="width: 100%; display: flex; justify-content: center;">
+                                ${hasActiveSprint ? cardsHTML : '<p style="color: var(--text-secondary); margin-top: 20px;">Naciśnij START na sprincie po lewej.</p>'}
                             </div>
                         </div>
                     `;
-                    kanbanBoardEl.insertAdjacentHTML('beforeend', stageHTML);
+                    targetElement.insertAdjacentHTML('beforeend', stageHTML);
 
                 } else {
-                    // --- RENDEROWANIE STANDARDOWEJ KOLUMNY ---
+                    // --- STANDARDOWA KOLUMNA (Dla Todo, Done i klasycznych projektów) ---
                     
-                    // Przycisk dodawania (tylko dla Todo w Classic)
-                    const showAddTask = isInteractive && colData.status === 'todo' && project.type !== 'sprint';
-                    const addTaskBtnHTML = showAddTask ? `<button class="add-task-icon-btn" title="Dodaj nowe zadanie">+</button>` : '';
-
-                    // Zwijanie
-                    const projectCollapsed = state.ui.collapsedColumns[project.id] || [];
-                    const isCollapsed = projectCollapsed.includes(colData.id);
-                    const collapsedClass = isCollapsed ? 'collapsed' : '';
-                    
-                    // Filtr wykonanych (tylko dla Done)
-                    let completedFilterHTML = '';
-                    if (colData.status === 'done') {
-                         const filterValue = state.ui.projectCompletedFilters[project.id] || '7days';
-                         completedFilterHTML = `
-                            <select class="completed-tasks-filter" data-context="project" data-project-id="${project.id}" style="font-size: 11px; padding: 2px; margin-left: 8px; border-radius: 4px; background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color);">
-                                <option value="7days" ${filterValue === '7days' ? 'selected' : ''}>Ostatnie 7 dni</option>
-                                <option value="14days" ${filterValue === '14days' ? 'selected' : ''}>Ostatnie 14 dni</option>
-                                <option value="30days" ${filterValue === '30days' ? 'selected' : ''}>Ostatnie 30 dni</option>
-                                <option value="all" ${filterValue === 'all' ? 'selected' : ''}>Wszystkie</option>
-                            </select>`;
-                    }
-
                     const columnHTML = `
                         <div class="kanban-column ${collapsedClass}" data-status="${colData.status}" data-column-id="${key}">
                             <div class="kanban-column-header">
@@ -18844,13 +18836,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                                 ${addTaskBtnHTML}
                             </div>
                             <ul class="kanban-tasks">
-                                ${columnContentHTML}
+                                ${cardsHTML}
                             </ul>
                         </div>
                     `;
-                    kanbanBoardEl.insertAdjacentHTML('beforeend', columnHTML);
+                    targetElement.insertAdjacentHTML('beforeend', columnHTML);
                 }
-            });
+                });
+            };
         function renderKanbanBoard(project, isInteractive) {
             kanbanBoardEl.innerHTML = '';
             
@@ -37901,9 +37894,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
-
-
-
 
 
 
