@@ -21376,8 +21376,24 @@ if (editorTaskDescription) {
                 subtaskModal.subtaskIdInput.value = '';
                 
                 // === NOWE: Domyślny status i priorytet ===
+                // POPRAWKA: Jeśli rodzic jest w backlogu, nie wybieraj domyślnie 'todo' w selectcie,
+                // chociaż select może nie mieć opcji 'backlog'. W takim przypadku wartość wizualna
+                // zostanie nadpisana przy zapisie (Krok 1), ale tutaj dbamy o UX.
+                
                 subtaskModal.statusSelect.value = 'todo';
                 if (subtaskModal.prioritySelect) subtaskModal.prioritySelect.value = 'medium';
+
+                // === DODATEK UX: Jeśli w backlogu, zablokuj/ukryj wybór statusu lub pokaż info ===
+                // Dla uproszczenia: Jeśli rodzic jest w backlogu, status subtaska przy zapisie i tak będzie 'backlog'.
+                // Możemy ewentualnie wyłączyć selecta, aby nie mylić użytkownika.
+                if (mainTask.status === 'backlog') {
+                    subtaskModal.statusSelect.disabled = true;
+                    subtaskModal.statusSelect.title = "Zadanie główne jest w Backlogu. Podzadanie również tam trafi.";
+                } else {
+                    subtaskModal.statusSelect.disabled = false;
+                    subtaskModal.statusSelect.title = "";
+                }
+                // === KONIEC DODATKU ===
                 
                 // Reset ostrzeżeń
                 if (subtaskModal.warningOverride) {
@@ -32418,6 +32434,16 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      newStatus = 'inprogress'; // Technicznie nadal "W trakcie"
                      newCustomColumnId = rawStatusValue.replace('CUSTOM_COL:', ''); // Wyciągamy ID
                  }
+
+                 // === POPRAWKA (BACKLOG): Wymuszenie statusu Backlog ===
+                 // Jeśli zadanie główne jest w backlogu, podzadanie nie może trafić na tablicę Kanban (statusy todo/inprogress)
+                 // Wyjątkiem jest sytuacja, gdy oznaczamy je jako wykonane (done) - wtedy zostaje w backlogu jako skreślone lub znika (zależnie od logiki wyświetlania),
+                 // ale dla bezpieczeństwa spójności, w backlogu wszystko powinno mieć status backlog, chyba że jest completed.
+                 if (mainTask.status === 'backlog' && newStatus !== 'done') {
+                     newStatus = 'backlog';
+                     newCustomColumnId = null;
+                 }
+                 // === KONIEC POPRAWKI ===
                  
                 const isNowCompletedByStatus = (newStatus === 'done');
                  
@@ -37237,6 +37263,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
