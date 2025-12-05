@@ -13456,8 +13456,28 @@ function initSprintDragAndDrop() {
                     // Mapowanie na prawdziwy status zadania
                     if (newStatus !== 'backlog') {
                         sprintDraftTasks[index].status = newStatus;
+
+                        // === NOWE: Automatyczne dziedziczenie dat ze Sprintu ===
+                        const sprintStart = sprintModal.startDate.value; // YYYY-MM-DD
+                        const sprintEnd = sprintModal.endDate.value;     // YYYY-MM-DD
+                        
+                        // Jeśli daty sprintu są ustawione, przypisz je do zadania (z domyślnymi godzinami)
+                        if (sprintStart) {
+                            sprintDraftTasks[index].startDate = `${sprintStart}T09:00`;
+                        }
+                        if (sprintEnd) {
+                            sprintDraftTasks[index].dueDate = `${sprintEnd}T17:00`;
+                        }
+                        // === KONIEC ===
+
                     } else {
-                        sprintDraftTasks[index].status = 'todo'; // Domyślnie w bazie
+                        sprintDraftTasks[index].status = 'todo'; // Domyślnie w bazie (jeśli to backlog)
+                        
+                        // === NOWE: Czyszczenie dat po powrocie do Backlogu ===
+                        // Jeśli zadanie wraca do puli "Do zaplanowania", usuwamy mu sztywne ramy czasowe
+                        sprintDraftTasks[index].startDate = null;
+                        sprintDraftTasks[index].dueDate = null;
+                        // === KONIEC ===
                     }
                 }
                 updateSprintStats();
@@ -23118,25 +23138,38 @@ if (editorNewTaskDescription) {
     editorNewTaskDescription.clear(); // Wyczyść edytor przy nowym zadaniu
 }
             // === NOWA LOGIKA: Ustawienie domyślnej daty i godziny (dla 3 pól) ===
-            const defaultDateStr = getLocalDateString(); // Pobiera dzisiejszą datę YYYY-MM-DD
             
-            // 1. Obliczanie daty JUTRZEJSZEJ
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1); // Dodaj 1 dzień
-            const t_year = tomorrow.getFullYear();
-            const t_month = String(tomorrow.getMonth() + 1).padStart(2, '0');
-            const t_day = String(tomorrow.getDate()).padStart(2, '0');
-            const tomorrowDateStr = `${t_year}-${t_month}-${t_day}`;
+            if (isBacklogMode) {
+                // --- TRYB BACKLOG: CZYSTE DATY ---
+                newTaskModal.startDateDate.value = "";
+                newTaskModal.startDateHour.value = ""; // lub domyślna '10'
+                newTaskModal.startDateMinute.value = ""; // lub domyślna '00'
 
-            // 2. Domyślna data rozpoczęcia (Dziś, 10:00)
-            newTaskModal.startDateDate.value = defaultDateStr;
-            newTaskModal.startDateHour.value = "10";
-            newTaskModal.startDateMinute.value = "00";
+                newTaskModal.dueDateDate.value = "";
+                newTaskModal.dueDateHour.value = "";
+                newTaskModal.dueDateMinute.value = "";
+            } else {
+                // --- TRYB STANDARDOWY: DZIŚ / JUTRO ---
+                const defaultDateStr = getLocalDateString(); // Pobiera dzisiejszą datę YYYY-MM-DD
+                
+                // 1. Obliczanie daty JUTRZEJSZEJ
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1); // Dodaj 1 dzień
+                const t_year = tomorrow.getFullYear();
+                const t_month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+                const t_day = String(tomorrow.getDate()).padStart(2, '0');
+                const tomorrowDateStr = `${t_year}-${t_month}-${t_day}`;
 
-            // 3. Domyślna data zakończenia (JUTRO, 10:00)
-            newTaskModal.dueDateDate.value = tomorrowDateStr; // <-- ZMIANA: Używamy jutrzejszej daty
-            newTaskModal.dueDateHour.value = "10";
-            newTaskModal.dueDateMinute.value = "00";
+                // 2. Domyślna data rozpoczęcia (Dziś, 10:00)
+                newTaskModal.startDateDate.value = defaultDateStr;
+                newTaskModal.startDateHour.value = "10";
+                newTaskModal.startDateMinute.value = "00";
+
+                // 3. Domyślna data zakończenia (JUTRO, 10:00)
+                newTaskModal.dueDateDate.value = tomorrowDateStr;
+                newTaskModal.dueDateHour.value = "10";
+                newTaskModal.dueDateMinute.value = "00";
+            }
             // === KONIEC ZMIANY ===
             // Domyślnie wszystko jest widoczne, logika poniżej może ukryć.
             // Domyślnie wszystko jest widoczne, logika poniżej może ukryć.
@@ -38118,6 +38151,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
