@@ -17954,11 +17954,19 @@ function openSprintReportModal(sprintId) {
     // --- OBLICZENIA KPI (Opieramy się na tym co było planowane vs dowiezione) ---
     const plannedPoints = parseFloat(sprintTask.estimation) || 0; 
     
-    // Suma punktów dowiezionych
+    // 1. Suma punktów dowiezionych (Delivered)
     let deliveredPoints = 0;
     doneTasks.forEach(t => deliveredPoints += parseFloat(t.estimation || t.effort || 0));
 
-    // Statystyki zespołu
+    // 2. Suma punktów niedokończonych/przeniesionych (Undone)
+    let undonePoints = 0;
+    movedTasks.forEach(t => undonePoints += parseFloat(t.estimation || t.effort || 0));
+
+    // 3. Całkowity Zakres (Total Scope) = Dowiezione + Niedowiezione
+    // To jest nasza nowa "prawa liczba"
+    const totalScopePoints = deliveredPoints + undonePoints;
+
+    // Statystyki zespołu (bez zmian)
     const teamStats = {};
     doneTasks.forEach(task => {
         const points = parseFloat(task.estimation || task.effort || 0);
@@ -17972,13 +17980,15 @@ function openSprintReportModal(sprintId) {
         });
     });
 
-    // Obliczanie procentów
-    const pointsRate = plannedPoints > 0 ? (deliveredPoints / plannedPoints) * 100 : 0;
-    // Całkowita liczba zadań (Dowiezione + Przeniesione)
+    // Obliczanie procentów (Teraz bazuje na totalScopePoints)
+    const pointsRate = totalScopePoints > 0 ? (deliveredPoints / totalScopePoints) * 100 : 0;
+    
+    // Całkowita liczba zadań
     const totalTasksCount = doneTasks.length + movedTasks.length;
     const tasksRate = totalTasksCount > 0 ? (doneTasks.length / totalTasksCount) * 100 : 0;
 
     // --- WYPEŁNIANIE DOM ---
+    const modal = document.getElementById('sprint-report-modal');
     const modal = document.getElementById('sprint-report-modal');
     
     // Nagłówek
@@ -17992,7 +18002,9 @@ function openSprintReportModal(sprintId) {
     const pointsEl = document.getElementById('sprint-report-points');
     pointsEl.textContent = `${deliveredPoints}`;
     pointsEl.style.color = pointsRate >= 90 ? 'var(--success-primary)' : (pointsRate < 70 ? 'var(--danger-primary)' : 'var(--text-primary)');
-    document.getElementById('sprint-report-points-sub').innerHTML = `z planowanych <strong>${plannedPoints}</strong> (Capacity)`;
+    
+    // ZMIANA TEKSTU: Zamiast "Capacity" wyświetlamy sumę punktów zadań
+    document.getElementById('sprint-report-points-sub').innerHTML = `z zaplanowanych <strong>${totalScopePoints}</strong> pkt`;
 
     const rateEl = document.getElementById('sprint-report-rate');
     rateEl.textContent = `${pointsRate.toFixed(0)}%`;
@@ -18490,52 +18502,52 @@ if (!listsContainer) {
             let sprintsHTML = '<div style="display:flex; flex-direction:column; gap:12px;">';
             
             sprints.forEach(sprint => {
-                const capacity = parseFloat(sprint.estimation) || 0;
-                
-                // 1. Zadania, które FIZYCZNIE są w tym sprincie (Aktualnie)
-                const currentChildren = (project.tasks || []).filter(t => t.parentSprintId === sprint.id);
-                
-                // Liczymy dowiezione (te, które są 'done' i nadal są w tym sprincie)
-                let deliveredPoints = 0;
-                let doneTasksCount = 0;
+                // ZMIANA: Nie bierzemy capacity z ustawień, tylko liczymy sumę punktów
+                // const capacity = parseFloat(sprint.estimation) || 0; 
 
-                currentChildren.forEach(child => {
+                const children = (project.tasks || []).filter(t => t.parentSprintId === sprint.id);
+                const totalTasks = children.length;
+                
+                let deliveredPoints = 0;
+                let totalScopePoints = 0; // <-- NOWA ZMIENNA
+                let doneTasks = 0;
+
+                children.forEach(child => {
+                    const pts = parseFloat(child.estimation || child.effort || 0);
+                    totalScopePoints += pts; // Dodajemy do sumy całkowitej
+
                     if (child.status === 'done') {
-                        doneTasksCount++;
-                        deliveredPoints += parseFloat(child.estimation || child.effort || 0);
+                        doneTasks++;
+                        deliveredPoints += pts; // Dodajemy do zrealizowanej
                     }
                 });
-
-                // 2. === POPRAWKA: Szukanie zadań PRZENIESIONYCH (Carry-over) ===
-                // Jeśli sprint jest zakończony, musimy doliczyć zadania, które "uciekły" do następnego sprintu.
-                // Używamy tej samej logiki co w Raporcie Sprintu (Next Sprint Detection).
-                let movedTasksCount = 0;
                 
+                // === DODATEK DLA ZAKOŃCZONYCH SPRINTÓW (Carry-over) ===
+                // Jeśli sprint jest zakończony, musimy doliczyć do mianownika (Total Scope)
+                // zadania, które z niego uciekły (przeniesione do następnego sprintu).
                 if (sprint.status === 'done') {
-                    // Próba znalezienia numeru sprintu (np. #1)
                     const match = sprint.title.match(/#(\d+)/);
                     if (match) {
                         const currentNum = parseInt(match[1], 10);
                         const nextNum = currentNum + 1;
-                        // Szukamy sprintu o numerze o 1 większym
                         const nextSprint = sprints.find(s => s.title.includes(`#${nextNum}`));
                         
                         if (nextSprint) {
-                            // Zliczamy zadania w następnym sprincie jako "przeniesione" z tego
-                            // (Jest to uproszczenie zgodne z logiką Twojego Raportu)
-                            const nextSprintChildren = (project.tasks || []).filter(t => t.parentSprintId === nextSprint.id);
-                            movedTasksCount = nextSprintChildren.length;
+                            const movedTasks = (project.tasks || []).filter(t => t.parentSprintId === nextSprint.id);
+                            movedTasks.forEach(mt => {
+                                // Dodajemy punkty przeniesione do CAŁKOWITEGO ZAKRESU tego (starego) sprintu
+                                // dzięki temu widać, że plan był np. 40, a dowieziono 20 (20 uciekło)
+                                totalScopePoints += parseFloat(mt.estimation || mt.effort || 0);
+                            });
+                            // Opcjonalnie: doliczamy je też do licznika zadań (jako niedokończone)
+                            // totalTasks += movedTasks.length; 
+                            // (Zostawmy licznik zadań jako te, które FIZYCZNIE tam są, a punkty jako historyczne)
                         }
                     }
                 }
 
-                // 3. Całkowita liczba zadań (Scope) = Obecne + Przeniesione
-                // Dla sprintu zakończonego: currentChildren to zazwyczaj tylko te 'done' (bo reszta uciekła),
-                // więc currentChildren.length (Done) + movedTasksCount (Not Done) = Total Scope.
-                const totalScopeCount = currentChildren.length + movedTasksCount;
-
-                // Procenty (Punkty vs Capacity)
-                const progressPoints = capacity > 0 ? Math.min((deliveredPoints / capacity) * 100, 100) : 0;
+                // Procenty (Bazują na totalScopePoints)
+                const progressPoints = totalScopePoints > 0 ? Math.min((deliveredPoints / totalScopePoints) * 100, 100) : 0;
                 
                 // Badge statusu
                 let statusBadge = '';
@@ -18552,14 +18564,9 @@ if (!listsContainer) {
 
                 sprintsHTML += `
                     <div style="background-color: var(--bg-secondary); border: ${borderStyle}; border-radius: var(--border-radius); padding: 10px; position: relative;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                            <h4 style="margin:0; font-size:14px; font-weight:600;">${sprint.title}</h4>
-                            ${statusBadge}
-                        </div>
-                        
                         <div style="display:flex; gap:16px; font-size:12px; color:var(--text-secondary); margin-bottom:8px;">
-                            <span>Zadania: <strong>${doneTasksCount}/${totalScopeCount}</strong></span>
-                            <span>Punkty: <strong>${deliveredPoints}/${capacity}</strong></span>
+                            <span>Zadania: <strong>${doneTasks}/${totalTasks}</strong></span>
+                            <span>Punkty: <strong>${deliveredPoints}/${totalScopePoints}</strong></span>
                         </div>
 
                         <div class="progress-bar-container" style="height: 6px; margin-top: 0; background-color: var(--bg-tertiary);">
@@ -20282,23 +20289,35 @@ let completedFilterHTML = '';
             // === NOWE: WIZUALIZACJA SUPER-KAFELKA SPRINTU ===
             // ============================================================
             if (task.type === 'sprint') {
-                const capacity = parseFloat(task.estimation) || 0;
-                // ... (obliczenia postępu bez zmian) ...
+                // const capacity = parseFloat(task.estimation) || 0; // <-- STARE (Ignorujemy to)
+                
                 let deliveredPoints = 0;
+                let totalScopePoints = 0; // <-- NOWE: Suma wszystkich punktów w sprincie
+                
                 let totalSubtasks = 0;
                 let doneSubtasks = 0;
 
                 if (project && project.tasks) {
+                    // Pobieramy wszystkie zadania należące do tego sprintu
                     const children = project.tasks.filter(t => t.parentSprintId === task.id);
                     totalSubtasks = children.length;
+                    
                     children.forEach(child => {
+                        const pts = parseFloat(child.estimation || child.effort || 0);
+                        
+                        // Dodajemy do całkowitego zakresu (mianownik)
+                        totalScopePoints += pts;
+
                         if (child.status === 'done') {
                             doneSubtasks++;
-                            deliveredPoints += parseFloat(child.estimation || 0);
+                            // Dodajemy do dowiezionych (licznik)
+                            deliveredPoints += pts;
                         }
                     });
                 }
-                const progressPercent = capacity > 0 ? Math.min((deliveredPoints / capacity) * 100, 100) : 0;
+                
+                // Procent liczony wg: Dowiezione / Całkowity Zakres
+                const progressPercent = totalScopePoints > 0 ? Math.min((deliveredPoints / totalScopePoints) * 100, 100) : 0;
                 
                 const dateRange = task.startDate && task.dueDate 
                     ? `${new Date(task.startDate).toLocaleDateString('pl-PL', {day:'numeric', month:'short'})} - ${new Date(task.dueDate).toLocaleDateString('pl-PL', {day:'numeric', month:'short'})}`
@@ -20348,7 +20367,7 @@ let completedFilterHTML = '';
                 }
                 // === KONIEC LOGIKI PRZYCISKÓW ===
 
-                // HTML Super-Kafelka
+                // HTML Super-Kafelka (Podmieniamy tylko sekcję .sprint-stats)
                 return `
                 <li class="task-card sprint-card-no-drag" draggable="false" data-task-id="${task.id}" style="margin-bottom: 16px; cursor: default;">
                     <div class="task-card-sprint-content">
@@ -20372,7 +20391,7 @@ let completedFilterHTML = '';
                             </div>
                             <div class="sprint-stats">
                                 <span>${doneSubtasks}/${totalSubtasks} zadań</span>
-                                <span style="color: #8b5cf6;">${deliveredPoints}/${capacity} pkt</span>
+                                <span style="color: #8b5cf6;">${deliveredPoints}/${totalScopePoints} pkt</span>
                             </div>
                         </div>
                         
@@ -38594,6 +38613,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
