@@ -13198,7 +13198,7 @@ if (fabNewSprintBtn) {
         sprintModal.nameInput.value = '';
         sprintModal.nameInput.disabled = false; // <--- NOWE: Odblokuj dla nowego
         sprintModal.nameInput.placeholder = "Opcjonalne (np. Temat)"; // <--- NOWE
-        sprintModal.capacityInput.value = '';
+        
         
         // Domyślne daty (dziś + 14 dni)
         const today = new Date();
@@ -13427,9 +13427,11 @@ function renderSprintDraftTasks() {
 }
 
 function updateSprintStats() {
-    let totalPoints = 0;
-    let totalCost = 0; // Koszt zadań w sprincie
-    let backlogCost = 0; // Koszt zadań w backlogu (dla informacji pod lewą kolumną)
+    let totalScopePoints = 0; // Mianownik (wszystkie w sprincie)
+    let donePoints = 0;       // Licznik (tylko ukończone w sprincie)
+    
+    let sprintCost = 0; // Koszt zadań w sprincie (opcjonalnie)
+    let backlogCost = 0; // Koszt zadań w backlogu
     
     sprintDraftTasks.forEach(t => {
         const est = parseFloat(t.estimation || t.effort || 0);
@@ -13440,35 +13442,35 @@ function updateSprintStats() {
             t.budgetItems.forEach(item => taskCost += parseFloat(item.amount || 0));
         }
 
-        // ZMIANA: Sumuj punkty TYLKO jeśli zadanie jest na Tablicy (nie w Backlogu)
-        // Zadania w lewej kolumnie mają tempStatus = 'backlog' (lub undefined na starcie, jeśli tak to ustawiliśmy, ale w mojej logice wymuszaliśmy 'backlog')
+        // Sprawdzamy status tymczasowy w kreatorze
+        // Jeśli zadanie jest w 'todo', 'inprogress' lub 'done' -> Należy do sprintu
         if (t.tempStatus && t.tempStatus !== 'backlog') {
-            totalPoints += est;
-            totalCost += taskCost; // Koszt też liczymy tylko dla wybranych
+            totalScopePoints += est;
+            sprintCost += taskCost;
+
+            // Jeśli zadanie w kreatorze jest w kolumnie 'done' -> dolicz do wykonanych
+            if (t.tempStatus === 'done') {
+                donePoints += est;
+            }
+
         } else {
-            // Opcjonalnie: Zliczamy koszt backlogu oddzielnie
+            // Zadanie jest w lewej kolumnie (backlog)
             backlogCost += taskCost;
         }
     });
     
-    const capacity = parseFloat(sprintModal.capacityInput.value) || 0;
-    sprintModal.pointsCounter.textContent = `${totalPoints} / ${capacity} pkt`;
+    // Wyświetlamy: Dowiezione / Całkowity Zakres
+    sprintModal.pointsCounter.textContent = `${donePoints} / ${totalScopePoints} pkt`;
     
-    // Zmiana koloru na czerwony, jeśli przekroczono capacity
-    sprintModal.pointsCounter.style.color = (capacity > 0 && totalPoints > capacity) ? 'var(--danger-primary)' : 'var(--text-secondary)';
+    // Kolor: Zielony jeśli 100% dowiezione (i są jakieś punkty), standardowy w przeciwnym razie
+    if (totalScopePoints > 0 && donePoints === totalScopePoints) {
+        sprintModal.pointsCounter.style.color = 'var(--success-primary)';
+    } else {
+        sprintModal.pointsCounter.style.color = 'var(--text-secondary)';
+    }
     
-    // Aktualizacja kosztu pod lewą kolumną (pokazuje koszt tego co zostało w backlogu)
-    // LUB kosztu tego co w sprincie? Zazwyczaj "Estymowany koszt zadań" pod Backlogiem dotyczy Backlogu.
-    // Ale w Twoim kodzie HTML ten element jest pod listą Backlogu.
-    // Zostawmy tak jak było w Twoim UI, albo zaktualizujmy by pokazywał koszt Backlogu:
+    // Aktualizacja kosztu pod lewą kolumną
     sprintModal.costEstimate.textContent = backlogCost.toLocaleString('pl-PL', {style: 'currency', currency: 'PLN'});
-    
-    // Jeśli chcesz widzieć koszt sprintu, trzeba by dodać nowy element w UI po prawej stronie.
-    // Na razie zostawiam aktualizację istniejącego elementu (pod Backlogiem).
-}
-// === NOWE: Listener aktualizacji Capacity na żywo ===
-if (sprintModal.capacityInput) {
-    sprintModal.capacityInput.addEventListener('input', updateSprintStats);
 }
 // === KONIEC ===
 // --- 5. DRAG & DROP W KREATORZE ---
@@ -13584,7 +13586,16 @@ sprintModal.saveBtn.addEventListener('click', async () => {
         }
         // === KONIEC ===
         
-        // 2. Przygotuj Obiekt Sprintu
+        // 2a. Oblicz całkowitą sumę punktów zadań przypisanych do sprintu
+        let calculatedSprintEstimation = 0;
+        sprintDraftTasks.forEach(draft => {
+            // Jeśli zadanie nie jest w backlogu, wlicza się do sprintu
+            if (draft.tempStatus !== 'backlog') {
+                 calculatedSprintEstimation += parseFloat(draft.estimation || draft.effort || 0);
+            }
+        });
+
+        // 2b. Przygotuj Obiekt Sprintu
         const sprintTask = {
             id: sprintId,
             title: finalTitle,
@@ -13592,7 +13603,8 @@ sprintModal.saveBtn.addEventListener('click', async () => {
             description: `Cel sprintu: ${title}`,
             startDate: newSprintStart,
             dueDate: newSprintEnd,
-            estimation: parseFloat(sprintModal.capacityInput.value) || 0,
+            // ZAPISUJEMY OBLICZONĄ SUMĘ ZAMIAST WARTOŚCI Z INPUTA
+            estimation: calculatedSprintEstimation, 
             status: 'todo', 
             projectId: state.currentProjectId,
             createdBy: state.currentUser.uid,
@@ -38469,11 +38481,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                     <input type="date" id="sprint-end-date">
                 </div>
 
-                <div class="sprint-input-group" style="width: 100px;">
-                    <label title="Pojemność zespołu (Story Points)">Capacity</label>
-                    <input type="number" id="sprint-capacity-input" placeholder="np. 40">
-                </div>
-
                 <div class="sprint-input-group" style="justify-content: flex-end; padding-bottom: 4px;">
                      <span id="sprint-points-counter" style="font-size: 14px; font-weight: 700; color: var(--text-secondary);">0 / 0 pkt</span>
                 </div>
@@ -38613,6 +38620,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
