@@ -18516,53 +18516,67 @@ if (!listsContainer) {
             let sprintsHTML = '<div style="display:flex; flex-direction:column; gap:12px;">';
             
             sprints.forEach(sprint => {
-                // ZMIANA: Nie bierzemy capacity z ustawień, tylko liczymy sumę punktów
-                // const capacity = parseFloat(sprint.estimation) || 0; 
-
+                // 1. Zadania, które są AKTUALNIE w tym sprincie (np. ukończone lub w trakcie jeśli sprint trwa)
                 const children = (project.tasks || []).filter(t => t.parentSprintId === sprint.id);
-                const totalTasks = children.length;
+                
+                // 2. Zadania, które BYŁY w tym sprincie, ale zostały przeniesione (Carry Over)
+                // Szukamy zadań, które mają znacznik carryOverFrom równy ID tego sprintu
+                const movedAwayTasks = (project.tasks || []).filter(t => t.carryOverFrom === sprint.id);
+
+                // Licznik zadań: te co są + te co uciekły (żeby pokazać np. 9/10 zadań)
+                const totalTasks = children.length + movedAwayTasks.length;
                 
                 let deliveredPoints = 0;
-                let totalScopePoints = 0; // <-- NOWA ZMIENNA
+                let totalScopePoints = 0; 
                 let doneTasks = 0;
 
+                // A. Oblicz punkty dla zadań obecnych w sprincie
                 children.forEach(child => {
                     const pts = parseFloat(child.estimation || child.effort || 0);
-                    totalScopePoints += pts; // Dodajemy do sumy całkowitej
+                    totalScopePoints += pts; // Wlicza się do zakresu
 
                     if (child.status === 'done') {
                         doneTasks++;
-                        deliveredPoints += pts; // Dodajemy do zrealizowanej
+                        deliveredPoints += pts; // Wlicza się do wyniku
                     }
                 });
+
+                // B. Oblicz punkty dla zadań, które uciekły (tylko do zakresu!)
+                movedAwayTasks.forEach(moved => {
+                    const pts = parseFloat(moved.estimation || moved.effort || 0);
+                    totalScopePoints += pts; // Było planowane, więc wlicza się do zakresu (mianownika)
+                    // Nie wlicza się do deliveredPoints, bo nie zostało dowiezione w tym sprincie
+                });
+
+                // Procenty (Bazują na totalScopePoints)
+                const progressPoints = totalScopePoints > 0 ? Math.min((deliveredPoints / totalScopePoints) * 100, 100) : 0;
                 
-                // === DODATEK DLA ZAKOŃCZONYCH SPRINTÓW (Carry-over) ===
-                // Jeśli sprint jest zakończony, musimy doliczyć do mianownika (Total Scope)
-                // zadania, które z niego uciekły (przeniesione do następnego sprintu).
-                if (sprint.status === 'done') {
-                    const match = sprint.title.match(/#(\d+)/);
-                    if (match) {
-                        const currentNum = parseInt(match[1], 10);
-                        const nextNum = currentNum + 1;
-                        const nextSprint = sprints.find(s => s.title.includes(`#${nextNum}`));
-                        
-                        if (nextSprint) {
-                            // <<< ZMIANA: Filtrujemy tylko zadania, które faktycznie przyszły z TEGO sprintu
-                            const movedTasks = (project.tasks || []).filter(t => 
-                                t.parentSprintId === nextSprint.id && t.carryOverFrom === sprint.id
-                            );
-                            
-                            movedTasks.forEach(mt => {
-                                // Dodajemy punkty przeniesione do CAŁKOWITEGO ZAKRESU tego (starego) sprintu
-                                // dzięki temu widać, że plan był np. 40, a dowieziono 20 (20 uciekło)
-                                totalScopePoints += parseFloat(mt.estimation || mt.effort || 0);
-                            });
-                            // Opcjonalnie: doliczamy je też do licznika zadań (jako niedokończone)
-                            // totalTasks += movedTasks.length; 
-                            // (Zostawmy licznik zadań jako te, które FIZYCZNIE tam są, a punkty jako historyczne)
-                        }
-                    }
+                // --- Reszta kodu HTML (Badge, Pasek) bez zmian ---
+                let statusBadge = '';
+                let borderStyle = '1px solid var(--border-color)';
+                
+                if (sprint.status === 'inprogress') {
+                    statusBadge = `<span style="background-color:var(--accent-primary); color:white; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700; text-transform:uppercase;">Aktywny</span>`;
+                    borderStyle = '1px solid var(--accent-primary)';
+                } else if (sprint.status === 'done') {
+                    statusBadge = `<span style="background-color:var(--success-primary); color:white; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700; text-transform:uppercase;">Zakończony</span>`;
+                } else {
+                    statusBadge = `<span style="background-color:var(--bg-tertiary); color:var(--text-secondary); font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700; text-transform:uppercase;">Planowany</span>`;
                 }
+
+                sprintsHTML += `
+                    <div style="background-color: var(--bg-secondary); border: ${borderStyle}; border-radius: var(--border-radius); padding: 10px; position: relative;">
+                        <div style="display:flex; gap:16px; font-size:12px; color:var(--text-secondary); margin-bottom:8px;">
+                            <span>Zadania: <strong>${doneTasks}/${totalTasks}</strong></span>
+                            <span>Punkty: <strong>${deliveredPoints}/${totalScopePoints}</strong></span>
+                        </div>
+
+                        <div class="progress-bar-container" style="height: 6px; margin-top: 0; background-color: var(--bg-tertiary);">
+                            <div class="progress-bar-fill" style="width: ${progressPoints}%; background-color: ${sprint.status === 'done' ? 'var(--success-primary)' : 'var(--accent-primary)'};"></div>
+                        </div>
+                    </div>
+                `;
+            });
 
                 // Procenty (Bazują na totalScopePoints)
                 const progressPoints = totalScopePoints > 0 ? Math.min((deliveredPoints / totalScopePoints) * 100, 100) : 0;
@@ -38627,6 +38641,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
