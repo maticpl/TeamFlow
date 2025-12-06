@@ -13521,8 +13521,6 @@ if (sprintModal.overlay) {
 sprintModal.saveBtn.addEventListener('click', async () => {
     const title = sprintModal.nameInput.value.trim();
     
-    // USUNIĘTO WARUNEK BLOKUJĄCY PUSTY TYTUŁ
-    
     sprintModal.saveBtn.disabled = true;
     sprintModal.saveBtn.textContent = 'Zapisywanie...';
     
@@ -13538,33 +13536,31 @@ sprintModal.saveBtn.addEventListener('click', async () => {
         const editingId = sprintModal.overlay.dataset.editingSprintId;
         const sprintId = editingId || `sprint_${Date.now()}`;
         
-        // === NOWE: AUTOMATYCZNA NUMERACJA SPRINTÓW ===
-        let finalTitle = title; // Domyślnie to, co wpisał user (dla edycji)
+        // Pobierz NOWE daty z formularza
+        const newSprintStart = sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null;
+        const newSprintEnd = sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null;
 
-        // Numerujemy tylko przy TWORZENIU NOWEGO
+        // === NOWE: AUTOMATYCZNA NUMERACJA SPRINTÓW ===
+        let finalTitle = title; 
+
         if (!editingId) {
-            // Policz istniejące sprinty w tym projekcie
             const existingSprintsCount = allTasks.filter(t => t.type === 'sprint').length;
             const nextNum = existingSprintsCount + 1;
-            
-            // Generuj bazową nazwę "Sprint #X"
             finalTitle = `Sprint #${nextNum}`;
-            
-            // Jeśli użytkownik coś dopisał, doklej to po spacji
             if (title) {
                 finalTitle += ` ${title}`;
             }
         }
         // === KONIEC ===
         
-        // 2. Przygotuj Obiekt Sprintu (To jest "Super-Zadanie")
+        // 2. Przygotuj Obiekt Sprintu (Super-Zadanie)
         const sprintTask = {
             id: sprintId,
-            title: finalTitle, // <-- UŻYWAMY NOWEJ ZMIENNEJ
+            title: finalTitle,
             type: 'sprint',
-            description: `Cel sprintu: ${title}`, // W opisie zostawiamy oryginalną nazwę bez numeru
-            startDate: sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null,
-            dueDate: sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null,
+            description: `Cel sprintu: ${title}`,
+            startDate: newSprintStart, // Używamy nowych dat
+            dueDate: newSprintEnd,     // Używamy nowych dat
             estimation: parseFloat(sprintModal.capacityInput.value) || 0,
             status: 'todo', 
             projectId: state.currentProjectId,
@@ -13581,27 +13577,10 @@ sprintModal.saveBtn.addEventListener('click', async () => {
         if (editingId) {
             const idx = allTasks.findIndex(t => t.id === editingId);
             if (idx !== -1) {
-                // Zachowaj status sprintu, jeśli był zmieniony na tablicy
+                // Zachowaj status sprintu z tablicy
                 sprintTask.status = allTasks[idx].status; 
                 allTasks[idx] = sprintTask;
             }
-
-            // === NOWE: KASKADOWA AKTUALIZACJA DAT DZIECI ===
-            // Jeśli zmieniono daty sprintu, zaktualizuj też wszystkie zadania do niego należące
-            const newSprintStart = sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null;
-            const newSprintEnd = sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null;
-
-            if (newSprintStart && newSprintEnd) {
-                allTasks.forEach(t => {
-                    // Sprawdź, czy zadanie należy do tego sprintu (i nie jest samym sprintem)
-                    if (t.parentSprintId === editingId && t.id !== editingId) {
-                        t.startDate = newSprintStart;
-                        t.dueDate = newSprintEnd;
-                    }
-                });
-            }
-            // === KONIEC ===
-
         } else {
             allTasks.push(sprintTask);
         }
@@ -13610,34 +13589,34 @@ sprintModal.saveBtn.addEventListener('click', async () => {
         sprintDraftTasks.forEach(draft => {
             const isNew = draft.id.startsWith('draft_');
             
-            // === NAPRAWA LOGIKI PRZYPISYWANIA ===
-            // Sprawdź, gdzie zadanie wylądowało (tempStatus jest ustawiany przez Drag&Drop)
+            // Sprawdź, gdzie zadanie wylądowało
             const isBacklog = draft.tempStatus === 'backlog';
 
+            // === KLUCZOWA POPRAWKA DAT ===
+            // Tutaj nadpisujemy daty zadania datami sprintu (jeśli nie jest w backlogu)
+            // To gwarantuje, że nawet jeśli draft miał stare daty, zostaną one zaktualizowane.
             let taskToSave = {
                 ...draft,
-                // Jeśli zadanie jest w kolumnie Backlog -> Usuń parentSprintId (null)
-                // Jeśli zadanie jest w kolumnach Sprintu -> Przypisz ID sprintu
-                parentSprintId: isBacklog ? null : sprintId, 
-                
+                parentSprintId: isBacklog ? null : sprintId,
                 projectId: state.currentProjectId,
+                status: isBacklog ? 'backlog' : (draft.status || 'todo'),
                 
-                // Ustaw właściwy status (jeśli backlog to backlog, w przeciwnym razie status z kolumny)
-                status: isBacklog ? 'backlog' : (draft.status || 'todo')
+                // JEŚLI W SPRINCIE -> NOWE DATY SPRINTU. JEŚLI BACKLOG -> NULL.
+                startDate: isBacklog ? null : newSprintStart,
+                dueDate: isBacklog ? null : newSprintEnd
             };
+            // === KONIEC POPRAWKI ===
 
             if (isNew) {
                 // Generuj prawdziwe ID
                 taskToSave.id = `task_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
-                // Wyczyść flagi draftu
                 delete taskToSave.tempStatus;
-                
                 allTasks.push(taskToSave);
             } else {
-                // Aktualizacja istniejącego zadania (jeśli było edytowane w oknie sprintu)
+                // Aktualizacja istniejącego zadania
                 const idx = allTasks.findIndex(t => t.id === draft.id);
                 if (idx !== -1) {
-                    // Nadpisz tylko polami z draftu, zachowując resztę (np. historię)
+                    // Nadpisz polami z taskToSave (który ma już poprawne daty)
                     allTasks[idx] = { ...allTasks[idx], ...taskToSave };
                     delete allTasks[idx].tempStatus;
                 }
@@ -38173,6 +38152,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
