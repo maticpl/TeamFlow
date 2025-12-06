@@ -20291,30 +20291,41 @@ let completedFilterHTML = '';
             // === NOWE: WIZUALIZACJA SUPER-KAFELKA SPRINTU ===
             // ============================================================
             if (task.type === 'sprint') {
-                // const capacity = parseFloat(task.estimation) || 0; // <-- STARE (Ignorujemy to)
                 
                 let deliveredPoints = 0;
-                let totalScopePoints = 0; // <-- NOWE: Suma wszystkich punktów w sprincie
+                let totalScopePoints = 0; 
                 
                 let totalSubtasks = 0;
                 let doneSubtasks = 0;
 
                 if (project && project.tasks) {
-                    // Pobieramy wszystkie zadania należące do tego sprintu
+                    // 1. Zadania AKTUALNIE w sprincie
                     const children = project.tasks.filter(t => t.parentSprintId === task.id);
-                    totalSubtasks = children.length;
                     
+                    // 2. Zadania PRZENIESIONE (te, które uciekły przy zamknięciu)
+                    // Szukamy zadań w całym projekcie, które mają znacznik carryOverFrom równy ID tego sprintu
+                    const movedAwayTasks = project.tasks.filter(t => t.carryOverFrom === task.id);
+
+                    // Licznik zadań: obecne + te, które uciekły
+                    totalSubtasks = children.length + movedAwayTasks.length;
+                    
+                    // A. Iteracja po obecnych (Liczymy Scope i Delivered)
                     children.forEach(child => {
                         const pts = parseFloat(child.estimation || child.effort || 0);
                         
-                        // Dodajemy do całkowitego zakresu (mianownik)
-                        totalScopePoints += pts;
+                        totalScopePoints += pts; // Wlicza się do zakresu (mianownika)
 
                         if (child.status === 'done') {
                             doneSubtasks++;
-                            // Dodajemy do dowiezionych (licznik)
-                            deliveredPoints += pts;
+                            deliveredPoints += pts; // Wlicza się do wyniku (licznika)
                         }
+                    });
+
+                    // B. Iteracja po przeniesionych (Liczymy TYLKO Scope)
+                    movedAwayTasks.forEach(moved => {
+                        const pts = parseFloat(moved.estimation || moved.effort || 0);
+                        totalScopePoints += pts; // Było planowane, więc wlicza się do zakresu
+                        // Nie wlicza się do deliveredPoints, bo nie zostało dowiezione w tym sprincie
                     });
                 }
                 
@@ -38611,6 +38622,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
