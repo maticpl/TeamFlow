@@ -13517,7 +13517,7 @@ if (sprintModal.overlay) {
     });
 }
 // === KONIEC ===
-// --- ZMODYFIKOWANY LISTENER: ZAPIS / AKTUALIZACJA SPRINTU ---
+// --- ZMODYFIKOWANY LISTENER: ZAPIS / AKTUALIZACJA SPRINTU (Z OBSŁUGĄ PODZADAŃ) ---
 sprintModal.saveBtn.addEventListener('click', async () => {
     const title = sprintModal.nameInput.value.trim();
     
@@ -13532,7 +13532,7 @@ sprintModal.saveBtn.addEventListener('click', async () => {
         
         let allTasks = projectSnap.data().tasks || [];
         
-        // 1. Ustal ID Sprintu (istniejący lub nowy)
+        // 1. Ustal ID Sprintu
         const editingId = sprintModal.overlay.dataset.editingSprintId;
         const sprintId = editingId || `sprint_${Date.now()}`;
         
@@ -13540,27 +13540,24 @@ sprintModal.saveBtn.addEventListener('click', async () => {
         const newSprintStart = sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null;
         const newSprintEnd = sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null;
 
-        // === NOWE: AUTOMATYCZNA NUMERACJA SPRINTÓW ===
+        // === AUTOMATYCZNA NUMERACJA SPRINTÓW ===
         let finalTitle = title; 
-
         if (!editingId) {
             const existingSprintsCount = allTasks.filter(t => t.type === 'sprint').length;
             const nextNum = existingSprintsCount + 1;
             finalTitle = `Sprint #${nextNum}`;
-            if (title) {
-                finalTitle += ` ${title}`;
-            }
+            if (title) finalTitle += ` ${title}`;
         }
         // === KONIEC ===
         
-        // 2. Przygotuj Obiekt Sprintu (Super-Zadanie)
+        // 2. Przygotuj Obiekt Sprintu
         const sprintTask = {
             id: sprintId,
             title: finalTitle,
             type: 'sprint',
             description: `Cel sprintu: ${title}`,
-            startDate: newSprintStart, // Używamy nowych dat
-            dueDate: newSprintEnd,     // Używamy nowych dat
+            startDate: newSprintStart,
+            dueDate: newSprintEnd,
             estimation: parseFloat(sprintModal.capacityInput.value) || 0,
             status: 'todo', 
             projectId: state.currentProjectId,
@@ -13572,12 +13569,9 @@ sprintModal.saveBtn.addEventListener('click', async () => {
         };
 
         // 3. Aktualizuj listę zadań w projekcie
-        
-        // A. Jeśli edytujemy, najpierw zaktualizuj sam obiekt Sprintu w tablicy
         if (editingId) {
             const idx = allTasks.findIndex(t => t.id === editingId);
             if (idx !== -1) {
-                // Zachowaj status sprintu z tablicy
                 sprintTask.status = allTasks[idx].status; 
                 allTasks[idx] = sprintTask;
             }
@@ -13592,31 +13586,43 @@ sprintModal.saveBtn.addEventListener('click', async () => {
             // Sprawdź, gdzie zadanie wylądowało
             const isBacklog = draft.tempStatus === 'backlog';
 
-            // === KLUCZOWA POPRAWKA DAT ===
-            // Tutaj nadpisujemy daty zadania datami sprintu (jeśli nie jest w backlogu)
-            // To gwarantuje, że nawet jeśli draft miał stare daty, zostaną one zaktualizowane.
+            // Ustal daty dla zadania (i podzadań)
+            // Jeśli Backlog -> daty są puste (null)
+            // Jeśli Sprint -> daty są równe datom Sprintu
+            const targetStartDate = isBacklog ? null : newSprintStart;
+            const targetDueDate = isBacklog ? null : newSprintEnd;
+
             let taskToSave = {
                 ...draft,
                 parentSprintId: isBacklog ? null : sprintId,
                 projectId: state.currentProjectId,
                 status: isBacklog ? 'backlog' : (draft.status || 'todo'),
                 
-                // JEŚLI W SPRINCIE -> NOWE DATY SPRINTU. JEŚLI BACKLOG -> NULL.
-                startDate: isBacklog ? null : newSprintStart,
-                dueDate: isBacklog ? null : newSprintEnd
+                // A. Aktualizacja dat ZADANIA GŁÓWNEGO
+                startDate: targetStartDate,
+                dueDate: targetDueDate
             };
-            // === KONIEC POPRAWKI ===
+
+            // === B. KASKADOWA AKTUALIZACJA PODZADAŃ ===
+            // Jeśli zadanie ma podzadania, one również muszą przyjąć te same daty (lub ich brak)
+            if (taskToSave.subtasks && taskToSave.subtasks.length > 0) {
+                taskToSave.subtasks = taskToSave.subtasks.map(sub => {
+                    return {
+                        ...sub,
+                        startDate: targetStartDate,
+                        dueDate: targetDueDate
+                    };
+                });
+            }
+            // === KONIEC AKTUALIZACJI PODZADAŃ ===
 
             if (isNew) {
-                // Generuj prawdziwe ID
                 taskToSave.id = `task_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
                 delete taskToSave.tempStatus;
                 allTasks.push(taskToSave);
             } else {
-                // Aktualizacja istniejącego zadania
                 const idx = allTasks.findIndex(t => t.id === draft.id);
                 if (idx !== -1) {
-                    // Nadpisz polami z taskToSave (który ma już poprawne daty)
                     allTasks[idx] = { ...allTasks[idx], ...taskToSave };
                     delete allTasks[idx].tempStatus;
                 }
@@ -13626,7 +13632,7 @@ sprintModal.saveBtn.addEventListener('click', async () => {
         // 4. Zapisz wszystko do bazy
         await updateDoc(projectDocRef, { tasks: allTasks });
         
-        showNotification("Sprint i zadania zapisane!", "Sukces");
+        showNotification("Sprint i zadania (wraz z podzadaniami) zostały zaktualizowane!", "Sukces");
         closeModal(sprintModal.overlay);
         isSprintCreationMode = false;
         delete sprintModal.overlay.dataset.editingSprintId;
@@ -38152,6 +38158,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </body>
 </html>
+
 
 
 
