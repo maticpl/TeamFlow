@@ -8844,7 +8844,12 @@ body.compact-mode .comment-item {
                     </ul>
                 </nav>
                 
-                 <nav class="nav-section" id="completed-projects-section" style="display: none !important;">
+                <nav class="nav-section" id="active-sprints-section" style="display: none;">
+                    <h2>Aktywne Sprinty</h2>
+                    <ul class="nav-list" id="active-sprints-list">
+                    </ul>
+                </nav>
+                <nav class="nav-section" id="completed-projects-section" style="display: none !important;">
                     <h2>Zakończone projekty</h2>
                     <ul class="nav-list" id="completed-projects-list">
                     </ul>
@@ -17041,13 +17046,95 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
     </svg>
     <span>${project.name}</span>
 `;
-                    li.appendChild(link);
+                   li.appendChild(link);
                     projectsListEl.appendChild(li);
                  });
             }
             // --- KONIEC NOWEJ LOGIKI ---
+            
+            // === NOWE: Renderowanie Aktywnych Sprintów ===
+            renderActiveSprintsSidebar();
+            // === KONIEC ===
         }
+        /**
+         * Renderuje listę aktywnych sprintów w sidebarze zgodnie z uprawnieniami.
+         */
+        function renderActiveSprintsSidebar() {
+            const listEl = document.getElementById('active-sprints-list');
+            const sectionEl = document.getElementById('active-sprints-section');
+            if (!listEl || !sectionEl) return;
 
+            listEl.innerHTML = '';
+            const uid = state.currentUser.uid;
+            let sprintsFound = [];
+
+            // 1. Przeszukaj wszystkie aktywne projekty
+            state.projects.forEach(project => {
+                if (project.isInbox) return; // Pomiń Inbox
+
+                // Sprawdź rolę użytkownika
+                const isOwner = project.ownerId === uid;
+                const isAdmin = (project.admins || []).includes(uid);
+                const hasPrivilege = isOwner || isAdmin;
+
+                // Znajdź aktywne sprinty w tym projekcie
+                const activeSprints = (project.tasks || []).filter(t => t.type === 'sprint' && t.status === 'inprogress');
+
+                activeSprints.forEach(sprint => {
+                    let shouldShow = false;
+
+                    if (hasPrivilege) {
+                        // Właściciel/Admin widzi wszystko
+                        shouldShow = true;
+                    } else {
+                        // Zwykły członek: Sprawdź czy ma zadania w tym sprincie
+                        const hasMyTasks = (project.tasks || []).some(t => 
+                            t.parentSprintId === sprint.id && 
+                            (t.assignees || []).includes(uid)
+                        );
+                        if (hasMyTasks) shouldShow = true;
+                    }
+
+                    if (shouldShow) {
+                        sprintsFound.push({ sprint, project });
+                    }
+                });
+            });
+
+            // 2. Renderowanie
+            if (sprintsFound.length === 0) {
+                // Jeśli brak sprintów, ukrywamy całą sekcję dla czystości
+                sectionEl.style.display = 'none';
+            } else {
+                sectionEl.style.display = 'block';
+                
+                // Sortuj np. po nazwie projektu
+                sprintsFound.sort((a, b) => a.project.name.localeCompare(b.project.name));
+
+                sprintsFound.forEach(({ sprint, project }) => {
+                    const li = document.createElement('li');
+                    li.className = 'nav-item';
+                    
+                    // Ikona "Running/Cycle"
+                    const iconHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: #8b5cf6;">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                    `;
+
+                    li.innerHTML = `
+                        <a href="#" class="sidebar-sprint-link" data-project-id="${project.id}" data-sprint-id="${sprint.id}" title="${project.name}: ${sprint.title}">
+                            ${iconHTML}
+                            <div style="display: flex; flex-direction: column; overflow: hidden;">
+                                <span style="font-weight: 600; line-height: 1.2;">${sprint.title}</span>
+                                <span style="font-size: 10px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${project.name}</span>
+                            </div>
+                        </a>
+                    `;
+                    listEl.appendChild(li);
+                });
+            }
+        }
         function renderCurrentProjectView() {
             // === NOWE: Ukryj narzędzia radaru ===
             if (radarUi.toolsWrapper) radarUi.toolsWrapper.style.display = 'none';
@@ -27488,7 +27575,37 @@ if (transferOwnershipModal.form) {
             }
         };
 
-        
+        // Listener dla listy Aktywnych Sprintów
+        const activeSprintsListEl = document.getElementById('active-sprints-list');
+        if (activeSprintsListEl) {
+            activeSprintsListEl.addEventListener('click', (e) => {
+                const link = e.target.closest('a.sidebar-sprint-link');
+                if (link) {
+                    e.preventDefault();
+                    
+                    const projectId = link.dataset.projectId;
+                    const sprintId = link.dataset.sprintId;
+
+                    // 1. Ustaw projekt
+                    state.currentProjectId = projectId;
+                    state.ui.currentView = 'projects';
+                    state.ui.isCalendarView = false;
+                    
+                    // 2. Ustaw Tryb Skupienia na tym sprincie
+                    state.ui.focusedSprintId = sprintId;
+                    
+                    showNotification("Przełączono do aktywnego sprintu.", "Info");
+
+                    // 3. Zapisz i renderuj
+                    saveUiState();
+                    render();
+                    
+                    // 4. Zamknij sidebar na mobile
+                    sidebar.classList.remove('open');
+                    sidebarOverlay.classList.remove('visible');
+                }
+            });
+        }
 
        // === ZAKTUALIZOWANY LISTENER: Kliknięcie w prawej kolumnie (Nowy Projekt) ===
         // POPRAWKA: Definiujemy zmienną przed jej użyciem
@@ -38655,6 +38772,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
