@@ -18438,8 +18438,7 @@ if (!listsContainer) {
 
             openModal(modal);
         }
-        // --- NOWA FUNKCJA: Otwieranie modala szczegółów ---
-        function openProjectDetailsModal() {
+       function openProjectDetailsModal() {
     const project = findProject(state.currentProjectId);
     if (!project) {
         showNotification("Nie można załadować szczegółów projektu.", "Błąd");
@@ -18467,53 +18466,78 @@ if (!listsContainer) {
     projectDetailsModal.projectPriority.textContent = priorities[project.priority] || project.priority;
 
     // ============================================================
-    // === NOWA LOGIKA SPRINTÓW (AKORDEON) ===
+    // === NOWA LOGIKA SPRINTÓW (Z POPRAWKĄ LICZENIA ZADAŃ) ===
     // ============================================================
     const sprintsSection = document.getElementById('details-sprints-section');
     const sprintsContainer = document.getElementById('details-sprints-container');
 
-    // 1. Sprawdź typ projektu
     if (project.type === 'sprint') {
-        sprintsSection.style.display = 'block'; // Pokaż sekcję
+        sprintsSection.style.display = 'block';
         
-        // 2. Znajdź wszystkie sprinty w tym projekcie
         const sprints = (project.tasks || []).filter(t => t.type === 'sprint');
         
         if (sprints.length === 0) {
             sprintsContainer.innerHTML = '<p style="font-style:italic; color:var(--text-secondary); text-align:center;">Brak utworzonych sprintów.</p>';
         } else {
-            // 3. Sortuj: Aktywny (inprogress) na górze, potem nowo utworzone (todo), na końcu zakończone (done)
+            // Sortowanie sprintów
             sprints.sort((a, b) => {
                 const statusOrder = { 'inprogress': 1, 'todo': 2, 'done': 3 };
                 const statusDiff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
                 if (statusDiff !== 0) return statusDiff;
-                // Jeśli ten sam status, sortuj po dacie utworzenia (malejąco)
                 return (b.createdAt || 0) - (a.createdAt || 0);
             });
 
-            // 4. Generuj HTML dla każdego sprintu
             let sprintsHTML = '<div style="display:flex; flex-direction:column; gap:12px;">';
             
             sprints.forEach(sprint => {
-                // Obliczenia
                 const capacity = parseFloat(sprint.estimation) || 0;
-                const children = (project.tasks || []).filter(t => t.parentSprintId === sprint.id);
-                const totalTasks = children.length;
                 
+                // 1. Zadania, które FIZYCZNIE są w tym sprincie (Aktualnie)
+                const currentChildren = (project.tasks || []).filter(t => t.parentSprintId === sprint.id);
+                
+                // Liczymy dowiezione (te, które są 'done' i nadal są w tym sprincie)
                 let deliveredPoints = 0;
-                let doneTasks = 0;
+                let doneTasksCount = 0;
 
-                children.forEach(child => {
+                currentChildren.forEach(child => {
                     if (child.status === 'done') {
-                        doneTasks++;
+                        doneTasksCount++;
                         deliveredPoints += parseFloat(child.estimation || child.effort || 0);
                     }
                 });
 
-                // Procenty
+                // 2. === POPRAWKA: Szukanie zadań PRZENIESIONYCH (Carry-over) ===
+                // Jeśli sprint jest zakończony, musimy doliczyć zadania, które "uciekły" do następnego sprintu.
+                // Używamy tej samej logiki co w Raporcie Sprintu (Next Sprint Detection).
+                let movedTasksCount = 0;
+                
+                if (sprint.status === 'done') {
+                    // Próba znalezienia numeru sprintu (np. #1)
+                    const match = sprint.title.match(/#(\d+)/);
+                    if (match) {
+                        const currentNum = parseInt(match[1], 10);
+                        const nextNum = currentNum + 1;
+                        // Szukamy sprintu o numerze o 1 większym
+                        const nextSprint = sprints.find(s => s.title.includes(`#${nextNum}`));
+                        
+                        if (nextSprint) {
+                            // Zliczamy zadania w następnym sprincie jako "przeniesione" z tego
+                            // (Jest to uproszczenie zgodne z logiką Twojego Raportu)
+                            const nextSprintChildren = (project.tasks || []).filter(t => t.parentSprintId === nextSprint.id);
+                            movedTasksCount = nextSprintChildren.length;
+                        }
+                    }
+                }
+
+                // 3. Całkowita liczba zadań (Scope) = Obecne + Przeniesione
+                // Dla sprintu zakończonego: currentChildren to zazwyczaj tylko te 'done' (bo reszta uciekła),
+                // więc currentChildren.length (Done) + movedTasksCount (Not Done) = Total Scope.
+                const totalScopeCount = currentChildren.length + movedTasksCount;
+
+                // Procenty (Punkty vs Capacity)
                 const progressPoints = capacity > 0 ? Math.min((deliveredPoints / capacity) * 100, 100) : 0;
                 
-                // Style statusu
+                // Badge statusu
                 let statusBadge = '';
                 let borderStyle = '1px solid var(--border-color)';
                 
@@ -18534,7 +18558,7 @@ if (!listsContainer) {
                         </div>
                         
                         <div style="display:flex; gap:16px; font-size:12px; color:var(--text-secondary); margin-bottom:8px;">
-                            <span>Zadania: <strong>${doneTasks}/${totalTasks}</strong></span>
+                            <span>Zadania: <strong>${doneTasksCount}/${totalScopeCount}</strong></span>
                             <span>Punkty: <strong>${deliveredPoints}/${capacity}</strong></span>
                         </div>
 
@@ -18549,18 +18573,12 @@ if (!listsContainer) {
             sprintsContainer.innerHTML = sprintsHTML;
         }
     } else {
-        // To jest projekt klasyczny - ukryj sekcję
         sprintsSection.style.display = 'none';
     }
     // ============================================================
-    // === KONIEC NOWEJ LOGIKI ===
-    // ============================================================
 
-    // Renderowanie wykresów (Bez zmian)
     renderProjectBudgetChartCSS(project, projectDetailsModal.budgetChartContainer);
     renderProjectWorkloadChart(project, projectDetailsModal.workloadChartContainer, projectDetailsModal.workloadChartPlaceholder);
-
-    // ETAP 4: Renderowanie nowej tabeli (Bez zmian)
     renderProjectBudgetTasksTable(project, 'details-budget-tasks-table-container');
 
     openModal(projectDetailsModal.overlay);
@@ -38576,6 +38594,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
