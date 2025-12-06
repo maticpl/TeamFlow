@@ -18440,40 +18440,131 @@ if (!listsContainer) {
         }
         // --- NOWA FUNKCJA: Otwieranie modala szczegółów ---
         function openProjectDetailsModal() {
-            const project = findProject(state.currentProjectId);
-            if (!project) {
-                showNotification("Nie można załadować szczegółów projektu.", "Błąd");
-                return;
-            }
+    const project = findProject(state.currentProjectId);
+    if (!project) {
+        showNotification("Nie można załadować szczegółów projektu.", "Błąd");
+        return;
+    }
 
-            projectDetailsModal.title.textContent = `Szczegóły: ${project.name}`;
-            projectDetailsModal.projectName.textContent = project.name;
+    // --- Standardowe wypełnianie danych (Bez zmian) ---
+    projectDetailsModal.title.textContent = `Szczegóły: ${project.name}`;
+    projectDetailsModal.projectName.textContent = project.name;
 
-            const owner = findUser(project.ownerId);
-            projectDetailsModal.projectOwner.textContent = owner ? (owner.name || owner.email) : 'Nieznany';
+    const owner = findUser(project.ownerId);
+    projectDetailsModal.projectOwner.textContent = owner ? (owner.name || owner.email) : 'Nieznany';
 
-            projectDetailsModal.projectMembers.innerHTML = (project.members || [])
-                .map(findUser)
-                .filter(Boolean)
-                .map(user => renderAvatarHTML(user)) // Używamy istniejącej funkcji
-                .join('') || 'Brak członków';
+    projectDetailsModal.projectMembers.innerHTML = (project.members || [])
+        .map(findUser)
+        .filter(Boolean)
+        .map(user => renderAvatarHTML(user))
+        .join('') || 'Brak członków';
 
-            projectDetailsModal.projectDescription.textContent = project.description || 'Brak opisu.';
-            projectDetailsModal.projectStart.textContent = project.startDate ? new Date(project.startDate).toLocaleDateString('pl-PL') : '-';
-            projectDetailsModal.projectEnd.textContent = project.endDate ? new Date(project.endDate).toLocaleDateString('pl-PL') : '-';
+    projectDetailsModal.projectDescription.textContent = project.description || 'Brak opisu.';
+    projectDetailsModal.projectStart.textContent = project.startDate ? new Date(project.startDate).toLocaleDateString('pl-PL') : '-';
+    projectDetailsModal.projectEnd.textContent = project.endDate ? new Date(project.endDate).toLocaleDateString('pl-PL') : '-';
 
-            const priorities = { low: 'Niski', medium: 'Średni', high: 'Wysoki' };
-            projectDetailsModal.projectPriority.textContent = priorities[project.priority] || project.priority;
+    const priorities = { low: 'Niski', medium: 'Średni', high: 'Wysoki' };
+    projectDetailsModal.projectPriority.textContent = priorities[project.priority] || project.priority;
 
-            // Renderowanie wykresów
-            renderProjectBudgetChartCSS(project, projectDetailsModal.budgetChartContainer);
-            renderProjectWorkloadChart(project, projectDetailsModal.workloadChartContainer, projectDetailsModal.workloadChartPlaceholder); // Przekazujemy też placeholder
+    // ============================================================
+    // === NOWA LOGIKA SPRINTÓW (AKORDEON) ===
+    // ============================================================
+    const sprintsSection = document.getElementById('details-sprints-section');
+    const sprintsContainer = document.getElementById('details-sprints-container');
 
-            // ETAP 4: Renderowanie nowej tabeli
-            renderProjectBudgetTasksTable(project, 'details-budget-tasks-table-container');
+    // 1. Sprawdź typ projektu
+    if (project.type === 'sprint') {
+        sprintsSection.style.display = 'block'; // Pokaż sekcję
+        
+        // 2. Znajdź wszystkie sprinty w tym projekcie
+        const sprints = (project.tasks || []).filter(t => t.type === 'sprint');
+        
+        if (sprints.length === 0) {
+            sprintsContainer.innerHTML = '<p style="font-style:italic; color:var(--text-secondary); text-align:center;">Brak utworzonych sprintów.</p>';
+        } else {
+            // 3. Sortuj: Aktywny (inprogress) na górze, potem nowo utworzone (todo), na końcu zakończone (done)
+            sprints.sort((a, b) => {
+                const statusOrder = { 'inprogress': 1, 'todo': 2, 'done': 3 };
+                const statusDiff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
+                if (statusDiff !== 0) return statusDiff;
+                // Jeśli ten sam status, sortuj po dacie utworzenia (malejąco)
+                return (b.createdAt || 0) - (a.createdAt || 0);
+            });
 
-            openModal(projectDetailsModal.overlay);
+            // 4. Generuj HTML dla każdego sprintu
+            let sprintsHTML = '<div style="display:flex; flex-direction:column; gap:12px;">';
+            
+            sprints.forEach(sprint => {
+                // Obliczenia
+                const capacity = parseFloat(sprint.estimation) || 0;
+                const children = (project.tasks || []).filter(t => t.parentSprintId === sprint.id);
+                const totalTasks = children.length;
+                
+                let deliveredPoints = 0;
+                let doneTasks = 0;
+
+                children.forEach(child => {
+                    if (child.status === 'done') {
+                        doneTasks++;
+                        deliveredPoints += parseFloat(child.estimation || child.effort || 0);
+                    }
+                });
+
+                // Procenty
+                const progressPoints = capacity > 0 ? Math.min((deliveredPoints / capacity) * 100, 100) : 0;
+                
+                // Style statusu
+                let statusBadge = '';
+                let borderStyle = '1px solid var(--border-color)';
+                
+                if (sprint.status === 'inprogress') {
+                    statusBadge = `<span style="background-color:var(--accent-primary); color:white; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700; text-transform:uppercase;">Aktywny</span>`;
+                    borderStyle = '1px solid var(--accent-primary)';
+                } else if (sprint.status === 'done') {
+                    statusBadge = `<span style="background-color:var(--success-primary); color:white; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700; text-transform:uppercase;">Zakończony</span>`;
+                } else {
+                    statusBadge = `<span style="background-color:var(--bg-tertiary); color:var(--text-secondary); font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700; text-transform:uppercase;">Planowany</span>`;
+                }
+
+                sprintsHTML += `
+                    <div style="background-color: var(--bg-secondary); border: ${borderStyle}; border-radius: var(--border-radius); padding: 10px; position: relative;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                            <h4 style="margin:0; font-size:14px; font-weight:600;">${sprint.title}</h4>
+                            ${statusBadge}
+                        </div>
+                        
+                        <div style="display:flex; gap:16px; font-size:12px; color:var(--text-secondary); margin-bottom:8px;">
+                            <span>Zadania: <strong>${doneTasks}/${totalTasks}</strong></span>
+                            <span>Punkty: <strong>${deliveredPoints}/${capacity}</strong></span>
+                        </div>
+
+                        <div class="progress-bar-container" style="height: 6px; margin-top: 0; background-color: var(--bg-tertiary);">
+                            <div class="progress-bar-fill" style="width: ${progressPoints}%; background-color: ${sprint.status === 'done' ? 'var(--success-primary)' : 'var(--accent-primary)'};"></div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            sprintsHTML += '</div>';
+            sprintsContainer.innerHTML = sprintsHTML;
         }
+    } else {
+        // To jest projekt klasyczny - ukryj sekcję
+        sprintsSection.style.display = 'none';
+    }
+    // ============================================================
+    // === KONIEC NOWEJ LOGIKI ===
+    // ============================================================
+
+    // Renderowanie wykresów (Bez zmian)
+    renderProjectBudgetChartCSS(project, projectDetailsModal.budgetChartContainer);
+    renderProjectWorkloadChart(project, projectDetailsModal.workloadChartContainer, projectDetailsModal.workloadChartPlaceholder);
+
+    // ETAP 4: Renderowanie nowej tabeli (Bez zmian)
+    renderProjectBudgetTasksTable(project, 'details-budget-tasks-table-container');
+
+    openModal(projectDetailsModal.overlay);
+}
        /**
          * Renderuje listę wysiłku podzadań w modalu zadania głównego.
          */
@@ -37461,7 +37552,22 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                 </div>
 
                 <div class="project-details-charts">
-                    <div class="budget-chart-section" style="margin-bottom: 16px;">
+
+    <div id="details-sprints-section" style="margin-bottom: 16px; display: none;">
+        <div class="collapsible-header collapsed" data-target="#details-sprints-container">
+            <h3>Sprinty i Cykle</h3>
+            <div class="collapsible-controls">
+                <span class="toggle-text">Rozwiń</span>
+                <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                </svg>
+            </div>
+        </div>
+        <div id="details-sprints-container" class="collapsible-content collapsed" style="padding: 12px; background-color: var(--bg-primary);">
+            <p style="color: var(--text-secondary);">Ładowanie danych sprintów...</p>
+        </div>
+    </div>
+    <div class="budget-chart-section" style="margin-bottom: 16px;">
                         <div class="collapsible-header collapsed" data-target="#details-budget-chart-container">
                             <h3>Budżet Projektu</h3>
                             <div class="collapsible-controls"> <span class="toggle-text">Rozwiń</span> <svg class="chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
@@ -38470,6 +38576,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
