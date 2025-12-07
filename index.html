@@ -29142,118 +29142,171 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
                         t.status !== 'done'
                     );
 
-                    let confirmTitle = `Zakończyć Sprint "${sprintTask.title}"?`;
-                    let confirmMsg = "Sprint zostanie przeniesiony do zakończonych.";
-                    let willCreateNewSprint = false;
+                    // --- FUNKCJA WYKONAWCZA (Wspólna logika zamykania) ---
+                    const executeSprintCompletion = async (willCreateNewSprint) => {
+                        let updatedTasks = [...project.tasks];
+
+                        // A. Zamknij obecny sprint
+                        updatedTasks = updatedTasks.map(t => 
+                            t.id === sprintId ? { ...t, status: 'done', completedAt: new Date() } : t 
+                        );
+
+                        if (willCreateNewSprint) {
+                            // B. Utwórz nowy sprint (Tylko dla opcji automatycznego przenoszenia zadań)
+                            // Uwaga: To jest logika systemowa dla NIEDOKOŃCZONYCH zadań.
+                            // Ręczne tworzenie nowego sprintu (gdy wszystko gotowe) obsługuje FAB.
+                            
+                            const existingSprintsCount = project.tasks.filter(t => t.type === 'sprint').length;
+                            const nextNum = existingSprintsCount + 1;
+                            const newSprintId = `sprint_${Date.now()}`;
+                            
+                            // Daty domyślne: Start = Jutro, Koniec = Jutro + 14 dni
+                            const tomorrow = new Date();
+                            tomorrow.setDate(tomorrow.getDate() + 1);
+                            const twoWeeksLater = new Date(tomorrow);
+                            twoWeeksLater.setDate(twoWeeksLater.getDate() + 14);
+
+                            const pad = (n) => String(n).padStart(2, '0');
+                            const startDateStr = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth()+1)}-${pad(tomorrow.getDate())}`;
+                            const endDateStr = `${twoWeeksLater.getFullYear()}-${pad(twoWeeksLater.getMonth()+1)}-${pad(twoWeeksLater.getDate())}`;
+
+                            const newSprintObj = {
+                                id: newSprintId,
+                                title: `Sprint #${nextNum}`, // Sam numer
+                                description: `Automatycznie utworzony po zamknięciu ${sprintTask.title}`,
+                                type: 'sprint',
+                                status: 'todo',
+                                startDate: startDateStr,
+                                dueDate: endDateStr,
+                                estimation: sprintTask.estimation || 0,
+                                projectId: projectId,
+                                createdBy: state.currentUser.uid,
+                                createdAt: Date.now(),
+                                assignees: [], subtasks: [], budgetItems: []
+                            };
+                            
+                            updatedTasks.push(newSprintObj);
+
+                            // C. Przenieś zadania
+                            updatedTasks = updatedTasks.map(t => {
+                                if (incompleteTasks.some(inc => inc.id === t.id)) {
+                                    return {
+                                        ...t,
+                                        parentSprintId: newSprintId, 
+                                        status: 'todo',
+                                        carryOverFrom: sprintId
+                                    };
+                                }
+                                return t;
+                            });
+                        }
+                        
+                        // Animacja (2 -> 3 -> 1)
+                        const animWrapper = document.getElementById('sprint-lifecycle-anim');
+                        if (animWrapper) {
+                            animWrapper.classList.remove('sprint-anim-state-2');
+                            animWrapper.classList.add('sprint-anim-state-3');
+                            setTimeout(() => {
+                                if (animWrapper) {
+                                    animWrapper.classList.remove('sprint-anim-state-3');
+                                    animWrapper.classList.add('sprint-anim-state-1');
+                                }
+                            }, 3000);
+                        }
+
+                        // Zapis do bazy
+                        const projectDocRef = doc(projectsRef, projectId);
+                        try {
+                            await updateDoc(projectDocRef, { tasks: updatedTasks });
+                            showConfetti();
+                            
+                            if (willCreateNewSprint) {
+                                showNotification("Sprint zakończony. Zadania przeniesione do nowego sprintu.", "Sukces");
+                            } else {
+                                showNotification("Sprint zakończony! Dobra robota.", "Sukces");
+                            }
+                        } catch (err) {
+                            console.error("Błąd kończenia sprintu:", err);
+                            showNotification("Błąd kończenia sprintu.", "Błąd");
+                        }
+                    };
+
+                    // --- ROZGAŁĘZIENIE LOGIKI MODALA ---
 
                     if (incompleteTasks.length > 0) {
-                        // 2. Oblicz numer nowego sprintu
+                        // SCENARIUSZ 1: Są niedokończone zadania (Standardowy modal)
                         const existingSprintsCount = project.tasks.filter(t => t.type === 'sprint').length;
                         const nextNum = existingSprintsCount + 1;
                         const newSprintName = `Sprint #${nextNum}`;
+                        
+                        const title = `Zakończyć Sprint "${sprintTask.title}"?`;
+                        const msg = `Sprint zawiera <strong>${incompleteTasks.length}</strong> niedokończonych zadań. <br><br>Zostaną one automatycznie przeniesione do nowego: <strong>${newSprintName}</strong>.`;
+                        
+                        showConfirmation(title, msg, (confirmed) => {
+                            if (confirmed) executeSprintCompletion(true); // true = auto-create sprint for items
+                        }, false);
 
-                        confirmMsg = `Sprint zawiera <strong>${incompleteTasks.length}</strong> niedokończonych zadań. <br><br>Zostaną one automatycznie przeniesione do nowego: <strong>${newSprintName}</strong>.`;
-                        willCreateNewSprint = true;
                     } else {
-                        confirmMsg += " Wszystkie zadania zostały wykonane. Będziesz mógł rozpocząć kolejny sprint.";
+                        // SCENARIUSZ 2: Wszystko skończone (Custom Modal z wyborem akcji)
+                        
+                        // 1. Ustaw Treść
+                        confirmationModal.title.textContent = `Zakończenie Sprintu "${sprintTask.title}"`;
+                        confirmationModal.message.innerHTML = "Sprint zostanie przeniesiony do zakończonych. Wszystkie zadania zostały wykonane. Czy utworzyć kolejny sprint?";
+                        
+                        // 2. Pobierz przyciski modala
+                        const confirmBtn = confirmationModal.confirmBtn; // Ten z ID #confirmation-action-btn
+                        const cancelBtn = confirmationModal.overlay.querySelector('.modal-close-btn[data-action="cancel"]'); // Ten szary
+                        
+                        // 3. Zapamiętaj oryginalny stan (do przywrócenia)
+                        const originalConfirmText = "Potwierdź";
+                        const originalCancelText = "Anuluj";
+                        const originalCancelClass = cancelBtn.className;
+                        const originalConfirmClass = "btn btn-danger"; // Domyślny w showConfirmation
+
+                        // 4. Zmiana Etykiet i Stylu
+                        confirmBtn.textContent = "Zakończ i utwórz nowy sprint";
+                        confirmBtn.className = "btn btn-primary"; // Niebieski (Akcja główna)
+                        
+                        cancelBtn.textContent = "Nie, tylko zakończ";
+                        cancelBtn.className = "btn btn-outline-primary"; // Neutralny, ale nie "Anuluj"
+
+                        // 5. Funkcja czyszcząca (przywraca stan przycisków po zamknięciu)
+                        const cleanup = () => {
+                            // Przywróć teksty
+                            confirmBtn.textContent = originalConfirmText;
+                            cancelBtn.textContent = originalCancelText;
+                            // Przywróć style (showConfirmation nadpisuje je, ale dla porządku)
+                            cancelBtn.className = originalCancelClass;
+                            confirmBtn.className = originalConfirmClass;
+                            
+                            // Usuń nasze niestandardowe listenery (onclick)
+                            confirmBtn.onclick = null;
+                            cancelBtn.onclick = null;
+                        };
+
+                        // 6. Obsługa Przycisku "Zakończ i nowy" (Dawne Potwierdź)
+                        confirmBtn.onclick = async () => {
+                            closeModal(confirmationModal.overlay);
+                            await executeSprintCompletion(false); // false = nie przenoś zadań (bo ich nie ma)
+                            cleanup();
+                            
+                            // Otwórz kreator nowego sprintu
+                            const fabSprint = document.getElementById('fab-action-new-sprint');
+                            if (fabSprint) fabSprint.click();
+                        };
+
+                        // 7. Obsługa Przycisku "Tylko zakończ" (Dawne Anuluj)
+                        // Uwaga: Ten przycisk ma klasę .modal-close-btn, więc zamknie modal automatycznie.
+                        // Musimy tylko dodać logikę biznesową.
+                        cancelBtn.onclick = async () => {
+                            // Modal zamknie się sam przez globalny listener .modal-close-btn
+                            await executeSprintCompletion(false);
+                            cleanup();
+                        };
+
+                        // 8. Otwórz Modal
+                        openModal(confirmationModal.overlay);
                     }
-                    
-                    showConfirmation(
-                        confirmTitle,
-                        confirmMsg,
-                        (confirmed) => {
-                            if (confirmed) {
-                                let updatedTasks = [...project.tasks];
-
-                                // A. Zamknij obecny sprint
-                                updatedTasks = updatedTasks.map(t => 
-                                    t.id === sprintId ? { ...t, status: 'done', completedAt: new Date() } : t 
-                                );
-
-                                if (willCreateNewSprint) {
-                                    // B. Utwórz nowy sprint
-                                    const nextNum = project.tasks.filter(t => t.type === 'sprint').length + 1;
-                                    const newSprintId = `sprint_${Date.now()}`;
-                                    
-                                    // Daty domyślne: Start = Jutro, Koniec = Jutro + 14 dni
-                                    const tomorrow = new Date();
-                                    tomorrow.setDate(tomorrow.getDate() + 1);
-                                    const twoWeeksLater = new Date(tomorrow);
-                                    twoWeeksLater.setDate(twoWeeksLater.getDate() + 14);
-
-                                    const pad = (n) => String(n).padStart(2, '0');
-                                    const startDateStr = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth()+1)}-${pad(tomorrow.getDate())}`;
-                                    const endDateStr = `${twoWeeksLater.getFullYear()}-${pad(twoWeeksLater.getMonth()+1)}-${pad(twoWeeksLater.getDate())}`;
-
-                                    const newSprintObj = {
-                                        id: newSprintId,
-                                        title: `Sprint #${nextNum}`, // Sam numer
-                                        description: `Automatycznie utworzony po zamknięciu ${sprintTask.title}`,
-                                        type: 'sprint',
-                                        status: 'todo',
-                                        startDate: startDateStr,
-                                        dueDate: endDateStr,
-                                        estimation: sprintTask.estimation || 0, // Przepisujemy capacity ze starego (opcjonalne)
-                                        projectId: projectId,
-                                        createdBy: state.currentUser.uid,
-                                        createdAt: Date.now(),
-                                        assignees: [], subtasks: [], budgetItems: []
-                                    };
-                                    
-                                    updatedTasks.push(newSprintObj);
-
-                                    // C. Przenieś zadania
-                                    updatedTasks = updatedTasks.map(t => {
-                                        // ... (bez zmian)
-                                        if (incompleteTasks.some(inc => inc.id === t.id)) {
-                                            return {
-                                                ...t,
-                                                parentSprintId: newSprintId, 
-                                                status: 'todo',
-                                                carryOverFrom: sprintId // <<< ZMIANA: Oznaczamy, skąd zadanie przyszło
-                                            };
-                                        }
-                                        return t;
-                                    });
-                                }
-                                
-                                // === NOWE: Uruchom animację (2 -> 3, potem reset) ===
-                                const animWrapper = document.getElementById('sprint-lifecycle-anim');
-                                if (animWrapper) {
-                                    // Przesuń do Done (prawo)
-                                    animWrapper.classList.remove('sprint-anim-state-2');
-                                    animWrapper.classList.add('sprint-anim-state-3');
-                                    
-                                    // Po 3 sekundach (jak w opisie)
-                                    setTimeout(() => {
-                                        // Animacja "zniknięcia" lub po prostu szybki powrót?
-                                        // Użytkownik chciał: "wraca na 1 kwadracik"
-                                        if (animWrapper) {
-                                            // Usuń klasę transition, żeby skoczył natychmiast (opcjonalne, ale tu robimy płynnie wg transition CSS)
-                                            animWrapper.classList.remove('sprint-anim-state-3');
-                                            animWrapper.classList.add('sprint-anim-state-1');
-                                        }
-                                    }, 3000);
-                                }
-                                // === KONIEC ===
-
-                                const projectDocRef = doc(projectsRef, projectId);
-                                
-                                updateDoc(projectDocRef, { tasks: updatedTasks }).then(() => {
-                                    showConfetti();
-                                    if (willCreateNewSprint) {
-                                        showNotification("Sprint zakończony. Zadania przeniesione do nowego sprintu.", "Sukces");
-                                    } else {
-                                        showNotification("Sprint zakończony! Dobra robota.", "Sukces");
-                                    }
-                                }).catch(err => {
-                                    console.error("Błąd kończenia sprintu:", err);
-                                    showNotification("Błąd kończenia sprintu.", "Błąd");
-                                });
-                            }
-                        },
-                        false 
-                    );
                 }
                 return; // WAŻNE: Zatrzymaj tutaj!
             }
@@ -38793,6 +38846,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
