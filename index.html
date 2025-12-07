@@ -8735,6 +8735,27 @@ body.compact-mode .comment-item {
     pointer-events: none; /* Blokada kliknięć (edycji) na elementach w Done */
     filter: grayscale(100%); /* Opcjonalnie: czarno-białe */
 }
+        /* Styl dla listy "Wykonane" podczas przeciągania innego zadania */
+#sprint-board-done.drop-blocked {
+    background-color: rgba(220, 38, 38, 0.03) !important; /* Bardzo delikatny czerwony odcień */
+    border-color: var(--danger-border) !important; /* Czerwonawa ramka */
+    cursor: no-drop !important; /* Kursor zakazu */
+    position: relative;
+}
+
+/* Opcjonalnie: Ikonka zakazu na środku listy, gdy próbujemy tam wjechać */
+#sprint-board-done.drop-blocked::after {
+    content: "⛔ Tylko do odczytu";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--danger-primary);
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.5;
+    pointer-events: none;
+}
     </style>
 
 </head>
@@ -13529,7 +13550,6 @@ function updateSprintStats() {
 // --- 5. DRAG & DROP W KREATORZE ---
 function initSprintDragAndDrop() {
     // 1. Zdefiniuj listy INTERAKTYWNE (można przenosić tam i z powrotem)
-    // Wykluczamy stąd 'sprintModal.doneList'
     const interactiveLists = [sprintModal.backlogList, sprintModal.todoList, sprintModal.inprogressList];
     
     interactiveLists.forEach(list => {
@@ -13537,12 +13557,29 @@ function initSprintDragAndDrop() {
         if (list._sortable) list._sortable.destroy();
 
         list._sortable = new Sortable(list, {
-            group: 'sprint-builder', // Wspólna grupa
+            group: 'sprint-builder', 
             animation: 150,
             ghostClass: 'sortable-ghost',
             
+            // === NOWE: Wizualne zablokowanie kolumny "Done" na starcie ===
+            onStart: (evt) => {
+                sprintModal.doneList.classList.add('drop-blocked');
+            },
+
+            // === NOWE: Fizyczna blokada wejścia "ducha" do kolumny "Done" ===
+            onMove: (evt) => {
+                // Jeśli próbujemy przeciągnąć nad listę "Done" -> ZABROŃ TEGO
+                if (evt.to === sprintModal.doneList) {
+                    return false; // To blokuje animację wjazdu
+                }
+                return true; // W innych przypadkach pozwól
+            },
+            
             // Standardowa logika onEnd dla aktywnych list
             onEnd: (evt) => {
+                // === NOWE: Zdjęcie blokady wizualnej ===
+                sprintModal.doneList.classList.remove('drop-blocked');
+
                 const itemEl = evt.item;
                 const newStatus = evt.to.dataset.status; 
                 const index = itemEl.dataset.tempIndex;
@@ -13581,11 +13618,11 @@ function initSprintDragAndDrop() {
     doneList._sortable = new Sortable(doneList, {
         group: {
             name: 'sprint-builder',
-            put: false,  // BLOKADA: Nie przyjmuj zadań (nie można tu upuścić)
-            pull: false  // BLOKADA: Nie oddawaj zadań (nie można stąd zabrać)
+            put: false,  // Logiczna blokada (backup dla onMove)
+            pull: false  // Blokada wyciągania
         },
-        sort: false,     // Blokada sortowania wewnątrz
-        disabled: true   // Całkowite wyłączenie interakcji Drag&Drop dla tej listy
+        sort: false,     // Blokada sortowania
+        disabled: true   // Całkowite wyłączenie interakcji
     });
 }
 // === NOWY LISTENER: Obsługa rozwijania podzadań w kreatorze sprintu ===
@@ -39133,6 +39170,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
