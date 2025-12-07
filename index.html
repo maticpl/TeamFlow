@@ -13989,7 +13989,7 @@ function initSprintNestedDragAndDrop() {
 }
 
 // Wspólny handler zakończenia przeciągania
-function handleSprintDragEnd(evt) {
+async function handleSprintDragEnd(evt) {
     const doneL = document.getElementById('sprint-board-done');
     if(doneL) doneL.classList.remove('drop-blocked');
 
@@ -14000,118 +14000,169 @@ function handleSprintDragEnd(evt) {
 
     const newStatus = evt.to.dataset.status; // todo, inprogress, backlog, done
     const newCustomId = evt.to.dataset.customId || null;
+    
+    // Sprawdź, czy edytujemy istniejący sprint
+    const editingSprintId = sprintModal.overlay.dataset.editingSprintId;
+    const isLiveMode = !!editingSprintId;
 
-    // --- SCENARIUSZ A: Wyciąganie zagnieżdżonego podzadania (Nested -> Standalone) ---
+    // Pobierz aktualny projekt ze stanu (najświeższe dane)
+    const fullProject = findProject(state.currentProjectId);
+    if (!fullProject) return;
+
+    // Definicja dat dla sprintu (potrzebne przy wyciąganiu z backlogu)
+    const sprintStartData = sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null;
+    const sprintEndData = sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null;
+
+    // =======================================================================
+    // SCENARIUSZ A: Wyciąganie zagnieżdżonego podzadania (Nested -> Standalone)
+    // =======================================================================
     if (itemEl.dataset.type === 'nested-subtask') {
         const subId = itemEl.dataset.subtaskId;
         const parentId = itemEl.dataset.parentId;
 
         if (newStatus) {
-            // 1. Znajdź dane w projekcie
-            const fullProject = findProject(state.currentProjectId);
-            const parentTask = fullProject.tasks.find(t => t.id === parentId);
-            const subtask = parentTask.subtasks.find(s => s.id === subId);
-
-            // 2. Dodaj do draftu jako samodzielne
-            const newDraftItem = {
-                ...subtask,
-                id: subId, 
-                tempStatus: newStatus,
-                tempCustomColumnId: newCustomId,
+            // Obiekt zmian
+            const changes = {
                 status: (newStatus === 'backlog') ? 'todo' : newStatus,
                 customColumnId: newCustomId,
-                startDate: (newStatus !== 'backlog' && sprintModal.startDate.value) ? `${sprintModal.startDate.value}T09:00` : null,
-                dueDate: (newStatus !== 'backlog' && sprintModal.endDate.value) ? `${sprintModal.endDate.value}T17:00` : null
+                startDate: (newStatus !== 'backlog') ? sprintStartData : null,
+                dueDate: (newStatus !== 'backlog') ? sprintEndData : null
             };
-            
-            sprintDraftTasks.push(newDraftItem);
+
+            if (isLiveMode) {
+                // 1. Zapisz do BAZY (Działamy na kopii tasków z projektu)
+                const currentTasks = fullProject.tasks.map(t => {
+                    if (t.id === parentId) {
+                        const updatedSubtasks = t.subtasks.map(s => s.id === subId ? { ...s, ...changes } : s);
+                        return { ...t, subtasks: updatedSubtasks };
+                    }
+                    return t;
+                });
+
+                try {
+                    await updateDoc(doc(projectsRef, state.currentProjectId), { tasks: currentTasks });
+                    
+                    // 2. Zapisz LOKALNIE (Dla widoku Mini Kanban)
+                    // Musimy znaleźć to podzadanie i dodać je do sprintDraftTasks jako "standalone"
+                    const parentTask = fullProject.tasks.find(t => t.id === parentId);
+                    const originalSub = parentTask.subtasks.find(s => s.id === subId);
+                    
+                    // Dodajemy do draftu, żeby renderSprintDraftTasks je wyświetlił jako kafel
+                    sprintDraftTasks.push({
+                        ...originalSub,
+                        ...changes,
+                        id: subId,
+                        tempStatus: newStatus,
+                        tempCustomColumnId: newCustomId
+                    });
+                    
+                } catch (e) {
+                    console.error(e);
+                    showNotification("Błąd zapisu podzadania.", "Błąd");
+                }
+            } else {
+                // Tryb Draft (Nowy Sprint)
+                // Musimy znaleźć to podzadanie w oryginalnych danych (które mogą być w drafcie jeśli to parent)
+                // Uproszczenie: szukamy w fullProject
+                const parentTask = fullProject.tasks.find(t => t.id === parentId);
+                const sub = parentTask.subtasks.find(s => s.id === subId);
+                
+                sprintDraftTasks.push({
+                    ...sub,
+                    ...changes,
+                    tempStatus: newStatus,
+                    tempCustomColumnId: newCustomId
+                });
+            }
             renderSprintDraftTasks();
         } 
         return;
     }
 
-    // --- SCENARIUSZ B: Przenoszenie elementu z najwyższego poziomu (Main Task LUB Standalone Subtask) ---
+    // =======================================================================
+    // SCENARIUSZ B: Przenoszenie elementu z najwyższego poziomu (Kafelki)
+    // =======================================================================
     const index = parseInt(itemEl.dataset.tempIndex, 10);
     const draftItem = sprintDraftTasks[index];
 
     if (draftItem) {
-        // Czy to jest podzadanie, które jest teraz "samodzielne"?
-        // Sprawdzamy to, szukając jego rodzica w projekcie
-        const fullProject = findProject(state.currentProjectId);
-        let parentTask = null;
+        // Obiekt zmian
+        const changes = {
+            status: (newStatus === 'backlog') ? 'todo' : newStatus,
+            customColumnId: newCustomId,
+            startDate: (newStatus !== 'backlog') ? sprintStartData : null,
+            dueDate: (newStatus !== 'backlog') ? sprintEndData : null
+        };
         
-        // Przeszukaj projekt, aby znaleźć rodzica (jeśli to podzadanie)
+        // Dane tymczasowe dla widoku
+        const tempChanges = {
+            tempStatus: newStatus,
+            tempCustomColumnId: newCustomId
+        };
+
+        // --- SPRAWDZANIE "MERGE BACK" (Czy wraca do rodzica?) ---
+        let shouldMergeBack = false;
+        let parentTask = null;
+
+        // Szukamy rodzica w projekcie
         fullProject.tasks.forEach(t => {
             if (t.subtasks && t.subtasks.find(s => s.id === draftItem.id)) {
                 parentTask = t;
             }
         });
 
-        // === NOWA LOGIKA: MERGE BACK (Ponowne łączenie) ===
         if (parentTask) {
-            // To JEST podzadanie (draftItem to podzadanie).
-            // Musimy sprawdzić, jaki status ma TERAZ jego rodzic w drafcie (lub w projekcie, jeśli nie ma go w drafcie)
+            // To jest podzadanie. Sprawdźmy status rodzica.
+            // Uwaga: Rodzic może być w drafcie (jeśli go ruszaliśmy) LUB w projekcie (jeśli jest statyczny)
             
-            // 1. Znajdź rodzica w drafcie (może tam być, jeśli też był ruszany)
             const parentInDraft = sprintDraftTasks.find(t => t.id === parentTask.id);
-            
-            // 2. Ustal aktualny status rodzica
-            let currentParentStatus = 'todo'; // Fallback
-            let currentParentCustomId = null;
+            const parentStatus = parentInDraft ? parentInDraft.tempStatus : (parentTask.status || 'todo');
+            const parentCol = parentInDraft ? parentInDraft.tempCustomColumnId : (parentTask.customColumnId || null);
 
-            if (parentInDraft) {
-                // Rodzic jest w drafcie - bierzemy jego tempStatus
-                currentParentStatus = parentInDraft.tempStatus;
-                currentParentCustomId = parentInDraft.tempCustomColumnId;
-            } else {
-                // Rodzica nie ma w drafcie (jest nietknięty w projekcie) - bierzemy status oryginalny
-                // Ale uwaga: Jeśli rodzica nie ma w drafcie, to znaczy że nie został pobrany do edycji?
-                // Niekoniecznie. Jeśli edytujemy sprint, rodzice są wczytywani.
-                // Jeśli rodzica nie ma w `sprintDraftTasks`, to znaczy, że nie spełnił warunków wczytania (np. jest w innym sprincie?).
-                // Ale w `openEditSprintModal` ładujemy dzieci sprintu.
-                
-                // Załóżmy bezpiecznie: jeśli rodzic jest w projekcie, bierzemy jego status
-                currentParentStatus = parentTask.status;
-                currentParentCustomId = parentTask.customColumnId;
-            }
-
-            // 3. PORÓWNANIE: Czy statusy się zgadzają?
-            const statusMatch = (newStatus === currentParentStatus);
-            const colMatch = (newCustomId == currentParentCustomId); // Luźne porównanie (null vs undefined)
-
-            if (statusMatch && colMatch) {
-                // === SUKCES: Statusy są takie same! ===
-                // Usuwamy podzadanie z tablicy draftu.
-                // Dzięki temu renderSprintDraftTasks nie znajdzie go w `activeDraftIds`
-                // i wyrenderuje je jako zagnieżdżone wewnątrz rodzica.
-                
-                sprintDraftTasks.splice(index, 1);
-                console.log("Merge Back: Podzadanie wraca do rodzica");
-                
-                renderSprintDraftTasks();
-                return; // Koniec, przerysowano
+            // Porównanie (luźne dla null/undefined)
+            if (newStatus === parentStatus && newCustomId == parentCol) {
+                shouldMergeBack = true;
             }
         }
-        
-        // === STANDARDOWA AKTUALIZACJA (Jeśli nie Merge Back) ===
-        // Aktualizujemy status w drafcie
-        draftItem.tempStatus = newStatus;
-        draftItem.tempCustomColumnId = newCustomId;
 
-        if (newStatus !== 'backlog') {
-            draftItem.status = newStatus;
-            draftItem.customColumnId = newCustomId;
-            
-            // Daty
-            const sprintStart = sprintModal.startDate.value;
-            const sprintEnd = sprintModal.endDate.value;
-            if (sprintStart) draftItem.startDate = `${sprintStart}T09:00`;
-            if (sprintEnd) draftItem.dueDate = `${sprintEnd}T17:00`;
+        if (isLiveMode) {
+            // 1. Zapisz do BAZY
+            const currentTasks = fullProject.tasks.map(t => {
+                // Jeśli to podzadanie -> aktualizuj wewnątrz rodzica
+                if (parentTask && t.id === parentTask.id) {
+                    const updatedSubtasks = t.subtasks.map(s => s.id === draftItem.id ? { ...s, ...changes } : s);
+                    return { ...t, subtasks: updatedSubtasks };
+                }
+                // Jeśli to zadanie główne -> aktualizuj bezpośrednio
+                if (t.id === draftItem.id) {
+                    return { ...t, ...changes };
+                }
+                return t;
+            });
+
+            try {
+                await updateDoc(doc(projectsRef, state.currentProjectId), { tasks: currentTasks });
+                
+                // 2. Zapisz LOKALNIE
+                if (shouldMergeBack) {
+                    // Usuń z draftu (zniknie z tablicy -> pojawi się wewnątrz rodzica)
+                    sprintDraftTasks.splice(index, 1);
+                } else {
+                    // Aktualizuj w drafcie
+                    Object.assign(draftItem, changes, tempChanges);
+                }
+            } catch (e) {
+                console.error(e);
+                showNotification("Błąd zapisu.", "Błąd");
+            }
+
         } else {
-            draftItem.status = 'todo'; // W bazie backlog to zazwyczaj todo bez dat
-            draftItem.customColumnId = null;
-            draftItem.startDate = null;
-            draftItem.dueDate = null;
+            // Tryb Draft (Tylko lokalnie)
+            if (shouldMergeBack) {
+                sprintDraftTasks.splice(index, 1);
+            } else {
+                Object.assign(draftItem, changes, tempChanges);
+            }
         }
     }
     renderSprintDraftTasks();
@@ -39881,6 +39932,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
