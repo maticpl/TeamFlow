@@ -13791,8 +13791,9 @@ function renderSprintDraftTasks() {
             }
 
             // Przycisk toggle (tylko jeśli są zagnieżdżone)
+            // ZMIANA: Dodano 'event' jako pierwszy argument funkcji onclick
             const toggleHTML = subtaskCount > 0 
-                ? `<button class="sprint-toggle-subtasks" onclick="toggleSprintRowSubtasks(this)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>`
+                ? `<button class="sprint-toggle-subtasks" onclick="toggleSprintRowSubtasks(event, this)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>`
                 : `<div style="width:22px;"></div>`; // Placeholder
 
             rowHTML = `
@@ -13844,17 +13845,23 @@ function renderSprintDraftTasks() {
 }
 
 // Funkcja pomocnicza do toggle w wierszu sprintu
-window.toggleSprintRowSubtasks = function(btn) {
-    // 1. Obróć ikonę
+window.toggleSprintRowSubtasks = function(e, btn) {
+    // 1. ZATRZYMAJ PROPAGACJĘ (To naprawia otwieranie modala)
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    // 2. Obróć ikonę
     btn.classList.toggle('open');
     
-    // 2. Znajdź najbliższy wiersz (rodzica)
+    // 3. Znajdź najbliższy wiersz (rodzica)
     const row = btn.closest('li.sprint-task-row');
     
-    // 3. Znajdź kontener wewnątrz tego wiersza
+    // 4. Znajdź kontener wewnątrz tego wiersza
     const container = row.querySelector('.sprint-nested-container');
     
-    // 4. Przełącz widoczność
+    // 5. Przełącz widoczność
     if (container) {
         container.classList.toggle('open');
     }
@@ -13921,6 +13928,12 @@ function initSprintDragAndDrop() {
             group: 'sprint-builder', 
             animation: 150,
             ghostClass: 'sortable-ghost',
+            
+            // === NOWOŚĆ: Blokada przeciągania rodzica, gdy chwytamy dziecko ===
+            filter: '.sprint-nested-container', // Ignoruj obszar podzadań
+            preventOnFilter: false,             // Pozwól na klikanie wewnątrz (np. checkboxów w podzadaniach)
+            // =================================================================
+            
             onStart: (evt) => {
                 const doneL = document.getElementById('sprint-board-done');
                 if(doneL) doneL.classList.add('drop-blocked');
@@ -13931,7 +13944,7 @@ function initSprintDragAndDrop() {
                 if (evt.to.classList.contains('sprint-nested-list')) return false;
                 return true;
             },
-            onEnd: handleSprintDragEnd // Używamy wspólnego handlera
+            onEnd: handleSprintDragEnd 
         });
     });
 
@@ -39852,6 +39865,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
