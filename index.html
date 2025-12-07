@@ -8659,6 +8659,58 @@ body.compact-mode .comment-item {
     border-color: var(--accent-primary);
     transform: scale(1.1);
 }
+        /* Ujednolicony wygląd wiersza w Kreatorze Sprintu */
+.sprint-task-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px; /* Zmniejszono padding dla lepszego dopasowania w kolumnach */
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color); /* Pełna ramka zamiast tylko dolnej */
+    border-radius: 4px; /* Lekkie zaokrąglenie */
+    margin-bottom: 8px; /* Odstęp między wierszami */
+    cursor: grab;
+    transition: background-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    min-height: 48px; /* Stała minimalna wysokość */
+}
+
+.sprint-task-row:hover {
+    background-color: var(--bg-tertiary);
+    box-shadow: var(--shadow-sm);
+}
+
+.sprint-task-row.priority-high {
+    border-left: 4px solid var(--priority-high-border);
+}
+
+.sprint-task-row.priority-low {
+    border-left: 4px solid var(--priority-low-border);
+}
+
+/* Dostosowanie zawartości wiersza, aby się nie rozjeżdżała */
+.sprint-row-title {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 12px;
+    flex-grow: 1;
+}
+
+.sprint-row-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+/* Ukrywamy avatary na bardzo wąskich ekranach wewnątrz kolumn, jeśli trzeba */
+@media (max-width: 1200px) {
+    .kanban-column .sprint-row-avatars {
+        display: none !important;
+    }
+}
     </style>
 
 </head>
@@ -13340,7 +13392,7 @@ function openEditSprintModal(sprintId) {
 // --- 4. FUNKCJA AKTUALIZUJĄCA WIDOK SPRINTU (Z listy `sprintDraftTasks`) ---
 // --- 4. FUNKCJA AKTUALIZUJĄCA WIDOK SPRINTU (LISTA + TABLICA) ---
 function renderSprintDraftTasks() {
-    // Wyczyść listy wizualnie
+    // 1. Wyczyść wszystkie listy wizualnie
     sprintModal.backlogList.innerHTML = '';
     sprintModal.todoList.innerHTML = '';
     sprintModal.inprogressList.innerHTML = '';
@@ -13350,40 +13402,58 @@ function renderSprintDraftTasks() {
         // Dane do wyświetlenia
         const points = task.estimation || task.effort || 0;
         
-        // Generowanie awatarów (dla obu widoków)
+        // Generowanie awatarów
         const assigneesHTML = (task.assignees || [])
             .map(id => findUser(id))
             .filter(Boolean)
-            .map(u => renderAvatarHTML(u, 'avatar'))
+            .map(u => renderAvatarHTML(u, 'avatar').replace('class="avatar"', 'class="avatar" style="width:20px; height:20px; font-size:10px; margin-left:-6px; border:1px solid var(--bg-secondary);"'))
             .join('');
 
-        // LOGIKA RENDEROWANIA: Lista vs Kafelki
+        // Generowanie ikon (priorytet, podzadania, opis itp.)
+        // Używamy istniejącej funkcji pomocniczej generateRowIconsHTML
+        const iconsHTML = generateRowIconsHTML(task);
+
+        // Ustalenie klasy priorytetu (wizualny pasek z lewej)
+        const priorityClass = task.priority === 'high' ? 'priority-high' : (task.priority === 'low' ? 'priority-low' : '');
         
-       if (task.tempStatus === 'backlog' || !task.tempStatus) {
-            
-            // === NOWE: Generowanie ikon dla listy sprintu ===
-            const iconsHTML = generateRowIconsHTML(task);
-            // === KONIEC ===
+        // --- UJEDNOLICONY HTML (WIERSZ) DLA WSZYSTKICH KOLUMN ---
+        // Dodajemy data-task-id, aby działała pełna edycja po kliknięciu
+        // Dodajemy klasę js-edit-points do punktów, aby działała szybka edycja
+        const rowHTML = `
+            <li class="sprint-task-row ${priorityClass}" data-temp-index="${index}" data-task-id="${task.id}">
+                <div class="sprint-row-title" title="${task.title}">${task.title}</div>
+                
+                <div class="sprint-row-meta">
+                    ${iconsHTML}
 
-            // === NOWE: Ustalenie klasy priorytetu ===
-            const priorityClass = task.priority === 'high' ? 'priority-high' : (task.priority === 'low' ? 'priority-low' : '');
-
-            // === WIDOK LISTY (Dla kolumny po lewej) ===
-            // Dodano zmienną ${priorityClass} do klasy elementu <li>
-            // ZMIANA: Dodano klasę 'js-edit-points' i atrybuty data do spana z punktami
-            const listRowHTML = `
-                <li class="sprint-task-row ${priorityClass}" data-temp-index="${index}" data-task-id="${task.id}" style="cursor: grab;">
-                    <div class="sprint-row-title" title="${task.title}">${task.title}</div>
+                    <div class="sprint-row-avatars" style="display: flex; margin-right: 8px;">${assigneesHTML}</div>
                     
-                    <div class="sprint-row-meta">
-                        ${iconsHTML}
+                    <span class="sprint-row-points js-edit-points" 
+                          data-task-id="${task.id}" 
+                          title="Kliknij, aby zmienić punkty"
+                          style="background-color: rgba(79, 70, 229, 0.1); color: var(--accent-primary); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; min-width: 30px; text-align: center;">
+                        ${points}
+                    </span>
+                </div>
+            </li>
+        `;
 
-                        <div class="sprint-row-avatars" style="display: flex; margin-right: 12px;">${assigneesHTML}</div>
-                        <span class="sprint-row-points js-edit-points" data-task-id="${task.id}" title="Kliknij, aby zmienić punkty">${points} pkt</span>
-                    </div>
-                </li>
-            `;
-            sprintModal.backlogList.insertAdjacentHTML('beforeend', listRowHTML);
+        // 2. Rozdzielanie do odpowiednich kontenerów na podstawie tempStatus
+        if (task.tempStatus === 'todo') {
+             sprintModal.todoList.insertAdjacentHTML('beforeend', rowHTML);
+        } else if (task.tempStatus === 'inprogress') {
+             sprintModal.inprogressList.insertAdjacentHTML('beforeend', rowHTML);
+        } else if (task.tempStatus === 'done') {
+             sprintModal.doneList.insertAdjacentHTML('beforeend', rowHTML);
+        } else {
+             // Domyślnie 'backlog' (lewa kolumna)
+             sprintModal.backlogList.insertAdjacentHTML('beforeend', rowHTML);
+        }
+    });
+    
+    // Aktualizacja liczników na górze modala
+    updateSprintStats();
+}
 
         } else {
             // === WIDOK KAFELKA (Dla kolumn po prawej - Kanban) ===
@@ -39100,6 +39170,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
