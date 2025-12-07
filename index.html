@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@700&display=swap" rel="stylesheet">
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.14/index.global.min.js'></script>
-    <script src='https://cdn.jsdelivr.net/npm/@fullcalendar/core/locales/pl.global.min.js'></script>const checkCloseClick = (e) => {
+    <script src='https://cdn.jsdelivr.net/npm/@fullcalendar/core/locales/pl.global.min.js'></script>
      <script src='https://cdn.jsdelivr.net/npm/rrule@2.8.1/dist/es5/rrule.min.js'></script>
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.css" />
@@ -29252,109 +29252,116 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
 } else {
     // SCENARIUSZ 2: Wszystko skończone - Wybór ścieżki
     
-    // 1. Najpierw wywołaj modal, aby stworzył HTML w DOM
+    // 1. Ustaw Treść i otwórz modal (aby elementy na pewno były w DOM)
+    // Używamy pustej funkcji callback, bo i tak nadpiszemy przyciski
     showConfirmation(
         `Zakończenie Sprintu "${sprintTask.title}"`,
         "Sprint zostanie przeniesiony do zakończonych. Wszystkie zadania zostały wykonane.<br><br><strong>Co chcesz zrobić dalej?</strong>",
-        () => {}, // Pusty callback
+        () => {}, // Pusty callback, nie używamy standardowego flow
         false // Nie danger
     );
 
-    // 2. Używamy setTimeout, aby poczekać chwilę na wyrenderowanie przycisków przez przeglądarkę
-    setTimeout(() => {
-        // --- TERAZ BEZPIECZNIE POBIERAMY ELEMENTY ---
-        const confirmBtn = document.getElementById('confirmation-action-btn');
-        const cancelBtn = confirmationModal.overlay.querySelector('.modal-close-btn[data-action="cancel"]');
+    // 2. Pobierz przyciski ŚWIEŻO z DOM (kluczowe dla uniknięcia błędów null)
+    // Pobieramy po ID i klasie, aby mieć pewność, że mamy właściwe referencje
+    const confirmBtn = document.getElementById('confirmation-action-btn');
+    const cancelBtn = confirmationModal.overlay.querySelector('.modal-close-btn[data-action="cancel"]');
 
-        if (!confirmBtn || !cancelBtn) {
-            console.error("Błąd krytyczny: Nadal nie znaleziono przycisków modala, mimo opóźnienia.");
-            return;
+    if (!confirmBtn || !cancelBtn) {
+        console.error("Błąd: Nie znaleziono przycisków modala potwierdzenia.");
+        return;
+    }
+
+    // 3. Definicja klas domyślnych (do resetu)
+    const defaultCancelClass = "btn btn-secondary modal-close-btn";
+    const defaultConfirmClass = "btn btn-danger"; 
+
+    // 4. FUNKCJA CZYSZCZĄCA (Safe Cleanup)
+    // Ta funkcja przywróci modal do stanu "Fabrycznego" po zamknięciu
+    const safeCleanup = () => {
+        const btn1 = document.getElementById('confirmation-action-btn');
+        const btn2 = confirmationModal.overlay.querySelector('.modal-close-btn[data-action="cancel"]');
+        
+        // Reset Prawego Przycisku (Potwierdź)
+        if (btn1) {
+            btn1.textContent = "Potwierdź";
+            btn1.className = defaultConfirmClass;
+            btn1.onclick = null; 
+            
+            // HACK: Klonowanie przycisku usuwa wszystkie dziwne listenery, które mogły się "przykleić"
+            // To naprawia błąd "Cannot read properties of null" przy kolejnym otwarciu
+            const newBtn1 = btn1.cloneNode(true);
+            btn1.parentNode.replaceChild(newBtn1, btn1);
+            
+            // Aktualizujemy referencję w obiekcie globalnym (jeśli używasz takiego obiektu)
+            if (typeof confirmationModal !== 'undefined') {
+                confirmationModal.confirmBtn = newBtn1; 
+            }
         }
+        
+        // Reset Lewego Przycisku (Anuluj)
+        if (btn2) {
+            btn2.textContent = "Anuluj";
+            btn2.className = defaultCancelClass;
+            btn2.onclick = null;
+        }
+    };
 
-        // 3. Definicja klas domyślnych (do resetu)
-        const defaultCancelClass = "btn btn-secondary modal-close-btn";
-        const defaultConfirmClass = "btn btn-danger"; 
+    // 5. Modyfikacja Przycisków dla tego konkretnego scenariusza
 
-        // 4. FUNKCJA CZYSZCZĄCA (Safe Cleanup)
-        const safeCleanup = () => {
-            const btn1 = document.getElementById('confirmation-action-btn');
-            const btn2 = confirmationModal.overlay.querySelector('.modal-close-btn[data-action="cancel"]');
-            
-            if (btn1) {
-                // Klonowanie usuwa wszystkie listenery i resetuje element
-                const newBtn1 = btn1.cloneNode(true);
-                btn1.parentNode.replaceChild(newBtn1, btn1);
-                
-                newBtn1.textContent = "Potwierdź";
-                newBtn1.className = defaultConfirmClass;
-                
-                // Aktualizujemy referencję globalną (jeśli istnieje)
-                if (typeof confirmationModal !== 'undefined') {
-                    confirmationModal.confirmBtn = newBtn1; 
+    // --- PRZYCISK PRAWY: "Zakończ i nowy Sprint" ---
+    confirmBtn.textContent = "Zakończ i utwórz nowy sprint";
+    confirmBtn.className = "btn btn-primary"; // Niebieski
+    
+    confirmBtn.onclick = async (e) => {
+        e.stopPropagation();
+        // 1. Wykonaj logikę zamknięcia
+        await executeSprintCompletion(false); 
+        
+        // 2. Posprzątaj przyciski i zamknij modal
+        safeCleanup();
+        closeModal(confirmationModal.overlay);
+
+        // 3. Otwórz kreator nowego sprintu
+        const fabSprint = document.getElementById('fab-action-new-sprint');
+        if (fabSprint) fabSprint.click();
+    };
+
+    // --- PRZYCISK LEWY: "Nie, tylko zakończ" ---
+    cancelBtn.textContent = "Nie, tylko zakończ";
+    cancelBtn.className = "btn btn-outline-primary"; // Styl neutralny, ale wyróżniony
+    
+    cancelBtn.onclick = async (e) => {
+        e.stopPropagation();
+        // 1. Wykonaj logikę zamknięcia (To teraz działa jak stare "Potwierdź")
+        await executeSprintCompletion(false);
+        
+        // 2. Posprzątaj i zamknij
+        safeCleanup();
+        closeModal(confirmationModal.overlay);
+    };
+
+    // 6. Zabezpieczenie: Jeśli użytkownik zamknie "X-em" lub kliknie w tło
+    // Musimy przywrócić nazwy przycisków, bo inaczej zostaną "Zakończ i nowy" na zawsze
+    const closeHandler = () => {
+        safeCleanup();
+        // Usuwamy ten listener, żeby nie wisiał
+        confirmationModal.overlay.removeEventListener('click', checkCloseClick);
+    };
+
+    const checkCloseClick = (e) => {
+            if (e.target === confirmationModal.overlay || (e.target.closest('.modal-close-btn') && e.target !== cancelBtn)) {
+                // Opóźnienie dla cleanupu przy zamknięciu X-em
+                setTimeout(closeHandler, 100);
+            }
+        };
+        
+        confirmationModal.overlay.addEventListener('click', checkCloseClick);
+
+    }, 100); // <-- 100ms opóźnienia wystarczy, by DOM się załadował
+}
                 }
-            }
-            
-            if (btn2) {
-                btn2.textContent = "Anuluj";
-                btn2.className = defaultCancelClass;
-                btn2.onclick = null;
-            }
-        };
-
-        // 5. Modyfikacja Przycisków
-
-        // --- PRZYCISK PRAWY: "Zakończ i nowy Sprint" ---
-        confirmBtn.textContent = "Zakończ i nowy Sprint";
-        confirmBtn.className = "btn btn-primary"; // Niebieski
-        
-        confirmBtn.onclick = async (e) => {
-            e.stopPropagation();
-            // Wykonaj akcję
-            await executeSprintCompletion(false); 
-            
-            // Posprzątaj i zamknij
-            safeCleanup();
-            closeModal(confirmationModal.overlay);
-
-            // Otwórz kreator nowego sprintu
-            const fabSprint = document.getElementById('fab-action-new-sprint');
-            if (fabSprint) fabSprint.click();
-        };
-
-        // --- PRZYCISK LEWY: "Nie, tylko zakończ" ---
-        cancelBtn.textContent = "Tylko zakończ";
-        cancelBtn.className = "btn btn-outline-primary modal-close-btn"; 
-        
-        cancelBtn.onclick = async (e) => {
-            e.stopPropagation();
-            // Wykonaj akcję
-            await executeSprintCompletion(false);
-            
-            // Posprzątaj
-            safeCleanup();
-            closeModal(confirmationModal.overlay);
-        };
-
-        // 6. Zabezpieczenie przed zamknięciem "X-em"
-                        const closeHandler = () => {
-                            safeCleanup();
-                            confirmationModal.overlay.removeEventListener('click', checkCloseClick);
-                        };
-
-                        const checkCloseClick = (e) => {
-                            // Jeśli kliknięto w tło (overlay) lub przycisk X (modal-close-btn ale NIE nasz cancelBtn)
-                            if (e.target === confirmationModal.overlay || (e.target.closest('.modal-close-btn') && e.target !== cancelBtn)) {
-                                setTimeout(closeHandler, 100);
-                            }
-                        };
-                        
-                        confirmationModal.overlay.addEventListener('click', checkCloseClick);
-
-                    }, 100); // <--- TU BYŁ BŁĄD. Musi być klamra '}', potem przecinek, '100', nawias ')' i średnik.
-                } // <--- To zamyka blok "else"
-
                 return; // WAŻNE: Zatrzymaj tutaj!
-            } // <--- To zamyka blok "if (project && sprintId)"
+            }
              // === NOWE: KLIKNIĘCIE W RAPORT SPRINTU ===
             const reportSprintBtn = e.target.closest('.js-open-sprint-report');
             if (reportSprintBtn) {
@@ -38891,9 +38898,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
-
-
-
 
 
 
