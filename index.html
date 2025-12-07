@@ -23500,7 +23500,26 @@ if (editorTaskDescription) {
                     );
                 }
                 // === KONIEC NOWEJ LOGIKI ===
-
+                // === NOWE: SYNCHRONIZACJA Z OTWARTYM KREATOREM SPRINTU ===
+            if (sprintModal.overlay.classList.contains('visible')) {
+                // Znajdź zadanie w drafcie
+                const draftIndex = sprintDraftTasks.findIndex(t => t.id === taskId);
+                
+                if (draftIndex !== -1) {
+                    // Zachowaj status tymczasowy (gdzie leży kafelek w kreatorze)
+                    const currentTempStatus = sprintDraftTasks[draftIndex].tempStatus;
+                    
+                    // Nadpisz dane w drafcie nowymi danymi z formularza/obiektu
+                    sprintDraftTasks[draftIndex] = {
+                        ...updatedTask, // Wszystkie nowe pola (tytuł, opis, punkty, osoby)
+                        tempStatus: currentTempStatus // Przywróć pozycję w kreatorze
+                    };
+                    
+                    // Przerysuj widok sprintu
+                    renderSprintDraftTasks();
+                }
+            }
+            // === KONIEC SYNCHRONIZACJI ===
                 if (oldStatus !== 'done' && updatedTask.status === 'done') showConfetti();
                 showNotification("Zmiany w zadaniu zostały zapisane.", "Sukces");
                 closeModal(taskModal.overlay);
@@ -34368,6 +34387,22 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                  }
 
                  // --- 4. Finalizacja ---
+                     // === NOWE: SYNCHRONIZACJA Z OTWARTYM KREATOREM SPRINTU ===
+                 if (sprintModal.overlay.classList.contains('visible')) {
+                     // MainTaskId to ID rodzica (bo to modal podzadania)
+                     const draftIndex = sprintDraftTasks.findIndex(t => t.id === mainTaskId);
+                     
+                     if (draftIndex !== -1) {
+                         const currentTempStatus = sprintDraftTasks[draftIndex].tempStatus;
+                         // Aktualizujemy obiekt w drafcie pełnym obiektem rodzica
+                         sprintDraftTasks[draftIndex] = {
+                             ...updatedTask, // Zaktualizowany rodzic (zawiera nowe podzadania)
+                             tempStatus: currentTempStatus
+                         };
+                         renderSprintDraftTasks();
+                     }
+                 }
+                 // === KONIEC SYNCHRONIZACJI ===
                  closeModal(subtaskModal.overlay);
                  
                  // Odśwież listę podzadań w modalu zadania głównego
@@ -37016,6 +37051,39 @@ welcomeModal.okBtn.addEventListener('click', async () => {
         });
     }
     // === KONIEC NOWEJ LOGIKI ===
+     // === NOWE: PEŁNA EDYCJA ZADANIA W KREATORZE SPRINTU ===
+    if (sprintModal.overlay) {
+        sprintModal.overlay.addEventListener('click', (e) => {
+            // Ignoruj kliknięcia, jeśli kliknięto w "Story Points" (obsłużone wcześniej)
+            if (e.target.closest('.js-edit-points')) return;
+            // Ignoruj przyciski akcji (jeśli jakieś są)
+            if (e.target.tagName === 'BUTTON') return;
+
+            // 1. Sprawdź czy kliknięto w Wiersz Listy (Lewa kolumna)
+            const listRow = e.target.closest('.sprint-task-row');
+            if (listRow) {
+                const taskId = listRow.dataset.taskId;
+                if (taskId) {
+                    openTaskModal(taskId);
+                }
+                return;
+            }
+
+            // 2. Sprawdź czy kliknięto w Kafelek (Prawa strona - Mini Kanban)
+            const taskCard = e.target.closest('.task-card');
+            if (taskCard) {
+                // Ignoruj checkbox (aby nie psuć zaznaczania, jeśli jest aktywne)
+                if (e.target.closest('.task-card-checkbox')) return;
+                
+                const taskId = taskCard.dataset.taskId;
+                if (taskId) {
+                    openTaskModal(taskId);
+                }
+                return;
+            }
+        });
+    }
+    // === KONIEC NOWEGO LISTENERA ===  
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
 </script>
@@ -39032,6 +39100,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
