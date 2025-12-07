@@ -8644,6 +8644,21 @@ body.compact-mode .comment-item {
         grid-template-columns: 1fr; /* Jedna kolumna */
     }
 }
+        /* Styl dla edytowalnych punktów w sprincie */
+.sprint-row-points.js-edit-points,
+.task-card .js-edit-points {
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.2s;
+    border: 1px solid transparent;
+}
+
+.sprint-row-points.js-edit-points:hover,
+.task-card .js-edit-points:hover {
+    background-color: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+    transform: scale(1.1);
+}
     </style>
 
 </head>
@@ -13355,6 +13370,7 @@ function renderSprintDraftTasks() {
 
             // === WIDOK LISTY (Dla kolumny po lewej) ===
             // Dodano zmienną ${priorityClass} do klasy elementu <li>
+            // ZMIANA: Dodano klasę 'js-edit-points' i atrybuty data do spana z punktami
             const listRowHTML = `
                 <li class="sprint-task-row ${priorityClass}" data-temp-index="${index}" data-task-id="${task.id}" style="cursor: grab;">
                     <div class="sprint-row-title" title="${task.title}">${task.title}</div>
@@ -13363,7 +13379,7 @@ function renderSprintDraftTasks() {
                         ${iconsHTML}
 
                         <div class="sprint-row-avatars" style="display: flex; margin-right: 12px;">${assigneesHTML}</div>
-                        <span class="sprint-row-points">${points} pkt</span>
+                        <span class="sprint-row-points js-edit-points" data-task-id="${task.id}" title="Kliknij, aby zmienić punkty">${points} pkt</span>
                     </div>
                 </li>
             `;
@@ -13415,7 +13431,7 @@ function renderSprintDraftTasks() {
                             </h4>
 
                             <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                                <span style="font-size: 10px; font-weight: 700; color: var(--accent-primary); background-color: rgba(79, 70, 229, 0.1); padding: 1px 5px; border-radius: 3px;">
+                                <span class="js-edit-points" data-task-id="${task.id}" title="Edytuj punkty" style="font-size: 10px; font-weight: 700; color: var(--accent-primary); background-color: rgba(79, 70, 229, 0.1); padding: 1px 5px; border-radius: 3px;">
                                     ${points}
                                 </span>
                                 
@@ -36897,6 +36913,109 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                 }
             });
         }
+       // === NOWA LOGIKA: EDYCJA STORY POINTS W KREATORZE SPRINTU ===
+
+    const editPointsModal = {
+        overlay: document.getElementById('edit-points-modal'),
+        input: document.getElementById('edit-points-input'),
+        saveBtn: document.getElementById('save-points-btn')
+    };
+
+    // Zmienna przechowująca ID zadania edytowanego w małym modalu
+    let editingPointsTaskId = null;
+
+    // Funkcja otwierająca modal
+    function openEditPointsModal(taskId, currentValue) {
+        editingPointsTaskId = taskId;
+        editPointsModal.input.value = parseFloat(currentValue) || 0;
+        openModal(editPointsModal.overlay);
+        // Automatyczny fokus na input
+        setTimeout(() => editPointsModal.input.focus(), 100);
+    }
+
+    // Listener delegowany dla całego modala sprintu (łapie kliknięcia w punkty na liście i kafelkach)
+    if (sprintModal.overlay) {
+        sprintModal.overlay.addEventListener('click', (e) => {
+            const pointsBadge = e.target.closest('.js-edit-points');
+            if (pointsBadge) {
+                e.stopPropagation(); // Zapobiegamy innym akcjom (np. otwieraniu zadania)
+                
+                const taskId = pointsBadge.dataset.taskId;
+                // Pobieramy wartość z tekstu (usuwamy " pkt" i spacje)
+                const textVal = pointsBadge.textContent.replace('pkt', '').trim();
+                
+                openEditPointsModal(taskId, textVal);
+            }
+        });
+    }
+
+    // Listener przycisku ZAPISZ w małym modalu
+    if (editPointsModal.saveBtn) {
+        editPointsModal.saveBtn.addEventListener('click', async () => {
+            const newVal = parseFloat(editPointsModal.input.value);
+            
+            if (isNaN(newVal) || newVal < 0) {
+                showNotification("Podaj poprawną wartość (liczbę nieujemną).", "Błąd");
+                return;
+            }
+
+            if (!editingPointsTaskId) return;
+
+            // 1. Zaktualizuj stan lokalny (sprintDraftTasks)
+            // Znajdź zadanie w drafcie
+            const draftTaskIndex = sprintDraftTasks.findIndex(t => t.id === editingPointsTaskId);
+            
+            if (draftTaskIndex !== -1) {
+                // Aktualizujemy estymację w drafcie
+                // Sprawdzamy typ estymacji w projekcie, ale dla uproszczenia aktualizujemy oba pola
+                sprintDraftTasks[draftTaskIndex].estimation = newVal;
+                sprintDraftTasks[draftTaskIndex].effort = newVal; // Fallback
+            }
+
+            // 2. Zaktualizuj bazę danych (Firestore) - aby zmiana była trwała
+            // Musimy znaleźć projekt i zaktualizować konkretne zadanie w tablicy tasks
+            try {
+                editPointsModal.saveBtn.disabled = true;
+                editPointsModal.saveBtn.textContent = '...';
+
+                const projectDocRef = doc(db, `artifacts/${appId}/public/data/projects`, state.currentProjectId);
+                const projectSnap = await getDoc(projectDocRef);
+
+                if (projectSnap.exists()) {
+                    const projectData = projectSnap.data();
+                    const allTasks = projectData.tasks || [];
+                    
+                    // Znajdź i zaktualizuj zadanie w bazie
+                    const updatedTasks = allTasks.map(t => {
+                        if (t.id === editingPointsTaskId) {
+                            return { 
+                                ...t, 
+                                estimation: newVal,
+                                effort: newVal // Utrzymujemy spójność
+                            };
+                        }
+                        return t;
+                    });
+
+                    await updateDoc(projectDocRef, { tasks: updatedTasks });
+                    
+                    showNotification("Punkty zaktualizowane.", "Sukces");
+                    closeModal(editPointsModal.overlay);
+                    
+                    // 3. Odśwież widok sprintu i liczniki
+                    renderSprintDraftTasks(); // To przerysuje listy i zaktualizuje nagłówek (updateSprintStats jest wewnątrz)
+
+                }
+            } catch (error) {
+                console.error("Błąd zapisu punktów:", error);
+                showNotification("Nie udało się zapisać w bazie.", "Błąd");
+            } finally {
+                editPointsModal.saveBtn.disabled = false;
+                editPointsModal.saveBtn.textContent = 'Zapisz';
+            }
+        });
+    }
+    // === KONIEC NOWEJ LOGIKI ===
     }); // Ten nawias zamyka główny listener DOMContentLoaded
     
 </script>
@@ -38893,8 +39012,27 @@ welcomeModal.okBtn.addEventListener('click', async () => {
         </div>
     </div>
 </div>
+    <div class="modal-overlay" id="edit-points-modal" style="z-index: 3000;">
+    <div class="modal" style="max-width: 300px; height: auto;">
+        <div class="modal-header">
+            <h2 style="font-size: 16px;">Zmień Story Points</h2>
+            <button type="button" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="form-modal-content" style="padding: 20px;">
+            <div class="form-group">
+                <label for="edit-points-input">Nowa wartość</label>
+                <input type="number" id="edit-points-input" step="0.5" min="0" placeholder="np. 3, 5, 8">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
+            <button type="button" id="save-points-btn" class="btn btn-primary">Zapisz</button>
+        </div>
+    </div>
+</div>
 </body>
 </html>
+
 
 
 
