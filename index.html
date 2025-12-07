@@ -13835,13 +13835,16 @@ function renderSprintDraftTasks() {
             }
         }
 
-        const targetList = document.getElementById(targetListId);
+       const targetList = document.getElementById(targetListId);
         if (targetList) targetList.insertAdjacentHTML('beforeend', rowHTML);
         else sprintModal.backlogList.insertAdjacentHTML('beforeend', rowHTML);
     });
     
     // Na końcu aktualizujemy statystyki
     updateSprintStats();
+
+    // === NOWE: Re-inicjalizacja Drag&Drop dla nowo utworzonych list zagnieżdżonych ===
+    initSprintNestedDragAndDrop(); 
 }
 
 // Funkcja pomocnicza do toggle w wierszu sprintu
@@ -13916,12 +13919,14 @@ function updateSprintStats() {
 }
 // === KONIEC ===
 // --- 5. DRAG & DROP W KREATORZE ---
+// Główna inicjalizacja (Kolumny) - wywoływana RAZ przy otwarciu modala
 function initSprintDragAndDrop() {
-    // 1. Główne listy (Kolumny)
+    // 1. Główne listy (Kolumny + Backlog)
     const allBoardLists = Array.from(sprintModal.boardContainer.querySelectorAll('.sprint-mini-dropzone'));
     const interactiveLists = [sprintModal.backlogList, ...allBoardLists.filter(el => el.id !== 'sprint-board-done')];
     
     interactiveLists.forEach(list => {
+        // Zabezpieczenie przed podwójną inicjalizacją
         if (list._sortable) list._sortable.destroy();
 
         list._sortable = new Sortable(list, {
@@ -13929,10 +13934,9 @@ function initSprintDragAndDrop() {
             animation: 150,
             ghostClass: 'sortable-ghost',
             
-            // === NOWOŚĆ: Blokada przeciągania rodzica, gdy chwytamy dziecko ===
-            filter: '.sprint-nested-container', // Ignoruj obszar podzadań
-            preventOnFilter: false,             // Pozwól na klikanie wewnątrz (np. checkboxów w podzadaniach)
-            // =================================================================
+            // Ważne: Blokuje przeciąganie RODZICA, gdy chwytamy w obszarze DZIECI
+            filter: '.sprint-nested-container', 
+            preventOnFilter: false, // Pozwala klikać wewnątrz (np. w checkbox)
             
             onStart: (evt) => {
                 const doneL = document.getElementById('sprint-board-done');
@@ -13940,13 +13944,49 @@ function initSprintDragAndDrop() {
             },
             onMove: (evt) => {
                 if (evt.to.id === 'sprint-board-done') return false;
-                // Nie pozwól wrzucić głównego zadania do zagnieżdżonej listy
+                // Nie pozwól wrzucić zadania głównego do środka innego zadania (zagnieżdżenie max 1 poziom)
                 if (evt.to.classList.contains('sprint-nested-list')) return false;
                 return true;
             },
             onEnd: handleSprintDragEnd 
         });
     });
+
+    // 3. Lista Done (Read Only)
+    const doneList = document.getElementById('sprint-board-done');
+    if (doneList) {
+        if (doneList._sortable) doneList._sortable.destroy();
+        doneList._sortable = new Sortable(doneList, {
+            group: { name: 'sprint-builder', put: false, pull: false },
+            sort: false,
+            disabled: true
+        });
+    }
+    
+    // Na koniec inicjujemy zagnieżdżone po raz pierwszy
+    initSprintNestedDragAndDrop();
+}
+
+// Funkcja pomocnicza: Inicjalizacja TYLKO list zagnieżdżonych (do wywołania po każdym renderze)
+function initSprintNestedDragAndDrop() {
+    const nestedLists = document.querySelectorAll('.sprint-nested-list');
+    
+    nestedLists.forEach(list => {
+        // Sprawdź czy już ma instancję, żeby nie dublować
+        if (list._sortable) list._sortable.destroy();
+        
+        list._sortable = new Sortable(list, {
+            group: 'sprint-builder', // Ta sama grupa pozwala wyciągnąć element na zewnątrz!
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            sort: false, // Wewnątrz rodzica nie sortujemy (uproszczenie), tylko wyciągamy
+            fallbackOnBody: true, // Kluczowe dla zagnieżdżonych elementów!
+            swapThreshold: 0.65,
+            
+            onEnd: handleSprintDragEnd // Ten sam handler obsłuży "Merge Back" i wyciąganie
+        });
+    });
+}
 
     // 2. Listy Zagnieżdżone (Podzadania wewnątrz wierszy)
     const nestedLists = document.querySelectorAll('.sprint-nested-list');
@@ -39865,6 +39905,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
