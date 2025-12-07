@@ -8830,6 +8830,78 @@ body.compact-mode .comment-item {
     text-align: right;
     font-weight: 600;
 }
+        /* === NOWE STYLE: MINI KANBAN SPRINT (HIERARCHIA) === */
+
+/* 1. Styl dla Samodzielnego Podzadania (latającego luzem) */
+.sprint-task-row.is-standalone-subtask {
+    border-left: 4px solid var(--accent-primary); /* Wyróżnik kolorem */
+    background-color: #f8fafc; /* Lekko inne tło */
+}
+.sprint-task-row.is-standalone-subtask .sprint-row-title {
+    font-size: 12px; /* Nieco mniejszy tytuł */
+}
+.sprint-parent-context {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* 2. Kontener na zagnieżdżone podzadania */
+.sprint-nested-container {
+    display: none; /* Domyślnie ukryte */
+    padding-left: 20px; /* Wcięcie */
+    padding-right: 4px;
+    padding-bottom: 8px;
+    background-color: var(--bg-secondary);
+    border-top: 1px dashed var(--border-color);
+}
+.sprint-nested-container.open {
+    display: block;
+}
+
+/* 3. Lista zagnieżdżona (Dropzone) */
+.sprint-nested-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    min-height: 10px; /* Aby można było wrzucić z powrotem */
+}
+
+/* 4. Styl wiersza zagnieżdżonego podzadania */
+.sprint-nested-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin-top: 4px;
+    font-size: 12px;
+    cursor: grab;
+}
+.sprint-nested-row:hover {
+    background-color: var(--bg-tertiary);
+}
+
+/* 5. Przycisk rozwijania */
+.sprint-toggle-subtasks {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 2px;
+    margin-right: 6px;
+    transition: transform 0.2s;
+    display: flex;
+    align-items: center;
+}
+.sprint-toggle-subtasks.open {
+    transform: rotate(90deg);
+}
     </style>
 
 </head>
@@ -13567,95 +13639,176 @@ function openEditSprintModal(sprintId) {
 // --- 4. FUNKCJA AKTUALIZUJĄCA WIDOK SPRINTU (Z listy `sprintDraftTasks`) ---
 // --- 4. FUNKCJA AKTUALIZUJĄCA WIDOK SPRINTU (LISTA + TABLICA) ---
 function renderSprintDraftTasks() {
-    // 1. Wyczyść Backlog (Lewa kolumna - stała)
+    // 1. Wyczyść listy
     sprintModal.backlogList.innerHTML = '';
-
-    // 2. Wyczyść wszystkie dynamiczne listy w Mini Boardzie (Prawa strona)
-    // Pobieramy wszystkie listy, które mają klasę 'sprint-mini-dropzone' (nadaną w renderSprintMiniBoardStructure)
     if (sprintModal.boardContainer) {
         const dynamicLists = sprintModal.boardContainer.querySelectorAll('.sprint-mini-dropzone');
         dynamicLists.forEach(list => list.innerHTML = '');
     }
 
+    // Pomocnicza mapa ID zadań, które są już na tablicy jako główne elementy
+    // (Użyjemy tego, aby nie renderować ich ponownie wewnątrz rodzica)
+    const activeDraftIds = new Set(sprintDraftTasks.map(t => t.id));
+
     sprintDraftTasks.forEach((task, index) => {
+        // --- LOGIKA DLA PODZADANIA SAMODZIELNEGO ---
+        // W drafcie (kreatorze) podzadania mają strukturę spłaszczoną, ale mogą mieć flagę isSubtask lub parentId
+        // W Twoim kodzie 'subtasks' wewnątrz rodzica to obiekty, ale tutaj w tablicy 'sprintDraftTasks'
+        // mamy obiekty, które mogą być podzadaniami.
+
+        // Sprawdźmy, czy to podzadanie (ma parentSprintId, ale to mają wszystkie w sprincie).
+        // Musimy sprawdzić, czy ma np. 'parentId' (jeśli dodaliśmy to w mapowaniu).
+        // W funkcji openEditSprintModal dodaliśmy logikę mapowania.
+        // Jeśli obiekt ma 'parent' (z poprzednich kroków logicznych) lub strukturę podzadania.
+        
+        // Najbezpieczniej: Sprawdźmy czy task ma pole 'subtasks' (Rodzic) czy nie (Podzadanie).
+        // Uwaga: Puste zadanie główne też może nie mieć subtasks.
+        // W poprzednim kroku (renderMyTasksKanban) używaliśmy `item.type === 'subtask'`.
+        // Tutaj `sprintDraftTasks` to prosta tablica obiektów zadań.
+        // W `openEditSprintModal` mapowaliśmy "dzieci sprintu". 
+        // Musimy wiedzieć, CZY to jest podzadanie.
+        
+        // Zmieńmy logikę wykrywania:
+        // Sprawdzamy, czy w projekcie (w pamięci) ten ID należy do subtasks innego zadania.
+        const fullProject = findProject(state.currentProjectId);
+        let isSubtask = false;
+        let parentTitle = '';
+        let parentId = null;
+
+        if (fullProject) {
+            fullProject.tasks.forEach(pt => {
+                if (pt.subtasks && pt.subtasks.find(s => s.id === task.id)) {
+                    isSubtask = true;
+                    parentTitle = pt.title;
+                    parentId = pt.id;
+                }
+            });
+        }
+        
         // Dane do wyświetlenia
         const points = task.estimation || task.effort || 0;
-        
-        // Generowanie awatarów
         const assigneesHTML = (task.assignees || [])
             .map(id => findUser(id))
             .filter(Boolean)
             .map(u => renderAvatarHTML(u, 'avatar').replace('class="avatar"', 'class="avatar" style="width:20px; height:20px; font-size:10px; margin-left:-6px; border:1px solid var(--bg-secondary);"'))
             .join('');
-
-        // === KLUCZOWA ZMIANA: Generowanie pełnego zestawu ikon ===
-        // Używamy tej samej funkcji co w widoku "Do zaplanowania"
-        const iconsHTML = generateRowIconsHTML(task); 
-        // =========================================================
-
-        // Ustalenie klasy priorytetu (wizualny pasek z lewej)
-        const priorityClass = task.priority === 'high' ? 'priority-high' : (task.priority === 'low' ? 'priority-low' : '');
         
-        // --- UJEDNOLICONY HTML (WIERSZ) DLA WSZYSTKICH KOLUMN ---
-        const rowHTML = `
-            <li class="sprint-task-row ${priorityClass}" data-temp-index="${index}" data-task-id="${task.id}">
-                <div class="sprint-row-title" title="${task.title}">${task.title}</div>
-                
-                <div class="sprint-row-meta">
-                    ${iconsHTML}
+        const iconsHTML = generateRowIconsHTML(task);
+        const priorityClass = task.priority === 'high' ? 'priority-high' : (task.priority === 'low' ? 'priority-low' : '');
 
-                    <div class="sprint-row-avatars" style="display: flex; margin-right: 8px;">${assigneesHTML}</div>
+        let rowHTML = '';
+
+        if (isSubtask) {
+            // === RENDEROWANIE SAMODZIELNEGO PODZADANIA ===
+            rowHTML = `
+                <li class="sprint-task-row is-standalone-subtask ${priorityClass}" data-temp-index="${index}" data-task-id="${task.id}" data-type="subtask">
+                    <div style="flex-grow: 1; overflow: hidden;">
+                        <div class="sprint-parent-context">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 10l6 0"/><path d="M9 10l0 5"/></svg>
+                            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${parentTitle}</span>
+                        </div>
+                        <div class="sprint-row-title" title="${task.title}">${task.title}</div>
+                    </div>
                     
-                    <span class="sprint-row-points js-edit-points" 
-                          data-task-id="${task.id}" 
-                          title="Kliknij, aby zmienić punkty"
-                          style="background-color: rgba(79, 70, 229, 0.1); color: var(--accent-primary); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; min-width: 30px; text-align: center;">
-                        ${points}
-                    </span>
+                    <div class="sprint-row-meta">
+                        ${iconsHTML}
+                        <div class="sprint-row-avatars" style="display: flex; margin-right: 8px;">${assigneesHTML}</div>
+                        <span class="sprint-row-points" style="background-color: rgba(79, 70, 229, 0.1); color: var(--accent-primary); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; min-width: 30px; text-align: center;">${points}</span>
+                    </div>
+                </li>
+            `;
+
+        } else {
+            // === RENDEROWANIE ZADANIA GŁÓWNEGO (Z ZAGNIEŻDŻONYMI PODZADANIAMI) ===
+            
+            // 1. Znajdź podzadania tego zadania (z oryginalnego obiektu projektu, bo draft może ich nie mieć w strukturze)
+            // Ale musimy uważać: chcemy renderować tylko te podzadania, które NIE SĄ już na tablicy jako samodzielne (activeDraftIds).
+            
+            // Znajdź oryginalne zadanie w projekcie, żeby pobrać listę jego podzadań
+            const originalTask = fullProject ? fullProject.tasks.find(t => t.id === task.id) : null;
+            let nestedSubtasksHTML = '';
+            let subtaskCount = 0;
+
+            if (originalTask && originalTask.subtasks && originalTask.subtasks.length > 0) {
+                originalTask.subtasks.forEach(sub => {
+                    // Renderuj wewnątrz TYLKO JEŚLI sub nie jest w activeDraftIds
+                    if (!activeDraftIds.has(sub.id)) {
+                        subtaskCount++;
+                        const subPoints = sub.estimation || sub.effort || 0;
+                         const subAssignees = (sub.assignees || []).map(id => findUser(id)).filter(Boolean).map(u => renderAvatarHTML(u).replace('class="avatar"', 'class="avatar" style="width:16px; height:16px; font-size:8px;"')).join('');
+
+                        nestedSubtasksHTML += `
+                            <li class="sprint-nested-row" data-subtask-id="${sub.id}" data-parent-id="${task.id}" data-type="nested-subtask">
+                                <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 120px;">${sub.title}</span>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <div style="display:flex;">${subAssignees}</div>
+                                    <span style="font-weight:600; color:var(--text-secondary);">${subPoints}</span>
+                                </div>
+                            </li>
+                        `;
+                    }
+                });
+            }
+
+            // Przycisk toggle (tylko jeśli są zagnieżdżone)
+            const toggleHTML = subtaskCount > 0 
+                ? `<button class="sprint-toggle-subtasks" onclick="toggleSprintRowSubtasks(this)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>`
+                : `<div style="width:22px;"></div>`; // Placeholder
+
+            rowHTML = `
+                <li class="sprint-task-row ${priorityClass}" data-temp-index="${index}" data-task-id="${task.id}" data-type="main">
+                    <div style="display:flex; align-items:center; flex-grow:1; min-width:0;">
+                        ${toggleHTML}
+                        <div class="sprint-row-title" title="${task.title}">${task.title}</div>
+                    </div>
+                    
+                    <div class="sprint-row-meta">
+                        ${iconsHTML}
+                        <div class="sprint-row-avatars" style="display: flex; margin-right: 8px;">${assigneesHTML}</div>
+                        <span class="sprint-row-points js-edit-points" data-task-id="${task.id}" style="background-color: rgba(79, 70, 229, 0.1); color: var(--accent-primary); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; min-width: 30px; text-align: center;">${points}</span>
+                    </div>
+                </li>
+                
+                <div class="sprint-nested-container">
+                    <ul class="sprint-nested-list" data-parent-id="${task.id}">
+                        ${nestedSubtasksHTML}
+                    </ul>
                 </div>
-            </li>
-        `;
+            `;
+        }
 
-        // 2. Rozdzielanie do odpowiednich kontenerów (Dynamiczne)
+        // Wybór kolumny (tak jak poprzednio)
         let targetListId;
-
-        if (task.tempStatus === 'backlog' || !task.tempStatus) {
-            // Lewa kolumna (Backlog)
-            targetListId = 'sprint-backlog-list';
-        } else if (task.tempStatus === 'todo') {
-            targetListId = 'sprint-board-todo';
-        } else if (task.tempStatus === 'done') {
-            targetListId = 'sprint-board-done';
-        } else if (task.tempStatus === 'inprogress') {
-            // Logika dla "W trakcie" (Domyślna vs Custom)
-            if (task.tempCustomColumnId) {
-                // Szukamy listy z ID 'sprint-board-custom_ID'
-                // Sprawdzamy, czy taka kolumna faktycznie istnieje w DOM (mogła zostać usunięta z projektu)
+        if (task.tempStatus === 'backlog' || !task.tempStatus) targetListId = 'sprint-backlog-list';
+        else if (task.tempStatus === 'todo') targetListId = 'sprint-board-todo';
+        else if (task.tempStatus === 'done') targetListId = 'sprint-board-done';
+        else if (task.tempStatus === 'inprogress') {
+             if (task.tempCustomColumnId) {
                 const exists = document.getElementById(`sprint-board-custom_${task.tempCustomColumnId}`);
-                if (exists) {
-                    targetListId = `sprint-board-custom_${task.tempCustomColumnId}`;
-                } else {
-                    // Fallback do domyślnej, jeśli custom zniknął
-                    targetListId = 'sprint-board-inprogress_default';
-                }
+                targetListId = exists ? `sprint-board-custom_${task.tempCustomColumnId}` : 'sprint-board-inprogress_default';
             } else {
                 targetListId = 'sprint-board-inprogress_default';
             }
         }
 
-        // Znajdź element i wstaw
         const targetList = document.getElementById(targetListId);
-        if (targetList) {
-            targetList.insertAdjacentHTML('beforeend', rowHTML);
-        } else {
-            // Fallback ostateczny - Backlog
-            sprintModal.backlogList.insertAdjacentHTML('beforeend', rowHTML);
-        }
+        if (targetList) targetList.insertAdjacentHTML('beforeend', rowHTML);
+        else sprintModal.backlogList.insertAdjacentHTML('beforeend', rowHTML);
     });
     
-    // Aktualizacja liczników na górze modala
+    // Na końcu aktualizujemy statystyki
     updateSprintStats();
 }
+
+// Funkcja pomocnicza do toggle (musi być globalna lub dostępna)
+window.toggleSprintRowSubtasks = function(btn) {
+    btn.classList.toggle('open');
+    const row = btn.closest('.sprint-task-row');
+    const container = row.nextElementSibling; // .sprint-nested-container jest zaraz po li
+    if (container && container.classList.contains('sprint-nested-container')) {
+        container.classList.toggle('open');
+    }
+};
         
 
 function updateSprintStats() {
@@ -13707,15 +13860,9 @@ function updateSprintStats() {
 // === KONIEC ===
 // --- 5. DRAG & DROP W KREATORZE ---
 function initSprintDragAndDrop() {
-    // 1. Zbieramy wszystkie listy z Mini Boardzie (Prawa strona)
+    // 1. Główne listy (Kolumny)
     const allBoardLists = Array.from(sprintModal.boardContainer.querySelectorAll('.sprint-mini-dropzone'));
-    
-    // Tworzymy listę interaktywną: Backlog + Wszystkie kolumny OPRÓCZ 'sprint-board-done'
-    // (Zakładamy, że do Done nie wrzucamy zadań w kreatorze, lub obsługujemy to osobno jako read-only)
-    const interactiveLists = [
-        sprintModal.backlogList, 
-        ...allBoardLists.filter(el => el.id !== 'sprint-board-done')
-    ];
+    const interactiveLists = [sprintModal.backlogList, ...allBoardLists.filter(el => el.id !== 'sprint-board-done')];
     
     interactiveLists.forEach(list => {
         if (list._sortable) list._sortable.destroy();
@@ -13724,64 +13871,33 @@ function initSprintDragAndDrop() {
             group: 'sprint-builder', 
             animation: 150,
             ghostClass: 'sortable-ghost',
-            
-            // Logika blokady wizualnej dla Done
             onStart: (evt) => {
                 const doneL = document.getElementById('sprint-board-done');
                 if(doneL) doneL.classList.add('drop-blocked');
             },
-            
-            // Fizyczna blokada wjazdu do Done
             onMove: (evt) => {
                 if (evt.to.id === 'sprint-board-done') return false;
+                // Nie pozwól wrzucić głównego zadania do zagnieżdżonej listy
+                if (evt.to.classList.contains('sprint-nested-list')) return false;
                 return true;
             },
-            
-            onEnd: (evt) => {
-                const doneL = document.getElementById('sprint-board-done');
-                if(doneL) doneL.classList.remove('drop-blocked');
-
-                const itemEl = evt.item;
-                const newStatus = evt.to.dataset.status; // np. 'inprogress'
-                
-                // === NOWE: Pobierz custom ID z datasetu nowej listy (jeśli istnieje) ===
-                const newCustomId = evt.to.dataset.customId || null;
-                
-                const index = itemEl.dataset.tempIndex;
-
-                if (evt.from === evt.to) return;
-                
-                if (sprintDraftTasks[index]) {
-                    // Aktualizujemy status tymczasowy (gdzie ma się wyrenderować)
-                    sprintDraftTasks[index].tempStatus = newStatus;
-                    // Aktualizujemy ID kolumny tymczasowej (dla Custom Columns)
-                    sprintDraftTasks[index].tempCustomColumnId = newCustomId;
-
-                    if (newStatus !== 'backlog') {
-                        // Wchodzi do sprintu -> ustawiamy statusy "produkcyjne"
-                        sprintDraftTasks[index].status = newStatus;
-                        sprintDraftTasks[index].customColumnId = newCustomId; // <-- ZAPISUJEMY TEŻ TU
-
-                        const sprintStart = sprintModal.startDate.value;
-                        const sprintEnd = sprintModal.endDate.value;
-                        
-                        if (sprintStart) sprintDraftTasks[index].startDate = `${sprintStart}T09:00`;
-                        if (sprintEnd) sprintDraftTasks[index].dueDate = `${sprintEnd}T17:00`;
-
-                    } else {
-                        // Wraca do backlogu -> reset
-                        sprintDraftTasks[index].status = 'todo';
-                        sprintDraftTasks[index].customColumnId = null; // Reset kolumny
-                        sprintDraftTasks[index].startDate = null;
-                        sprintDraftTasks[index].dueDate = null;
-                    }
-                }
-                renderSprintDraftTasks();
-            }
+            onEnd: handleSprintDragEnd // Używamy wspólnego handlera
         });
     });
 
-    // 2. Obsługa listy Done (Read Only)
+    // 2. Listy Zagnieżdżone (Podzadania wewnątrz wierszy)
+    const nestedLists = document.querySelectorAll('.sprint-nested-list');
+    nestedLists.forEach(list => {
+        new Sortable(list, {
+            group: 'sprint-builder', // Ta sama grupa pozwala wyciągnąć!
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            sort: false, // Wewnątrz nie sortujemy, tylko wyciągamy
+            onEnd: handleSprintDragEnd
+        });
+    });
+
+    // 3. Lista Done (Read Only - jeśli ma taka pozostać)
     const doneList = document.getElementById('sprint-board-done');
     if (doneList) {
         if (doneList._sortable) doneList._sortable.destroy();
@@ -13791,6 +13907,83 @@ function initSprintDragAndDrop() {
             disabled: true
         });
     }
+}
+
+// Wspólny handler zakończenia przeciągania
+function handleSprintDragEnd(evt) {
+    const doneL = document.getElementById('sprint-board-done');
+    if(doneL) doneL.classList.remove('drop-blocked');
+
+    const itemEl = evt.item;
+    
+    // Sprawdź, czy element został przesunięty
+    if (evt.from === evt.to) return;
+
+    // --- LOGIKA WYCIĄGANIA PODZADANIA (NESTED -> COLUMN) ---
+    if (itemEl.dataset.type === 'nested-subtask') {
+        const subId = itemEl.dataset.subtaskId;
+        const parentId = itemEl.dataset.parentId;
+        const newStatus = evt.to.dataset.status;
+        const newCustomId = evt.to.dataset.customId || null;
+
+        if (newStatus && newStatus !== 'backlog') {
+            // Znajdź dane podzadania w projekcie (w pamięci)
+            const fullProject = findProject(state.currentProjectId);
+            const parentTask = fullProject.tasks.find(t => t.id === parentId);
+            const subtask = parentTask.subtasks.find(s => s.id === subId);
+
+            // Stwórz nowy obiekt w drafcie (jako top-level item)
+            // To sprawi, że podzadanie stanie się "samodzielnym kafelkiem" w tym sprincie
+            const newDraftItem = {
+                ...subtask,
+                id: subId, // Ważne: zachowaj ID, aby później przy zapisie wiedzieć co aktualizować
+                tempStatus: newStatus,
+                tempCustomColumnId: newCustomId,
+                status: newStatus,
+                customColumnId: newCustomId,
+                // Skopiuj też daty jeśli to sprint
+                startDate: sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null,
+                dueDate: sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null
+            };
+            
+            sprintDraftTasks.push(newDraftItem);
+            
+            // Przerysuj, aby usunąć zagnieżdżenie (zostanie odfiltrowane w render) i pokazać samodzielny wiersz
+            renderSprintDraftTasks();
+            return;
+        } else {
+             // Jeśli upuszczono w backlogu lub gdzieś indziej - na razie nic nie robimy 
+             // (Sortable cofnie element wizualnie, bo renderSprintDraftTasks nie zostanie wywołane z nowym stanem)
+             return;
+        }
+    }
+
+    // --- LOGIKA STANDARDOWA (MAIN TASK) ---
+    const index = itemEl.dataset.tempIndex;
+    const newStatus = evt.to.dataset.status; 
+    const newCustomId = evt.to.dataset.customId || null;
+
+    if (sprintDraftTasks[index]) {
+        sprintDraftTasks[index].tempStatus = newStatus;
+        sprintDraftTasks[index].tempCustomColumnId = newCustomId;
+
+        if (newStatus !== 'backlog') {
+            sprintDraftTasks[index].status = newStatus;
+            sprintDraftTasks[index].customColumnId = newCustomId;
+            
+            // Aktualizacja dat dla głównego zadania
+            const sprintStart = sprintModal.startDate.value;
+            const sprintEnd = sprintModal.endDate.value;
+            if (sprintStart) sprintDraftTasks[index].startDate = `${sprintStart}T09:00`;
+            if (sprintEnd) sprintDraftTasks[index].dueDate = `${sprintEnd}T17:00`;
+        } else {
+            sprintDraftTasks[index].status = 'todo';
+            sprintDraftTasks[index].customColumnId = null;
+            sprintDraftTasks[index].startDate = null;
+            sprintDraftTasks[index].dueDate = null;
+        }
+    }
+    renderSprintDraftTasks();
 }
 // === NOWY LISTENER: Obsługa rozwijania podzadań w kreatorze sprintu ===
 if (sprintModal.overlay) {
@@ -39557,6 +39750,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
