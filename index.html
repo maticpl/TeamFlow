@@ -13601,7 +13601,7 @@ function openEditSprintModal(sprintId) {
     // === NAPRAWA: Pobieranie zadań przypisanych ORAZ dostępnych w Backlogu ===
     sprintDraftTasks = [];
     if (project.tasks) {
-        // 1. Zadania już będące w sprincie
+        // 1. Zadania już będące w sprincie (RODZICE)
         const sprintChildren = project.tasks.filter(t => t.parentSprintId === sprint.id);
         
         // 2. Zadania z Backlogu (nieprzypisane do żadnego sprintu)
@@ -13611,7 +13611,7 @@ function openEditSprintModal(sprintId) {
             t.id !== sprint.id // Zabezpieczenie, żeby nie pobrać samego sprintu
         );
 
-        // 3. Łączenie list
+        // 3. Mapowanie Rodziców
         // Dzieciom sprintu ustawiamy tempStatus na ich obecny status (np. todo, done)
         const mappedChildren = sprintChildren.map(t => ({
             ...t,
@@ -13619,13 +13619,44 @@ function openEditSprintModal(sprintId) {
             tempCustomColumnId: t.customColumnId || null // <--- NOWE: Zachowaj ID kolumny niestandardowej
         }));
 
+        // === NOWE: 4. Ekstrakcja "Odklejonych" Podzadań (Divergent Subtasks) ===
+        // Jeśli podzadanie ma inny status/kolumnę niż rodzic, musi pojawić się na tablicy jako osobny kafel.
+        const mappedSubtasks = [];
+        
+        sprintChildren.forEach(parent => {
+            if (parent.subtasks && parent.subtasks.length > 0) {
+                parent.subtasks.forEach(sub => {
+                    // Ustal statusy
+                    const parentStatus = parent.status || 'todo';
+                    const parentCol = parent.customColumnId || null;
+                    
+                    const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                    const subCol = sub.customColumnId || null;
+
+                    // Warunek rozbieżności (Taki sam jak na Dashboardzie)
+                    const isDivergent = (subStatus !== parentStatus) || (subCol !== parentCol);
+
+                    if (isDivergent) {
+                        mappedSubtasks.push({
+                            ...sub,
+                            // Ważne: Dodajemy te same pola 'temp', co dla zadań głównych
+                            tempStatus: subStatus,
+                            tempCustomColumnId: subCol
+                        });
+                    }
+                });
+            }
+        });
+        // === KONIEC NOWEGO KODU ===
+
         // Zadaniom z backlogu wymuszamy tempStatus 'backlog' (lewa kolumna)
         const mappedBacklog = availableBacklogTasks.map(t => ({
             ...t,
             tempStatus: 'backlog'
         }));
 
-        sprintDraftTasks = [...mappedChildren, ...mappedBacklog];
+        // Łączymy: Rodzice + Odklejone Podzadania + Backlog
+        sprintDraftTasks = [...mappedChildren, ...mappedSubtasks, ...mappedBacklog];
     }
     // === KONIEC NAPRAWY ===
 
@@ -39772,6 +39803,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
