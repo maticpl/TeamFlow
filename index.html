@@ -8770,6 +8770,59 @@ body.compact-mode .comment-item {
     opacity: 0.5;
     pointer-events: none;
 }
+        /* === NOWE STYLE DLA RAPORTU AGILE === */
+.report-sprint-card {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 16px;
+    margin-bottom: 16px;
+}
+.report-sprint-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    border-bottom: 1px dashed var(--border-color);
+    padding-bottom: 8px;
+}
+.report-sprint-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.report-sprint-stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.report-sprint-stat {
+    display: flex;
+    flex-direction: column;
+}
+.report-sprint-stat label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+}
+.report-sprint-stat span {
+    font-size: 13px;
+    font-weight: 600;
+}
+.report-mini-table {
+    width: 100%;
+    font-size: 12px;
+    border-collapse: collapse;
+}
+.report-mini-table td {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--bg-tertiary);
+}
+.report-mini-table td:last-child {
+    text-align: right;
+    font-weight: 600;
+}
     </style>
 
 </head>
@@ -18352,7 +18405,7 @@ if (!listsContainer) {
 
     openModal(modal);
 }
-       /**
+      /**
          * NOWA FUNKCJA: Generuje i otwiera Raport Zamknięcia Projektu (Post-Mortem).
          * Analizuje zakończony projekt i wylicza statystyki.
          */
@@ -18383,10 +18436,6 @@ if (!listsContainer) {
                 summaryListEl.innerHTML = '';
                 const items = project.summaryItems || [];
                 
-                if (items.length === 0) {
-                    // Opcjonalnie: Pusty stan, ale tutaj formularz jest od razu pod spodem, więc może być puste
-                }
-
                 items.forEach((item, index) => {
                     const li = document.createElement('li');
                     li.style.cssText = "display: flex; gap: 12px; padding: 8px; border-bottom: 1px dashed var(--border-color); align-items: flex-start;";
@@ -18402,31 +18451,16 @@ if (!listsContainer) {
             // --- KONIEC ---
             
            // --- ZMIENNE STATYSTYCZNE (ROZDZIELONE) ---
-            // Obiekt dla Zadań Głównych
-            const statsMain = {
-                onTimeCount: 0,
-                lateCount: 0,
-                totalDelayHours: 0,
-                maxDelayHours: 0,
-                worstTaskTitle: "Brak opóźnień"
-            };
-
-            // Obiekt dla Podzadań
-            const statsSub = {
-                onTimeCount: 0,
-                lateCount: 0,
-                totalDelayHours: 0,
-                maxDelayHours: 0,
-                worstTaskTitle: "Brak opóźnień"
-            };
+            const statsMain = { onTimeCount: 0, lateCount: 0, totalDelayHours: 0, maxDelayHours: 0, worstTaskTitle: "Brak opóźnień" };
+            const statsSub = { onTimeCount: 0, lateCount: 0, totalDelayHours: 0, maxDelayHours: 0, worstTaskTitle: "Brak opóźnień" };
 
             const currency = project.budget?.currency || 'PLN';
             const plannedBudget = parseFloat(project.budget?.amount) || 0;
             let actualSpent = 0;
-            const taskCosts = []; // { title, cost }
+            const taskCosts = [];
 
-            // ZMIANA: Rozszerzona struktura statystyk zespołu
-            const teamStats = {}; // { userId: { mainDone: 0, subDone: 0, late: 0 } }
+            // ZMIANA: Rozszerzona struktura statystyk zespołu (teraz zbieramy też punkty)
+            const teamStats = {}; // { userId: { mainDone: 0, subDone: 0, late: 0, points: 0 } }
 
             let abandonedCount = 0; // Status != done
             let totalComments = 0;
@@ -18434,25 +18468,22 @@ if (!listsContainer) {
             const tasks = project.tasks || [];
 
             // --- ANALIZA ZADAŃ (REKURENCYJNA) ---
-            
             function analyzeTaskRecursively(item, isMainTask = true) {
-                // Wybierz odpowiedni obiekt statystyk do aktualizacji
                 const currentStats = isMainTask ? statsMain : statsSub;
-
-                // A. FINANSE (Bez zmian - budżet jest wspólny)
                 const isItemDone = isMainTask ? (item.status === 'done') : (item.isCompleted === true);
                 
+                // A. FINANSE
                 if (isItemDone && item.budgetItems && item.budgetItems.length > 0) {
                     const itemCost = item.budgetItems.reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
                     actualSpent += itemCost;
                     if (itemCost > 0) {
-                        // Oznaczamy w kosztach czy to podzadanie
                         taskCosts.push({ title: (isMainTask ? item.title : `[Podzadanie] ${item.title}`), cost: itemCost });
                     }
                 }
 
-                // B. JAKOŚĆ (Bez zmian)
-                if (isMainTask && item.status !== 'done') {
+                // B. JAKOŚĆ
+                // Dla Sprintu: Nie liczymy sprintu jako "porzuconego zadania", jeśli jest w trakcie (lub zamknięty)
+                if (isMainTask && item.type !== 'sprint' && item.status !== 'done') {
                     abandonedCount++;
                 }
 
@@ -18467,15 +18498,11 @@ if (!listsContainer) {
                     if (item.dueDate && completionTime) {
                         const due = new Date(item.dueDate);
                         const diffMs = completionTime - due;
-
                         if (diffMs > 0) {
                             isItemLate = true;
-                            
-                            // Aktualizacja statystyk w odpowiednim obiekcie (Main lub Sub)
                             currentStats.lateCount++;
                             const diffHours = diffMs / (1000 * 60 * 60);
                             currentStats.totalDelayHours += diffHours;
-
                             if (diffHours > currentStats.maxDelayHours) {
                                 currentStats.maxDelayHours = diffHours;
                                 currentStats.worstTaskTitle = `${item.title} (${Math.round(diffHours)}h po terminie)`;
@@ -18487,88 +18514,221 @@ if (!listsContainer) {
                         currentStats.onTimeCount++;
                     }
 
-                    // D. PRZYPISANIE DO UŻYTKOWNIKA (Rozdzielone)
+                    // D. PRZYPISANIE DO UŻYTKOWNIKA
                     let finishers = item.completedBy || [];
                     if (finishers.length === 0 && item.assignees && item.assignees.length > 0) {
                         finishers = item.assignees;
                     }
                     
                     finishers.forEach(uid => {
-                        if (!teamStats[uid]) teamStats[uid] = { mainDone: 0, subDone: 0, late: 0 };
+                        if (!teamStats[uid]) teamStats[uid] = { mainDone: 0, subDone: 0, late: 0, points: 0 };
                         
-                        // ZMIANA: Inkrementacja odpowiedniego licznika
-                        if (isMainTask) {
-                            teamStats[uid].mainDone++;
-                        } else {
-                            teamStats[uid].subDone++;
-                        }
+                        if (isMainTask) teamStats[uid].mainDone++;
+                        else teamStats[uid].subDone++;
                         
-                        if (isItemLate) {
-                            teamStats[uid].late++;
+                        if (isItemLate) teamStats[uid].late++;
+
+                        // Sumuj punkty (dla wszystkich typów, ale głównie dla Agile)
+                        const pts = parseFloat(item.estimation || item.effort || 0);
+                        if (pts > 0) {
+                            // Dzielimy punkty przez liczbę wykonawców, aby nie dublować
+                            teamStats[uid].points += (pts / finishers.length);
                         }
                     });
                 }
 
-                // E. KOMUNIKACJA (Bez zmian)
+                // E. KOMUNIKACJA
                 totalComments += (item.comments || []).length;
 
-                // F. REKURENCJA (Bez zmian)
+                // F. REKURENCJA
                 if (item.subtasks && item.subtasks.length > 0) {
                     item.subtasks.forEach(sub => {
                         if (sub.isCompleted && !sub.completedAt && isMainTask && item.completedAt) {
                             sub.completedAt = item.completedAt;
                         }
-                        analyzeTaskRecursively(sub, false); // isMainTask = false
+                        analyzeTaskRecursively(sub, false);
                     });
                 }
             }
 
-            // Uruchom analizę dla wszystkich zadań głównych
+            // Uruchom analizę
             tasks.forEach(task => analyzeTaskRecursively(task, true));
 
-            // --- RENDEROWANIE WYNIKÓW W DOM ---
 
-            // 1. Definicja funkcji pomocniczej (wewnątrz openProjectReportModal)
-            const generateTimeKPI = (label, stats) => {
-                const total = stats.onTimeCount + stats.lateCount;
-                const percent = total > 0 ? Math.round((stats.onTimeCount / total) * 100) : 0;
-                const avgDelay = stats.lateCount > 0 ? (stats.totalDelayHours / stats.lateCount) : 0;
-                let avgDelayText = "Brak";
-                if (avgDelay > 0) {
-                    avgDelayText = avgDelay > 24 ? `${(avgDelay / 24).toFixed(1)} dni` : `${Math.round(avgDelay)} h`;
+            // === RENDEROWANIE WIDOKU (LOGIKA ROZGAŁĘZIONA: CLASSIC vs SPRINT) ===
+            const isSprintProject = project.type === 'sprint';
+
+            // 1. Zmiana Tytułu Sekcji
+            const timeSectionTitle = document.querySelector('.report-section h3.report-section-title');
+            if (timeSectionTitle) {
+                // Pierwsza sekcja to "Opis", druga "Podsumowanie", trzecia "Efektywność Czasowa"
+                // Znajdźmy właściwy nagłówek po tekście lub indeksie
+                const headers = document.querySelectorAll('.report-section h3.report-section-title');
+                if (headers[2]) {
+                    headers[2].textContent = isSprintProject ? '🚀 Podsumowanie Sprintów (Agile)' : '⏱️ Efektywność Czasowa';
                 }
-                const color = percent < 80 ? 'var(--danger-primary)' : 'var(--success-primary)';
+            }
 
-                return `
-                <div class="report-kpi-card">
-                    <span class="kpi-label">${label} - Terminowość</span>
-                    <strong class="kpi-value" style="color: ${color};">${percent}%</strong>
-                    <span class="kpi-sub">${stats.onTimeCount} z ${total} na czas</span>
-                </div>
-                <div class="report-kpi-card">
-                    <span class="kpi-label">${label} - Śr. opóźnienie</span>
-                    <strong class="kpi-value" style="color: var(--text-secondary); font-size: 20px;">${avgDelayText}</strong>
-                    <span class="kpi-sub">dla ${stats.lateCount} spóźnionych</span>
-                </div>
-                <div class="report-kpi-card wide">
-                    <span class="kpi-label">${label} - Największy poślizg</span>
-                    <div style="font-size: 13px; margin-top: 6px; font-weight: 500; color: var(--danger-primary);">${stats.worstTaskTitle}</div>
-                </div>
-                `;
-            };
-
-            // SEKCJA 1: CZAS (Nowe renderowanie)
+            // 2. Renderowanie treści sekcji czasowej/sprintowej
             const timeSectionContainer = document.querySelector('.report-section .report-kpi-grid');
+            
             if (timeSectionContainer) {
-                timeSectionContainer.innerHTML = `
-                    ${generateTimeKPI('Zadania Główne', statsMain)}
-                    <div style="grid-column: 1 / -1; height: 1px; background: var(--border-color); margin: 8px 0;"></div>
-                    ${generateTimeKPI('Podzadania', statsSub)}
-                `;
+                if (isSprintProject) {
+                    // --- TRYB AGILE ---
+                    // Zmieniamy styl kontenera z grid na block dla listy sprintów
+                    timeSectionContainer.style.display = 'block';
+                    timeSectionContainer.style.gridTemplateColumns = 'none';
+
+                    // A. Obliczenia dla Sprintów
+                    const sprints = tasks.filter(t => t.type === 'sprint');
+                    // Sortuj sprinty chronologicznie
+                    sprints.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+                    let totalSprintPointsPlanned = 0;
+                    let totalSprintPointsDelivered = 0;
+                    let sprintDetailsHTML = '';
+
+                    sprints.forEach(sprint => {
+                        // Znajdź zadania należące do tego sprintu
+                        const children = tasks.filter(t => t.parentSprintId === sprint.id);
+                        const movedAway = tasks.filter(t => t.carryOverFrom === sprint.id);
+                        
+                        // Planowane = Dzieci + Przeniesione
+                        const plannedTasks = [...children, ...movedAway];
+                        
+                        let sPlannedPts = 0;
+                        let sDeliveredPts = 0;
+                        let sPlannedCount = plannedTasks.length;
+                        let sDoneCount = 0;
+
+                        // Ranking wewnątrz sprintu
+                        const sprintUserStats = {};
+
+                        // Liczymy planowane (Scope)
+                        plannedTasks.forEach(t => {
+                            sPlannedPts += parseFloat(t.estimation || t.effort || 0);
+                        });
+
+                        // Liczymy dowiezione (Velocity) z Dzieci
+                        children.forEach(t => {
+                            if (t.status === 'done') {
+                                const pts = parseFloat(t.estimation || t.effort || 0);
+                                sDeliveredPts += pts;
+                                sDoneCount++;
+
+                                // Statystyki per osoba w tym sprincie
+                                const finishers = (t.completedBy && t.completedBy.length > 0) ? t.completedBy : t.assignees;
+                                finishers.forEach(uid => {
+                                    if (!sprintUserStats[uid]) sprintUserStats[uid] = 0;
+                                    sprintUserStats[uid] += (pts / finishers.length);
+                                });
+                            }
+                        });
+
+                        totalSprintPointsPlanned += sPlannedPts;
+                        totalSprintPointsDelivered += sDeliveredPts;
+
+                        // Budowanie tabelki rankingu sprintu
+                        const topSprintUsers = Object.keys(sprintUserStats)
+                            .map(uid => ({ uid, pts: sprintUserStats[uid] }))
+                            .sort((a, b) => b.pts - a.pts)
+                            .slice(0, 3); // Top 3
+
+                        const miniTableHTML = topSprintUsers.map(u => {
+                            const usr = findUser(u.uid);
+                            return `<tr>
+                                <td style="display:flex; gap:6px; align-items:center;">
+                                    ${renderAvatarHTML(usr, 'avatar-comment').replace('class="avatar avatar-comment"', 'class="avatar" style="width:16px;height:16px;font-size:8px;"')} 
+                                    ${usr ? usr.name : 'Unknown'}
+                                </td>
+                                <td>${u.pts.toFixed(1)} pkt</td>
+                            </tr>`;
+                        }).join('');
+
+                        sprintDetailsHTML += `
+                            <div class="report-sprint-card">
+                                <div class="report-sprint-header">
+                                    <span class="report-sprint-title">${sprint.title}</span>
+                                    <span style="font-size: 11px; color: ${sprint.status === 'done' ? 'var(--success-primary)' : 'var(--text-secondary)'}; font-weight:600;">
+                                        ${sprint.status === 'done' ? 'Zakończony' : 'W trakcie/Planowany'}
+                                    </span>
+                                </div>
+                                <div class="report-sprint-stats-grid">
+                                    <div class="report-sprint-stat">
+                                        <label>Zadania</label>
+                                        <span>${sDoneCount} / ${sPlannedCount}</span>
+                                    </div>
+                                    <div class="report-sprint-stat">
+                                        <label>Punkty (Story Points)</label>
+                                        <span style="color: var(--accent-primary);">${sDeliveredPts} / ${sPlannedPts}</span>
+                                    </div>
+                                </div>
+                                ${miniTableHTML ? `<div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-color);"><label style="font-size:10px; color:var(--text-secondary); text-transform:uppercase;">Liderzy sprintu</label><table class="report-mini-table">${miniTableHTML}</table></div>` : ''}
+                            </div>
+                        `;
+                    });
+
+                    const efficiency = totalSprintPointsPlanned > 0 ? (totalSprintPointsDelivered / totalSprintPointsPlanned * 100).toFixed(0) : 0;
+
+                    // Wstawianie HTML dla Agile
+                    timeSectionContainer.innerHTML = `
+                        <div class="report-kpi-grid" style="margin-bottom: 24px;">
+                            <div class="report-kpi-card wide">
+                                <span class="kpi-label">Całkowita Efektywność (Velocity)</span>
+                                <strong class="kpi-value" style="color: var(--accent-primary);">${totalSprintPointsDelivered} pkt</strong>
+                                <span class="kpi-sub">z planowanych ${totalSprintPointsPlanned} pkt (${efficiency}%)</span>
+                            </div>
+                            <div class="report-kpi-card">
+                                <span class="kpi-label">Liczba Sprintów</span>
+                                <strong class="kpi-value">${sprints.length}</strong>
+                            </div>
+                        </div>
+                        <h4 style="font-size:13px; color:var(--text-secondary); margin-bottom:12px; text-transform:uppercase;">Szczegóły Sprintów</h4>
+                        ${sprintDetailsHTML}
+                    `;
+
+                } else {
+                    // --- TRYB CLASSIC (Stara logika) ---
+                    timeSectionContainer.style.display = 'grid'; // Reset do grid
+                    timeSectionContainer.style.gridTemplateColumns = 'repeat(auto-fit, minmax(150px, 1fr))';
+                    
+                    const generateTimeKPI = (label, stats) => {
+                        const total = stats.onTimeCount + stats.lateCount;
+                        const percent = total > 0 ? Math.round((stats.onTimeCount / total) * 100) : 0;
+                        const avgDelay = stats.lateCount > 0 ? (stats.totalDelayHours / stats.lateCount) : 0;
+                        let avgDelayText = "Brak";
+                        if (avgDelay > 0) {
+                            avgDelayText = avgDelay > 24 ? `${(avgDelay / 24).toFixed(1)} dni` : `${Math.round(avgDelay)} h`;
+                        }
+                        const color = percent < 80 ? 'var(--danger-primary)' : 'var(--success-primary)';
+                        return `
+                        <div class="report-kpi-card">
+                            <span class="kpi-label">${label} - Terminowość</span>
+                            <strong class="kpi-value" style="color: ${color};">${percent}%</strong>
+                            <span class="kpi-sub">${stats.onTimeCount} z ${total} na czas</span>
+                        </div>
+                        <div class="report-kpi-card">
+                            <span class="kpi-label">${label} - Śr. opóźnienie</span>
+                            <strong class="kpi-value" style="color: var(--text-secondary); font-size: 20px;">${avgDelayText}</strong>
+                            <span class="kpi-sub">dla ${stats.lateCount} spóźnionych</span>
+                        </div>
+                        <div class="report-kpi-card wide">
+                            <span class="kpi-label">${label} - Największy poślizg</span>
+                            <div style="font-size: 13px; margin-top: 6px; font-weight: 500; color: var(--danger-primary);">${stats.worstTaskTitle}</div>
+                        </div>
+                        `;
+                    };
+
+                    timeSectionContainer.innerHTML = `
+                        ${generateTimeKPI('Zadania Główne', statsMain)}
+                        <div style="grid-column: 1 / -1; height: 1px; background: var(--border-color); margin: 8px 0;"></div>
+                        ${generateTimeKPI('Podzadania', statsSub)}
+                    `;
+                }
             }
 
 
-            // SEKCJA 2: BUDŻET
+            // SEKCJA 2: BUDŻET (Bez zmian)
             const budgetContainer = document.getElementById('report-budget-container');
             const budgetPercent = plannedBudget > 0 ? (actualSpent / plannedBudget) * 100 : 0;
             const isOver = actualSpent > plannedBudget && plannedBudget > 0;
@@ -18577,7 +18737,6 @@ if (!listsContainer) {
             
             const formatMoney = (val) => val.toLocaleString('pl-PL', { style: 'currency', currency: currency });
 
-            // Generowanie paska postępu budżetu
             if (budgetContainer) {
                 budgetContainer.innerHTML = `
                     <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
@@ -18595,16 +18754,11 @@ if (!listsContainer) {
                 `;
             }
 
-            // === NAPRAWA BŁĘDU 'totalDoneTasks' ===
-            // Obliczamy całkowitą liczbę ukończonych elementów (Zadania + Podzadania) na potrzeby średniego kosztu
             const allDoneCount = (statsMain.onTimeCount + statsMain.lateCount) + (statsSub.onTimeCount + statsSub.lateCount);
-            
             document.getElementById('report-avg-cost').textContent = allDoneCount > 0 ? formatMoney(actualSpent / allDoneCount) : '-';
             
-            // Ranking kosztownych zadań (Top 3)
             taskCosts.sort((a, b) => b.cost - a.cost);
             const costlyList = document.getElementById('report-costly-tasks');
-            
             if (costlyList) {
                 if (taskCosts.length === 0) {
                     costlyList.innerHTML = '<li style="color: var(--text-secondary); font-style: italic;">Brak danych finansowych.</li>';
@@ -18618,78 +18772,106 @@ if (!listsContainer) {
                 }
             }
 
-
-           // SEKCJA 3: ZESPÓŁ (Tabela)
-            
-            // Najpierw zaktualizuj nagłówki tabeli
+            // SEKCJA 3: ZESPÓŁ (MODYFIKACJA DLA AGILE)
             const teamTableHead = document.querySelector('.report-table thead tr');
             if (teamTableHead) {
-                teamTableHead.innerHTML = `
-                    <th>Pracownik</th>
-                    <th style="text-align: center;">Zadania</th>
-                    <th style="text-align: center;">Podzadania</th>
-                    <th style="text-align: center;">Terminowość</th>
-                    <th style="text-align: center;">Lider w...</th>
-                `;
+                if (isSprintProject) {
+                    teamTableHead.innerHTML = `
+                        <th>Pracownik</th>
+                        <th style="text-align: center;">Dowiezione Punkty</th>
+                        <th style="text-align: center;">Zadania (Szt.)</th>
+                        <th style="text-align: center;">Lider w...</th>
+                    `;
+                } else {
+                    // Stary nagłówek dla Classic
+                    teamTableHead.innerHTML = `
+                        <th>Pracownik</th>
+                        <th style="text-align: center;">Zadania</th>
+                        <th style="text-align: center;">Podzadania</th>
+                        <th style="text-align: center;">Terminowość</th>
+                        <th style="text-align: center;">Lider w...</th>
+                    `;
+                }
             }
 
             const teamTbody = document.getElementById('report-team-tbody');
             teamTbody.innerHTML = '';
             
-            // Konwersja obiektu statystyk na tablicę i sortowanie wg liczby zadań (malejąco)
+            // Konwersja obiektu statystyk na tablicę
             const teamRanking = Object.keys(teamStats).map(uid => {
                 const stats = teamStats[uid];
                 const user = findUser(uid);
+                const totalTasks = (stats.mainDone || 0) + (stats.subDone || 0);
+                const timelyRate = totalTasks > 0 ? ((totalTasks - stats.late) / totalTasks) * 100 : 0;
                 
-                // POPRAWKA: Sumujemy zadania główne i podzadania, aby uzyskać łączną liczbę wykonanych
-                const total = (stats.mainDone || 0) + (stats.subDone || 0);
-                
-                // Obliczamy terminowość na podstawie poprawnej sumy
-                const timelyRate = total > 0 ? ((total - stats.late) / total) * 100 : 0;
-                
-                // Zwracamy obiekt z dodanym polem 'done' (używanym do sortowania)
                 return { 
                     uid, 
                     name: user ? (user.name || user.email) : 'Nieznany', 
                     ...stats, 
-                    done: total, // <-- Dodajemy brakujące pole 'done'
+                    done: totalTasks, 
                     timelyRate 
                 };
-            }).sort((a, b) => b.done - a.done);
+            });
+            
+            // Sortowanie: Punkty dla Agile, Liczba zadań dla Classic
+            if (isSprintProject) {
+                teamRanking.sort((a, b) => b.points - a.points);
+            } else {
+                teamRanking.sort((a, b) => b.done - a.done);
+            }
 
             if (teamRanking.length === 0) {
-                // Zmieniono colspan na 5, bo mamy nową kolumnę
-                teamTbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-secondary); padding: 15px;">Brak danych o wykonawcach.</td></tr>';
+                teamTbody.innerHTML = `<tr><td colspan="${isSprintProject ? 4 : 5}" style="text-align:center; color:var(--text-secondary); padding: 15px;">Brak danych o wykonawcach.</td></tr>`;
             } else {
-                // Obliczamy maxy dla obu kategorii
+                // Obliczamy maxy
+                const maxPoints = Math.max(...teamRanking.map(r => r.points), 0);
                 const maxMain = Math.max(...teamRanking.map(r => r.mainDone), 0);
-                const maxSub = Math.max(...teamRanking.map(r => r.subDone), 0);
 
-                teamRanking.forEach((r, index) => {
+                teamRanking.forEach(r => {
                     const avatar = renderAvatarHTML(findUser(r.uid), 'avatar-comment');
-                    
                     let badges = '';
-                    // Badge za zadania główne
-                    if (r.mainDone === maxMain && maxMain > 0) badges += `<span class="report-badge badge-gold" title="Najwięcej zadań głównych">Mistrz Zadań</span> `;
-                    // Badge za podzadania
-                    if (r.subDone === maxSub && maxSub > 0) badges += `<span class="report-badge badge-green" title="Najwięcej podzadań">Pomocna Dłoń</span> `;
+                    
+                    if (isSprintProject) {
+                        // Badge za punkty w Agile
+                         if (r.points === maxPoints && maxPoints > 0) badges += `<span class="report-badge badge-gold">Top Performer</span> `;
+                         
+                         // Wiersz Agile
+                         teamTbody.innerHTML += `
+                            <tr>
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        ${avatar.replace('class="avatar avatar-comment"', 'class="avatar" style="width:24px;height:24px;font-size:10px;"')}
+                                        <span style="font-weight: 500;">${r.name}</span>
+                                    </div>
+                                </td>
+                                <td style="text-align: center; font-weight: 700; color: var(--accent-primary);">${r.points.toFixed(1)}</td>
+                                <td style="text-align: center;">${r.done}</td>
+                                <td style="text-align: center;">${badges}</td>
+                            </tr>
+                        `;
 
-                    teamTbody.innerHTML += `
-                        <tr>
-                            <td>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    ${avatar.replace('class="avatar avatar-comment"', 'class="avatar" style="width:24px;height:24px;font-size:10px;"')}
-                                    <span style="font-weight: 500;">${r.name}</span>
-                                </div>
-                            </td>
-                            <td style="text-align: center; font-weight: 600; font-size: 14px;">${r.mainDone}</td>
-                            <td style="text-align: center; color: var(--text-secondary);">${r.subDone}</td>
-                            <td style="text-align: center;">
-                                <span style="color: ${r.timelyRate < 80 ? 'var(--danger-primary)' : 'var(--success-primary)'}; font-weight: 600;">${r.timelyRate.toFixed(0)}%</span>
-                            </td>
-                            <td style="text-align: center;">${badges}</td>
-                        </tr>
-                    `;
+                    } else {
+                        // Badge dla Classic
+                        if (r.mainDone === maxMain && maxMain > 0) badges += `<span class="report-badge badge-gold">Mistrz Zadań</span> `;
+                        
+                        // Wiersz Classic
+                        teamTbody.innerHTML += `
+                            <tr>
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        ${avatar.replace('class="avatar avatar-comment"', 'class="avatar" style="width:24px;height:24px;font-size:10px;"')}
+                                        <span style="font-weight: 500;">${r.name}</span>
+                                    </div>
+                                </td>
+                                <td style="text-align: center; font-weight: 600;">${r.mainDone}</td>
+                                <td style="text-align: center; color: var(--text-secondary);">${r.subDone}</td>
+                                <td style="text-align: center;">
+                                    <span style="color: ${r.timelyRate < 80 ? 'var(--danger-primary)' : 'var(--success-primary)'}; font-weight: 600;">${r.timelyRate.toFixed(0)}%</span>
+                                </td>
+                                <td style="text-align: center;">${badges}</td>
+                            </tr>
+                        `;
+                    }
                 });
             }
 
@@ -39184,6 +39366,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
