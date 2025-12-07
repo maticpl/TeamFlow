@@ -8736,25 +8736,30 @@ body.compact-mode .comment-item {
     filter: grayscale(100%); /* Opcjonalnie: czarno-białe */
 }
         /* Styl dla listy "Wykonane" podczas przeciągania innego zadania */
+/* Styl dla listy "Wykonane" podczas przeciągania - CZYSTY BRAK REAKCJI */
 #sprint-board-done.drop-blocked {
-    background-color: rgba(220, 38, 38, 0.03) !important; /* Bardzo delikatny czerwony odcień */
-    border-color: var(--danger-border) !important; /* Czerwonawa ramka */
-    cursor: no-drop !important; /* Kursor zakazu */
-    position: relative;
+    /* Usuwamy zmianę tła i ramki, aby nie sugerować, że to "aktywny obszar" */
+    opacity: 0.4; /* Tylko przygaszamy */
+    cursor: no-drop !important;
 }
 
-/* Opcjonalnie: Ikonka zakazu na środku listy, gdy próbujemy tam wjechać */
+/* Etykieta nadal może zostać, ale bez ramki na liście */
 #sprint-board-done.drop-blocked::after {
     content: "⛔ Tylko do odczytu";
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    color: var(--danger-primary);
+    color: var(--text-secondary); /* Szary zamiast czerwonego */
     font-size: 12px;
     font-weight: 600;
-    opacity: 0.5;
     pointer-events: none;
+    background-color: var(--bg-secondary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+    z-index: 100;
 }
     </style>
 
@@ -13553,7 +13558,6 @@ function initSprintDragAndDrop() {
     const interactiveLists = [sprintModal.backlogList, sprintModal.todoList, sprintModal.inprogressList];
     
     interactiveLists.forEach(list => {
-        // Upewnij się, że nie dublujemy instancji
         if (list._sortable) list._sortable.destroy();
 
         list._sortable = new Sortable(list, {
@@ -13561,24 +13565,28 @@ function initSprintDragAndDrop() {
             animation: 150,
             ghostClass: 'sortable-ghost',
             
-            // === NOWE: Wizualne zablokowanie kolumny "Done" na starcie ===
+            // Dodajemy klasę blokady wizualnej na starcie
             onStart: (evt) => {
-                sprintModal.doneList.classList.add('drop-blocked');
+                if (sprintModal.doneList) {
+                    sprintModal.doneList.classList.add('drop-blocked');
+                }
             },
 
-            // === NOWE: Fizyczna blokada wejścia "ducha" do kolumny "Done" ===
+            // Fizyczna blokada wejścia na listę Done
             onMove: (evt) => {
-                // Jeśli próbujemy przeciągnąć nad listę "Done" -> ZABROŃ TEGO
+                // Jeśli cel to lista Done -> ZABROŃ (return false)
+                // To sprawia, że placeholder w ogóle się tam nie pojawia
                 if (evt.to === sprintModal.doneList) {
-                    return false; // To blokuje animację wjazdu
+                    return false; 
                 }
-                return true; // W innych przypadkach pozwól
+                return true; 
             },
             
-            // Standardowa logika onEnd dla aktywnych list
             onEnd: (evt) => {
-                // === NOWE: Zdjęcie blokady wizualnej ===
-                sprintModal.doneList.classList.remove('drop-blocked');
+                // Zdejmij blokadę wizualną
+                if (sprintModal.doneList) {
+                    sprintModal.doneList.classList.remove('drop-blocked');
+                }
 
                 const itemEl = evt.item;
                 const newStatus = evt.to.dataset.status; 
@@ -13618,11 +13626,11 @@ function initSprintDragAndDrop() {
     doneList._sortable = new Sortable(doneList, {
         group: {
             name: 'sprint-builder',
-            put: false,  // Logiczna blokada (backup dla onMove)
-            pull: false  // Blokada wyciągania
+            put: false,  // ABSOLUTNY ZAKAZ WRZUCANIA
+            pull: false  // ABSOLUTNY ZAKAZ WYCIĄGANIA
         },
-        sort: false,     // Blokada sortowania
-        disabled: true   // Całkowite wyłączenie interakcji
+        sort: false,     // Brak sortowania
+        // WAŻNE: Usunięto 'disabled: true', aby 'put: false' było respektowane przez inne listy
     });
 }
 // === NOWY LISTENER: Obsługa rozwijania podzadań w kreatorze sprintu ===
@@ -39170,6 +39178,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
