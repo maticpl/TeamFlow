@@ -13360,14 +13360,68 @@ const sprintModal = {
     
     // Listy (Dropzones)
     backlogList: document.getElementById('sprint-backlog-list'),
-    todoList: document.getElementById('sprint-board-todo'),
-    inprogressList: document.getElementById('sprint-board-inprogress'),
-    doneList: document.getElementById('sprint-board-done'),
+    // ZMIANA: Zamiast sztywnych list, mamy kontener
+    boardContainer: document.getElementById('sprint-mini-board-container'),
     
     // Liczniki
     pointsCounter: document.getElementById('sprint-points-counter'),
     costEstimate: document.getElementById('sprint-cost-estimate')
 };
+
+// --- NOWA FUNKCJA: Dynamiczne generowanie kolumn Mini Kanbana ---
+function renderSprintMiniBoardStructure() {
+    const project = findProject(state.currentProjectId);
+    if (!project) return;
+    
+    sprintModal.boardContainer.innerHTML = '';
+    
+    // 1. Zdefiniuj kolumny do wyświetlenia
+    const columns = [];
+    
+    // A. Do realizacji (Sztywna)
+    columns.push({ id: 'todo', title: 'Do realizacji', status: 'todo', isCustom: false });
+    
+    // B. W trakcie (Sztywna - Domyślna)
+    columns.push({ id: 'inprogress_default', title: 'W trakcie', status: 'inprogress', customId: null, isCustom: false });
+    
+    // C. Kolumny Niestandardowe (jeśli są)
+    if (project.customColumns && project.customColumns.length > 0) {
+        const sortedCols = [...project.customColumns].sort((a, b) => (a.order || 0) - (b.order || 0));
+        sortedCols.forEach(col => {
+            columns.push({ 
+                id: `custom_${col.id}`, 
+                title: col.title, 
+                status: 'inprogress', 
+                customId: col.id, // Ważne ID do mapowania
+                isCustom: true 
+            });
+        });
+    }
+    
+    // D. Wykonane (Sztywna)
+    columns.push({ id: 'done', title: 'Wykonane', status: 'done', isCustom: false });
+    
+    // 2. Wygeneruj HTML
+    columns.forEach(col => {
+        // Atrybuty dataset są kluczowe dla Drag & Drop
+        const customIdAttr = col.customId ? `data-custom-id="${col.customId}"` : '';
+        
+        const colHTML = `
+            <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary); min-width: 200px; display: flex; flex-direction: column;">
+                <div class="kanban-column-header" style="padding: 8px;">
+                    <h3 style="font-size: 13px;">${col.title}</h3>
+                </div>
+                <ul class="kanban-tasks sprint-mini-dropzone" 
+                    id="sprint-board-${col.id}" 
+                    data-status="${col.status}" 
+                    ${customIdAttr}
+                    style="padding: 8px; overflow-y: auto; flex-grow: 1; min-height: 50px;">
+                </ul>
+            </div>
+        `;
+        sprintModal.boardContainer.insertAdjacentHTML('beforeend', colHTML);
+    });
+}
 
 // Tymczasowy magazyn na zadania w sprincie (przed zapisem do bazy)
 let sprintDraftTasks = []; 
@@ -13398,11 +13452,9 @@ if (fabNewSprintBtn) {
         sprintModal.startDate.value = today.toISOString().split('T')[0];
         sprintModal.endDate.value = twoWeeks.toISOString().split('T')[0];
         
-        // Wyczyść listy
+        // Wyczyść i zbuduj strukturę kolumn
         sprintModal.backlogList.innerHTML = '';
-        sprintModal.todoList.innerHTML = '';
-        sprintModal.inprogressList.innerHTML = '';
-        sprintModal.doneList.innerHTML = '';
+        renderSprintMiniBoardStructure(); // <--- NOWE WYWOŁANIE: Generuje kolumny dynamicznie
         
         // === NOWE: Pobierz zadania z "Do zaplanowania" (Backlogu Projektu) ===
         const project = findProject(state.currentProjectId);
@@ -13490,7 +13542,8 @@ function openEditSprintModal(sprintId) {
         // Dzieciom sprintu ustawiamy tempStatus na ich obecny status (np. todo, done)
         const mappedChildren = sprintChildren.map(t => ({
             ...t,
-            tempStatus: t.status || 'todo'
+            tempStatus: t.status || 'todo',
+            tempCustomColumnId: t.customColumnId || null // <--- NOWE: Zachowaj ID kolumny niestandardowej
         }));
 
         // Zadaniom z backlogu wymuszamy tempStatus 'backlog' (lewa kolumna)
@@ -13503,6 +13556,9 @@ function openEditSprintModal(sprintId) {
     }
     // === KONIEC NAPRAWY ===
 
+    // === NOWE: Zbuduj dynamiczne kolumny przed wypełnieniem zadaniami ===
+    renderSprintMiniBoardStructure(); 
+
     renderSprintDraftTasks();
     sprintModal.saveBtn.textContent = 'Zapisz zmiany w Sprincie';
     openModal(sprintModal.overlay);
@@ -13511,11 +13567,15 @@ function openEditSprintModal(sprintId) {
 // --- 4. FUNKCJA AKTUALIZUJĄCA WIDOK SPRINTU (Z listy `sprintDraftTasks`) ---
 // --- 4. FUNKCJA AKTUALIZUJĄCA WIDOK SPRINTU (LISTA + TABLICA) ---
 function renderSprintDraftTasks() {
-    // 1. Wyczyść wszystkie listy wizualnie
+    // 1. Wyczyść Backlog (Lewa kolumna - stała)
     sprintModal.backlogList.innerHTML = '';
-    sprintModal.todoList.innerHTML = '';
-    sprintModal.inprogressList.innerHTML = '';
-    sprintModal.doneList.innerHTML = '';
+
+    // 2. Wyczyść wszystkie dynamiczne listy w Mini Boardzie (Prawa strona)
+    // Pobieramy wszystkie listy, które mają klasę 'sprint-mini-dropzone' (nadaną w renderSprintMiniBoardStructure)
+    if (sprintModal.boardContainer) {
+        const dynamicLists = sprintModal.boardContainer.querySelectorAll('.sprint-mini-dropzone');
+        dynamicLists.forEach(list => list.innerHTML = '');
+    }
 
     sprintDraftTasks.forEach((task, index) => {
         // Dane do wyświetlenia
@@ -13556,16 +13616,40 @@ function renderSprintDraftTasks() {
             </li>
         `;
 
-        // 2. Rozdzielanie do odpowiednich kontenerów na podstawie tempStatus
-        if (task.tempStatus === 'todo') {
-             sprintModal.todoList.insertAdjacentHTML('beforeend', rowHTML);
-        } else if (task.tempStatus === 'inprogress') {
-             sprintModal.inprogressList.insertAdjacentHTML('beforeend', rowHTML);
+        // 2. Rozdzielanie do odpowiednich kontenerów (Dynamiczne)
+        let targetListId;
+
+        if (task.tempStatus === 'backlog' || !task.tempStatus) {
+            // Lewa kolumna (Backlog)
+            targetListId = 'sprint-backlog-list';
+        } else if (task.tempStatus === 'todo') {
+            targetListId = 'sprint-board-todo';
         } else if (task.tempStatus === 'done') {
-             sprintModal.doneList.insertAdjacentHTML('beforeend', rowHTML);
+            targetListId = 'sprint-board-done';
+        } else if (task.tempStatus === 'inprogress') {
+            // Logika dla "W trakcie" (Domyślna vs Custom)
+            if (task.tempCustomColumnId) {
+                // Szukamy listy z ID 'sprint-board-custom_ID'
+                // Sprawdzamy, czy taka kolumna faktycznie istnieje w DOM (mogła zostać usunięta z projektu)
+                const exists = document.getElementById(`sprint-board-custom_${task.tempCustomColumnId}`);
+                if (exists) {
+                    targetListId = `sprint-board-custom_${task.tempCustomColumnId}`;
+                } else {
+                    // Fallback do domyślnej, jeśli custom zniknął
+                    targetListId = 'sprint-board-inprogress_default';
+                }
+            } else {
+                targetListId = 'sprint-board-inprogress_default';
+            }
+        }
+
+        // Znajdź element i wstaw
+        const targetList = document.getElementById(targetListId);
+        if (targetList) {
+            targetList.insertAdjacentHTML('beforeend', rowHTML);
         } else {
-             // Domyślnie 'backlog' (lewa kolumna)
-             sprintModal.backlogList.insertAdjacentHTML('beforeend', rowHTML);
+            // Fallback ostateczny - Backlog
+            sprintModal.backlogList.insertAdjacentHTML('beforeend', rowHTML);
         }
     });
     
@@ -13623,11 +13707,17 @@ function updateSprintStats() {
 // === KONIEC ===
 // --- 5. DRAG & DROP W KREATORZE ---
 function initSprintDragAndDrop() {
-    // 1. Zdefiniuj listy INTERAKTYWNE (można przenosić tam i z powrotem)
-    const interactiveLists = [sprintModal.backlogList, sprintModal.todoList, sprintModal.inprogressList];
+    // 1. Zbieramy wszystkie listy z Mini Boardzie (Prawa strona)
+    const allBoardLists = Array.from(sprintModal.boardContainer.querySelectorAll('.sprint-mini-dropzone'));
+    
+    // Tworzymy listę interaktywną: Backlog + Wszystkie kolumny OPRÓCZ 'sprint-board-done'
+    // (Zakładamy, że do Done nie wrzucamy zadań w kreatorze, lub obsługujemy to osobno jako read-only)
+    const interactiveLists = [
+        sprintModal.backlogList, 
+        ...allBoardLists.filter(el => el.id !== 'sprint-board-done')
+    ];
     
     interactiveLists.forEach(list => {
-        // Upewnij się, że nie dublujemy instancji
         if (list._sortable) list._sortable.destroy();
 
         list._sortable = new Sortable(list, {
@@ -13635,38 +13725,43 @@ function initSprintDragAndDrop() {
             animation: 150,
             ghostClass: 'sortable-ghost',
             
-            // === NOWE: Wizualne zablokowanie kolumny "Done" na starcie ===
+            // Logika blokady wizualnej dla Done
             onStart: (evt) => {
-                sprintModal.doneList.classList.add('drop-blocked');
-            },
-
-            // === NOWE: Fizyczna blokada wejścia "ducha" do kolumny "Done" ===
-            onMove: (evt) => {
-                // Jeśli próbujemy przeciągnąć nad listę "Done" -> ZABROŃ TEGO
-                if (evt.to === sprintModal.doneList) {
-                    return false; // To blokuje animację wjazdu
-                }
-                return true; // W innych przypadkach pozwól
+                const doneL = document.getElementById('sprint-board-done');
+                if(doneL) doneL.classList.add('drop-blocked');
             },
             
-            // Standardowa logika onEnd dla aktywnych list
+            // Fizyczna blokada wjazdu do Done
+            onMove: (evt) => {
+                if (evt.to.id === 'sprint-board-done') return false;
+                return true;
+            },
+            
             onEnd: (evt) => {
-                // === NOWE: Zdjęcie blokady wizualnej ===
-                sprintModal.doneList.classList.remove('drop-blocked');
+                const doneL = document.getElementById('sprint-board-done');
+                if(doneL) doneL.classList.remove('drop-blocked');
 
                 const itemEl = evt.item;
-                const newStatus = evt.to.dataset.status; 
+                const newStatus = evt.to.dataset.status; // np. 'inprogress'
+                
+                // === NOWE: Pobierz custom ID z datasetu nowej listy (jeśli istnieje) ===
+                const newCustomId = evt.to.dataset.customId || null;
+                
                 const index = itemEl.dataset.tempIndex;
 
                 if (evt.from === evt.to) return;
                 
                 if (sprintDraftTasks[index]) {
+                    // Aktualizujemy status tymczasowy (gdzie ma się wyrenderować)
                     sprintDraftTasks[index].tempStatus = newStatus;
-                    
+                    // Aktualizujemy ID kolumny tymczasowej (dla Custom Columns)
+                    sprintDraftTasks[index].tempCustomColumnId = newCustomId;
+
                     if (newStatus !== 'backlog') {
-                        // Wchodzi do sprintu
+                        // Wchodzi do sprintu -> ustawiamy statusy "produkcyjne"
                         sprintDraftTasks[index].status = newStatus;
-                        
+                        sprintDraftTasks[index].customColumnId = newCustomId; // <-- ZAPISUJEMY TEŻ TU
+
                         const sprintStart = sprintModal.startDate.value;
                         const sprintEnd = sprintModal.endDate.value;
                         
@@ -13674,8 +13769,9 @@ function initSprintDragAndDrop() {
                         if (sprintEnd) sprintDraftTasks[index].dueDate = `${sprintEnd}T17:00`;
 
                     } else {
-                        // Wraca do backlogu
+                        // Wraca do backlogu -> reset
                         sprintDraftTasks[index].status = 'todo';
+                        sprintDraftTasks[index].customColumnId = null; // Reset kolumny
                         sprintDraftTasks[index].startDate = null;
                         sprintDraftTasks[index].dueDate = null;
                     }
@@ -13685,19 +13781,16 @@ function initSprintDragAndDrop() {
         });
     });
 
-    // 2. Skonfiguruj listę TYLKO DO ODCZYTU (Wykonane)
-    const doneList = sprintModal.doneList;
-    if (doneList._sortable) doneList._sortable.destroy();
-
-    doneList._sortable = new Sortable(doneList, {
-        group: {
-            name: 'sprint-builder',
-            put: false,  // Logiczna blokada (backup dla onMove)
-            pull: false  // Blokada wyciągania
-        },
-        sort: false,     // Blokada sortowania
-        disabled: true   // Całkowite wyłączenie interakcji
-    });
+    // 2. Obsługa listy Done (Read Only)
+    const doneList = document.getElementById('sprint-board-done');
+    if (doneList) {
+        if (doneList._sortable) doneList._sortable.destroy();
+        doneList._sortable = new Sortable(doneList, {
+            group: { name: 'sprint-builder', put: false, pull: false },
+            sort: false,
+            disabled: true
+        });
+    }
 }
 // === NOWY LISTENER: Obsługa rozwijania podzadań w kreatorze sprintu ===
 if (sprintModal.overlay) {
@@ -13820,6 +13913,9 @@ sprintModal.saveBtn.addEventListener('click', async () => {
                 parentSprintId: isBacklog ? null : sprintId,
                 projectId: state.currentProjectId,
                 status: isBacklog ? 'backlog' : (draft.status || 'todo'),
+                // === NOWE: Obsługa Custom Column ===
+                customColumnId: isBacklog ? null : (draft.customColumnId || null),
+                // === KONIEC ===
                 
                 // A. Aktualizacja dat ZADANIA GŁÓWNEGO
                 startDate: targetStartDate,
@@ -39348,24 +39444,8 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                         <h3 style="font-size: 14px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">Status początkowy zadań w sprincie</h3>
                     </div>
                     
-                    <div class="kanban-board-mini" style="display: flex; gap: 12px; height: 100%; overflow-x: auto; align-items: stretch; padding-bottom: 0;">
-                        
-                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary); min-width: 200px;">
-                            <div class="kanban-column-header" style="padding: 8px;"><h3>Do realizacji</h3></div>
-                            <ul class="kanban-tasks" id="sprint-board-todo" data-status="todo" style="padding: 8px; overflow-y: auto; height: calc(100% - 40px);"></ul>
+                    <div id="sprint-mini-board-container" class="kanban-board-mini" style="display: flex; gap: 12px; height: 100%; overflow-x: auto; align-items: stretch; padding-bottom: 0;">
                         </div>
-
-                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary); min-width: 200px;">
-                            <div class="kanban-column-header" style="padding: 8px;"><h3>W trakcie</h3></div>
-                            <ul class="kanban-tasks" id="sprint-board-inprogress" data-status="inprogress" style="padding: 8px; overflow-y: auto; height: calc(100% - 40px);"></ul>
-                        </div>
-
-                        <div class="kanban-column" style="flex: 1; background-color: var(--bg-tertiary); min-width: 200px;">
-                            <div class="kanban-column-header" style="padding: 8px;"><h3>Wykonane</h3></div>
-                            <ul class="kanban-tasks" id="sprint-board-done" data-status="done" style="padding: 8px; overflow-y: auto; height: calc(100% - 40px);"></ul>
-                        </div>
-
-                    </div>
                 </div>
 
             </div>
@@ -39477,6 +39557,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
