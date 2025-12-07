@@ -18908,8 +18908,10 @@ if (!listsContainer) {
     const priorities = { low: 'Niski', medium: 'Średni', high: 'Wysoki' };
     projectDetailsModal.projectPriority.textContent = priorities[project.priority] || project.priority;
 
+
+
     // ============================================================
-    // === NOWA LOGIKA SPRINTÓW (Z POPRAWKĄ LICZENIA ZADAŃ) ===
+    // === NOWA LOGIKA SPRINTÓW (WERSJA ROZSZERZONA - PODSUMOWANIE) ===
     // ============================================================
     const sprintsSection = document.getElementById('details-sprints-section');
     const sprintsContainer = document.getElementById('details-sprints-container');
@@ -18922,81 +18924,176 @@ if (!listsContainer) {
         if (sprints.length === 0) {
             sprintsContainer.innerHTML = '<p style="font-style:italic; color:var(--text-secondary); text-align:center;">Brak utworzonych sprintów.</p>';
         } else {
-            // Sortowanie sprintów
+            // 1. Inicjalizacja statystyk globalnych
+            const globalStats = {
+                count: sprints.length,
+                todo: 0,
+                inprogress: 0,
+                done: 0,
+                pointsDelivered: 0,
+                pointsPlanned: 0
+            };
+
+            // 2. Sortowanie sprintów (Aktywne -> Planowane -> Zakończone -> Najnowsze)
             sprints.sort((a, b) => {
                 const statusOrder = { 'inprogress': 1, 'todo': 2, 'done': 3 };
                 const statusDiff = (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
                 if (statusDiff !== 0) return statusDiff;
+                // Jeśli ten sam status, nowsze na górze
                 return (b.createdAt || 0) - (a.createdAt || 0);
             });
 
-            let sprintsHTML = '<div style="display:flex; flex-direction:column; gap:12px;">';
+            // 3. Generowanie HTML listy sprintów i zbieranie danych globalnych
+            let sprintsListHTML = '<div style="display:flex; flex-direction:column; gap:12px; margin-top: 16px;">';
             
             sprints.forEach(sprint => {
-                // 1. Zadania, które są AKTUALNIE w tym sprincie (np. ukończone lub w trakcie jeśli sprint trwa)
+                // Aktualizacja liczników statusów
+                globalStats[sprint.status] = (globalStats[sprint.status] || 0) + 1;
+
+                // --- Analiza zadań wewnątrz sprintu ---
                 const children = (project.tasks || []).filter(t => t.parentSprintId === sprint.id);
-                
-                // 2. Zadania, które BYŁY w tym sprincie, ale zostały przeniesione (Carry Over)
-                // Szukamy zadań, które mają znacznik carryOverFrom równy ID tego sprintu
                 const movedAwayTasks = (project.tasks || []).filter(t => t.carryOverFrom === sprint.id);
 
-                // Licznik zadań: te co są + te co uciekły (żeby pokazać np. 9/10 zadań)
                 const totalTasks = children.length + movedAwayTasks.length;
                 
-                let deliveredPoints = 0;
-                let totalScopePoints = 0; 
-                let doneTasks = 0;
+                let sDeliveredPts = 0;
+                let sTotalScopePts = 0; 
+                let sDoneTasks = 0;
+                
+                // Zmienna do rankingu osób w sprincie { userId: points }
+                const sprintUserPoints = {};
 
-                // A. Oblicz punkty dla zadań obecnych w sprincie
+                // A. Zadania obecne (Dowiezione + Niedowiezione ale obecne)
                 children.forEach(child => {
                     const pts = parseFloat(child.estimation || child.effort || 0);
-                    totalScopePoints += pts; // Wlicza się do zakresu
+                    sTotalScopePts += pts;
 
                     if (child.status === 'done') {
-                        doneTasks++;
-                        deliveredPoints += pts; // Wlicza się do wyniku
+                        sDoneTasks++;
+                        sDeliveredPts += pts;
+                        
+                        // Zliczanie punktów dla użytkowników (Dowiezione)
+                        const finishers = (child.completedBy && child.completedBy.length > 0) ? child.completedBy : child.assignees;
+                        finishers.forEach(uid => {
+                            sprintUserPoints[uid] = (sprintUserPoints[uid] || 0) + (pts / finishers.length);
+                        });
                     }
                 });
 
-                // B. Oblicz punkty dla zadań, które uciekły (tylko do zakresu!)
+                // B. Zadania przeniesione (tylko Scope)
                 movedAwayTasks.forEach(moved => {
                     const pts = parseFloat(moved.estimation || moved.effort || 0);
-                    totalScopePoints += pts; // Było planowane, więc wlicza się do zakresu (mianownika)
-                    // Nie wlicza się do deliveredPoints, bo nie zostało dowiezione w tym sprincie
+                    sTotalScopePts += pts;
                 });
 
-                // Procenty (Bazują na totalScopePoints)
-                const progressPoints = totalScopePoints > 0 ? Math.min((deliveredPoints / totalScopePoints) * 100, 100) : 0;
+                // Aktualizacja globalnych punktów
+                globalStats.pointsDelivered += sDeliveredPts;
+                globalStats.pointsPlanned += sTotalScopePts;
+
+                // Obliczenia dla paska
+                const progressPercent = sTotalScopePts > 0 ? Math.min((sDeliveredPts / sTotalScopePts) * 100, 100) : 0;
                 
-                // --- Reszta kodu HTML (Badge, Pasek) bez zmian ---
+                // Style wizualne
                 let statusBadge = '';
                 let borderStyle = '1px solid var(--border-color)';
+                let statusColor = 'var(--accent-primary)'; // Domyślny niebieski
                 
                 if (sprint.status === 'inprogress') {
                     statusBadge = `<span style="background-color:var(--accent-primary); color:white; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700; text-transform:uppercase;">Aktywny</span>`;
                     borderStyle = '1px solid var(--accent-primary)';
                 } else if (sprint.status === 'done') {
                     statusBadge = `<span style="background-color:var(--success-primary); color:white; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700; text-transform:uppercase;">Zakończony</span>`;
+                    statusColor = 'var(--success-primary)';
                 } else {
                     statusBadge = `<span style="background-color:var(--bg-tertiary); color:var(--text-secondary); font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700; text-transform:uppercase;">Planowany</span>`;
+                    statusColor = 'var(--text-secondary)';
                 }
 
-                sprintsHTML += `
-                    <div style="background-color: var(--bg-secondary); border: ${borderStyle}; border-radius: var(--border-radius); padding: 10px; position: relative;">
-                        <div style="display:flex; gap:16px; font-size:12px; color:var(--text-secondary); margin-bottom:8px;">
-                            <span>Zadania: <strong>${doneTasks}/${totalTasks}</strong></span>
-                            <span>Punkty: <strong>${deliveredPoints}/${totalScopePoints}</strong></span>
+                // Generowanie Mini-Rankingu (Top 1)
+                let topPerformerHTML = '';
+                const sortedUsers = Object.keys(sprintUserPoints).sort((a,b) => sprintUserPoints[b] - sprintUserPoints[a]);
+                if (sortedUsers.length > 0) {
+                    const topUid = sortedUsers[0];
+                    const topUser = findUser(topUid);
+                    const topPts = sprintUserPoints[topUid];
+                    if (topUser && topPts > 0) {
+                        topPerformerHTML = `
+                            <div style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+                                <span>🏆 Lider sprintu:</span>
+                                ${renderAvatarHTML(topUser, 'avatar').replace('class="avatar"', 'class="avatar" style="width:16px;height:16px;font-size:8px;"')}
+                                <strong>${topUser.name || 'User'}</strong>
+                                <span>(${topPts.toFixed(1)} pkt)</span>
+                            </div>
+                        `;
+                    }
+                }
+
+                sprintsListHTML += `
+                    <div style="background-color: var(--bg-secondary); border: ${borderStyle}; border-radius: var(--border-radius); padding: 12px; position: relative;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <strong style="font-size: 14px;">${sprint.title}</strong>
+                            ${statusBadge}
+                        </div>
+                        
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;">
+                            <div>Zadania: <strong style="color: var(--text-primary);">${sDoneTasks}/${totalTasks}</strong></div>
+                            <div style="text-align: right;">Dowieziono: <strong style="color: ${statusColor};">${sDeliveredPts}/${sTotalScopePts} pkt</strong></div>
                         </div>
 
-                        <div class="progress-bar-container" style="height: 6px; margin-top: 0; background-color: var(--bg-tertiary);">
-                            <div class="progress-bar-fill" style="width: ${progressPoints}%; background-color: ${sprint.status === 'done' ? 'var(--success-primary)' : 'var(--accent-primary)'};"></div>
+                        <div class="progress-bar-container" style="height: 6px; margin-top: 4px; background-color: var(--bg-tertiary);">
+                            <div class="progress-bar-fill" style="width: ${progressPercent}%; background-color: ${statusColor};"></div>
                         </div>
+                        
+                        ${topPerformerHTML}
                     </div>
                 `;
             });
             
-            sprintsHTML += '</div>';
-            sprintsContainer.innerHTML = sprintsHTML;
+            sprintsListHTML += '</div>';
+
+            // 4. Budowanie Sekcji Podsumowania (Grid na górze)
+            const globalEfficiency = globalStats.pointsPlanned > 0 ? Math.round((globalStats.pointsDelivered / globalStats.pointsPlanned) * 100) : 0;
+            
+            const summaryHTML = `
+                <div style="background-color: var(--bg-primary); border-radius: var(--border-radius); padding: 12px; border: 1px solid var(--border-color);">
+                    <h4 style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 4px;">Bilans Generalny Sprintów</h4>
+                    
+                    <div class="project-details-budget-grid" style="margin-bottom: 0;">
+                        <div>
+                            <div style="color: var(--text-secondary); font-size: 10px; text-transform: uppercase;">Wszystkie</div>
+                            <strong style="font-size: 16px;">${globalStats.count}</strong>
+                        </div>
+                        <div>
+                            <div style="color: var(--text-secondary); font-size: 10px; text-transform: uppercase;">Aktywne</div>
+                            <strong style="font-size: 16px; color: var(--accent-primary);">${globalStats.inprogress}</strong>
+                        </div>
+                        <div>
+                            <div style="color: var(--text-secondary); font-size: 10px; text-transform: uppercase;">Zakończone</div>
+                            <strong style="font-size: 16px; color: var(--success-primary);">${globalStats.done}</strong>
+                        </div>
+                        <div>
+                            <div style="color: var(--text-secondary); font-size: 10px; text-transform: uppercase;">Planowane</div>
+                            <strong style="font-size: 16px; color: var(--text-secondary);">${globalStats.todo}</strong>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-color);">
+                        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                            <span>Suma Dowiezionych Punktów</span>
+                            <strong>${globalStats.pointsDelivered} / ${globalStats.pointsPlanned} pkt</strong>
+                        </div>
+                        <div class="progress-bar-container" style="height: 8px;">
+                            <div class="progress-bar-fill" style="width: ${globalEfficiency}%; background-color: var(--success-primary);"></div>
+                        </div>
+                        <div style="text-align: right; font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
+                            Średnia efektywność: ${globalEfficiency}%
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // 5. Złożenie całości
+            sprintsContainer.innerHTML = summaryHTML + sprintsListHTML;
         }
     } else {
         sprintsSection.style.display = 'none';
@@ -39366,6 +39463,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
