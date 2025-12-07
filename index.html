@@ -8722,6 +8722,19 @@ body.compact-mode .comment-item {
         display: none !important;
     }
 }
+        /* Wygaszenie listy "Wykonane" w kreatorze sprintu */
+#sprint-board-done {
+    opacity: 0.5; /* Efekt mgły / półprzezroczystości */
+    background-color: rgba(128, 128, 128, 0.05); /* Delikatne szare tło */
+    border: 1px dashed var(--border-color); /* Przerywana ramka sugerująca brak aktywności */
+    cursor: not-allowed; /* Kursor zakazu po najechaniu */
+}
+
+/* Wygaszenie elementów wewnątrz listy */
+#sprint-board-done .sprint-task-row {
+    pointer-events: none; /* Blokada kliknięć (edycji) na elementach w Done */
+    filter: grayscale(100%); /* Opcjonalnie: czarno-białe */
+}
     </style>
 
 </head>
@@ -13515,51 +13528,64 @@ function updateSprintStats() {
 // === KONIEC ===
 // --- 5. DRAG & DROP W KREATORZE ---
 function initSprintDragAndDrop() {
-    const lists = [sprintModal.backlogList, sprintModal.todoList, sprintModal.inprogressList, sprintModal.doneList];
+    // 1. Zdefiniuj listy INTERAKTYWNE (można przenosić tam i z powrotem)
+    // Wykluczamy stąd 'sprintModal.doneList'
+    const interactiveLists = [sprintModal.backlogList, sprintModal.todoList, sprintModal.inprogressList];
     
-    lists.forEach(list => {
-        new Sortable(list, {
-            group: 'sprint-builder',
+    interactiveLists.forEach(list => {
+        // Upewnij się, że nie dublujemy instancji
+        if (list._sortable) list._sortable.destroy();
+
+        list._sortable = new Sortable(list, {
+            group: 'sprint-builder', // Wspólna grupa
             animation: 150,
+            ghostClass: 'sortable-ghost',
+            
+            // Standardowa logika onEnd dla aktywnych list
             onEnd: (evt) => {
                 const itemEl = evt.item;
-                const newStatus = evt.to.dataset.status; // backlog, todo, inprogress, done
+                const newStatus = evt.to.dataset.status; 
                 const index = itemEl.dataset.tempIndex;
+
+                if (evt.from === evt.to) return;
                 
-                // Aktualizuj status w pamięci tymczasowej
                 if (sprintDraftTasks[index]) {
                     sprintDraftTasks[index].tempStatus = newStatus;
                     
-                    // Mapowanie na prawdziwy status zadania
                     if (newStatus !== 'backlog') {
-                        // === ZADANIE WCHODZI DO SPRINTU ===
+                        // Wchodzi do sprintu
                         sprintDraftTasks[index].status = newStatus;
                         
-                        // Pobierz daty ze Sprintu (z formularza)
-                        const sprintStart = sprintModal.startDate.value; // YYYY-MM-DD
-                        const sprintEnd = sprintModal.endDate.value;     // YYYY-MM-DD
+                        const sprintStart = sprintModal.startDate.value;
+                        const sprintEnd = sprintModal.endDate.value;
                         
-                        // Przypisz datę startu (jeśli ustawiona w sprincie)
-                        if (sprintStart) {
-                            sprintDraftTasks[index].startDate = `${sprintStart}T09:00`;
-                        }
-                        // Przypisz termin wykonania (jeśli ustawiony w sprincie)
-                        if (sprintEnd) {
-                            sprintDraftTasks[index].dueDate = `${sprintEnd}T17:00`;
-                        }
+                        if (sprintStart) sprintDraftTasks[index].startDate = `${sprintStart}T09:00`;
+                        if (sprintEnd) sprintDraftTasks[index].dueDate = `${sprintEnd}T17:00`;
 
                     } else {
-                        // === ZADANIE WRACA DO BACKLOGU (DO ZAPLANOWANIA) ===
-                        sprintDraftTasks[index].status = 'todo'; // W bazie 'todo', ale w kontekście Backlogu
-                        
-                        // Wyczyść daty, bo zadanie wypada ze sprintu
+                        // Wraca do backlogu
+                        sprintDraftTasks[index].status = 'todo';
                         sprintDraftTasks[index].startDate = null;
                         sprintDraftTasks[index].dueDate = null;
                     }
                 }
-                updateSprintStats();
+                renderSprintDraftTasks();
             }
         });
+    });
+
+    // 2. Skonfiguruj listę TYLKO DO ODCZYTU (Wykonane)
+    const doneList = sprintModal.doneList;
+    if (doneList._sortable) doneList._sortable.destroy();
+
+    doneList._sortable = new Sortable(doneList, {
+        group: {
+            name: 'sprint-builder',
+            put: false,  // BLOKADA: Nie przyjmuj zadań (nie można tu upuścić)
+            pull: false  // BLOKADA: Nie oddawaj zadań (nie można stąd zabrać)
+        },
+        sort: false,     // Blokada sortowania wewnątrz
+        disabled: true   // Całkowite wyłączenie interakcji Drag&Drop dla tej listy
     });
 }
 // === NOWY LISTENER: Obsługa rozwijania podzadań w kreatorze sprintu ===
@@ -39107,6 +39133,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
