@@ -14034,10 +14034,7 @@ async function handleSprintDragEnd(evt) {
     };
 
     // Identyfikacja przeciąganego elementu
-    // Używamy ID z datasetu. Dla podzadań (zarówno nested jak i standalone) to będzie ID podzadania.
     const draggedId = itemEl.dataset.taskId || itemEl.dataset.subtaskId;
-    
-    // Flagi typu
     const isNestedSubtaskUI = itemEl.dataset.type === 'nested-subtask';
     const isSubtaskUI = itemEl.dataset.type === 'subtask' || isNestedSubtaskUI;
     
@@ -14050,18 +14047,18 @@ async function handleSprintDragEnd(evt) {
     }
 
     // =======================================================================
-    // LOGIKA DLA LIVE MODE (Zapis do bazy - To naprawia Twój problem)
+    // LOGIKA DLA LIVE MODE (Zapis do bazy)
     // =======================================================================
     if (isLiveMode) {
         try {
-            // Iterujemy po wszystkich zadaniach w projekcie, aby znaleźć to, które modyfikujemy
+            // Kopia zadań do modyfikacji
             const currentTasks = fullProject.tasks.map(t => {
                 
                 // PRZYPADEK 1: To jest PODZADANIE (szukamy w subtasks rodzica)
                 if (isSubtaskUI) {
-                    // Sprawdzamy, czy to zadanie 't' jest rodzicem szukanego podzadania
+                    // Musimy znaleźć rodzica tego podzadania
                     if (t.subtasks && t.subtasks.find(s => s.id === draggedId)) {
-                        // Znaleziono rodzica. Aktualizujemy konkretne podzadanie w jego tablicy.
+                        // Znaleziono rodzica. Aktualizujemy konkretne podzadanie.
                         const updatedSubtasks = t.subtasks.map(s => {
                             if (s.id === draggedId) {
                                 return { ...s, ...changes };
@@ -14085,7 +14082,7 @@ async function handleSprintDragEnd(evt) {
             await updateDoc(doc(projectsRef, state.currentProjectId), { tasks: currentTasks });
             
             // Po udanym zapisie, zaktualizuj też lokalny stan `sprintDraftTasks`,
-            // aby UI (Mini Kanban) odzwierciedliło zmianę płynnie bez czekania na onSnapshot.
+            // aby UI (Mini Kanban) odzwierciedliło zmianę bez pełnego przeładowania.
             
             // SCENARIUSZ A: Nested Subtask wyciągnięty na zewnątrz (Standalone)
             if (isNestedSubtaskUI) {
@@ -14106,9 +14103,10 @@ async function handleSprintDragEnd(evt) {
             else if (indexInDraft >= 0 && sprintDraftTasks[indexInDraft]) {
                 const draftItem = sprintDraftTasks[indexInDraft];
                 
-                // Sprawdź "Merge Back" (tylko dla podzadań, które wracają do kolumny rodzica)
+                // Sprawdź "Merge Back" (tylko dla podzadań)
+                // Jeśli podzadanie wraca do statusu rodzica, powinno "zniknąć" do środka
                 if (isSubtaskUI) {
-                    // Znajdź rodzica w projekcie
+                    // Znajdź rodzica w projekcie (nie w drafcie, bo rodzic może nie być w sprincie)
                     let parentOfDraft = null;
                     fullProject.tasks.forEach(pt => {
                         if (pt.subtasks && pt.subtasks.some(s => s.id === draftItem.id)) parentOfDraft = pt;
@@ -14120,7 +14118,6 @@ async function handleSprintDragEnd(evt) {
                         const pStatus = parentInDraft ? parentInDraft.tempStatus : (parentOfDraft.status || 'todo');
                         const pCol = parentInDraft ? parentInDraft.tempCustomColumnId : (parentOfDraft.customColumnId || null);
                         
-                        // Jeśli status podzadania zgadza się ze statusem rodzica, scal je z powrotem
                         if (newStatus === pStatus && newCustomId == pCol) {
                             shouldMergeBack = true;
                         }
@@ -14141,7 +14138,7 @@ async function handleSprintDragEnd(evt) {
     } 
     
     // =======================================================================
-    // LOGIKA DLA DRAFT MODE (Tylko lokalnie - Nowy Sprint)
+    // LOGIKA DLA DRAFT MODE (Tylko lokalnie)
     // =======================================================================
     else {
         // Tu działamy tylko na tablicy sprintDraftTasks
@@ -39959,7 +39956,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
-
 
 
 
