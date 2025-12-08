@@ -14294,7 +14294,7 @@ sprintModal.saveBtn.addEventListener('click', async () => {
             allTasks.push(sprintTask);
         }
 
-        // B. Przetwórz zadania ze Sprintu (Drafty -> Prawdziwe Zadania)
+       // B. Przetwórz zadania ze Sprintu (Drafty -> Prawdziwe Zadania)
         sprintDraftTasks.forEach(draft => {
             const isNew = draft.id.startsWith('draft_');
             
@@ -14302,27 +14302,31 @@ sprintModal.saveBtn.addEventListener('click', async () => {
             const isBacklog = draft.tempStatus === 'backlog';
 
             // Ustal daty dla zadania (i podzadań)
-            // Jeśli Backlog -> daty są puste (null)
-            // Jeśli Sprint -> daty są równe datom Sprintu
             const targetStartDate = isBacklog ? null : newSprintStart;
             const targetDueDate = isBacklog ? null : newSprintEnd;
 
+            // === DEFINIUJEMY NOWE WARTOŚCI STANU NA PODSTAWIE DRAFTU ===
+            // Używamy tempStatus/tempCustomColumnId jeśli istnieją (zmiana w kreatorze), 
+            // w przeciwnym razie fallback do obecnych wartości.
+            const newStatus = isBacklog ? 'backlog' : (draft.tempStatus || draft.status || 'todo');
+            const newCustomCol = isBacklog ? null : (draft.tempCustomColumnId !== undefined ? draft.tempCustomColumnId : (draft.customColumnId || null));
+            
+            // Przygotuj obiekt do zapisu (bazowy)
             let taskToSave = {
                 ...draft,
                 parentSprintId: isBacklog ? null : sprintId,
                 projectId: state.currentProjectId,
-                status: isBacklog ? 'backlog' : (draft.status || 'todo'),
-                // === NOWE: Obsługa Custom Column ===
-                customColumnId: isBacklog ? null : (draft.customColumnId || null),
-                // === KONIEC ===
-                
-                // A. Aktualizacja dat ZADANIA GŁÓWNEGO
+                status: newStatus,
+                customColumnId: newCustomCol,
                 startDate: targetStartDate,
                 dueDate: targetDueDate
             };
 
-            // === B. KASKADOWA AKTUALIZACJA PODZADAŃ ===
-            // Jeśli zadanie ma podzadania, one również muszą przyjąć te same daty (lub ich brak)
+            // Usuwamy pola tymczasowe przed zapisem
+            delete taskToSave.tempStatus;
+            delete taskToSave.tempCustomColumnId;
+
+            // === B. KASKADOWA AKTUALIZACJA DZIECI (Dla Zadania Głównego) ===
             if (taskToSave.subtasks && taskToSave.subtasks.length > 0) {
                 taskToSave.subtasks = taskToSave.subtasks.map(sub => {
                     return {
@@ -14332,17 +14336,52 @@ sprintModal.saveBtn.addEventListener('click', async () => {
                     };
                 });
             }
-            // === KONIEC AKTUALIZACJI PODZADAŃ ===
 
             if (isNew) {
+                // Nowe zadanie (zawsze główne w tym kontekście)
                 taskToSave.id = `task_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
-                delete taskToSave.tempStatus;
                 allTasks.push(taskToSave);
             } else {
+                // Istniejące zadanie - Szukamy w allTasks
                 const idx = allTasks.findIndex(t => t.id === draft.id);
+                
                 if (idx !== -1) {
+                    // 1. ZNALEZIONO JAKO ZADANIE GŁÓWNE
                     allTasks[idx] = { ...allTasks[idx], ...taskToSave };
-                    delete allTasks[idx].tempStatus;
+                } else {
+                    // 2. NIE ZNALEZIONO JAKO GŁÓWNE -> TO MUSI BYĆ PODZADANIE
+                    // Szukamy rodzica tego podzadania w allTasks
+                    const parentTask = allTasks.find(t => t.subtasks && t.subtasks.some(s => s.id === draft.id));
+                    
+                    if (parentTask) {
+                        // Aktualizujemy konkretne podzadanie wewnątrz rodzica
+                        parentTask.subtasks = parentTask.subtasks.map(sub => {
+                            if (sub.id === draft.id) {
+                                // Dla podzadania:
+                                // - Status 'backlog' z kreatora mapujemy na 'todo' (podzadania nie mają statusu backlog)
+                                // - Statusy 'todo', 'inprogress', 'done' zapisujemy normalnie
+                                const subStatus = (draft.tempStatus === 'backlog') ? 'todo' : (draft.tempStatus || sub.status || 'todo');
+                                
+                                // - Ustawiamy isCompleted na podstawie statusu 'done'
+                                const subIsCompleted = (subStatus === 'done');
+
+                                return {
+                                    ...sub,
+                                    // Aktualizujemy tylko zmienione pola, resztę zachowujemy z oryginału (sub)
+                                    status: subStatus,
+                                    customColumnId: isBacklog ? null : (draft.tempCustomColumnId !== undefined ? draft.tempCustomColumnId : sub.customColumnId),
+                                    isCompleted: subIsCompleted,
+                                    startDate: targetStartDate,
+                                    dueDate: targetDueDate,
+                                    // Możemy też zaktualizować punkty/wysiłek jeśli były edytowane w drafcie
+                                    estimation: draft.estimation !== undefined ? draft.estimation : sub.estimation,
+                                    effort: draft.effort !== undefined ? draft.effort : sub.effort,
+                                    actualEffort: draft.actualEffort !== undefined ? draft.actualEffort : sub.actualEffort
+                                };
+                            }
+                            return sub;
+                        });
+                    }
                 }
             }
         });
@@ -39997,6 +40036,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
