@@ -17502,7 +17502,9 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         const notificationsModal = {
             overlay: document.getElementById('notifications-modal'),
             list: document.getElementById('notifications-list'),
-            markAllReadBtn: document.getElementById('mark-all-notifications-read-btn')
+            markAllReadBtn: document.getElementById('mark-all-notifications-read-btn'),
+            // === NOWA REFERENCJA ===
+            clearHistoryBtn: document.getElementById('clear-notifications-history-btn')
         };
 
         function getNotificationIcon(type) {
@@ -17542,8 +17544,13 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             if (state.notifications.length === 0) {
                 notificationsModal.list.innerHTML = '<li style="padding: 20px; text-align: center; color: var(--text-secondary);">Brak powiadomień.</li>';
                 notificationsModal.markAllReadBtn.style.display = 'none';
+                // === NOWE: Ukryj też przycisk czyszczenia ===
+                if(notificationsModal.clearHistoryBtn) notificationsModal.clearHistoryBtn.style.display = 'none';
             } else {
                 notificationsModal.markAllReadBtn.style.display = 'block';
+                // === NOWE: Pokaż przycisk czyszczenia ===
+                if(notificationsModal.clearHistoryBtn) notificationsModal.clearHistoryBtn.style.display = 'block';
+                
                 state.notifications.forEach(n => {
                     const li = document.createElement('li');
                     li.className = `notification-item ${n.isRead ? 'is-read' : ''}`;
@@ -17608,55 +17615,57 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             }
             closeModal(notificationsModal.overlay);
         });
-        taskModal.commentsList.addEventListener('click', async (e) => {
-            const deleteBtn = e.target.closest('.delete-comment-btn');
-            if (!deleteBtn) return;
 
-            const commentId = deleteBtn.dataset.commentId;
-            const taskId = taskModal.overlay.dataset.taskId;
-            const {
-                task,
-                project
-            } = findTask(taskId);
+        // === NOWY LISTENER: Wyczyść historię powiadomień ===
+        if (notificationsModal.clearHistoryBtn) {
+            notificationsModal.clearHistoryBtn.addEventListener('click', () => {
+                // Sprawdź, czy są jakieś powiadomienia do usunięcia
+                if (state.notifications.length === 0) {
+                    showNotification("Historia powiadomień jest już pusta.", "Info");
+                    return;
+                }
 
-            if (!task || !project || !commentId) return;
+                showConfirmation(
+                    "Wyczyść historię",
+                    "Czy na pewno chcesz usunąć całą historię powiadomień? Tej operacji nie można cofnąć.",
+                    async (confirmed) => {
+                        if (confirmed) {
+                            try {
+                                notificationsModal.clearHistoryBtn.disabled = true;
+                                notificationsModal.clearHistoryBtn.textContent = "Usuwanie...";
 
-            const commentToDelete = (task.comments || []).find(c => (c.id || `comment_${c.timestamp}`) === commentId);
-            if (!commentToDelete || commentToDelete.userId !== state.currentUser.uid) {
-                showNotification("Nie masz uprawnień do usunięcia tego komentarza.", "Błąd");
-                return;
-            }
+                                const batch = writeBatch(db);
+                                const notificationsRef = collection(db, `artifacts/${appId}/public/data/notifications`);
+                                
+                                // Dodajemy do batcha instrukcje usunięcia każdego powiadomienia z aktualnego stanu
+                                state.notifications.forEach(n => {
+                                    const docRef = doc(notificationsRef, n.id);
+                                    batch.delete(docRef);
+                                });
 
-            showConfirmation(
-                "Potwierdź usunięcie",
-                "Czy na pewno chcesz usunąć ten komentarz?",
-                async (confirmed) => {
-                    if (confirmed) {
-                        try {
-                            const updatedComments = task.comments.filter(c => (c.id || `comment_${c.timestamp}`) !== commentId);
-                            const updatedTask = { ...task,
-                                comments: updatedComments
-                            };
-                            const updatedTasks = project.tasks.map(t => (t.id === taskId ? updatedTask : t));
+                                await batch.commit();
+                                
+                                // onSnapshot automatycznie zaktualizuje stan (state.notifications = []) i UI
+                                // Ale dla pewności czyścimy widok listy natychmiast
+                                notificationsModal.list.innerHTML = '<li style="padding: 20px; text-align: center; color: var(--text-secondary);">Brak powiadomień.</li>';
+                                notificationsModal.markAllReadBtn.style.display = 'none';
 
-                            const projectDocRef = findProject(project.id) ?
-                                doc(projectsRef, project.id) :
-                                doc(completedProjectsRef, project.id);
-
-                            await updateDoc(projectDocRef, {
-                                tasks: updatedTasks
-                            });
-                            openTaskModal(taskId);
-                            showNotification("Komentarz został usunięty.", "Sukces");
-                        } catch (error) {
-                            console.error("Błąd podczas usuwania komentarza:", error);
-                            showNotification("Wystąpił błąd podczas usuwania komentarza.", "Błąd");
+                                showNotification("Historia powiadomień została wyczyszczona.", "Sukces");
+                                
+                            } catch (error) {
+                                console.error("Błąd podczas czyszczenia historii:", error);
+                                showNotification("Wystąpił błąd podczas usuwania powiadomień.", "Błąd");
+                            } finally {
+                                notificationsModal.clearHistoryBtn.disabled = false;
+                                notificationsModal.clearHistoryBtn.textContent = "Wyczyść historię";
+                            }
                         }
-                    }
-                },
-                true
-            );
-        });
+                    },
+                    true // Czerwony przycisk w potwierdzeniu
+                );
+            });
+        }
+        // === KONIEC NOWEGO LISTENERA ===
 
          function renderSidebar() {
             // NOWA LINIA - obsługa podświetlenia dla "Mój dzień"
@@ -38565,20 +38574,20 @@ welcomeModal.okBtn.addEventListener('click', async () => {
     </div>
 </div>
     <div class="modal-overlay" id="notifications-modal">
-    <div class="modal">
-        <div class="modal-header">
-            <h2>Powiadomienia</h2>
-            <button type="button" class="modal-close-btn">&times;</button>
-        </div>
-        <div class="form-modal-content" id="notifications-list-container">
-            <ul class="notifications-list" id="notifications-list">
+        <div class="modal">
+             <div class="modal-header">
+                <h2 id="notification-title">Powiadomienia</h2> <button type="button" class="modal-close-btn">&times;</button>
+            </div>
+            <div class="form-modal-content" id="notifications-list-container">
+                <ul class="notifications-list" id="notifications-list">
                 </ul>
-        </div>
-        <div class="modal-footer">
-            <button type="button" id="mark-all-notifications-read-btn" class="btn btn-secondary">Oznacz wszystkie jako przeczytane</button>
+            </div>
+            <div class="modal-footer" style="justify-content: space-between;">
+                <button type="button" id="clear-notifications-history-btn" class="btn btn-danger">Wyczyść historię</button>
+                <button type="button" id="mark-all-notifications-read-btn" class="btn btn-secondary">Oznacz wszystkie jako przeczytane</button>
+            </div>
         </div>
     </div>
-</div>
    
 <div class="modal-overlay" id="subtask-modal">
     <div class="modal">
@@ -39988,6 +39997,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
