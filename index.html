@@ -22451,9 +22451,39 @@ function handleTaskFormChange(e) {
        // === ZMIANA: Dodano parametr initialTab ===
         async function openTaskModal(taskId, initialTab = null) {
             console.log("Wywołano openTaskModal z ID:", taskId, "Tab:", initialTab);
-            const { task, project } = findTask(taskId);
+            
+            // 1. Spróbuj znaleźć jako Zadanie Główne
+            let { task, project } = findTask(taskId);
+
+            // === NOWE: INTELIGENTNE PRZEKIEROWANIE DLA PODZADAŃ (ROUTER) ===
+            if (!task) {
+                // Jeśli nie znaleziono jako zadanie główne, szukamy w podzadaniach wszystkich projektów
+                // (Pomaga to obsługiwać "samodzielne podzadania" na tablicy Kanban)
+                const allProjects = [...state.projects, ...state.completedProjects];
+                let foundSubtask = false;
+
+                for (const p of allProjects) {
+                    for (const t of (p.tasks || [])) {
+                        if (t.subtasks && t.subtasks.length > 0) {
+                            // Sprawdź czy taskId pasuje do jakiegoś podzadania w tym zadaniu
+                            const sub = t.subtasks.find(s => s.id === taskId);
+                            if (sub) {
+                                console.log("Wykryto ID podzadania w openTaskModal. Przekierowanie do openSubtaskModal.");
+                                // Znaleziono! To jest podzadanie. Otwórz właściwy modal.
+                                // Przekazujemy: ID Rodzica (t.id), ID Podzadania (taskId), Tab
+                                openSubtaskModal(t.id, taskId, initialTab); 
+                                return; // ZATRZYMAJ openTaskModal
+                            }
+                        }
+                    }
+                    if (foundSubtask) break;
+                }
+            }
+            // === KONIEC NOWEGO KODU ===
 
             if (!task || !project) {
+                 // Jeśli nadal nic nie znaleziono (ani main, ani sub), wyświetl błąd
+                 showNotification("Nie znaleziono zadania lub projektu.", "Błąd");
                  console.error("Nie znaleziono zadania lub projektu dla ID:", taskId);
                  return;
             }
@@ -40117,6 +40147,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
