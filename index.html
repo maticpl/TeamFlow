@@ -36745,33 +36745,87 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             const response = result.data.response;
             const meta = result.data.meta; // <-- ODBIERAMY META DANE
 
-            // === NOWOŚĆ: AUTOMATYCZNE PRZEŁĄCZANIE WIDOKU ===
-            if (meta && meta.action === 'SWITCH_VIEW') {
-                if (meta.targetView === 'planning-backlog') {
-                    console.log("[AI Action] Przełączanie na widok Backlogu dla projektu:", meta.targetProjectId);
-                    
-                    // 1. Ustaw widok
+            // === NOWOŚĆ: AUTOMATYCZNE PRZEŁĄCZANIE WIDOKU I AGENT SPRINTU ===
+            if (meta) {
+                // A. Istniejąca obsługa Backlogu
+                if (meta.action === 'SWITCH_VIEW' && meta.targetView === 'planning-backlog') {
+                    // ... (tutaj Twój istniejący kod backlogu) ...
+                    // (skopiuj go stąd, jeśli go nie masz, ale zakładam, że jest z poprzedniego kroku)
                     state.ui.currentView = 'planning-backlog';
-                    state.currentProjectId = null; // Backlog to widok globalny z filtrem, nie projektowy
+                    state.currentProjectId = null; 
                     state.ui.isCalendarView = false;
-                    
-                    // 2. Wymuś ustawienie filtra w DOM po renderowaniu
-                    // Musimy to zrobić PO render(), więc używamy setTimeout lub modyfikujemy stan UI,
-                    // ale select w backlogu nie jest w 'state.ui', jest elementem DOM.
-                    // Najlepiej zapisać to w zmiennej globalnej tymczasowej lub po prostu wywołać logikę po renderze.
-                    
-                    // Renderujemy aplikację, aby pokazać widok Backlogu
                     render();
-                    
-                    // 3. Po wyrenderowaniu ustawiamy wartość selecta i odświeżamy listę
                     setTimeout(() => {
                         const filterSelect = document.getElementById('backlog-project-filter');
                         if (filterSelect && meta.targetProjectId) {
                             filterSelect.value = meta.targetProjectId;
-                            // Wywołaj ręcznie funkcję renderującą listę, aby uwzględnić filtr
                             renderPlanningBacklogView(); 
                         }
                     }, 100);
+                }
+
+                // B. [AGENT] OTWARCIE KREATORA SPRINTU
+                if (meta.action === 'OPEN_SPRINT_MODAL') {
+                    const project = findProject(meta.projectId);
+                    if (project) {
+                        // 1. Przełącz na projekt
+                        state.currentProjectId = project.id;
+                        state.ui.currentView = 'projects';
+                        saveUiState();
+                        render();
+                        
+                        // 2. Kliknij FAB "Nowy Sprint" (z opóźnieniem dla efektu)
+                        setTimeout(() => {
+                            const fabSprint = document.getElementById('fab-action-new-sprint');
+                            if (fabSprint) fabSprint.click();
+                        }, 500);
+                    }
+                }
+
+                // C. [AGENT] DODAWANIE ZADAŃ DO SPRINTU (PRZESUWANIE KAFELKÓW)
+                if (meta.action === 'SPRINT_DRAFT_ADD') {
+                    // Działamy tylko, jeśli modal jest otwarty
+                    if (document.getElementById('sprint-creation-modal').classList.contains('visible')) {
+                        const keywords = meta.keywords || [];
+                        let movedCount = 0;
+
+                        // Przeszukujemy zadania w drafcie
+                        sprintDraftTasks.forEach(task => {
+                            // Interesują nas tylko te w lewej kolumnie ('backlog')
+                            if (task.tempStatus === 'backlog') {
+                                // Sprawdź, czy tytuł zawiera słowo kluczowe (case insensitive)
+                                const match = keywords.some(kw => task.title.toLowerCase().includes(kw.toLowerCase()));
+                                
+                                if (match) {
+                                    task.tempStatus = 'todo'; // Przesuń do prawej kolumny
+                                    movedCount++;
+                                }
+                            }
+                        });
+
+                        if (movedCount > 0) {
+                            renderSprintDraftTasks(); // Przerysuj modal
+                            // Opcjonalnie: Konfetti lub dźwięk
+                        }
+                    }
+                }
+
+                // D. [AGENT] USTAWIANIE DAT
+                if (meta.action === 'SPRINT_DRAFT_DATES') {
+                     if (document.getElementById('sprint-creation-modal').classList.contains('visible')) {
+                         if (meta.startDate) document.getElementById('sprint-start-date').value = meta.startDate;
+                         if (meta.endDate) document.getElementById('sprint-end-date').value = meta.endDate;
+                         // Pokaż, że zmieniono (np. flash inputa) - opcjonalne
+                     }
+                }
+
+                // E. [AGENT] KLIKNIĘCIE ZAPISZ
+                if (meta.action === 'SPRINT_DRAFT_SAVE') {
+                    if (document.getElementById('sprint-creation-modal').classList.contains('visible')) {
+                         setTimeout(() => {
+                            document.getElementById('save-sprint-btn').click();
+                        }, 500);
+                    }
                 }
             }
             // === KONIEC ===
@@ -40438,6 +40492,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
