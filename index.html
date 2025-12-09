@@ -36743,6 +36743,38 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
             });
 
             const response = result.data.response;
+            const meta = result.data.meta; // <-- ODBIERAMY META DANE
+
+            // === NOWOŚĆ: AUTOMATYCZNE PRZEŁĄCZANIE WIDOKU ===
+            if (meta && meta.action === 'SWITCH_VIEW') {
+                if (meta.targetView === 'planning-backlog') {
+                    console.log("[AI Action] Przełączanie na widok Backlogu dla projektu:", meta.targetProjectId);
+                    
+                    // 1. Ustaw widok
+                    state.ui.currentView = 'planning-backlog';
+                    state.currentProjectId = null; // Backlog to widok globalny z filtrem, nie projektowy
+                    state.ui.isCalendarView = false;
+                    
+                    // 2. Wymuś ustawienie filtra w DOM po renderowaniu
+                    // Musimy to zrobić PO render(), więc używamy setTimeout lub modyfikujemy stan UI,
+                    // ale select w backlogu nie jest w 'state.ui', jest elementem DOM.
+                    // Najlepiej zapisać to w zmiennej globalnej tymczasowej lub po prostu wywołać logikę po renderze.
+                    
+                    // Renderujemy aplikację, aby pokazać widok Backlogu
+                    render();
+                    
+                    // 3. Po wyrenderowaniu ustawiamy wartość selecta i odświeżamy listę
+                    setTimeout(() => {
+                        const filterSelect = document.getElementById('backlog-project-filter');
+                        if (filterSelect && meta.targetProjectId) {
+                            filterSelect.value = meta.targetProjectId;
+                            // Wywołaj ręcznie funkcję renderującą listę, aby uwzględnić filtr
+                            renderPlanningBacklogView(); 
+                        }
+                    }, 100);
+                }
+            }
+            // === KONIEC ===
 
         // KROK 1.5: Dodanie odpowiedzi bota do historii
         aiChatHistory.push({ role: 'bot', text: response });
@@ -40406,6 +40438,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
