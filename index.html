@@ -13753,23 +13753,29 @@ function renderSprintDraftTasks() {
         } else {
             // === RENDEROWANIE ZADANIA GŁÓWNEGO (Z ZAGNIEŻDŻONYMI PODZADANIAMI) ===
             
-            // 1. Znajdź podzadania tego zadania (z oryginalnego obiektu projektu, bo draft może ich nie mieć w strukturze)
-            // Ale musimy uważać: chcemy renderować tylko te podzadania, które NIE SĄ już na tablicy jako samodzielne (activeDraftIds).
-            
-            // Znajdź oryginalne zadanie w projekcie, żeby pobrać listę jego podzadań
             const originalTask = fullProject ? fullProject.tasks.find(t => t.id === task.id) : null;
             let nestedSubtasksHTML = '';
             let subtaskCount = 0;
+            
+            // Zmienne do logiki blokowania punktów rodzica
+            let calculatedParentPoints = 0;
+            let hasSubtasks = false;
 
             if (originalTask && originalTask.subtasks && originalTask.subtasks.length > 0) {
+                hasSubtasks = true;
+                
                 originalTask.subtasks.forEach(sub => {
-                    // Renderuj wewnątrz TYLKO JEŚLI sub nie jest w activeDraftIds
+                    // Sumujemy punkty WSZYSTKICH podzadań do rodzica (niezależnie czy są nested czy standalone)
+                    const subPts = parseFloat(sub.estimation || sub.effort || 0);
+                    calculatedParentPoints += subPts;
+
+                    // Renderuj wewnątrz TYLKO JEŚLI sub nie jest w activeDraftIds (nie jest standalone)
                     if (!activeDraftIds.has(sub.id)) {
                         subtaskCount++;
                         const subPoints = sub.estimation || sub.effort || 0;
-                         const subAssignees = (sub.assignees || []).map(id => findUser(id)).filter(Boolean).map(u => renderAvatarHTML(u).replace('class="avatar"', 'class="avatar" style="width:16px; height:16px; font-size:8px;"')).join('');
+                        const subAssignees = (sub.assignees || []).map(id => findUser(id)).filter(Boolean).map(u => renderAvatarHTML(u).replace('class="avatar"', 'class="avatar" style="width:16px; height:16px; font-size:8px;"')).join('');
 
-                        // === WAŻNE: Dodajemy data-type="nested-subtask" ===
+                        // === ZMIANA: Dodano klasę 'js-edit-points' i 'data-task-id' do spana z punktami w podzadaniu ===
                         nestedSubtasksHTML += `
                             <li class="sprint-nested-row" 
                                 data-subtask-id="${sub.id}" 
@@ -13782,13 +13788,56 @@ function renderSprintDraftTasks() {
                                 </div>
                                 <div style="display:flex; align-items:center; gap:6px;">
                                     <div style="display:flex;">${subAssignees}</div>
-                                    <span style="font-weight:600; color:var(--text-secondary); font-size:10px;">${subPoints}</span>
+                                    <span class="js-edit-points" data-task-id="${sub.id}" style="font-weight:600; color:var(--text-secondary); font-size:10px; cursor: pointer; padding: 2px 4px; border: 1px solid transparent; border-radius: 4px; transition: all 0.2s;">${subPoints}</span>
                                 </div>
                             </li>
                         `;
                     }
                 });
             }
+
+            // === ZMIANA: Logika punktów dla RODZICA ===
+            // Jeśli ma podzadania -> punkty to suma podzadań.
+            // Jeśli nie ma -> punkty to własne estimation.
+            if (hasSubtasks) {
+                points = calculatedParentPoints;
+            }
+            
+            // Klasa blokująca (jeśli ma podzadania)
+            const lockedClass = hasSubtasks ? 'points-locked' : '';
+            const pointsStyle = hasSubtasks 
+                ? "background-color: var(--bg-tertiary); color: var(--text-secondary); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; min-width: 30px; text-align: center; cursor: not-allowed;"
+                : "background-color: rgba(79, 70, 229, 0.1); color: var(--accent-primary); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; min-width: 30px; text-align: center;";
+
+            // Przycisk toggle (tylko jeśli są zagnieżdżone)
+            const toggleHTML = subtaskCount > 0 
+                ? `<button class="sprint-toggle-subtasks" onclick="toggleSprintRowSubtasks(event, this)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>`
+                : `<div style="width:22px;"></div>`; 
+
+            rowHTML = `
+                <li class="sprint-task-row ${priorityClass}" data-temp-index="${index}" data-task-id="${task.id}" data-type="main" style="flex-direction: column; align-items: stretch; gap: 0;">
+                    
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0;">
+                        <div style="display:flex; align-items:center; flex-grow:1; min-width:0;">
+                            ${toggleHTML}
+                            <div class="sprint-row-title" title="${task.title}">${task.title}</div>
+                        </div>
+                        
+                        <div class="sprint-row-meta">
+                            ${iconsHTML}
+                            <div class="sprint-row-avatars" style="display: flex; margin-right: 8px;">${assigneesHTML}</div>
+                            <span class="sprint-row-points js-edit-points ${lockedClass}" data-task-id="${task.id}" style="${pointsStyle}">${points}</span>
+                        </div>
+                    </div>
+
+                    <div class="sprint-nested-container">
+                        <ul class="sprint-nested-list" data-parent-id="${task.id}">
+                            ${nestedSubtasksHTML}
+                        </ul>
+                    </div>
+                </li>
+            `;
+        }
 
             // Przycisk toggle (tylko jeśli są zagnieżdżone)
             // ZMIANA: Dodano 'event' jako pierwszy argument funkcji onclick
@@ -37943,8 +37992,14 @@ welcomeModal.okBtn.addEventListener('click', async () => {
             if (pointsBadge) {
                 e.stopPropagation(); // Zapobiegamy innym akcjom (np. otwieraniu zadania)
                 
+                // === NOWE: Blokada edycji dla rodzica z podzadaniami ===
+                if (pointsBadge.classList.contains('points-locked')) {
+                    showNotification("Nie można edytować. Suma punktów tego zadania to suma punktów podzadań.", "Info");
+                    return;
+                }
+                // === KONIEC ===
+
                 const taskId = pointsBadge.dataset.taskId;
-                // Pobieramy wartość z tekstu (usuwamy " pkt" i spacje)
                 const textVal = pointsBadge.textContent.replace('pkt', '').trim();
                 
                 openEditPointsModal(taskId, textVal);
@@ -37990,16 +38045,46 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                     const projectData = projectSnap.data();
                     const allTasks = projectData.tasks || [];
                     
-                    // Znajdź i zaktualizuj zadanie w bazie
+                    // Znajdź i zaktualizuj zadanie (LUB PODZADANIE) w bazie
                     const updatedTasks = allTasks.map(t => {
+                        // 1. Sprawdź, czy to zadanie główne
                         if (t.id === editingPointsTaskId) {
                             return { 
                                 ...t, 
                                 estimation: newVal,
-                                effort: newVal,       // Spójność
-                                actualEffort: newVal  // <--- NOWE: Zapis do bazy
+                                effort: newVal,
+                                actualEffort: newVal
                             };
                         }
+                        
+                        // 2. Jeśli nie, sprawdź czy to podzadanie wewnątrz tego zadania
+                        if (t.subtasks && t.subtasks.length > 0) {
+                            const subIndex = t.subtasks.findIndex(s => s.id === editingPointsTaskId);
+                            
+                            if (subIndex !== -1) {
+                                // Mamy podzadanie! Aktualizujemy je.
+                                const updatedSubtasks = [...t.subtasks];
+                                updatedSubtasks[subIndex] = {
+                                    ...updatedSubtasks[subIndex],
+                                    estimation: newVal,
+                                    effort: newVal,
+                                    actualEffort: newVal
+                                };
+                                
+                                // Ważne: Musimy też przeliczyć sumę dla rodzica, aby baza była spójna
+                                const newParentSum = updatedSubtasks.reduce((acc, sub) => acc + (parseFloat(sub.estimation || sub.effort || 0)), 0);
+                                
+                                return {
+                                    ...t,
+                                    subtasks: updatedSubtasks,
+                                    // Aktualizujemy też sumę w rodzicu (dla spójności danych)
+                                    estimation: newParentSum,
+                                    effort: newParentSum,
+                                    actualEffort: newParentSum
+                                };
+                            }
+                        }
+                        
                         return t;
                     });
 
@@ -40054,6 +40139,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
