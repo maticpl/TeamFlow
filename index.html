@@ -13798,6 +13798,31 @@ function renderSprintDraftTasks() {
     // (Użyjemy tego, aby nie renderować ich ponownie wewnątrz rodzica)
     const activeDraftIds = new Set(sprintDraftTasks.map(t => t.id));
 
+    // === NOWOŚĆ: Generowanie Globalnej Mapy Numeracji (WBS) dla spójności z AI ===
+    const fullProjectForIndex = findProject(state.currentProjectId);
+    const sprintTaskIndexMap = {};
+    
+    if (fullProjectForIndex && fullProjectForIndex.tasks) {
+        // Kopia do sortowania
+        const tasksForNumbering = [...fullProjectForIndex.tasks];
+        
+        // Funkcja pomocnicza czasu (taka sama jak w głównym widoku)
+        const getTime = (dateObj) => {
+            if (!dateObj) return 0;
+            if (typeof dateObj.toDate === 'function') return dateObj.toDate().getTime();
+            return new Date(dateObj).getTime();
+        };
+        
+        // Sortujemy chronologicznie
+        tasksForNumbering.sort((a, b) => getTime(a.createdAt) - getTime(b.createdAt));
+        
+        // Przypisujemy numery
+        tasksForNumbering.forEach((t, i) => {
+            sprintTaskIndexMap[t.id] = i + 1;
+        });
+    }
+    // === KONIEC GENEROWANIA MAPY ===
+
     sprintDraftTasks.forEach((task, index) => {
         // --- LOGIKA DLA PODZADANIA SAMODZIELNEGO ---
         // W drafcie (kreatorze) podzadania mają strukturę spłaszczoną, ale mogą mieć flagę isSubtask lub parentId
@@ -13932,13 +13957,21 @@ function renderSprintDraftTasks() {
                 ? `<button class="sprint-toggle-subtasks" onclick="toggleSprintRowSubtasks(event, this)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>`
                 : `<div style="width:22px;"></div>`; 
 
+            // === NOWOŚĆ: Pobranie numeru z mapy (utworzonej w Kroku 1) ===
+            // Jeśli to zadanie główne, weź z mapy. Jeśli nie ma w mapie (np. nowe), daj '#'
+            const taskNumber = sprintTaskIndexMap[task.id] ? `#${sprintTaskIndexMap[task.id]}` : '#';
+            // === KONIEC ===
+
             rowHTML = `
                 <li class="sprint-task-row ${priorityClass}" data-temp-index="${index}" data-task-id="${task.id}" data-type="main" style="flex-direction: column; align-items: stretch; gap: 0;">
                     
                     <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0;">
                         <div style="display:flex; align-items:center; flex-grow:1; min-width:0;">
                             ${toggleHTML}
-                            <div class="sprint-row-title" title="${task.title}">${task.title}</div>
+                            <div class="sprint-row-title" title="${task.title}">
+                                <span style="font-weight: 700; color: var(--accent-primary); margin-right: 6px;">${taskNumber}</span>
+                                ${task.title}
+                            </div>
                         </div>
                         
                         <div class="sprint-row-meta">
@@ -40501,6 +40534,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
