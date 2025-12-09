@@ -10161,6 +10161,8 @@ body.compact-mode .comment-item {
     <button type="button" id="delete-task-btn" class="btn btn-danger" style="margin-right: 8px;">Usuń zadanie</button>
     <button type="button" id="edit-task-btn" class="btn btn-secondary" style="margin-right: auto; display: none !important;">Edytuj</button>
     
+    <button type="button" id="finish-task-stop-recurrence-btn" class="btn btn-success" style="display: none; margin-right: 8px; background-color: transparent; border: 1px solid var(--success-primary); color: var(--success-primary);">✓ Zakończ i przerwij cykl</button>
+    
     <button type="button" id="finish-task-btn" class="btn btn-success" style="display: none; margin-right: 8px;">✓ Zakończ zadanie</button>
     <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
     <button type="button" id="ok-task-btn" class="btn btn-primary modal-close-btn" style="display: none;">OK</button>
@@ -12243,7 +12245,9 @@ let state = {
         warningDaysInput: document.getElementById('modal-task-warning-days'),
         
         // === TU JEST KLUCZOWY PRZYCISK ===
-        finishBtn: document.getElementById('finish-task-btn') 
+        finishBtn: document.getElementById('finish-task-btn'),
+        // DODANO:
+        finishStopBtn: document.getElementById('finish-task-stop-recurrence-btn') 
     };
        // --- INICJALIZACJA EDYTORÓW RICH TEXT ---
     let editorTaskDescription = null;
@@ -22855,6 +22859,17 @@ if (editorTaskDescription) {
                     }
                 }
                 taskModal.finishBtn.style.display = showFinishBtn ? 'block' : 'none';
+
+                // === NOWE: Obsługa przycisku "Zakończ i przerwij cykl" ===
+                if (taskModal.finishStopBtn) {
+                    if (showFinishBtn && task.recurrence) {
+                        // Pokaż tylko jeśli można zakończyć ORAZ zadanie jest cykliczne
+                        taskModal.finishStopBtn.style.display = 'block';
+                    } else {
+                        taskModal.finishStopBtn.style.display = 'none';
+                    }
+                }
+                // === KONIEC ===
             } else {
                 console.warn("Ostrzeżenie: Nie znaleziono przycisku 'finish-task-btn' w obiekcie taskModal.");
             }
@@ -29930,8 +29945,15 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
         });
 
 
-        async function handleTaskCompletion(task, project, completionSource = 'manual') {
+        // ZMIANA: Dodano parametr stopRecurrence
+        async function handleTaskCompletion(task, project, completionSource = 'manual', stopRecurrence = false) {
         const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+
+        // === NOWE: Jeśli wybrano przerwanie cyklu, usuwamy regułę PRZED sprawdzeniem warunku tworzenia ===
+        if (stopRecurrence) {
+            task.recurrence = null; 
+        }
+        // === KONIEC ===
         
         // === POCZĄTEK ZMIANY (z KROKU 2 - Filtrowanie): Dodanie logiki completedAt ===
         if (task.status === 'done') {
@@ -33205,6 +33227,49 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 taskModal.finishBtn.textContent = '✓ Zakończ zadanie';
             });
         }
+
+        // === NOWY LISTENER: Zakończ i przerwij cykl ===
+        if (taskModal.finishStopBtn) {
+            taskModal.finishStopBtn.addEventListener('click', async () => {
+                const taskId = taskModal.overlay.dataset.taskId;
+                const { task, project } = findTask(taskId);
+                if (!task || !project) return;
+
+                const currentUserId = state.currentUser.uid;
+                let updatedTask = { ...task };
+                const oldStatus = updatedTask.status;
+
+                // 1. Ustaw status na Done
+                updatedTask.status = 'done';
+                if (!updatedTask.completedBy.includes(currentUserId)) {
+                    updatedTask.completedBy.push(currentUserId);
+                }
+
+                // 2. Zaloguj zmianę
+                if (updatedTask.status !== oldStatus) {
+                    updatedTask = addActivity(updatedTask, 'status', STATUSES[oldStatus], STATUSES[updatedTask.status]);
+                }
+                updatedTask = addActivity(updatedTask, 'completion');
+
+                // 3. Efekty
+                showConfetti();
+                
+                // Zablokuj przycisk
+                taskModal.finishStopBtn.disabled = true;
+                taskModal.finishStopBtn.textContent = 'Zapisywanie...';
+                
+                // 4. Wywołaj funkcję z flagą stopRecurrence = true
+                await handleTaskCompletion(updatedTask, project, 'manual', true);
+                
+                showNotification("Zadanie ukończone. Cykl został przerwany.", "Sukces");
+                closeModal(taskModal.overlay);
+                
+                // Reset przycisku
+                taskModal.finishStopBtn.disabled = false;
+                taskModal.finishStopBtn.textContent = '✓ Zakończ i przerwij cykl';
+            });
+        }
+        // === KONIEC NOWEGO LISTENERA ===
 
         // 2. Zakończ Podzadanie (Wewnątrz modala podzadania)
         if (subtaskModal.finishBtn) {
@@ -40330,6 +40395,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
