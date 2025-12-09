@@ -13301,77 +13301,102 @@ function hasChecklistPermission(user, project, task, item) {
 
         function getTeamOverdueCount() {
              const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
-             // 1. Zbierz wszystkie zadania z MOICH projektów
-             const allTasksInMyProjects = myOwnedProjects.flatMap(project =>
-                 (project.tasks || [])
-                     .map(migrateTask)
-                     .map(t => ({ ...t, projectId: project.id, projectName: project.name }))
-             );
-
-             // 2. Filtruj te zadania, które są opóźnione i NIE są przypisane do mnie
              const now = Date.now();
-             const teamOverdueTasks = allTasksInMyProjects.filter(task =>
-                 task.dueDate && 
-                 new Date(task.dueDate).getTime() < now && 
-                 task.status !== 'done' && 
-                 !task.assignees.includes(state.currentUser.uid)
-             );
+             const myId = state.currentUser.uid;
+             
+             let totalOverdue = 0;
 
-             return teamOverdueTasks.length;
+             myOwnedProjects.forEach(project => {
+                 (project.tasks || []).forEach(task => {
+                     // 1. Sprawdź Zadanie Główne
+                     const taskObj = migrateTask(task); // Upewniamy się, że struktura jest ok
+                     
+                     // Warunki dla głównego: ma termin, jest po terminie, nie jest skończone, JA nie jestem przypisany
+                     if (taskObj.dueDate && 
+                         new Date(taskObj.dueDate).getTime() < now && 
+                         taskObj.status !== 'done' && 
+                         !taskObj.assignees.includes(myId)) {
+                         totalOverdue++;
+                     }
+
+                     // 2. Sprawdź Podzadania
+                     if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                         taskObj.subtasks.forEach(sub => {
+                             // Ustal status podzadania (fallback jeśli brak pola status)
+                             const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                             
+                             // Warunki dla podzadania: ma termin, jest po terminie, nie jest skończone, JA nie jestem przypisany
+                             if (sub.dueDate && 
+                                 new Date(sub.dueDate).getTime() < now && 
+                                 subStatus !== 'done' && 
+                                 !(sub.assignees || []).includes(myId)) {
+                                 totalOverdue++;
+                             }
+                         });
+                     }
+                 });
+             });
+
+             return totalOverdue;
         }
        function calculateTeamWorkload(monthFilter = 'all') {
-            const teamWorkload = {}; // Obiekt do zliczania, np. { userId: { todo: 0, inprogress: 0, done: 0 } }
+            const teamWorkload = {}; // Obiekt do zliczania
             const myId = state.currentUser.uid;
             
-            // === NOWE ZMIENNE: Sumy dla całego zespołu ===
             let totalTeamTodo = 0;
             let totalTeamInProgress = 0;
             let totalTeamDone = 0;
-            // === KONIEC ZMIANY ===
 
-            // 1. Przejdź przez wszystkie projekty, w których jestem (aktywne, bo only tam liczy się obciążenie)
-            state.projects.forEach(project => {
-                // ... (pomiędzy jest logika znajdowania otherMembersInProject) ...
+            // Funkcja pomocnicza do przetwarzania pojedynczego elementu (zadania lub podzadania)
+            const processItem = (item) => {
+                const status = item.status || (item.isCompleted ? 'done' : 'todo');
                 
-                // 3. Przejdź przez wszystkie zadania w tym projekcie
+                // Pomiń jeśli status nieznany
+                if (status !== 'todo' && status !== 'inprogress' && status !== 'done') return;
+
+                // Filtr daty (miesiąc)
+                if (monthFilter !== 'all') {
+                    if (!item.dueDate || !item.dueDate.startsWith(monthFilter)) {
+                        return; 
+                    }
+                }
+
+                // Przypisz obciążenie do ludzi
+                (item.assignees || []).forEach(assigneeId => {
+                    // Zliczaj tylko innych członków (nie mnie)
+                    if (assigneeId !== myId) {
+                        if (!teamWorkload[assigneeId]) {
+                            teamWorkload[assigneeId] = { todo: 0, inprogress: 0, done: 0, name: '' };
+                        }
+                        
+                        teamWorkload[assigneeId][status]++;
+                        
+                        // Sumy globalne
+                        if (status === 'todo') totalTeamTodo++;
+                        if (status === 'inprogress') totalTeamInProgress++;
+                        if (status === 'done') totalTeamDone++;
+                    }
+                });
+            };
+
+            // Iteracja po projektach
+            state.projects.forEach(project => {
                 (project.tasks || []).forEach(task => {
-                    const status = task.status;
-                    if (status !== 'todo' && status !== 'inprogress' && status !== 'done') {
-                        return; // Pomiń zadania o innym statusie (jeśli takie istnieją)
-                    }
+                    const taskObj = migrateTask(task); // Używamy migrateTask dla pewności struktury
+                    
+                    // 1. Przetwórz Zadanie Główne
+                    processItem(taskObj);
 
-                    // === NOWA LOGIKA FILTROWANIA DATY ===
-                    if (monthFilter !== 'all') {
-                        // Jeśli filtr jest aktywny, sprawdzamy datę
-                        // Pomiń zadanie, jeśli nie ma terminu LUB jego termin nie zaczyna się od wybranego YYYY-MM
-                        if (!task.dueDate || !task.dueDate.startsWith(monthFilter)) {
-                            return; 
-                        }
+                    // 2. Przetwórz Podzadania
+                    if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                        taskObj.subtasks.forEach(sub => {
+                            processItem(sub);
+                        });
                     }
-                    // === KONIEC NOWEJ LOGIKI ===
-
-                    // 4. Sprawdź, komu jest przypisane to zadanie
-                    (task.assignees || []).forEach(assigneeId => {
-                        // 5. Zliczaj tylko, jeśli przypisany jest kimś innym niż ja
-                        if (assigneeId !== myId) {
-                            // Upewnij się, że ten użytkownik istnieje w naszym obiekcie zliczającym
-                            if (!teamWorkload[assigneeId]) {
-                                teamWorkload[assigneeId] = { todo: 0, inprogress: 0, done: 0, name: '' };
-                            }
-                            // Inkrementuj odpowiedni licznik
-                            teamWorkload[assigneeId][status]++;
-                            
-                            // === NOWA LOGIKA: Inkrementuj sumy globalne ===
-                            if (status === 'todo') totalTeamTodo++;
-                            if (status === 'inprogress') totalTeamInProgress++;
-                            if (status === 'done') totalTeamDone++;
-                            // === KONIEC NOWEJ LOGIKI ===
-                        }
-                    });
                 });
             });
 
-            // 6. Przekształć obiekt w posortowaną tablicę, dodając nazwy użytkowników
+            // Konwersja do tablicy i sortowanie
             const workloadArray = Object.keys(teamWorkload).map(userId => {
                 const user = findUser(userId);
                 const data = teamWorkload[userId];
@@ -13381,14 +13406,12 @@ function hasChecklistPermission(user, project, task, item) {
                     todo: data.todo,
                     inprogress: data.inprogress,
                     done: data.done,
-                    totalActive: data.todo + data.inprogress // Suma aktywnych do sortowania
+                    totalActive: data.todo + data.inprogress
                 };
             });
 
-            // 7. Posortuj - od najbardziej obciążonych (aktywnymi zadaniami)
             workloadArray.sort((a, b) => b.totalActive - a.totalActive);
 
-            // === ZMIANA: Zwróć obiekt zamiast tablicy ===
             return {
                 list: workloadArray,
                 totals: {
@@ -13398,7 +13421,6 @@ function hasChecklistPermission(user, project, task, item) {
                     totalActive: totalTeamTodo + totalTeamInProgress
                 }
             };
-            // === KONIEC ZMIANY ===
         }
                         
         // === KONIEC NOWEJ FUNKCJI ===
@@ -40166,6 +40188,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
