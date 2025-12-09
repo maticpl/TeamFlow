@@ -36844,28 +36844,68 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
 
                 // C. [AGENT] DODAWANIE ZADAŃ DO SPRINTU (PRZESUWANIE KAFELKÓW)
                 if (meta.action === 'SPRINT_DRAFT_ADD') {
-                    // Działamy tylko, jeśli modal jest otwarty
+                    // Sprawdź, czy modal jest otwarty
                     if (document.getElementById('sprint-creation-modal').classList.contains('visible')) {
                         const keywords = meta.keywords || [];
                         let movedCount = 0;
+                        console.log("[AI Agent] Otrzymano słowa kluczowe:", keywords);
 
-                        // Przeszukujemy zadania w drafcie
+                        // === 1. Odtworzenie mapy numerów (WBS) ===
+                        // Musimy wiedzieć, że task_ID_123 to numer #10
+                        const project = findProject(state.currentProjectId);
+                        const taskIndexMap = {};
+                        if (project && project.tasks) {
+                            const sorted = [...project.tasks].sort((a, b) => {
+                                const tA = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : (a.createdAt || 0);
+                                const tB = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : (b.createdAt || 0);
+                                return tA - tB;
+                            });
+                            sorted.forEach((t, i) => taskIndexMap[t.id] = i + 1);
+                        }
+                        // ========================================
+
+                        // Iterujemy po wszystkich zadaniach w drafcie
                         sprintDraftTasks.forEach(task => {
-                            // Interesują nas tylko te w lewej kolumnie ('backlog')
+                            // Szukamy tylko tych, które są w 'backlog' (lewa kolumna)
                             if (task.tempStatus === 'backlog') {
-                                // Sprawdź, czy tytuł zawiera słowo kluczowe (case insensitive)
-                                const match = keywords.some(kw => task.title.toLowerCase().includes(kw.toLowerCase()));
+                                
+                                const taskNum = taskIndexMap[task.id]; // np. 10
+                                const taskTitleLower = task.title.toLowerCase();
+
+                                // Sprawdź dopasowanie dla każdego słowa kluczowego
+                                const match = keywords.some(keyword => {
+                                    const kwLower = keyword.toString().toLowerCase().trim();
+                                    
+                                    // A. Dopasowanie po TYTULE (fragment tekstu)
+                                    if (taskTitleLower.includes(kwLower)) return true;
+
+                                    // B. Dopasowanie po NUMERZE (np. "10", "#10", "nr 10")
+                                    // Czyścimy słowo kluczowe z "nr", "#" i spacji
+                                    const cleanNumberStr = kwLower.replace(/nr|#|numer/g, '').trim();
+                                    const kwNumber = parseInt(cleanNumberStr, 10);
+                                    
+                                    if (!isNaN(kwNumber) && kwNumber === taskNum) {
+                                        return true; // Bingo! Numer się zgadza
+                                    }
+
+                                    return false;
+                                });
                                 
                                 if (match) {
-                                    task.tempStatus = 'todo'; // Przesuń do prawej kolumny
+                                    // PRZESUŃ DO KOLUMNY "DO REALIZACJI"
+                                    task.tempStatus = 'todo';
                                     movedCount++;
+                                    console.log(`[AI Agent] Przeniesiono zadanie: "${task.title}" (#${taskNum})`);
                                 }
                             }
                         });
 
                         if (movedCount > 0) {
-                            renderSprintDraftTasks(); // Przerysuj modal
-                            // Opcjonalnie: Konfetti lub dźwięk
+                            renderSprintDraftTasks(); // Odśwież widok modala (karty przeskoczą wizualnie)
+                            showNotification(`AI przeniosło ${movedCount} zadań do sprintu.`, "Info");
+                        } else {
+                            // Opcjonalnie: Poinformuj, że nic nie znaleziono, mimo próby
+                            console.warn("[AI Agent] Nie znaleziono pasujących zadań dla słów:", keywords);
                         }
                     }
                 }
@@ -40552,6 +40592,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
