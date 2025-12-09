@@ -17569,54 +17569,75 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             openModal(manageColumnsModal.overlay);
         }
         // === KONIEC NOWEGO KODU ===
-       // === NOWY LISTENER: Obsługa kliknięć w modalu Dashboard Details ===
+       // === ZAKTUALIZOWANY LISTENER: Obsługa kliknięć w modalu Dashboard Details ===
         dashboardDetailsModal.content.addEventListener('click', (e) => {
-            // Szukamy najbliższego rodzica, który jest kafelkiem zadania
+            // Definiujemy potencjalne cele kliknięcia
+            const subtaskCard = e.target.closest('.subtask-visual-card'); // <--- NOWE
+            const subCheckbox = e.target.closest('.kanban-subtask-checkbox'); // <--- NOWE
             const taskCard = e.target.closest('.task-card');
-            // Szukamy najbliższego rodzica (lub samego elementu), który jest checkboxem
             const checkbox = e.target.closest('.task-card-checkbox');
-
-            // +++ POCZĄTEK DODANEGO KODU (Krok 7) +++
-            // Szukamy kliknięcia na tytuł projektu w widoku "Mój Budżet"
             const projectTitle = e.target.closest('.budget-detail-project-title[data-project-id]');
-            // +++ KONIEC DODANEGO KODU (Krok 7) +++
+            const activityItem = e.target.closest('.activity-item');
 
-
-            if (checkbox && taskCard) {
-                // Przypadek 1: Kliknięto checkbox wewnątrz kafelka
-                console.log(`[Dashboard Details Modal] Kliknięto checkbox dla zadania: ${taskCard.dataset.taskId}`); // Log
-                handleTaskCheckboxClick(checkbox, e); // Wywołaj istniejącą funkcję obsługi checkboxa
-            } else if (taskCard) {
-                // Przypadek 2: Kliknięto kafelek (ale nie checkbox)
-                const taskId = taskCard.dataset.taskId;
-                console.log(`[Dashboard Details Modal] Kliknięto kafelek zadania: ${taskId}`); // Log
-                if (taskId) {
-                    // Zamknij obecny modal (szczegółów pulpitu)
+            // 1. Kliknięcie w KAFELEK PODZADANIA (ale nie w jego checkbox)
+            if (subtaskCard && !subCheckbox) {
+                const parentId = subtaskCard.dataset.parentId;
+                const subId = subtaskCard.dataset.subtaskId;
+                
+                if (parentId && subId) {
+                    console.log(`[Dashboard Details Modal] Kliknięto podzadanie: ${subId} (Rodzic: ${parentId})`);
                     closeModal(dashboardDetailsModal.overlay);
-                    // Otwórz modal zadania z opóźnieniem dla płynności przejścia
+                    // Otwieramy modal PODZADANIA
+                    setTimeout(() => {
+                        openSubtaskModal(parentId, subId);
+                    }, 150);
+                    return; // Ważne: przerywamy, żeby nie uruchomić logiki dla task-card
+                }
+            }
+
+            // 2. Kliknięcie w CHECKBOX Zadania Głównego
+            else if (checkbox && taskCard) {
+                console.log(`[Dashboard Details Modal] Kliknięto checkbox dla zadania: ${taskCard.dataset.taskId}`);
+                handleTaskCheckboxClick(checkbox, e);
+            } 
+            
+            // 3. Kliknięcie w KAFELEK Zadania Głównego
+            else if (taskCard) {
+                const taskId = taskCard.dataset.taskId;
+                console.log(`[Dashboard Details Modal] Kliknięto kafelek zadania: ${taskId}`);
+                if (taskId) {
+                    closeModal(dashboardDetailsModal.overlay);
+                    // Otwieramy modal ZADANIA GŁÓWNEGO
                     setTimeout(() => {
                         openTaskModal(taskId);
-                    }, 150); // Małe opóźnienie
+                    }, 150);
                 }
-            // +++ POCZĄTEK DODANEGO KODU (Krok 7) +++
-            } else if (projectTitle) {
-                // Przypadek 3: Kliknięto tytuł projektu w modalu "Mój Budżet"
+            } 
+            
+            // 4. Kliknięcie w Tytuł Projektu (Widok Budżetu)
+            else if (projectTitle) {
                 const projectId = projectTitle.dataset.projectId;
                 console.log(`[Dashboard Details Modal] Kliknięto tytuł projektu: ${projectId}`);
                 if (projectId) {
                     closeModal(dashboardDetailsModal.overlay);
                     setTimeout(() => {
-                        // Przełącz widok na kliknięty projekt
                         state.currentProjectId = projectId;
                         state.ui.currentView = 'projects';
                         saveUiState();
                         render();
                     }, 150);
                 }
-            // +++ KONIEC DODANEGO KODU (Krok 7) +++
+            }
+            
+            // 5. Kliknięcie w element Listy Aktywności
+            else if (activityItem && activityItem.dataset.taskId) {
+                 closeModal(dashboardDetailsModal.overlay);
+                 setTimeout(() => {
+                     openTaskModal(activityItem.dataset.taskId);
+                 }, 150);
             }
         });
-        // === KONIEC NOWEGO LISTNERA ===
+        // === KONIEC LISTENERA ===
         // === NOWA, KOMPLETNA LOGIKA OBSŁUGI MODALA POWIADOMIEŃ ===
 
         const notificationsModal = {
@@ -31025,16 +31046,76 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                 case 'show-team-delays-details':
                     title = 'Opóźnienia w Zespole';
                     const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
-                    // Zadania opóźnione w MOICH projektach, ale przypisane do INNYCH
-                    const teamOverdueTasks = myOwnedProjects.flatMap(project =>
-                        (project.tasks || [])
-                            .filter(t => t.status !== 'done' && t.dueDate && new Date(t.dueDate).getTime() < Date.now() && !t.assignees.includes(state.currentUser.uid))
-                            .map(t => ({ ...t, projectName: project.name }))
-                    ).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()); // Sortuj od najstarszego
                     
-                    contentHTML = teamOverdueTasks.length === 0 
-                        ? '<p class="no-tasks-message">Brak opóźnień w projektach, których jesteś właścicielem.</p>' 
-                        : teamOverdueTasks.map(task => createTaskCardHTML(task, true)).join('');
+                    // === NOWA LOGIKA: Zbieranie zadań I podzadań ===
+                    let allTeamOverdueItems = [];
+                    const nowTime = Date.now();
+                    const myId = state.currentUser.uid;
+
+                    myOwnedProjects.forEach(project => {
+                        const tasks = project.tasks || [];
+                        
+                        tasks.forEach(task => {
+                            const taskObj = migrateTask(task); // Upewniamy się, że struktura jest ok
+                            
+                            // 1. Sprawdź Zadanie Główne
+                            // Warunki: ma termin, termin minął, nie jest skończone, JA nie jestem przypisany
+                            if (taskObj.dueDate && 
+                                new Date(taskObj.dueDate).getTime() < nowTime && 
+                                taskObj.status !== 'done' && 
+                                !taskObj.assignees.includes(myId)) {
+                                
+                                allTeamOverdueItems.push({
+                                    type: 'main',
+                                    data: taskObj,
+                                    project: project,
+                                    sortDate: new Date(taskObj.dueDate).getTime()
+                                });
+                            }
+
+                            // 2. Sprawdź Podzadania
+                            if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                                taskObj.subtasks.forEach(sub => {
+                                    // Ustal status podzadania
+                                    const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                                    
+                                    // Warunki: ma termin, termin minął, nie jest skończone, JA nie jestem przypisany
+                                    if (sub.dueDate && 
+                                        new Date(sub.dueDate).getTime() < nowTime && 
+                                        subStatus !== 'done' && 
+                                        !(sub.assignees || []).includes(myId)) {
+                                        
+                                        allTeamOverdueItems.push({
+                                            type: 'subtask',
+                                            data: { sub: sub, parent: taskObj }, // Struktura dla funkcji renderującej
+                                            project: project,
+                                            sortDate: new Date(sub.dueDate).getTime()
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    });
+
+                    // Sortowanie: od najstarszego opóźnienia
+                    allTeamOverdueItems.sort((a, b) => a.sortDate - b.sortDate);
+
+                    // Generowanie HTML
+                    if (allTeamOverdueItems.length === 0) {
+                        contentHTML = '<p class="no-tasks-message">Brak opóźnień w projektach, których jesteś właścicielem.</p>';
+                    } else {
+                        contentHTML = allTeamOverdueItems.map(item => {
+                            if (item.type === 'main') {
+                                // Renderuj jako zadanie główne (interaktywne = true)
+                                return createTaskCardHTML(item.data, true, item.project);
+                            } else {
+                                // Renderuj jako podzadanie (Tryb 'standalone')
+                                const { sub, parent } = item.data;
+                                return createVisualSubtaskCardHTML(sub, parent, item.project, 'standalone');
+                            }
+                        }).join('');
+                    }
+                    // === KONIEC NOWEJ LOGIKI ===
                     break;
                     
                 case 'show-workload-details':
@@ -40188,6 +40269,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
