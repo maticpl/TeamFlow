@@ -14445,10 +14445,8 @@ async function handleSprintDragEnd(evt) {
 // --- ZMODYFIKOWANY LISTENER: ZAPIS / AKTUALIZACJA SPRINTU (Z OBSŁUGĄ PODZADAŃ) ---
 
 // Nowa funkcja asynchroniczna wyodrębniona dla AI
-// Nowa funkcja asynchroniczna wyodrębniona dla AI
 async function handleSprintSave() {
-    console.log("[Sprint Save] Rozpoczynam procedurę zapisu...");
-    let title = sprintModal.nameInput.value.trim();
+    const title = sprintModal.nameInput.value.trim();
     
     sprintModal.saveBtn.disabled = true;
     sprintModal.saveBtn.textContent = 'Zapisywanie...';
@@ -14465,31 +14463,23 @@ async function handleSprintSave() {
         const editingId = sprintModal.overlay.dataset.editingSprintId;
         const sprintId = editingId || `sprint_${Date.now()}`;
         
+        // Pobierz NOWE daty z formularza
         const newSprintStart = sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null;
         const newSprintEnd = sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null;
 
-        // === AUTOMATYCZNA NUMERACJA / TYTUŁ ===
-        // Jeśli tytuł jest pusty, generujemy go automatycznie nawet przy edycji (jeśli brakuje)
-        let finalTitle = title;
-        
-        // Policz sprinty, aby znać numer
-        const existingSprintsCount = allTasks.filter(t => t.type === 'sprint' && t.id !== sprintId).length;
-        const nextNum = existingSprintsCount + 1;
-        const defaultTitle = `Sprint #${nextNum}`;
-
-        if (!finalTitle) {
-            finalTitle = defaultTitle; // Fallback jeśli input pusty
-        } else if (!editingId && !finalTitle.toLowerCase().includes('sprint')) {
-             // Jeśli nowy i nie ma słowa sprint, dodaj prefix
-             finalTitle = `Sprint #${nextNum} - ${finalTitle}`;
+        // === AUTOMATYCZNA NUMERACJA SPRINTÓW ===
+        let finalTitle = title; 
+        if (!editingId) {
+            const existingSprintsCount = allTasks.filter(t => t.type === 'sprint').length;
+            const nextNum = existingSprintsCount + 1;
+            finalTitle = `Sprint #${nextNum}`;
+            if (title) finalTitle += ` ${title}`;
         }
-        // === KONIEC ===
         
-        // 2a. Oblicz całkowitą sumę punktów (Capacity / Scope)
+        // 2a. Oblicz całkowitą sumę punktów
         let calculatedSprintEstimation = 0;
         sprintDraftTasks.forEach(draft => {
-            // Liczymy punkty tylko dla zadań, które wchodzą do sprintu (nie są w backlogu)
-            if (draft.tempStatus && draft.tempStatus !== 'backlog') {
+            if (draft.tempStatus !== 'backlog') {
                  calculatedSprintEstimation += parseFloat(draft.estimation || draft.effort || 0);
             }
         });
@@ -14499,11 +14489,10 @@ async function handleSprintSave() {
             id: sprintId,
             title: finalTitle,
             type: 'sprint',
-            description: `Cel sprintu: ${title || 'Realizacja zadań'}`, // Fallback dla opisu
+            description: `Cel sprintu: ${title}`,
             startDate: newSprintStart,
             dueDate: newSprintEnd,
             estimation: calculatedSprintEstimation, 
-            // Domyślnie 'todo' (Planowany), chyba że edytujemy istniejący
             status: 'todo', 
             projectId: state.currentProjectId,
             createdBy: state.currentUser.uid,
@@ -14513,49 +14502,29 @@ async function handleSprintSave() {
             budgetItems: []
         };
 
-        // 3. Aktualizuj listę zadań w projekcie (Dodaj lub Nadpisz obiekt Sprintu)
+        // 3. Aktualizuj listę zadań w projekcie
         if (editingId) {
             const idx = allTasks.findIndex(t => t.id === editingId);
             if (idx !== -1) {
-                // Zachowaj obecny status sprintu (np. inprogress) jeśli edytujemy
                 sprintTask.status = allTasks[idx].status; 
-                // Zachowaj datę utworzenia
-                sprintTask.createdAt = allTasks[idx].createdAt || Date.now();
                 allTasks[idx] = sprintTask;
             }
         } else {
             allTasks.push(sprintTask);
         }
 
-       // 4. Przetwórz zadania ze Sprintu (Zapisz statusy, daty i relacje)
+       // B. Przetwórz zadania ze Sprintu (Drafty -> Prawdziwe Zadania)
         sprintDraftTasks.forEach(draft => {
-            // Sprawdź czy to nowe zadanie (stworzone w kreatorze)
             const isNew = draft.id.startsWith('draft_');
-            
-            // Sprawdź czy zadanie ląduje w Backlogu (lewa kolumna)
             const isBacklog = draft.tempStatus === 'backlog';
-            
-            // Jeśli zadanie wchodzi do sprintu, dziedziczy jego daty. Jeśli wraca do backlogu - daty null.
             const targetStartDate = isBacklog ? null : newSprintStart;
             const targetDueDate = isBacklog ? null : newSprintEnd;
 
-            // Ustal status docelowy
             const newStatus = isBacklog ? 'backlog' : (draft.tempStatus || draft.status || 'todo');
+            const newCustomCol = isBacklog ? null : (draft.tempCustomColumnId !== undefined ? draft.tempCustomColumnId : (draft.customColumnId || null));
             
-            // Ustal kolumnę niestandardową
-            let newCustomCol = null;
-            if (!isBacklog) {
-                if (draft.tempCustomColumnId !== undefined) {
-                    newCustomCol = draft.tempCustomColumnId;
-                } else {
-                    newCustomCol = draft.customColumnId || null;
-                }
-            }
-
-            // Przygotuj obiekt do zapisu (bazując na drafcie)
             let taskToSave = {
                 ...draft,
-                // Przypisz do sprintu lub usuń przypisanie
                 parentSprintId: isBacklog ? null : sprintId,
                 projectId: state.currentProjectId,
                 status: newStatus,
@@ -14564,11 +14533,9 @@ async function handleSprintSave() {
                 dueDate: targetDueDate
             };
 
-            // Usuń właściwości tymczasowe draftu
             delete taskToSave.tempStatus;
             delete taskToSave.tempCustomColumnId;
 
-            // Zaktualizuj daty w podzadaniach tego zadania (kaskadowo)
             if (taskToSave.subtasks && taskToSave.subtasks.length > 0) {
                 taskToSave.subtasks = taskToSave.subtasks.map(sub => {
                     return {
@@ -14580,30 +14547,21 @@ async function handleSprintSave() {
             }
 
             if (isNew) {
-                // To było nowe zadanie dodane w drafcie -> stwórz prawdziwe ID
                 taskToSave.id = `task_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
-                // Upewnij się, że ma createdAt
-                taskToSave.createdAt = taskToSave.createdAt || Timestamp.now();
                 allTasks.push(taskToSave);
             } else {
-                // To było istniejące zadanie -> zaktualizuj w tablicy
                 const idx = allTasks.findIndex(t => t.id === draft.id);
                 
                 if (idx !== -1) {
-                    // Aktualizuj zadanie główne
                     allTasks[idx] = { ...allTasks[idx], ...taskToSave };
                 } else {
-                    // Jeśli nie znaleziono jako główne, sprawdź czy to PODZADANIE
-                    // (Przypadek, gdy podzadanie "oderwało się" w widoku sprintu)
                     const parentTask = allTasks.find(t => t.subtasks && t.subtasks.some(s => s.id === draft.id));
                     
                     if (parentTask) {
                         parentTask.subtasks = parentTask.subtasks.map(sub => {
                             if (sub.id === draft.id) {
-                                // Oblicz statusy podzadania
                                 const subStatus = (draft.tempStatus === 'backlog') ? 'todo' : (draft.tempStatus || sub.status || 'todo');
                                 const subIsCompleted = (subStatus === 'done');
-                                
                                 let finalCustomColumnId = null;
                                 if (!isBacklog) {
                                     if (draft.tempCustomColumnId !== undefined) {
@@ -14620,7 +14578,6 @@ async function handleSprintSave() {
                                     isCompleted: subIsCompleted,
                                     startDate: targetStartDate || null,
                                     dueDate: targetDueDate || null,
-                                    // Zaktualizuj punkty, jeśli zmieniono w drafcie
                                     estimation: (draft.estimation !== undefined ? draft.estimation : sub.estimation) || 0,
                                     effort: (draft.effort !== undefined ? draft.effort : sub.effort) || 0,
                                     actualEffort: (draft.actualEffort !== undefined ? draft.actualEffort : sub.actualEffort) || 0
@@ -14628,28 +14585,22 @@ async function handleSprintSave() {
                             }
                             return sub;
                         });
-                        
-                        // Opcjonalnie: Przelicz punkty rodzica
-                        // const newParentEst = parentTask.subtasks.reduce((sum, s) => sum + (parseFloat(s.estimation)||0), 0);
-                        // parentTask.estimation = newParentEst;
                     }
                 }
             }
         });
 
-        // 5. Zapisz wszystko do bazy (Atomowa operacja)
+        // 4. Zapisz do bazy
         await updateDoc(projectDocRef, { tasks: allTasks });
         
-        console.log("[Sprint Save] Zapis udany!");
         showNotification("Sprint i zadania zostały zaktualizowane!", "Sukces");
-        
         closeModal(sprintModal.overlay);
         isSprintCreationMode = false;
         delete sprintModal.overlay.dataset.editingSprintId;
         
     } catch (e) {
-        console.error("[Sprint Save] Błąd:", e);
-        showNotification(`Błąd zapisu sprintu: ${e.message}`, "Błąd");
+        console.error(e);
+        showNotification("Błąd zapisu sprintu.", "Błąd");
     } finally {
         sprintModal.saveBtn.disabled = false;
         sprintModal.saveBtn.textContent = 'Zapisz zmiany';
@@ -36951,19 +36902,14 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      }
                 }
 
-                // E. [AGENT] ZAPIS SPRINTU (FINALNE)
+                // E. [AGENT] ZAPIS SPRINTU (NAPRAWIONE)
                 if (meta.action === 'SPRINT_DRAFT_SAVE') {
-                    console.log("[AI Handler] Wykryto akcję SPRINT_DRAFT_SAVE. Uruchamiam handleSprintSave()...");
-                    
-                    // Sprawdź czy modal jest w ogóle otwarty
-                    const modal = document.getElementById('sprint-creation-modal');
-                    if (modal && modal.classList.contains('visible')) {
+                    // Wywołaj funkcję zapisu bezpośrednio
+                    setTimeout(() => {
                         handleSprintSave();
-                    } else {
-                        console.warn("[AI Handler] Modal sprintu nie jest otwarty. Nie mogę zapisać.");
-                        showNotification("AI próbowało zapisać sprint, ale okno nie jest otwarte.", "Info");
-                    }
+                    }, 200);
                 }
+            }
             // === KONIEC ===
 
         // KROK 1.5: Dodanie odpowiedzi bota do historii
@@ -40628,8 +40574,6 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
-
-
 
 
 
