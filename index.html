@@ -36836,9 +36836,21 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                 // C. [AGENT] DODAWANIE ZADAŃ DO SPRINTU
                 if (meta.action === 'SPRINT_DRAFT_ADD') {
                     const performDraftAdd = () => {
-                        const keywords = meta.keywords || [];
+                        let rawKeywords = meta.keywords || [];
+                        console.log("[AI Agent] Surowe słowa kluczowe:", rawKeywords);
+
+                        // 1. HARDENING: Rozbijanie stringów z przecinkami (np. ["39,43"] -> ["39", "43"])
+                        // oraz usuwanie pustych wpisów.
+                        let keywords = [];
+                        if (Array.isArray(rawKeywords)) {
+                            keywords = rawKeywords
+                                .flatMap(k => k.toString().split(/,|;/)) // Dzielimy po przecinku lub średniku
+                                .map(k => k.trim())
+                                .filter(k => k.length > 0);
+                        }
+                        
+                        console.log("[AI Agent] Przetworzone słowa kluczowe:", keywords);
                         let movedCount = 0;
-                        console.log("[AI Agent] Dodawanie do draftu:", keywords);
 
                         // Odtworzenie mapy numerów (WBS)
                         const project = findProject(state.currentProjectId);
@@ -36853,23 +36865,31 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                         }
 
                         sprintDraftTasks.forEach(task => {
+                            // Sprawdzamy tylko zadania, które są w Backlogu (tempStatus)
                             if (task.tempStatus === 'backlog') {
                                 const taskNum = taskIndexMap[task.id]; 
                                 const taskTitleLower = task.title.toLowerCase();
 
                                 const match = keywords.some(keyword => {
                                     const kwLower = keyword.toString().toLowerCase().trim();
+                                    
+                                    // A. Dopasowanie po tytule (zawiera tekst)
                                     if (taskTitleLower.includes(kwLower)) return true;
                                     
-                                    const cleanNumberStr = kwLower.replace(/nr|#|numer/g, '').trim();
-                                    const kwNumber = parseInt(cleanNumberStr, 10);
-                                    if (!isNaN(kwNumber) && kwNumber === taskNum) return true;
+                                    // B. Dopasowanie po numerze (Precyzyjny Regex)
+                                    // Szukamy ciągu cyfr w keywordzie (np. "zadanie 5" -> "5")
+                                    const numberMatch = kwLower.match(/(\d+)/);
+                                    if (numberMatch) {
+                                        const kwNumber = parseInt(numberMatch[0], 10);
+                                        // Sprawdzamy czy numer się zgadza
+                                        if (kwNumber === taskNum) return true;
+                                    }
 
                                     return false;
                                 });
                                 
                                 if (match) {
-                                    task.tempStatus = 'todo'; 
+                                    task.tempStatus = 'todo'; // Przenieś do kolumny "Do realizacji"
                                     movedCount++;
                                 }
                             }
@@ -36878,6 +36898,9 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                         if (movedCount > 0) {
                             renderSprintDraftTasks();
                             showNotification(`AI przeniosło ${movedCount} zadań do sprintu.`, "Info");
+                        } else {
+                            // Opcjonalnie: Poinformuj, że nic nie znaleziono
+                            console.warn("[AI Agent] Nie znaleziono pasujących zadań w Backlogu dla podanych słów kluczowych.");
                         }
                     };
 
@@ -40574,6 +40597,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
