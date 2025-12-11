@@ -9612,6 +9612,13 @@ body.compact-mode .comment-item {
                         </button>
                         <div class="header-divider"></div>
                     </div>
+                    
+                    <button id="project-search-btn" class="header-icon-btn" title="Szukaj w tym projekcie (Nazwa lub Numer #)" style="display: none;">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                        </svg>
+                    </button>
+
                     <button id="sort-btn" class="header-icon-btn" title="Sortuj wg daty" style="display: none;">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" /></svg>
                     </button>
@@ -11242,10 +11249,12 @@ let state = {
         let workloadChartInstance = null;
         let teamWorkloadChartInstance = null; // <-- DODANA LINIA
         const sortBtn = document.getElementById('sort-btn');
+        const projectSearchBtn = document.getElementById('project-search-btn'); // <-- NOWA REFERENCJA
         const searchInput = document.getElementById('search-input');
         // USUNIĘTO: projectActionsEl, editProjectBtn, completeProjectBtn, deleteProjectBtn
         // (Będziemy obsługiwać to przez delegację zdarzeń na dropdown menu)
-        
+        // Zmienna do śledzenia kontekstu wyszukiwania ('global' lub 'project')
+        let currentSearchContext = 'global';
         const projectMenuToggle = document.getElementById('project-menu-toggle');
         const projectMenuDropdown = document.getElementById('project-menu-dropdown');
         const userEmailDisplay = document.getElementById('user-email-display');
@@ -17488,6 +17497,14 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             if (sortBtn) {
                 sortBtn.style.display = shouldShowSortAndFilterDesktop ? 'flex' : 'none';
             }
+
+            // === NOWE: Obsługa widoczności przycisku Wyszukiwarki Projektowej ===
+            const projectSearchBtn = document.getElementById('project-search-btn');
+            if (projectSearchBtn) {
+                // Pokazujemy tylko w widoku pojedynczego projektu (na desktopie i mobile - tu można dodać !isMobileView jeśli chcemy ukryć na telefonach)
+                projectSearchBtn.style.display = isProjectView ? 'flex' : 'none';
+            }
+            // === KONIEC ===
 
             // === NOWA POPRAWKA: Ukrywanie przycisku kolumn poza widokiem projektu ===
             // Jeśli nie jesteśmy w widoku pojedynczego projektu, przycisk musi zniknąć.
@@ -32576,45 +32593,128 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
         }
         // === KONIEC NOWEGO LISTENERA ===
 
-        // 3. ISTNIEJĄCY LISTENER INPUT (logika wyszukiwania po wpisaniu tekstu)
+        // === ZMODYFIKOWANA OBSŁUGA WYSZUKIWANIA (GLOBALNA vs PROJEKTOWA) ===
+
+        // 1. Listener dla przycisku Lupy Projektowej
+        if (projectSearchBtn) {
+            projectSearchBtn.addEventListener('click', () => {
+                currentSearchContext = 'project'; // Ustaw tryb
+                
+                // UI Modala
+                const modalTitle = searchModal.overlay.querySelector('.modal-header h2');
+                if(modalTitle) modalTitle.textContent = "Szukaj w tym projekcie";
+                
+                searchModal.input.placeholder = "Wpisz nazwę zadania lub numer (np. #1.2)...";
+                searchModal.input.value = '';
+                searchModal.resultsList.innerHTML = '';
+                
+                openModal(searchModal.overlay);
+                setTimeout(() => searchModal.input.focus(), 100);
+            });
+        }
+
+        // 2. Obsługa Inputa (Rozgałęzienie logiki)
         searchModal.input.addEventListener('input', (e) => {
             const term = e.target.value;
-            renderSearchResults(performGlobalSearch(term));
+            
+            if (currentSearchContext === 'project') {
+                const results = performProjectSearch(term);
+                renderProjectSearchResults(results);
+            } else {
+                // Domyślny (Globalny) - resetuje tytuł jeśli trzeba
+                // (choć reset następuje przy otwarciu z paska globalnego)
+                const results = performGlobalSearch(term);
+                renderSearchResults(results);
+            }
         });
-        
-        // === NOWY LISTENER: Obsługa kliknięcia w wynik wyszukiwania (NAWIGACJA) ===
+
+        // 3. Funkcja renderująca wyniki projektowe (z numerami)
+        function renderProjectSearchResults(results) {
+            if (results.length === 0) {
+                searchModal.resultsList.innerHTML = '<li>Brak wyników w tym projekcie.</li>';
+                return;
+            }
+            
+            searchModal.resultsList.innerHTML = results.map(item => {
+                // Różne style dla głównego i podzadania
+                const icon = item.type === 'main' 
+                    ? `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px;height:18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>`
+                    : `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:18px;height:18px; opacity:0.7;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 10l6 0"/><path d="M9 10l0 5"/></svg>`;
+
+                const contextInfo = item.type === 'subtask' 
+                    ? `<span style="font-size:11px; color:var(--text-secondary);">w zadaniu: ${item.parentTitle}</span>`
+                    : `<span style="font-size:11px; color:var(--text-secondary);">Zadanie główne</span>`;
+
+                return `
+                    <li class="search-result-item" 
+                        data-task-id="${item.id}" 
+                        data-project-id="${item.projectId}"
+                        data-type="${item.type}"
+                        data-parent-id="${item.parentId || ''}">
+                        
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span style="font-weight:700; color:var(--accent-primary); min-width:35px;">${item.number}</span>
+                            <div style="display:flex; flex-direction:column;">
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    ${icon}
+                                    <h4 style="margin:0; font-size:14px;">${item.title}</h4>
+                                </div>
+                                ${contextInfo}
+                            </div>
+                        </div>
+                    </li>`;
+            }).join('');
+        }
+
+        // 4. Zmodyfikowany Listener Kliknięcia (Obsługa podzadań)
         searchModal.resultsList.addEventListener('click', (e) => {
-            // Znajdź najbliższy element li z klasą search-result-item
             const item = e.target.closest('.search-result-item');
             if (!item) return;
 
             const taskId = item.dataset.taskId;
             const projectId = item.dataset.projectId;
+            const type = item.dataset.type; // 'main' lub 'subtask'
+            const parentId = item.dataset.parentId; // Tylko dla subtask
 
             if (taskId && projectId) {
-                // 1. Zamknij modal wyszukiwania
                 closeModal(searchModal.overlay);
 
-                // 2. Ustaw stan aplikacji na wybrany projekt
-                state.currentProjectId = projectId;
-                state.ui.currentView = 'projects';
-                // Upewnij się, że nie jesteśmy w trybie kalendarza
-                state.ui.isCalendarView = false;
-
-                // 3. Zapisz stan i przerysuj widok
-                saveUiState();
-                render();
-
-                // 4. Zamknij sidebar (jeśli jesteśmy na mobile)
-                sidebar.classList.remove('open');
-                sidebarOverlay.classList.remove('visible');
-
-                // 5. Otwórz modal zadania (z małym opóźnieniem dla płynności renderowania tła)
+                // Jeśli kontekst był globalny, musimy najpierw przełączyć widok
+                if (currentSearchContext === 'global') {
+                    state.currentProjectId = projectId;
+                    state.ui.currentView = 'projects';
+                    state.ui.isCalendarView = false;
+                    saveUiState();
+                    render();
+                }
+                
+                // Otwieranie odpowiedniego modala
                 setTimeout(() => {
-                    openTaskModal(taskId);
+                    if (type === 'subtask' && parentId) {
+                        // Otwórz podzadanie
+                        openSubtaskModal(parentId, taskId);
+                    } else {
+                        // Otwórz zadanie główne
+                        openTaskModal(taskId);
+                    }
                 }, 150);
             }
         });
+        
+        // 5. Aktualizacja Globalnego Paska Szukania (Reset kontekstu)
+        if (searchBarEl) {
+             searchBarEl.addEventListener('click', (e) => {
+                 // ... (istniejąca logika prewencji) ...
+                 
+                 // NOWE: Reset kontekstu na globalny
+                 currentSearchContext = 'global';
+                 const modalTitle = searchModal.overlay.querySelector('.modal-header h2');
+                 if(modalTitle) modalTitle.textContent = "Wyszukaj zadania (Globalnie)";
+                 searchModal.input.placeholder = "Wpisz szukaną frazę...";
+                 
+                 openSearchModal();
+            });
+        }
         // === KONIEC NOWEGO LISTENERA ===
         // === KONIEC NOWEGO LISTENERA ===
 
@@ -32721,6 +32821,81 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             sidebar.classList.remove('open');
             sidebarOverlay.classList.remove('visible');
         });
+       /**
+         * NOWA FUNKCJA: Wyszukuje zadania w aktualnym projekcie po nazwie lub numerze WBS.
+         */
+        function performProjectSearch(term) {
+            if (!state.currentProjectId || !term) return [];
+            
+            const project = findProject(state.currentProjectId) || findCompletedProject(state.currentProjectId);
+            if (!project) return [];
+
+            const lowerCaseTerm = term.toLowerCase().trim();
+            const results = [];
+
+            // 1. Obliczanie numeracji WBS (1, 2, 2.1 itd.) - identycznie jak w renderKanbanBoard
+            const tasks = [...(project.tasks || [])];
+            
+            // Funkcja pomocnicza czasu
+            const getTime = (dateObj) => {
+                if (!dateObj) return 0;
+                if (typeof dateObj.toDate === 'function') return dateObj.toDate().getTime();
+                return new Date(dateObj).getTime();
+            };
+            
+            // Sortowanie chronologiczne
+            tasks.sort((a, b) => getTime(a.createdAt) - getTime(b.createdAt));
+
+            // 2. Przeszukiwanie z numeracją
+            tasks.forEach((task, index) => {
+                const taskNumber = index + 1; // np. 1
+                const taskNumberStr = `#${taskNumber}`;
+                const taskTitleLower = task.title.toLowerCase();
+                
+                // Sprawdź Zadanie Główne
+                // Pasuje jeśli: fraza jest w tytule LUB fraza jest numerem (np. "1", "#1")
+                if (taskTitleLower.includes(lowerCaseTerm) || 
+                    taskNumber.toString() === lowerCaseTerm || 
+                    taskNumberStr === lowerCaseTerm) {
+                    
+                    results.push({
+                        id: task.id,
+                        title: task.title,
+                        number: taskNumberStr,
+                        type: 'main',
+                        projectId: project.id,
+                        status: task.status // opcjonalnie do wyświetlania
+                    });
+                }
+
+                // Sprawdź Podzadania
+                if (task.subtasks && task.subtasks.length > 0) {
+                    task.subtasks.forEach((sub, subIndex) => {
+                        const subNumber = subIndex + 1;
+                        const fullSubNumberStr = `#${taskNumber}.${subNumber}`; // np. #1.2
+                        const subTitleLower = sub.title.toLowerCase();
+
+                        // Sprawdź dopasowanie: Tytuł, Pełny numer ("1.2")
+                        if (subTitleLower.includes(lowerCaseTerm) || 
+                            fullSubNumberStr === lowerCaseTerm ||
+                            fullSubNumberStr.replace('#', '') === lowerCaseTerm) {
+                            
+                            results.push({
+                                id: sub.id,
+                                title: sub.title,
+                                number: fullSubNumberStr,
+                                type: 'subtask',
+                                projectId: project.id,
+                                parentId: task.id, // Ważne do otwierania
+                                parentTitle: task.title
+                            });
+                        }
+                    });
+                }
+            });
+
+            return results;
+        }
         // === NOWY LISTENER: Obsługa filtrów kolumny "Wykonane" ===
         // Używamy delegacji zdarzeń na głównym kontenerze kanban
         kanbanBoardEl.addEventListener('change', (e) => {
@@ -40704,6 +40879,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
