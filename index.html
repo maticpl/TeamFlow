@@ -32832,6 +32832,9 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
 
             const lowerCaseTerm = term.toLowerCase().trim();
             const results = [];
+            
+            // === NOWE: Sprawdź czy to projekt Agile ===
+            const isAgileProject = project.type === 'sprint';
 
             // 1. Obliczanie numeracji WBS (1, 2, 2.1 itd.) - identycznie jak w renderKanbanBoard
             const tasks = [...(project.tasks || [])];
@@ -32848,6 +32851,13 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
 
             // 2. Przeszukiwanie z numeracją
             tasks.forEach((task, index) => {
+                // === NOWE: FILTR BACKLOGU DLA AGILE ===
+                // Jeśli to projekt Agile i zadanie jest w backlogu -> pomiń je w wynikach
+                if (isAgileProject && task.status === 'backlog') {
+                    return; // Idź do następnego zadania
+                }
+                // === KONIEC FILTRA ===
+
                 const taskNumber = index + 1; // np. 1
                 const taskNumberStr = `#${taskNumber}`;
                 const taskTitleLower = task.title.toLowerCase();
@@ -32864,13 +32874,22 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                         number: taskNumberStr,
                         type: 'main',
                         projectId: project.id,
-                        status: task.status // opcjonalnie do wyświetlania
+                        status: task.status
                     });
                 }
 
                 // Sprawdź Podzadania
                 if (task.subtasks && task.subtasks.length > 0) {
                     task.subtasks.forEach((sub, subIndex) => {
+                        // === NOWE: FILTR BACKLOGU DLA PODZADAŃ ===
+                        // Podzadanie dziedziczy "bycie w backlogu" od rodzica w większości przypadków,
+                        // ale jeśli ma własny status (w modelu standalone) sprawdzamy też jego.
+                        // Dla bezpieczeństwa: jeśli rodzic jest w backlogu, to podzadania też są ukryte przez warunek wyżej.
+                        // Tutaj sprawdzamy, czy samo podzadanie nie ma statusu backlog (rzadkie, ale możliwe w kodzie).
+                        const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                        if (isAgileProject && subStatus === 'backlog') return;
+                        // === KONIEC ===
+
                         const subNumber = subIndex + 1;
                         const fullSubNumberStr = `#${taskNumber}.${subNumber}`; // np. #1.2
                         const subTitleLower = sub.title.toLowerCase();
@@ -40879,6 +40898,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
