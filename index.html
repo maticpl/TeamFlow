@@ -14446,7 +14446,8 @@ async function handleSprintDragEnd(evt) {
 
 // Nowa funkcja asynchroniczna wyodrębniona dla AI
 async function handleSprintSave() {
-    const title = sprintModal.nameInput.value.trim();
+    console.log("[Sprint Save] Rozpoczynam procedurę zapisu...");
+    let title = sprintModal.nameInput.value.trim();
     
     sprintModal.saveBtn.disabled = true;
     sprintModal.saveBtn.textContent = 'Zapisywanie...';
@@ -14463,18 +14464,28 @@ async function handleSprintSave() {
         const editingId = sprintModal.overlay.dataset.editingSprintId;
         const sprintId = editingId || `sprint_${Date.now()}`;
         
-        // Pobierz NOWE daty z formularza
         const newSprintStart = sprintModal.startDate.value ? `${sprintModal.startDate.value}T09:00` : null;
         const newSprintEnd = sprintModal.endDate.value ? `${sprintModal.endDate.value}T17:00` : null;
 
-        // === AUTOMATYCZNA NUMERACJA SPRINTÓW ===
-        let finalTitle = title; 
-        if (!editingId) {
-            const existingSprintsCount = allTasks.filter(t => t.type === 'sprint').length;
-            const nextNum = existingSprintsCount + 1;
-            finalTitle = `Sprint #${nextNum}`;
-            if (title) finalTitle += ` ${title}`;
+        // === AUTOMATYCZNA NUMERACJA / TYTUŁ (NAPRAWIONE) ===
+        // Jeśli tytuł jest pusty, generujemy go automatycznie nawet przy edycji (jeśli brakuje)
+        let finalTitle = title;
+        
+        // Policz sprinty, aby znać numer
+        const existingSprintsCount = allTasks.filter(t => t.type === 'sprint' && t.id !== sprintId).length;
+        const nextNum = existingSprintsCount + 1;
+        const defaultTitle = `Sprint #${nextNum}`;
+
+        if (!finalTitle) {
+            finalTitle = defaultTitle; // Fallback jeśli input pusty
+        } else if (!editingId && !finalTitle.toLowerCase().includes('sprint')) {
+             // Jeśli nowy i nie ma słowa sprint, dodaj prefix
+             finalTitle = `Sprint #${nextNum} - ${finalTitle}`;
         }
+        // === KONIEC ===
+        
+        // ... (Reszta funkcji bez zmian: obliczanie punktów, budowanie obiektu task) ...
+        // SKOPIUJ CAŁĄ RESZTĘ KODU Z POPRZEDNIEJ WERSJI (od linii '2a. Oblicz całkowitą sumę...') AŻ DO catch
         
         // 2a. Oblicz całkowitą sumę punktów
         let calculatedSprintEstimation = 0;
@@ -14489,7 +14500,7 @@ async function handleSprintSave() {
             id: sprintId,
             title: finalTitle,
             type: 'sprint',
-            description: `Cel sprintu: ${title}`,
+            description: `Cel sprintu: ${title || 'Realizacja zadań'}`, // Fallback dla opisu
             startDate: newSprintStart,
             dueDate: newSprintEnd,
             estimation: calculatedSprintEstimation, 
@@ -14502,7 +14513,7 @@ async function handleSprintSave() {
             budgetItems: []
         };
 
-        // 3. Aktualizuj listę zadań w projekcie
+        // 3. Aktualizuj listę zadań w projekcie (Sprint object)
         if (editingId) {
             const idx = allTasks.findIndex(t => t.id === editingId);
             if (idx !== -1) {
@@ -14513,7 +14524,7 @@ async function handleSprintSave() {
             allTasks.push(sprintTask);
         }
 
-       // B. Przetwórz zadania ze Sprintu (Drafty -> Prawdziwe Zadania)
+       // B. Przetwórz zadania ze Sprintu
         sprintDraftTasks.forEach(draft => {
             const isNew = draft.id.startsWith('draft_');
             const isBacklog = draft.tempStatus === 'backlog';
@@ -14551,12 +14562,10 @@ async function handleSprintSave() {
                 allTasks.push(taskToSave);
             } else {
                 const idx = allTasks.findIndex(t => t.id === draft.id);
-                
                 if (idx !== -1) {
                     allTasks[idx] = { ...allTasks[idx], ...taskToSave };
                 } else {
                     const parentTask = allTasks.find(t => t.subtasks && t.subtasks.some(s => s.id === draft.id));
-                    
                     if (parentTask) {
                         parentTask.subtasks = parentTask.subtasks.map(sub => {
                             if (sub.id === draft.id) {
@@ -14570,7 +14579,6 @@ async function handleSprintSave() {
                                         finalCustomColumnId = sub.customColumnId || null;
                                     }
                                 }
-
                                 return {
                                     ...sub,
                                     status: subStatus,
@@ -14590,17 +14598,18 @@ async function handleSprintSave() {
             }
         });
 
-        // 4. Zapisz do bazy
+        // 4. Zapisz wszystko do bazy
         await updateDoc(projectDocRef, { tasks: allTasks });
         
+        console.log("[Sprint Save] Zapis udany!");
         showNotification("Sprint i zadania zostały zaktualizowane!", "Sukces");
         closeModal(sprintModal.overlay);
         isSprintCreationMode = false;
         delete sprintModal.overlay.dataset.editingSprintId;
         
     } catch (e) {
-        console.error(e);
-        showNotification("Błąd zapisu sprintu.", "Błąd");
+        console.error("[Sprint Save] Błąd:", e);
+        showNotification(`Błąd zapisu sprintu: ${e.message}`, "Błąd");
     } finally {
         sprintModal.saveBtn.disabled = false;
         sprintModal.saveBtn.textContent = 'Zapisz zmiany';
@@ -36902,14 +36911,19 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                      }
                 }
 
-                // E. [AGENT] ZAPIS SPRINTU (NAPRAWIONE)
+                // E. [AGENT] ZAPIS SPRINTU (FINALNE)
                 if (meta.action === 'SPRINT_DRAFT_SAVE') {
-                    // Wywołaj funkcję zapisu bezpośrednio
-                    setTimeout(() => {
+                    console.log("[AI Handler] Wykryto akcję SPRINT_DRAFT_SAVE. Uruchamiam handleSprintSave()...");
+                    
+                    // Sprawdź czy modal jest w ogóle otwarty
+                    const modal = document.getElementById('sprint-creation-modal');
+                    if (modal && modal.classList.contains('visible')) {
                         handleSprintSave();
-                    }, 200);
+                    } else {
+                        console.warn("[AI Handler] Modal sprintu nie jest otwarty. Nie mogę zapisać.");
+                        showNotification("AI próbowało zapisać sprint, ale okno nie jest otwarte.", "Info");
+                    }
                 }
-            }
             // === KONIEC ===
 
         // KROK 1.5: Dodanie odpowiedzi bota do historii
@@ -40574,6 +40588,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
