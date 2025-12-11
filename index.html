@@ -14707,6 +14707,28 @@ if (deleteSprintBtn) {
 }
 // === KONIEC NOWEJ FUNKCJI ===
        
+      Zrozumiałem. Analogicznie do poprzedniej poprawki w "Obciążeniu", musimy naprawić funkcję calculateGlobalUserBudgetSummary.
+
+Obecnie funkcja ta prawdopodobnie sumuje budżet zadania głównego i przypisuje go w całości każdemu przypisanemu użytkownikowi (lub dzieli go, ale tylko na poziomie głównego zadania).
+
+Zmiany, które wprowadzę:
+
+Funkcja będzie sprawdzać, czy zadanie ma podzadania.
+
+Jeśli tak – zignoruje budżet ogólny rodzica i policzy budżet z każdego podzadania osobno.
+
+Jeśli nie – weźmie budżet zadania głównego.
+
+W obu przypadkach: podzieli kwotę (zarezerwowaną lub wydaną) przez liczbę osób przypisanych do danej jednostki (zadania lub podzadania), aby koszt się nie dublował i był sprawiedliwie rozłożony na członków zespołu.
+
+KROK 1: Modyfikacja logiki obliczania budżetu per osoba
+Zastąpię funkcję calculateGlobalUserBudgetSummary nową wersją, wykorzystującą ten sam wzorzec processItem co w naprawionym wykresie obciążenia.
+
+KROK 2: Kod PRZED Zmianą
+Plik: index.html (sekcja <script type="module">, okolice linii 4340)
+
+JavaScript
+
       // === ZAKTUALIZOWANA FUNKCJA (Wersja 2.1): Obliczanie budżetu per użytkownik (z podziałem kosztów) ===
         function calculateGlobalUserBudgetSummary() {
             const userBudgets = {}; // Obiekt do agregacji: { userId: { name, avatar, reserved, spent, total } }
@@ -14783,6 +14805,110 @@ if (deleteSprintBtn) {
             
             // 12. ZWRÓĆ OBIEKT ZAWIERAJĄCY LISTĘ I SUMY
             // Używamy .toFixed(2) a potem parseFloat(), aby uniknąć błędów zaokrągleń
+            return {
+                list: sortedUsers.map(u => ({
+                    ...u,
+                    reserved: parseFloat(u.reserved.toFixed(2)),
+                    spent: parseFloat(u.spent.toFixed(2)),
+                    total: parseFloat(u.total.toFixed(2))
+                })),
+                totals: {
+                    reserved: parseFloat(globalReserved.toFixed(2)),
+                    spent: parseFloat(globalSpent.toFixed(2)),
+                    total: parseFloat(globalTotal.toFixed(2))
+                }
+            };
+        }
+KROK 3: Kod PO Zmianie (Naprawiona logika Podzadań i Dzielenia)
+Wklej ten kod w miejsce poprzedniej funkcji. Nowa wersja obsługuje rekurencyjne sprawdzanie podzadań i prawidłowo dzieli budżet tylko na osoby przypisane do danego elementu (czy to zadania głównego, czy konkretnego podzadania).
+
+JavaScript
+
+      // === POPRAWIONA FUNKCJA (Wersja 3.0): Obliczanie budżetu per użytkownik (Z podzadaniami) ===
+        function calculateGlobalUserBudgetSummary() {
+            const userBudgets = {}; // Obiekt do agregacji
+            let globalReserved = 0; 
+            let globalSpent = 0;    
+            let globalTotal = 0;    
+
+            // 1. Przejdź przez projekty
+            state.projects.forEach(project => {
+                
+                // FILTR BEZPIECZEŃSTWA: Finanse widzi tylko Właściciel lub Admin
+                const isOwner = project.ownerId === state.currentUser.uid;
+                const isAdmin = (project.admins || []).includes(state.currentUser.uid);
+
+                if (!isOwner && !isAdmin) return; 
+
+                // 2. Przejdź przez zadania
+                (project.tasks || []).forEach(task => {
+                    // Upewniamy się co do struktury
+                    const taskObj = migrateTask(task);
+                    
+                    // Funkcja pomocnicza do przetwarzania (Zadania lub Podzadania)
+                    const processItem = (item) => {
+                        // a. Sprawdź czy są pozycje kosztowe
+                        if (!item.budgetItems || item.budgetItems.length === 0) return;
+                        
+                        // b. Oblicz sumę kosztów tego elementu
+                        const itemCost = item.budgetItems.reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
+                        if (itemCost <= 0) return;
+
+                        // c. Sprawdź czy są przypisane osoby
+                        const assignees = item.assignees || [];
+                        if (assignees.length === 0) return;
+
+                        // d. Oblicz podział kosztu (Koszt / Liczba osób)
+                        const costPerUser = itemCost / assignees.length;
+                        
+                        // e. Sprawdź status (Wydane vs Zarezerwowane)
+                        // Dla podzadań sprawdzamy isCompleted lub status 'done'
+                        const isSpent = item.status === 'done' || item.isCompleted === true;
+
+                        // f. Rozdziel koszt na użytkowników
+                        assignees.forEach(userId => {
+                            // Znajdź usera (dla nazwy/awatara)
+                            const user = findUser(userId);
+                            
+                            // Inicjalizacja w mapie
+                            if (!userBudgets[userId]) {
+                                userBudgets[userId] = {
+                                    userId: userId,
+                                    name: user ? (user.name || user.email) : 'Nieznany',
+                                    avatarHTML: renderAvatarHTML(user), 
+                                    reserved: 0,
+                                    spent: 0,
+                                    total: 0
+                                };
+                            }
+
+                            // Agregacja
+                            if (isSpent) {
+                                userBudgets[userId].spent += costPerUser;
+                                globalSpent += costPerUser; 
+                            } else {
+                                userBudgets[userId].reserved += costPerUser;
+                                globalReserved += costPerUser;
+                            }
+                            userBudgets[userId].total += costPerUser;
+                            globalTotal += costPerUser;
+                        });
+                    };
+
+                    // === GŁÓWNA LOGIKA ROZGAŁĘZIENIA ===
+                    if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                        // A. Zadanie ma podzadania -> Liczymy budżet z podzadań
+                        taskObj.subtasks.forEach(sub => processItem(sub));
+                    } else {
+                        // B. Zadanie pojedyncze -> Liczymy budżet z zadania głównego
+                        processItem(taskObj);
+                    }
+                });
+            });
+
+            // 3. Sortowanie i formatowanie
+            const sortedUsers = Object.values(userBudgets).sort((a, b) => b.total - a.total);
+            
             return {
                 list: sortedUsers.map(u => ({
                     ...u,
@@ -18771,58 +18897,73 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             });
         }
         // === KONIEC NOWEJ FUNKCJI ===
-       // === NOWA FUNKCJA: Obliczanie obciążenia godzinowego zespołu ===
+       // === POPRAWIONA FUNKCJA: Obliczanie obciążenia godzinowego (Z obsługą Podzadań i Dzielenia) ===
         function calculateTeamWorkloadHours(monthFilter = 'all') {
             const teamWorkload = {}; // { userId: { hours: 0, name: '' } }
-            const myId = state.currentUser.uid;
+            // const myId = state.currentUser.uid; // Odkomentuj w pętli niżej, jeśli chcesz wykluczyć siebie
             
-            // 1. Filtruj projekty, które w ogóle używają śledzenia godzin
-            const projectsWithHours = state.projects.filter(p => p.estimationType === 'hours');
+            // 1. Filtruj projekty, które używają godzin (lub punktów, jeśli chcesz widzieć obciążenie punktowe)
+            const projectsWithHours = state.projects.filter(p => p.estimationType === 'hours' || p.estimationType === 'points');
 
             projectsWithHours.forEach(project => {
                 (project.tasks || []).forEach(task => {
-                    const taskHours = parseFloat(task.estimation) || 0;
+                    // Używamy migrateTask, aby upewnić się, że struktura (subtasks) jest poprawna
+                    const taskObj = migrateTask(task);
                     
-                    // === POCZĄTEK ZMIANY ===
-                    const assignees = task.assignees || [];
-                    const numberOfAssignees = assignees.length;
+                    // Funkcja pomocnicza do przetwarzania pojedynczego elementu (Zadania lub Podzadania)
+                    const processItem = (item) => {
+                        // 1. Pomiń ukończone
+                        const status = item.status || (item.isCompleted ? 'done' : 'todo');
+                        if (status === 'done') return;
 
-                    // Pomiń zadania bez estymacji, ukończone LUB bez przypisanych osób
-                    if (taskHours === 0 || task.status === 'done' || numberOfAssignees === 0) return; 
-
-                    // 2. Filtrowanie daty (jeśli 'monthFilter' nie jest 'all')
-                    if (monthFilter !== 'all') {
-                        if (!task.dueDate || !task.dueDate.startsWith(monthFilter)) {
-                            return; // Pomiń zadanie, jeśli nie pasuje do wybranego miesiąca (YYYY-MM)
+                        // 2. Filtr daty (jeśli aktywny)
+                        if (monthFilter !== 'all') {
+                            if (!item.dueDate || !item.dueDate.startsWith(monthFilter)) return;
                         }
-                    }
 
-                    // Oblicz godziny proporcjonalnie
-                    const hoursPerUser = taskHours / numberOfAssignees;
-                    // === KONIEC ZMIANY ===
+                        // 3. Pobierz estymację (priorytet dla effort, potem estimation)
+                        const est = parseFloat(item.effort || item.estimation || 0);
+                        if (est <= 0) return;
 
+                        // 4. Pobierz przypisane osoby
+                        const assignees = item.assignees || [];
+                        const count = assignees.length;
+                        if (count === 0) return;
 
-                    // 3. Agregacja godzin per użytkownik (z wyłączeniem mnie)
-                    assignees.forEach(assigneeId => {
-                        if (assigneeId !== myId) {
-                            if (!teamWorkload[assigneeId]) {
-                                const user = findUser(assigneeId);
-                                teamWorkload[assigneeId] = { 
+                        // 5. Oblicz obciążenie na osobę (Dzielenie wysiłku)
+                        const amountPerUser = est / count;
+
+                        // 6. Przypisz do użytkowników
+                        assignees.forEach(uid => {
+                            // Opcjonalnie: Odkomentuj poniższe, aby ukryć siebie na wykresie
+                            // if (uid === state.currentUser.uid) return;
+
+                            if (!teamWorkload[uid]) {
+                                const user = findUser(uid);
+                                teamWorkload[uid] = { 
                                     hours: 0, 
                                     name: user ? (user.name || user.email) : 'Nieznany' 
                                 };
                             }
-                            // === ZMIANA: Dodaj tylko 'hoursPerUser' ===
-                            teamWorkload[assigneeId].hours += hoursPerUser;
-                        }
-                    });
+                            teamWorkload[uid].hours += amountPerUser;
+                        });
+                    };
+
+                    // === GŁÓWNA LOGIKA ROZGAŁĘZIENIA ===
+                    if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                        // A. Jeśli są podzadania -> ignorujemy estymację główną, liczymy sumę z podzadań
+                        taskObj.subtasks.forEach(sub => processItem(sub));
+                    } else {
+                        // B. Jeśli brak podzadań -> liczymy zadanie główne
+                        processItem(taskObj);
+                    }
                 });
             });
 
-            // 4. Konwertuj na tablicę i sortuj
+            // 4. Konwertuj na tablicę i sortuj malejąco wg obciążenia
             const workloadArray = Object.values(teamWorkload).sort((a, b) => b.hours - a.hours);
             
-            return workloadArray; // Zwraca np. [{ name: 'Anna', hours: 40 }, { name: 'Piotr', hours: 25 }]
+            return workloadArray;
         }
         
         // === NOWA FUNKCJA: Renderowanie wykresu obciążenia GODZINOWEGO ===
@@ -20134,13 +20275,34 @@ if (!listsContainer) {
 
             kanbanBoardEl.style.display = 'block';
 
+            // NOWA LINIA: Resetowanie klasy kontenera do domyślnej klasy Kanban
+            kanbanBoardEl.className = 'dashboard-view';
+            projectNameHeaderEl.textContent = 'Mój Dashboard';
+            mobileHeaderTitle.textContent = 'Mój Dashboard';
+            projectMembersHeaderEl.innerHTML = '';
+            
+            // === CZYSZCZENIE NAGŁÓWKA (CLEAN UI) ===
+            if (projectMenuToggle) projectMenuToggle.style.display = 'none';
+            if (projectProgressContainer) projectProgressContainer.style.display = 'none';
+            // === KONIEC ===
+
+            kanbanBoardEl.style.display = 'block';
+
+            // === KROK 1: Pobierz PEŁNĄ listę zadań i podzadań użytkownika ===
+            // Używamy getAllMyTasksAndSubtasks, aby uwzględnić wszystko
+            const allMyWorkItems = getAllMyTasksAndSubtasks();
+            
+            // Utrzymujemy też starą zmienną 'myTasks' dla kompatybilności z funkcjami pomocniczymi (np. getOverdueTasks)
+            // które oczekują prostszej struktury, lub dla kafelka "Nadchodzące" (jeśli chcesz tam tylko główne).
+            // Ale dla kafelka "Obciążenie" użyjemy 'allMyWorkItems'.
             const myTasks = getAllMyTasks();
-             // === NOWA LINIA: Obliczanie globalnego budżetu ===
+
+            // === NOWA LINIA: Obliczanie globalnego budżetu ===
             const globalBudgetSummary = calculateGlobalBudgetSummary();
              // === NOWA LINIA: Obliczanie budżetu per osoba ===
             const userBudgetSummary = calculateGlobalUserBudgetSummary();
 
-            // ... (logika sortowania myTasks) ...
+            // ... (logika sortowania myTasks - bez zmian) ...
             myTasks.sort((a, b) => {
                 const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
                 const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
@@ -20150,6 +20312,12 @@ if (!listsContainer) {
                 return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - a.dueDate;
             });
 
+            // === ZMIANA: Obliczenia dla kafelka "Nadchodzące" i "Zaległe" ===
+            // Tutaj można zdecydować: czy zaległe mają obejmować podzadania? 
+            // Dla spójności z "Obciążeniem" warto by było, ale getOverdueTasks jest proste.
+            // Zostawmy zaległe na 'myTasks' (Główne) dla czytelności lub zmieńmy na allWorkItems.
+            // W tym kroku naprawiamy TYLKO KAFELEK OBCIĄŻENIA.
+            
             const overdueTasks = getOverdueTasks(myTasks);
             const todayPlusTomorrow = myTasks.filter(t => {
                 if (!t.dueDate || t.status === 'done') return false;
@@ -20162,11 +20330,15 @@ if (!listsContainer) {
             });
             const teamOverdueCount = getTeamOverdueCount();
             
-            const todoCount = myTasks.filter(t => t.status === 'todo').length;
-            const inProgressCount = myTasks.filter(t => t.status === 'inprogress').length;
+            // === KLUCZOWA ZMIANA: LICZNIKI OBCIĄŻENIA (Tasks + Subtasks) ===
+            // Liczymy na podstawie allMyWorkItems, który zawiera { status: 'todo'/'inprogress', ... }
+            const todoCount = allMyWorkItems.filter(item => item.status === 'todo').length;
+            const inProgressCount = allMyWorkItems.filter(item => item.status === 'inprogress').length;
+            
             const totalActiveTasks = todoCount + inProgressCount;
             const todoPercent = totalActiveTasks > 0 ? (todoCount / totalActiveTasks) * 100 : 0;
             const inProgressPercent = totalActiveTasks > 0 ? (inProgressCount / totalActiveTasks) * 100 : 0;
+            // === KONIEC ZMIANY ===
 
             const otherUsersActivities = getAllActivitiesFromMyProjects().filter(activity => activity.userId !== state.currentUser.uid);
             otherUsersActivities.sort((a, b) => b.timestamp - a.timestamp);
@@ -40898,6 +41070,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
