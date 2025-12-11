@@ -13670,7 +13670,10 @@ function openSprintCreator(targetProjectId = null) {
     if (sprintModal.overlay.dataset.editingSprintId) {
         delete sprintModal.overlay.dataset.editingSprintId; 
     }
-
+    if (document.getElementById('delete-sprint-btn')) {
+        document.getElementById('delete-sprint-btn').style.display = 'none';
+    }
+    // =================================================================
     // 4. Reset formularza
     sprintModal.nameInput.value = '';
     sprintModal.nameInput.disabled = false; 
@@ -13748,7 +13751,10 @@ function openEditSprintModal(sprintId) {
 
     isSprintCreationMode = true;
     sprintModal.overlay.dataset.editingSprintId = sprint.id;
-
+    if (document.getElementById('delete-sprint-btn')) {
+        document.getElementById('delete-sprint-btn').style.display = 'block';
+    }
+    // ==============================================================
     sprintModal.nameInput.value = sprint.title;
     sprintModal.nameInput.disabled = true; // <--- NOWE: Blokada edycji nazwy
     
@@ -14609,6 +14615,89 @@ async function handleSprintSave() {
 
 // Podpięcie listenera (teraz wywołuje funkcję)
 sprintModal.saveBtn.addEventListener('click', handleSprintSave);
+// === NOWA FUNKCJA: Logika usuwania sprintu ===
+async function handleDeleteSprint() {
+    // Pobieramy ID edytowanego sprintu z datasetu modala
+    const sprintId = sprintModal.overlay.dataset.editingSprintId;
+    const projectId = state.currentProjectId;
+    
+    if (!sprintId || !projectId) return;
+
+    const project = findProject(projectId);
+    if (!project) return;
+
+    const sprintTask = project.tasks.find(t => t.id === sprintId);
+    if (!sprintTask) return;
+
+    // Policz zadania wewnątrz sprintu (żeby ostrzec użytkownika)
+    const tasksInSprint = project.tasks.filter(t => t.parentSprintId === sprintId);
+
+    showConfirmation(
+        `Usuń sprint "${sprintTask.title}"`,
+        `Czy na pewno chcesz trwale usunąć ten sprint?<br><br>
+         ⚠️ <strong>To działanie jest nieodwracalne.</strong><br>
+         Liczba zadań w środku: <strong>${tasksInSprint.length}</strong>.<br>
+         Wszystkie zadania zostaną przeniesione do sekcji <strong>"Do zaplanowania" (Backlog)</strong>.`,
+        async (confirmed) => {
+            if (confirmed) {
+                try {
+                    // 1. Klonujemy listę zadań
+                    let updatedTasks = [...project.tasks];
+
+                    // 2. Usuwamy sam obiekt sprintu
+                    updatedTasks = updatedTasks.filter(t => t.id !== sprintId);
+
+                    // 3. Aktualizujemy dzieci (przepisujemy do Backlogu)
+                    updatedTasks = updatedTasks.map(t => {
+                        if (t.parentSprintId === sprintId) {
+                            return {
+                                ...t,
+                                parentSprintId: null, // Odepnij od sprintu
+                                status: 'backlog',     // Przenieś do Backlogu
+                                // Opcjonalnie: wyczyść daty, żeby nie myliły
+                                startDate: null,
+                                dueDate: null
+                            };
+                        }
+                        return t;
+                    });
+
+                    // 4. Zapis do Firebase
+                    const projectDocRef = doc(projectsRef, projectId);
+                    // Przeliczamy budżet na wszelki wypadek
+                    const newBudgetSummary = calculateProjectBudgetSummary(updatedTasks);
+                    
+                    await updateDoc(projectDocRef, { 
+                        tasks: updatedTasks,
+                        budgetSummary: newBudgetSummary
+                    });
+
+                    showNotification("Sprint został usunięty. Zadania wróciły do Backlogu.", "Sukces");
+                    closeModal(sprintModal.overlay);
+                    
+                    // Jeśli byliśmy w trybie "Fokus" na tym sprincie, wychodzimy
+                    if (state.ui.focusedSprintId === sprintId) {
+                        state.ui.focusedSprintId = null;
+                        render();
+                    }
+
+                } catch (error) {
+                    console.error("Błąd podczas usuwania sprintu:", error);
+                    showNotification("Wystąpił błąd podczas usuwania sprintu.", "Błąd");
+                }
+            }
+        },
+        true // Czerwony przycisk potwierdzenia
+    );
+}
+
+// Podpięcie listenera do nowego przycisku
+const deleteSprintBtn = document.getElementById('delete-sprint-btn');
+if (deleteSprintBtn) {
+    deleteSprintBtn.addEventListener('click', handleDeleteSprint);
+}
+// === KONIEC NOWEJ FUNKCJI ===
+       
       // === ZAKTUALIZOWANA FUNKCJA (Wersja 2.1): Obliczanie budżetu per użytkownik (z podziałem kosztów) ===
         function calculateGlobalUserBudgetSummary() {
             const userBudgets = {}; // Obiekt do agregacji: { userId: { name, avatar, reserved, spent, total } }
@@ -40507,6 +40596,8 @@ welcomeModal.okBtn.addEventListener('click', async () => {
             </div>
 
             <div class="modal-footer" style="background-color: var(--bg-secondary); border-top: 1px solid var(--border-color); padding: 12px 24px; flex-shrink: 0;">
+                <button type="button" id="delete-sprint-btn" class="btn btn-danger" style="margin-right: auto; display: none;">Usuń Sprint</button>
+                
                 <button type="button" class="btn btn-secondary modal-close-btn">Anuluj</button>
                 <button type="button" id="save-sprint-btn" class="btn btn-primary" style="background-color: #8b5cf6; border-color: #8b5cf6;">
                     Zapisz Sprint
@@ -40613,6 +40704,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
