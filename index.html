@@ -13637,82 +13637,91 @@ let isSprintCreationMode = false; // Flaga: czy jesteśmy w trybie tworzenia spr
 // --- 2. OTWIERANIE MODALA SPRINTU ---
 // --- 2. OTWIERANIE MODALA SPRINTU (ZMODYFIKOWANE DLA AI) ---
 
-// Nowa funkcja globalna do otwierania kreatora (dostępna dla AI i przycisku)
+// --- 2. OTWIERANIE MODALA SPRINTU (WERSJA STABILNA) ---
+
 function openSprintCreator(targetProjectId = null) {
-    // Jeśli podano ID projektu (np. z AI), upewnij się, że działamy na właściwym
+    console.log("Próba otwarcia kreatora sprintu dla ID:", targetProjectId);
+
+    // 1. Ustal ID projektu
     const projectId = targetProjectId || state.currentProjectId;
     const project = findProject(projectId);
     
     if (!project) {
         console.error("openSprintCreator: Nie znaleziono projektu o ID:", projectId);
+        showNotification("Nie znaleziono projektu. Spróbuj odświeżyć stronę.", "Błąd");
         return;
     }
 
-    // Jeśli jesteśmy w innym projekcie, przełączmy się wewnętrznie (dla spójności danych)
-    if (state.currentProjectId !== projectId) {
-        state.currentProjectId = projectId;
-        // Opcjonalnie: render() - ale modal przykryje widok, więc nie jest to krytyczne
-    }
+    // 2. WYMUŚ przełączenie na ten projekt i widok (Kluczowe dla stabilności)
+    // Nawet jeśli już tam jesteśmy, resetujemy widok, żeby mieć pewność
+    state.currentProjectId = projectId;
+    state.ui.currentView = 'projects';
+    state.ui.isCalendarView = false;
+    
+    // Zapisz stan i przerysuj widok pod spodem (żeby dane w pamięci były świeże)
+    saveUiState();
+    render();
 
-    // Reset stanu
+    // 3. Reset stanu kreatora
     sprintDraftTasks = [];
     isSprintCreationMode = true;
     
     // Wyjście z trybu edycji (zapomnij stary ID)
-    delete sprintModal.overlay.dataset.editingSprintId; 
+    if (sprintModal.overlay.dataset.editingSprintId) {
+        delete sprintModal.overlay.dataset.editingSprintId; 
+    }
 
+    // 4. Reset formularza
     sprintModal.nameInput.value = '';
     sprintModal.nameInput.disabled = false; 
     sprintModal.nameInput.placeholder = "Opcjonalne (np. Temat)";
     
-    // Domyślne daty (dziś + 14 dni)
     const today = new Date();
     const twoWeeks = new Date();
     twoWeeks.setDate(today.getDate() + 14);
     sprintModal.startDate.value = today.toISOString().split('T')[0];
     sprintModal.endDate.value = twoWeeks.toISOString().split('T')[0];
     
-    // Wyczyść i zbuduj strukturę kolumn
+    // 5. Budowa struktury
     sprintModal.backlogList.innerHTML = '';
     renderSprintMiniBoardStructure(); 
     
-    // Pobierz zadania z "Do zaplanowania" (Backlogu Projektu)
+    // 6. Pobieranie zadań z Backlogu (Teraz mamy pewność, że project to ten właściwy)
     if (project.tasks) {
-        // Filtruj zadania ze statusem 'backlog'
         const backlogTasks = project.tasks.filter(t => t.status === 'backlog');
-        
-        // Dodaj je do tablicy draftu sprintu
         backlogTasks.forEach(t => {
             sprintDraftTasks.push({
                 ...t,
-                tempStatus: 'backlog' // Wymuś wyświetlenie w lewej kolumnie "Do zaplanowania"
+                tempStatus: 'backlog' 
             });
         });
     }
 
-    // Listener do aktualizacji Capacity na żywo
+    // Listenery
     if (sprintModal.capacityInput) {
+        // Usuwamy stary listener, żeby się nie dublowały (bezpiecznik)
+        sprintModal.capacityInput.removeEventListener('input', updateSprintStats);
         sprintModal.capacityInput.addEventListener('input', updateSprintStats);
     }
     
-    // Wyrenderuj zadania
     renderSprintDraftTasks();
     
-    // Zamknij menu FAB (jeśli było otwarte)
+    // Zamknij menu FAB
     const fabToggle = document.getElementById('fab-menu-toggle');
     const fabMenu = document.getElementById('fab-menu');
-    if (fabToggle) fabToggle.classList.remove('active');
-    if (fabMenu) fabMenu.classList.add('hidden');
+    if(fabToggle) fabToggle.classList.remove('active');
+    if(fabMenu) fabMenu.classList.add('hidden');
     
-    // Otwórz modal
-    openModal(sprintModal.overlay);
-    
-    // Inicjalizacja Drag & Drop
-    initSprintDragAndDrop();
+    // 7. Otwórz modal (z małym opóźnieniem dla pewności renderowania CSS)
+    setTimeout(() => {
+        openModal(sprintModal.overlay);
+        initSprintDragAndDrop();
+        console.log("Kreator sprintu otwarty.");
+    }, 50);
 }
 
+// Listener przycisku FAB (bez zmian, używa nowej funkcji)
 const fabNewSprintBtn = document.getElementById('fab-action-new-sprint');
-
 if (fabNewSprintBtn) {
     fabNewSprintBtn.addEventListener('click', () => {
         openSprintCreator(state.currentProjectId);
@@ -36816,34 +36825,22 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                     }, 100);
                 }
 
-                // B. [AGENT] OTWARCIE KREATORA SPRINTU (NAPRAWIONE)
+                // B. [AGENT] OTWARCIE KREATORA SPRINTU (STABILNE)
                 if (meta.action === 'OPEN_SPRINT_MODAL') {
-                    const project = findProject(meta.projectId);
-                    if (project) {
-                        // 1. Przełącz na projekt w stanie
-                        state.currentProjectId = project.id;
-                        state.ui.currentView = 'projects';
-                        saveUiState();
-                        render();
-                        
-                        // 2. Wywołaj funkcję otwierającą BEZPOŚREDNIO (bez symulacji kliknięcia)
-                        // Używamy setTimeout tylko po to, aby stos wywołań UI się wyczyścił
-                        setTimeout(() => {
-                            openSprintCreator(project.id);
-                        }, 100);
-                    }
+                    // Po prostu wywołaj funkcję. Ona zajmie się zmianą widoku i otwarciem.
+                    // Przekazujemy ID projektu z metadanych AI.
+                    console.log("[AI Action] Otwieranie sprintu dla:", meta.projectId);
+                    openSprintCreator(meta.projectId);
                 }
 
-                // C. [AGENT] DODAWANIE ZADAŃ DO SPRINTU (PRZESUWANIE KAFELKÓW)
+                // C. [AGENT] DODAWANIE ZADAŃ DO SPRINTU
                 if (meta.action === 'SPRINT_DRAFT_ADD') {
-                    // Sprawdź, czy modal jest otwarty
-                    if (document.getElementById('sprint-creation-modal').classList.contains('visible')) {
+                    const performDraftAdd = () => {
                         const keywords = meta.keywords || [];
                         let movedCount = 0;
-                        console.log("[AI Agent] Otrzymano słowa kluczowe:", keywords);
+                        console.log("[AI Agent] Dodawanie do draftu:", keywords);
 
-                        // === 1. Odtworzenie mapy numerów (WBS) ===
-                        // Musimy wiedzieć, że task_ID_123 to numer #10
+                        // Odtworzenie mapy numerów (WBS)
                         const project = findProject(state.currentProjectId);
                         const taskIndexMap = {};
                         if (project && project.tasks) {
@@ -36854,51 +36851,45 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
                             });
                             sorted.forEach((t, i) => taskIndexMap[t.id] = i + 1);
                         }
-                        // ========================================
 
-                        // Iterujemy po wszystkich zadaniach w drafcie
                         sprintDraftTasks.forEach(task => {
-                            // Szukamy tylko tych, które są w 'backlog' (lewa kolumna)
                             if (task.tempStatus === 'backlog') {
-                                
-                                const taskNum = taskIndexMap[task.id]; // np. 10
+                                const taskNum = taskIndexMap[task.id]; 
                                 const taskTitleLower = task.title.toLowerCase();
 
-                                // Sprawdź dopasowanie dla każdego słowa kluczowego
                                 const match = keywords.some(keyword => {
                                     const kwLower = keyword.toString().toLowerCase().trim();
-                                    
-                                    // A. Dopasowanie po TYTULE (fragment tekstu)
                                     if (taskTitleLower.includes(kwLower)) return true;
-
-                                    // B. Dopasowanie po NUMERZE (np. "10", "#10", "nr 10")
-                                    // Czyścimy słowo kluczowe z "nr", "#" i spacji
+                                    
                                     const cleanNumberStr = kwLower.replace(/nr|#|numer/g, '').trim();
                                     const kwNumber = parseInt(cleanNumberStr, 10);
-                                    
-                                    if (!isNaN(kwNumber) && kwNumber === taskNum) {
-                                        return true; // Bingo! Numer się zgadza
-                                    }
+                                    if (!isNaN(kwNumber) && kwNumber === taskNum) return true;
 
                                     return false;
                                 });
                                 
                                 if (match) {
-                                    // PRZESUŃ DO KOLUMNY "DO REALIZACJI"
-                                    task.tempStatus = 'todo';
+                                    task.tempStatus = 'todo'; 
                                     movedCount++;
-                                    console.log(`[AI Agent] Przeniesiono zadanie: "${task.title}" (#${taskNum})`);
                                 }
                             }
                         });
 
                         if (movedCount > 0) {
-                            renderSprintDraftTasks(); // Odśwież widok modala (karty przeskoczą wizualnie)
+                            renderSprintDraftTasks();
                             showNotification(`AI przeniosło ${movedCount} zadań do sprintu.`, "Info");
-                        } else {
-                            // Opcjonalnie: Poinformuj, że nic nie znaleziono, mimo próby
-                            console.warn("[AI Agent] Nie znaleziono pasujących zadań dla słów:", keywords);
                         }
+                    };
+
+                    // Logika awaryjnego otwierania
+                    const modal = document.getElementById('sprint-creation-modal');
+                    if (!modal.classList.contains('visible')) {
+                        console.log("[AI Agent] Modal zamknięty. Otwieram awaryjnie...");
+                        openSprintCreator(state.currentProjectId);
+                        // Poczekaj chwilę na otwarcie, potem dodaj
+                        setTimeout(performDraftAdd, 300);
+                    } else {
+                        performDraftAdd();
                     }
                 }
 
@@ -40583,6 +40574,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
