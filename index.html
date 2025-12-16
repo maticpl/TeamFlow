@@ -9011,6 +9011,42 @@ body.compact-mode .comment-item {
         grid-template-columns: 1fr !important;
     }
 }
+        /* === STYLE DLA MODALA ONBOARDINGU (MÓJ DZIEŃ) === */
+#onboarding-my-day-modal .modal {
+    max-width: 600px;
+    height: auto;
+    max-height: 90vh;
+}
+.onboarding-video-container {
+    width: 100%;
+    background-color: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 20px;
+    aspect-ratio: 16 / 9;
+    box-shadow: var(--shadow-md);
+}
+.onboarding-video-container video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+.onboarding-content {
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    margin-bottom: 24px;
+}
+.onboarding-footer-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+/* === KONIEC === */
     </style>
 
 </head>
@@ -10766,6 +10802,31 @@ body.compact-mode .comment-item {
         </div>
     </div>
 </div>
+    <div class="modal-overlay" id="onboarding-my-day-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>Witaj w widoku "Mój dzień" 👋</h2>
+            </div>
+        <div class="form-modal-content">
+            <div class="onboarding-video-container">
+                <video src="assets/videos/Mojdzien.mp4" controls autoplay muted playsinline></video>
+            </div>
+            
+            <div class="onboarding-content">
+                <p><strong>Twoje centrum operacyjne.</strong><br>
+                Inteligentna lista, która resetuje się każdego ranka. Automatycznie zbiera zadania z terminem na "Dzisiaj" oraz wszystkie zaległe (czerwone). To najlepsze miejsce, by zacząć pracę.</p>
+            </div>
+
+            <div class="onboarding-footer-row">
+                <div class="form-group-checkbox" style="margin-bottom: 0;">
+                    <input type="checkbox" id="onboarding-dont-show-again">
+                    <label for="onboarding-dont-show-again" style="font-size: 13px; color: var(--text-secondary); cursor: pointer;">Nie pokazuj więcej tej podpowiedzi</label>
+                </div>
+                <button type="button" id="close-onboarding-btn" class="btn btn-primary">Rozumiem, przejdź do zadań</button>
+            </div>
+        </div>
+    </div>
+</div>    
    <script type="module">
     // ============================
     // 1. IMPORTY
@@ -28930,23 +28991,63 @@ if (transferOwnershipModal.form) {
             searchModal.resultsList.innerHTML = '';
             openModal(searchModal.overlay);
         }
+        // === NOWE REFERENCJE DO MODALA ONBOARDINGU ===
+        const onboardingModal = {
+            overlay: document.getElementById('onboarding-my-day-modal'),
+            checkbox: document.getElementById('onboarding-dont-show-again'),
+            closeBtn: document.getElementById('close-onboarding-btn')
+        };
+
+        // Obsługa zamknięcia modala onboardingu
+        if (onboardingModal.closeBtn) {
+            onboardingModal.closeBtn.addEventListener('click', () => {
+                // Sprawdź czy checkbox jest zaznaczony
+                if (onboardingModal.checkbox.checked) {
+                    // Zapisz flagę w localStorage (trwałe w przeglądarce)
+                    localStorage.setItem('teamflow_onboarding_myday_seen_v1', 'true');
+                }
+                closeModal(onboardingModal.overlay);
+                
+                // Zatrzymaj wideo po zamknięciu
+                const video = onboardingModal.overlay.querySelector('video');
+                if (video) video.pause();
+            });
+        }
+        // === KONIEC NOWYCH REFERENCJI ===
+
         mainNav.addEventListener('click', (e) => {
             e.preventDefault();
             const link = e.target.closest('a');
             if (!link) return;
-
-            closeChatPanel(); // <-- DODANA LINIA
-
+            
+            closeChatPanel(); 
+            
             state.ui.previousView = null;
 
             if (link.dataset.view) {
                 // NOWY WARUNEK: Resetowanie daty przy wejściu w "Mój dzień"
                 if (link.dataset.view === 'my-day') {
                     state.ui.myDayDate = getLocalDateString();
+
+                    // === NOWA LOGIKA ONBOARDINGU ===
+                    const hasSeenOnboarding = localStorage.getItem('teamflow_onboarding_myday_seen_v1');
+                    
+                    if (!hasSeenOnboarding) {
+                        // Jeśli nie widział (i nie zaznaczył checkboxa), pokaż modal
+                        openModal(onboardingModal.overlay);
+                        // Uruchom wideo (opcjonalne, bo autoplay jest w HTML, ale dla pewności)
+                        const video = onboardingModal.overlay.querySelector('video');
+                        if (video) {
+                            video.currentTime = 0;
+                            video.play().catch(err => console.log('Autoplay blocked:', err));
+                        }
+                    }
+                    // === KONIEC LOGIKI ===
                 }
+                
                 state.currentProjectId = null;
                 state.ui.currentView = link.dataset.view;
-                state.ui.isCalendarView = false; 
+                state.ui.isCalendarView = false;
                 saveUiState();
                 render();
                 sidebar.classList.remove('open');
@@ -28954,7 +29055,7 @@ if (transferOwnershipModal.form) {
             } else if (link.dataset.projectId) {
                 state.currentProjectId = link.dataset.projectId;
                 state.ui.currentView = 'projects';
-                state.ui.isCalendarView = false; 
+                state.ui.isCalendarView = false;
                 saveUiState();
                 render();
                 sidebar.classList.remove('open');
@@ -40956,6 +41057,7 @@ welcomeModal.okBtn.addEventListener('click', async () => {
 </div>
 </body>
 </html>
+
 
 
 
