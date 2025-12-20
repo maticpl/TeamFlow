@@ -18975,224 +18975,162 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         }
         // === KONIEC NOWEJ FUNKCJI ===
        // === NOWA FUNKCJA: Obliczanie obciążenia godzinowego zespołu ===
-        function calculateTeamWorkloadHours(monthFilter = 'all') {
-            const teamWorkload = {}; // { userId: { hours: 0, name: '' } }
-            // const myId = state.currentUser.uid; // Odkomentuj w pętli niżej, jeśli chcesz wykluczyć siebie
-            
-            // 1. Filtruj projekty, które używają godzin (lub punktów, jeśli chcesz widzieć obciążenie punktowe)
-            const projectsWithHours = state.projects.filter(p => p.estimationType === 'hours' || p.estimationType === 'points');
+        function calculateTeamWorkloadEffort(monthFilter = 'all', effortType = 'hours') {
+    const teamWorkload = {}; // { userId: { value: 0, name: '' } }
 
-            projectsWithHours.forEach(project => {
-                (project.tasks || []).forEach(task => {
-                    // Używamy migrateTask, aby upewnić się, że struktura (subtasks) jest poprawna
-                    const taskObj = migrateTask(task);
-                    
-                    // Funkcja pomocnicza do przetwarzania pojedynczego elementu (Zadania lub Podzadania)
-                    const processItem = (item) => {
-                        // 1. Pomiń ukończone
-                        const status = item.status || (item.isCompleted ? 'done' : 'todo');
-                        if (status === 'done') return;
+    // KLUCZOWA ZMIANA: Filtrujemy projekty ŚCIŚLE według wybranego typu (hours LUB points)
+    const projectsWithEffort = state.projects.filter(p => p.estimationType === effortType);
+    
+    projectsWithEffort.forEach(project => {
+        (project.tasks || []).forEach(task => {
+            const taskObj = migrateTask(task);
+            const processItem = (item) => {
+                const status = item.status || (item.isCompleted ? 'done' : 'todo');
+                if (status === 'done') return;
 
-                        // 2. Filtr daty (jeśli aktywny)
-                        if (monthFilter !== 'all') {
-                            if (!item.dueDate || !item.dueDate.startsWith(monthFilter)) return;
-                        }
+                if (monthFilter !== 'all') {
+                    if (!item.dueDate || !item.dueDate.startsWith(monthFilter)) return;
+                }
 
-                        // 3. Pobierz estymację (priorytet dla effort, potem estimation)
-                        const est = parseFloat(item.effort || item.estimation || 0);
-                        if (est <= 0) return;
-
-                        // 4. Pobierz przypisane osoby
-                        const assignees = item.assignees || [];
-                        const count = assignees.length;
-                        if (count === 0) return;
-
-                        // 5. Oblicz obciążenie na osobę (Dzielenie wysiłku)
-                        const amountPerUser = est / count;
-
-                        // 6. Przypisz do użytkowników
-                        assignees.forEach(uid => {
-                            // Opcjonalnie: Odkomentuj poniższe, aby ukryć siebie na wykresie
-                            // if (uid === state.currentUser.uid) return;
-
-                            if (!teamWorkload[uid]) {
-                                const user = findUser(uid);
-                                teamWorkload[uid] = { 
-                                    hours: 0, 
-                                    name: user ? (user.name || user.email) : 'Nieznany' 
-                                };
-                            }
-                            teamWorkload[uid].hours += amountPerUser;
-                        });
-                    };
-
-                    // === GŁÓWNA LOGIKA ROZGAŁĘZIENIA ===
-                    if (taskObj.subtasks && taskObj.subtasks.length > 0) {
-                        // A. Jeśli są podzadania -> ignorujemy estymację główną, liczymy sumę z podzadań
-                        taskObj.subtasks.forEach(sub => processItem(sub));
-                    } else {
-                        // B. Jeśli brak podzadań -> liczymy zadanie główne
-                        processItem(taskObj);
+                // Pobieramy wartość wysiłku (godziny lub punkty)
+                const est = parseFloat(item.effort || item.estimation || 0);
+                if (est <= 0) return;
+                
+                const assignees = item.assignees || [];
+                const count = assignees.length;
+                if (count === 0) return;
+                
+                const amountPerUser = est / count;
+                assignees.forEach(uid => {
+                    if (!teamWorkload[uid]) {
+                        const user = findUser(uid);
+                        teamWorkload[uid] = { value: 0, name: user ? (user.name || user.email) : 'Nieznany' };
                     }
+                    // Dodajemy do ogólnej wartości 'value' (zależnej od kontekstu wywołania)
+                    teamWorkload[uid].value += amountPerUser;
                 });
-            });
+            };
 
-            // 4. Konwertuj na tablicę i sortuj malejąco wg obciążenia
-            const workloadArray = Object.values(teamWorkload).sort((a, b) => b.hours - a.hours);
-            
-            return workloadArray;
-        }
+            if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                taskObj.subtasks.forEach(sub => processItem(sub));
+            } else {
+                processItem(taskObj);
+            }
+        });
+    });
+
+    const workloadArray = Object.values(teamWorkload).sort((a, b) => b.value - a.value);
+    return workloadArray;
+}
         
         // === NOWA FUNKCJA: Renderowanie wykresu obciążenia GODZINOWEGO ===
-        function renderTeamWorkloadHoursChart(workloadData, containerId) {
-            const container = document.getElementById(containerId);
-            if (!container) return;
+        // Zmieniona nazwa i dodane parametry label/unit dla elastyczności
+function renderTeamWorkloadEffortChart(workloadData, containerId, effortLabel, unitLabel) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    if (teamWorkloadChartInstance) teamWorkloadChartInstance.destroy();
+    
+    container.innerHTML = `<canvas id="team-workload-effort-chart-canvas"></canvas>`;
+    const canvas = document.getElementById('team-workload-effort-chart-canvas');
+    const ctx = canvas.getContext('2d');
 
-            // Zniszcz poprzednią instancję, jeśli istnieje (ważne przy przełączaniu)
-            if (teamWorkloadChartInstance) {
-                teamWorkloadChartInstance.destroy();
-            }
+    const labels = workloadData.map(user => user.name);
+    // Używamy .value zgodnie z nową strukturą funkcji obliczeniowej
+    const values = workloadData.map(user => user.value);
 
-            // 1. Przygotuj canvas
-            container.innerHTML = `<canvas id="team-workload-hours-chart-canvas"></canvas>`;
-            const canvas = document.getElementById('team-workload-hours-chart-canvas');
-            const ctx = canvas.getContext('2d');
-
-            // 2. Przygotuj dane
-            const labels = workloadData.map(user => user.name);
-            const hoursData = workloadData.map(user => user.hours);
-
-            // 3. Utwórz nowy wykres
-            teamWorkloadChartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'Obciążenie (godziny)',
-                            data: hoursData,
-                            backgroundColor: 'rgba(245, 158, 11, 0.7)', // Kolor pomarańczowy/bursztynowy
-                            borderColor: 'rgba(245, 158, 11, 1)',
-                            borderWidth: 1
-                        }
-                    ]
-                },
-                options: {
-                    maintainAspectRatio: false,
-                    responsive: true,
-                    plugins: {
-                        legend: { position: 'bottom' },
-                        tooltip: {
-                             callbacks: {
-                                 label: function(context) {
-                                     let label = context.dataset.label || '';
-                                     if (label) label += ': ';
-                                     if (context.parsed.y !== null) {
-                                         label += context.parsed.y + ' godzin'; // Dodaj jednostkę
-                                     }
-                                     return label;
-                                 }
-                             }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            stacked: false, // Nie stackujemy, jest tylko jedna seria danych
-                        },
-                        y: {
-                            stacked: false,
-                            beginAtZero: true,
-                            title: {
-                                display: true,
-                                text: 'Liczba godzin'
-                            }
-                        }
+    teamWorkloadChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: effortLabel, // Dynamiczna etykieta (Godziny lub Punkty)
+                data: values,
+                backgroundColor: 'rgba(79, 70, 229, 0.7)', // Zmiana koloru na akcentowy dla spójności
+                borderColor: 'rgba(79, 70, 229, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            maintainAspectRatio: false,
+            responsive: true,
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: {
+                    callbacks: {
+                        // Dynamiczna jednostka w tooltipie
+                        label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(1)} ${unitLabel}`
                     }
                 }
-            });
+            },
+            scales: {
+                y: { 
+                    beginAtZero: true,
+                    title: { display: true, text: unitLabel }
+                }
+            }
         }
+    });
+}
 
         
         // === NOWA FUNKCJA: Listenery dla modala obciążenia ===
         function setupWorkloadModalListeners() {
-            const tabTasks = document.getElementById('workload-tab-tasks');
-            const tabHours = document.getElementById('workload-tab-hours');
-            const filtersContainer = document.getElementById('workload-hours-filters');
-            const monthFilterSelect = document.getElementById('workload-month-filter');
-            // === POPRAWKA: Używamy nowego, unikalnego ID ===
-            const chartContainerId = 'team-workload-modal-chart-container'; // ID kontenera wykresu
+    const tabTasks = document.getElementById('workload-tab-tasks');
+    const tabHours = document.getElementById('workload-tab-hours');
+    const tabPoints = document.getElementById('workload-tab-points'); // NOWA REFERENCJA
+    const monthFilterSelect = document.getElementById('workload-month-filter');
+    const chartContainerId = 'team-workload-modal-chart-container';
 
-            // --- Wypełnij filtr miesięcy ---
-            // === POCZĄTEK PRZYWRÓCONEGO KODU ===
-            const now = new Date(); // np. 9 Listopada 2025
-            const targetYear = 2026; // Cel: do końca 2026
-            const targetMonth = 11; // 11 = Grudzień (bo jest 0-indeksowany)
+    if (monthFilterSelect) {
+        monthFilterSelect.innerHTML = '<option value="all">Wszystkie (Zadania bez daty + przyszłe)</option>';
+        const months = getAvailableWorkloadMonths();
+        months.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            monthFilterSelect.appendChild(opt);
+        });
+    }
 
-            // Data, od której zaczynamy pętlę (pierwszy dzień bieżącego miesiąca)
-            const loopDate = new Date(now.getFullYear(), now.getMonth(), 1); // 1 Listopada 2025
-            
-            let optionsHTML = '<option value="all">Całościowo (wszystkie aktywne)</option>';
-            
-            // Pętla będzie się wykonywać dopóki data jest mniejsza lub równa celowi (Grudzień 2026)
-            while (loopDate.getFullYear() < targetYear || (loopDate.getFullYear() === targetYear && loopDate.getMonth() <= targetMonth)) {
-                
-                const year = loopDate.getFullYear();
-                const month = loopDate.getMonth() + 1; // getMonth() jest 0-indeksowane, więc +1
-                
-                const value = `${year}-${String(month).padStart(2, '0')}`; // Format YYYY-MM
-                const label = loopDate.toLocaleString('pl-PL', { month: 'long', year: 'numeric' });
-                
-                optionsHTML += `<option value="${value}">${label}</option>`;
-                
-                // Przejdź do następnego miesiąca
-                loopDate.setMonth(loopDate.getMonth() + 1);
-            }
-            // === KONIEC PRZYWRÓCONEGO KODU ===
-            
-            monthFilterSelect.innerHTML = optionsHTML;
+    // Funkcja pomocnicza do czyszczenia klas active
+    const clearActiveTabs = () => {
+        [tabTasks, tabHours, tabPoints].forEach(t => t && t.classList.remove('active'));
+    };
 
-            // --- Listener dla zakładki ZADANIA ---
-            tabTasks.addEventListener('click', () => {
-                tabTasks.classList.add('active');
-                tabHours.classList.remove('active');
-                // filtersContainer.style.display = 'none'; // USUNIĘTE - filtr jest teraz zawsze widoczny
+    tabTasks.addEventListener('click', () => {
+        clearActiveTabs();
+        tabTasks.classList.add('active');
+        const teamWorkloadData = calculateTeamWorkload(monthFilterSelect.value);
+        renderTeamWorkloadChart(teamWorkloadData.list, chartContainerId);
+    });
 
-                // Przeładuj dane i renderuj wykres zadań
-                // === POPRAWKA: Oblicz dane WEWNĄTRZ listenera i przekaż filtr ===
-                const monthFilter = monthFilterSelect.value;
-                const teamWorkloadData = calculateTeamWorkload(monthFilter);
-                renderTeamWorkloadChart(teamWorkloadData.list, chartContainerId);
-            });
+    tabHours.addEventListener('click', () => {
+        clearActiveTabs();
+        tabHours.classList.add('active');
+        // Wywołujemy nową funkcję z parametrem 'hours'
+        const workloadData = calculateTeamWorkloadEffort(monthFilterSelect.value, 'hours');
+        renderTeamWorkloadEffortChart(workloadData, chartContainerId, 'Obciążenie (godziny)', 'godz.');
+    });
 
-            // --- Listener dla zakładki GODZINY ---
-            tabHours.addEventListener('click', () => {
-                tabHours.classList.add('active');
-                tabTasks.classList.remove('active');
-                // filtersContainer.style.display = 'block'; // USUNIĘTE - filtr jest teraz zawsze widoczny
+    tabPoints.addEventListener('click', () => {
+        clearActiveTabs();
+        tabPoints.classList.add('active');
+        // Wywołujemy nową funkcję z parametrem 'points'
+        const workloadData = calculateTeamWorkloadEffort(monthFilterSelect.value, 'points');
+        renderTeamWorkloadEffortChart(workloadData, chartContainerId, 'Obciążenie (punkty)', 'pkt');
+    });
 
-                // Przeładuj dane i renderuj wykres godzinowy (z domyślnym filtrem 'all')
-                const monthFilter = monthFilterSelect.value;
-                // === POPRAWKA: Oblicz dane WEWNĄTRZ listenera ===
-                const workloadHoursData = calculateTeamWorkloadHours(monthFilter);
-                renderTeamWorkloadHoursChart(workloadHoursData, chartContainerId);
-            });
-
-            // --- Listener dla FILTRA MIESIĘCY ---
-            monthFilterSelect.addEventListener('change', () => {
-                const monthFilter = monthFilterSelect.value;
-                
-                // === POPRAWKA: Sprawdź, która zakładka jest aktywna i odśwież ją ===
-                if (tabTasks.classList.contains('active')) {
-                    // Zakładka ZADANIA jest aktywna
-                    const teamWorkloadData = calculateTeamWorkload(monthFilter);
-                    renderTeamWorkloadChart(teamWorkloadData.list, chartContainerId);
-                } else if (tabHours.classList.contains('active')) {
-                    // Zakładka GODZINY jest aktywna
-                    const workloadHoursData = calculateTeamWorkloadHours(monthFilter);
-                    renderTeamWorkloadHoursChart(workloadHoursData, chartContainerId);
-                }
-            });
+    monthFilterSelect.addEventListener('change', () => {
+        const monthFilter = monthFilterSelect.value;
+        if (tabTasks.classList.contains('active')) {
+            renderTeamWorkloadChart(calculateTeamWorkload(monthFilter).list, chartContainerId);
+        } else if (tabHours.classList.contains('active')) {
+            renderTeamWorkloadEffortChart(calculateTeamWorkloadEffort(monthFilter, 'hours'), chartContainerId, 'Obciążenie (godziny)', 'godz.');
+        } else if (tabPoints.classList.contains('active')) {
+            renderTeamWorkloadEffortChart(calculateTeamWorkloadEffort(monthFilter, 'points'), chartContainerId, 'Obciążenie (punkty)', 'pkt');
         }
+    });
+}
 
             
 
@@ -31740,45 +31678,43 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                         type !== 'show-team-workload-details' // <- DODANY WARUNEK
                     );
                     break;
-               // === MODYFIKACJA BLOKU CASE ===
-                case 'show-team-workload-details':
-                    title = 'Obciążenie Zespołu (Wspólne Projekty)';
-                    
-                    // KROK 1: Wygeneruj HTML dla zakładek i filtrów
-                    contentHTML = `
-                        <div class="task-modal-tabs" style="padding: 0 0 16px 0; border-bottom: 1px solid var(--border-color); display: flex; justify-content: flex-start; gap: 8px;">
-                            <button class="task-modal-tab active" id="workload-tab-tasks" data-view="tasks">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                <span style="display: inline;">Obciążenie Zadaniami</span>
-                            </button>
-                            <button class="task-modal-tab" id="workload-tab-hours" data-view="hours">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
-                                <span style="display: inline;">Obciążenie Wysiłkiem (Czas/Punkty)</span>
-                            </button>
-                        </div>
+               // === MODYFIKACJA BLOKU CASE (Zaktualizowana o podział na h/pkt) ===
+case 'show-team-workload-details':
+    title = 'Obciążenie Zespołu (Wspólne Projekty)';
+    
+    // Generujemy HTML z trzema zakładkami: Zadania, Godziny, Punkty
+    contentHTML = `
+        <div class="task-modal-tabs" style="padding: 0 0 16px 0; border-bottom: 1px solid var(--border-color); display: flex; justify-content: flex-start; gap: 8px;">
+            <button class="task-modal-tab active" id="workload-tab-tasks" data-view="tasks">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <span style="display: inline;">Zadania (szt)</span>
+            </button>
+            <button class="task-modal-tab" id="workload-tab-hours" data-view="hours">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+                <span style="display: inline;">Godziny (h)</span>
+            </button>
+            <button class="task-modal-tab" id="workload-tab-points" data-view="points">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
+                <span style="display: inline;">Punkty (pkt)</span>
+            </button>
+        </div>
 
-                        <div id="workload-hours-filters" style="display: block; padding: 16px 0 0 0;">
-                        <label for="workload-month-filter" style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">Wybierz okres:</label>
-                        <select id="workload-month-filter" style="width: 250px; padding: 8px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-secondary); color: var(--text-primary);">
-                                <option value="all">Całościowo (wszystkie aktywne)</option>
-                                </select>
-                        </div>
+        <div id="workload-hours-filters" style="display: block; padding: 16px 0 0 0;">
+            <label for="workload-month-filter" style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">Wybierz okres:</label>
+            <select id="workload-month-filter" style="width: 250px; padding: 8px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background-color: var(--bg-secondary); color: var(--text-primary);">
+                <option value="all">Całościowo (wszystkie aktywne)</option>
+            </select>
+        </div>
 
-                        <div id="team-workload-modal-chart-container" style="position: relative; width: 100%; height: 400px; margin-top: 16px;">
-                            <p>Ładowanie wykresu...</p>
-                        </div>
-                    `;
-                
-                    // Te linie (które miałeś zakomentowane) usuwamy, 
-                    // ponieważ ich właściwe miejsce jest na końcu funkcji.
-                    // dashboardDetailsModal.content.innerHTML = contentHTML; // <-- USUNIĘTE
-                    // setupWorkloadModalListeners(); // <-- USUNIĘTE
-                    
-                    // === DODANA LINIA ===
-                    // Usuwamy klasę siatki, tak jak robimy to w przypadku 'show-user-budget-details'
-                    dashboardDetailsModal.content.classList.remove('dashboard-detail-list');
-                    
-                    break;
+        <div id="team-workload-modal-chart-container" style="position: relative; width: 100%; height: 400px; margin-top: 16px;">
+            <p style="text-align: center; color: var(--text-secondary); padding-top: 100px;">Ładowanie danych obciążenia...</p>
+        </div>
+    `;
+
+    // Usuwamy klasę siatki, aby wykres zajął całe miejsce
+    dashboardDetailsModal.content.classList.remove('dashboard-detail-list');
+    
+    break;
                 // === KONIEC MODYFIKACJI BLOKU ===
                 
                 // +++ POCZĄTEK DODANEGO KODU (Krok 5.1) +++
@@ -39108,8 +39044,33 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                 editPointsModal.saveBtn.disabled = true;
                 editPointsModal.saveBtn.textContent = '...';
 
-                // --- ZMIANA: Dynamiczne wykrywanie projektu (ważne dla Backlogu) ---
-                const { task, project } = findTask(editingPointsTaskId);
+                // --- ZAKTUALIZOWANA LOGIKA WYKRYWANIA PROJEKTU (Obsługa zadań i podzadań) ---
+                let { task, project } = findTask(editingPointsTaskId);
+                
+                // Jeśli nie znaleziono jako zadanie główne, przeszukaj podzadania we wszystkich dostępnych listach
+                if (!task) {
+                    const allProjectsSource = [
+                        ...state.projects, 
+                        ...state.completedProjects, 
+                        ...state.globalUserProjects, 
+                        ...state.globalUserCompletedProjects
+                    ];
+                    
+                    for (const p of allProjectsSource) {
+                        for (const t of (p.tasks || [])) {
+                            if (t.subtasks && t.subtasks.length > 0) {
+                                const sub = t.subtasks.find(s => s.id === editingPointsTaskId);
+                                if (sub) {
+                                    task = sub;
+                                    project = p;
+                                    break;
+                                }
+                            }
+                        }
+                        if (task) break;
+                    }
+                }
+
                 if (!task || !project) throw new Error("Nie znaleziono projektu zadania.");
 
                 const projectDocRef = findProject(project.id) 
