@@ -19022,30 +19022,23 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
     const workloadArray = Object.values(teamWorkload).sort((a, b) => b.value - a.value);
     return workloadArray;
 }
-        
-        // === NOWA FUNKCJA: Renderowanie wykresu obciążenia GODZINOWEGO ===
-        // Zmieniona nazwa i dodane parametry label/unit dla elastyczności
-function renderTeamWorkloadEffortChart(workloadData, containerId, effortLabel, unitLabel) {
+        function renderTeamWorkloadEffortChart(workloadData, containerId, effortLabel, unit) {
     const container = document.getElementById(containerId);
     if (!container) return;
-    if (teamWorkloadChartInstance) teamWorkloadChartInstance.destroy();
     
-    container.innerHTML = `<canvas id="team-workload-effort-chart-canvas"></canvas>`;
-    const canvas = document.getElementById('team-workload-effort-chart-canvas');
-    const ctx = canvas.getContext('2d');
-
-    const labels = workloadData.map(user => user.name);
-    // Używamy .value zgodnie z nową strukturą funkcji obliczeniowej
-    const values = workloadData.map(user => user.value);
-
+    if (teamWorkloadChartInstance) teamWorkloadChartInstance.destroy();
+    container.innerHTML = `<canvas id="team-workload-effort-canvas"></canvas>`;
+    
+    const ctx = document.getElementById('team-workload-effort-canvas').getContext('2d');
+    
     teamWorkloadChartInstance = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: labels,
+            labels: workloadData.map(d => d.name),
             datasets: [{
-                label: effortLabel, // Dynamiczna etykieta (Godziny lub Punkty)
-                data: values,
-                backgroundColor: 'rgba(79, 70, 229, 0.7)', // Zmiana koloru na akcentowy dla spójności
+                label: effortLabel,
+                data: workloadData.map(d => d.value),
+                backgroundColor: 'rgba(79, 70, 229, 0.7)',
                 borderColor: 'rgba(79, 70, 229, 1)',
                 borderWidth: 1
             }]
@@ -19054,35 +19047,30 @@ function renderTeamWorkloadEffortChart(workloadData, containerId, effortLabel, u
             maintainAspectRatio: false,
             responsive: true,
             plugins: {
-                legend: { position: 'bottom' },
                 tooltip: {
                     callbacks: {
-                        // Dynamiczna jednostka w tooltipie
-                        label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(1)} ${unitLabel}`
+                        label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(1)} ${unit}`
                     }
                 }
             },
             scales: {
-                y: { 
-                    beginAtZero: true,
-                    title: { display: true, text: unitLabel }
-                }
+                y: { beginAtZero: true, title: { display: true, text: unit } }
             }
         }
     });
 }
-
+        
         
         // === NOWA FUNKCJA: Listenery dla modala obciążenia ===
         function setupWorkloadModalListeners() {
     const tabTasks = document.getElementById('workload-tab-tasks');
     const tabHours = document.getElementById('workload-tab-hours');
-    const tabPoints = document.getElementById('workload-tab-points'); // NOWA REFERENCJA
+    const tabPoints = document.getElementById('workload-tab-points'); // NASZA NOWA ZAKŁADKA
     const monthFilterSelect = document.getElementById('workload-month-filter');
     const chartContainerId = 'team-workload-modal-chart-container';
 
-    if (monthFilterSelect) {
-        monthFilterSelect.innerHTML = '<option value="all">Wszystkie (Zadania bez daty + przyszłe)</option>';
+    // 1. Inicjalizacja selecta miesięcy (jeśli jeszcze nie ma opcji)
+    if (monthFilterSelect && monthFilterSelect.options.length <= 1) {
         const months = getAvailableWorkloadMonths();
         months.forEach(m => {
             const opt = document.createElement('option');
@@ -19092,44 +19080,56 @@ function renderTeamWorkloadEffortChart(workloadData, containerId, effortLabel, u
         });
     }
 
-    // Funkcja pomocnicza do czyszczenia klas active
-    const clearActiveTabs = () => {
-        [tabTasks, tabHours, tabPoints].forEach(t => t && t.classList.remove('active'));
+    // Funkcja pomocnicza do przełączania wyglądu zakładek
+    const setActiveTab = (activeBtn) => {
+        [tabTasks, tabHours, tabPoints].forEach(btn => {
+            if (btn) btn.classList.remove('active');
+        });
+        if (activeBtn) activeBtn.classList.add('active');
     };
 
-    tabTasks.addEventListener('click', () => {
-        clearActiveTabs();
-        tabTasks.classList.add('active');
-        const teamWorkloadData = calculateTeamWorkload(monthFilterSelect.value);
-        renderTeamWorkloadChart(teamWorkloadData.list, chartContainerId);
-    });
+    // OBSŁUGA: ZADANIA
+    if (tabTasks) {
+        tabTasks.addEventListener('click', () => {
+            setActiveTab(tabTasks);
+            const data = calculateTeamWorkload(monthFilterSelect.value);
+            renderTeamWorkloadChart(data.list, chartContainerId);
+        });
+    }
 
-    tabHours.addEventListener('click', () => {
-        clearActiveTabs();
-        tabHours.classList.add('active');
-        // Wywołujemy nową funkcję z parametrem 'hours'
-        const workloadData = calculateTeamWorkloadEffort(monthFilterSelect.value, 'hours');
-        renderTeamWorkloadEffortChart(workloadData, chartContainerId, 'Obciążenie (godziny)', 'godz.');
-    });
+    // OBSŁUGA: GODZINY
+    if (tabHours) {
+        tabHours.addEventListener('click', () => {
+            setActiveTab(tabHours);
+            // Wywołujemy nową funkcję z parametrem 'hours'
+            const data = calculateTeamWorkloadEffort(monthFilterSelect.value, 'hours');
+            renderTeamWorkloadEffortChart(data, chartContainerId, 'Obciążenie (godziny)', 'h');
+        });
+    }
 
-    tabPoints.addEventListener('click', () => {
-        clearActiveTabs();
-        tabPoints.classList.add('active');
-        // Wywołujemy nową funkcję z parametrem 'points'
-        const workloadData = calculateTeamWorkloadEffort(monthFilterSelect.value, 'points');
-        renderTeamWorkloadEffortChart(workloadData, chartContainerId, 'Obciążenie (punkty)', 'pkt');
-    });
+    // OBSŁUGA: PUNKTY
+    if (tabPoints) {
+        tabPoints.addEventListener('click', () => {
+            setActiveTab(tabPoints);
+            // Wywołujemy nową funkcję z parametrem 'points'
+            const data = calculateTeamWorkloadEffort(monthFilterSelect.value, 'points');
+            renderTeamWorkloadEffortChart(data, chartContainerId, 'Obciążenie (punkty)', 'pkt');
+        });
+    }
 
-    monthFilterSelect.addEventListener('change', () => {
-        const monthFilter = monthFilterSelect.value;
-        if (tabTasks.classList.contains('active')) {
-            renderTeamWorkloadChart(calculateTeamWorkload(monthFilter).list, chartContainerId);
-        } else if (tabHours.classList.contains('active')) {
-            renderTeamWorkloadEffortChart(calculateTeamWorkloadEffort(monthFilter, 'hours'), chartContainerId, 'Obciążenie (godziny)', 'godz.');
-        } else if (tabPoints.classList.contains('active')) {
-            renderTeamWorkloadEffortChart(calculateTeamWorkloadEffort(monthFilter, 'points'), chartContainerId, 'Obciążenie (punkty)', 'pkt');
-        }
-    });
+    // OBSŁUGA: ZMIANA MIESIĄCA (Musi wiedzieć, co jest obecnie wybrane)
+    if (monthFilterSelect) {
+        monthFilterSelect.addEventListener('change', () => {
+            const filter = monthFilterSelect.value;
+            if (tabTasks.classList.contains('active')) {
+                renderTeamWorkloadChart(calculateTeamWorkload(filter).list, chartContainerId);
+            } else if (tabHours.classList.contains('active')) {
+                renderTeamWorkloadEffortChart(calculateTeamWorkloadEffort(filter, 'hours'), chartContainerId, 'Obciążenie (godziny)', 'h');
+            } else if (tabPoints.classList.contains('active')) {
+                renderTeamWorkloadEffortChart(calculateTeamWorkloadEffort(filter, 'points'), chartContainerId, 'Obciążenie (punkty)', 'pkt');
+            }
+        });
+    }
 }
 
             
