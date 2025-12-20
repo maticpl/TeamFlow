@@ -11234,11 +11234,12 @@ let state = {
                 mobileCalendarDate: new Date().toISOString(), 
                 mobileCalendarSelectedDate: new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().split('T')[0],
                 myDayDate: getLocalDateString(),
-            radarSelectedProjectIds: [], 
-            radarSelectedAssigneeIds: [], // NOWE: Stan dla filtrów osób w radarze
-            radarMode: 'effort' // Domyślny tryb
-        }
-    };
+            radarSelectedProjectIds: [],
+                radarSelectedAssigneeIds: [], // NOWE: Stan dla filtrów osób w radarze
+                radarMode: 'effort', // Domyślny tryb
+                teamWorkloadMetric: 'tasks' // <-- DODANO: Domyślna metryka dla kafelka obciążenia
+            }
+        };
    
 // NOWA, POPRAWIONA FUNKCJA DO POBIERANIA DATY LOKALNEJ
         function getLocalDateString() {
@@ -13122,7 +13123,14 @@ let state = {
                 }
             });
         }
-        
+        document.addEventListener('change', (e) => {
+    const workloadSelect = e.target.closest('.js-workload-metric-select');
+    if (workloadSelect) {
+        state.ui.teamWorkloadMetric = workloadSelect.value;
+        saveUiState();
+        render(); // Ponowne renderowanie Dashboardu z nową metryką
+    }
+});
         // Zamykanie menu "Ulubione" po kliknięciu poza nim
         document.addEventListener('click', (e) => {
             if (favHeader && favMenu && favMenu.classList.contains('open') && !favHeader.contains(e.target) && !favMenu.contains(e.target)) {
@@ -13620,89 +13628,68 @@ function hasChecklistPermission(user, project, task, item) {
 
              return totalOverdue;
         }
-       function calculateTeamWorkload(monthFilter = 'all') {
-            const teamWorkload = {}; // Obiekt do zliczania
-            const myId = state.currentUser.uid;
-            
-            let totalTeamTodo = 0;
-            let totalTeamInProgress = 0;
-            let totalTeamDone = 0;
+       /**
+ * Oblicza statystyki obciążenia zespołu na podstawie wybranej metryki.
+ * @param {string} metric - 'tasks', 'hours', 'points'
+ * @param {string} monthFilter - 'all' lub format 'YYYY-MM'
+ */
+function calculateTeamWorkload(metric = 'tasks', monthFilter = 'all') {
+    const totals = { todo: 0, inprogress: 0, done: 0, totalActive: 0 };
+    const userList = {}; // Statystyki per użytkownik dla detali
 
-            // Funkcja pomocnicza do przetwarzania pojedynczego elementu (zadania lub podzadania)
+    // 1. Filtrujemy projekty w zależności od metryki
+    const relevantProjects = state.projects.filter(p => {
+        if (metric === 'hours') return p.estimationType === 'hours';
+        if (metric === 'points') return p.estimationType === 'points';
+        return true; // dla 'tasks' bierzemy wszystkie
+    });
+
+    relevantProjects.forEach(project => {
+        (project.tasks || []).forEach(task => {
+            const taskObj = migrateTask(task);
+            
             const processItem = (item) => {
                 const status = item.status || (item.isCompleted ? 'done' : 'todo');
                 
-                // Pomiń jeśli status nieznany
-                if (status !== 'todo' && status !== 'inprogress' && status !== 'done') return;
+                // Filtr daty
+                if (monthFilter !== 'all' && (!item.dueDate || !item.dueDate.startsWith(monthFilter))) return;
 
-                // Filtr daty (miesiąc)
-                if (monthFilter !== 'all') {
-                    if (!item.dueDate || !item.dueDate.startsWith(monthFilter)) {
-                        return; 
-                    }
+                // Wartość do dodania
+                let value = 1; // domyślnie dla 'tasks'
+                if (metric === 'hours' || metric === 'points') {
+                    value = parseFloat(item.effort || item.estimation || 0);
                 }
+                if (value <= 0 && metric !== 'tasks') return;
 
-                // Przypisz obciążenie do ludzi
-                (item.assignees || []).forEach(assigneeId => {
-                    // Zliczaj tylko innych członków (nie mnie)
-                    if (assigneeId !== myId) {
-                        if (!teamWorkload[assigneeId]) {
-                            teamWorkload[assigneeId] = { todo: 0, inprogress: 0, done: 0, name: '' };
-                        }
-                        
-                        teamWorkload[assigneeId][status]++;
-                        
-                        // Sumy globalne
-                        if (status === 'todo') totalTeamTodo++;
-                        if (status === 'inprogress') totalTeamInProgress++;
-                        if (status === 'done') totalTeamDone++;
-                    }
-                });
+                // Rozdzielenie na przypisane osoby (effort sharing)
+                const assignees = item.assignees || [];
+                const share = assignees.length > 0 ? (value / assignees.length) : 0;
+
+                // Agregacja globalna
+                if (status === 'todo') totals.todo += value;
+                else if (status === 'inprogress') totals.inprogress += value;
+                else if (status === 'done') totals.done += value;
+
+                if (status !== 'done') totals.totalActive += value;
             };
 
-            // Iteracja po projektach
-            state.projects.forEach(project => {
-                (project.tasks || []).forEach(task => {
-                    const taskObj = migrateTask(task); // Używamy migrateTask dla pewności struktury
-                    
-                    // 1. Przetwórz Zadanie Główne
-                    processItem(taskObj);
+            // Rekurencja dla podzadań (jeśli są, sumujemy je zamiast zadania głównego)
+            if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                taskObj.subtasks.forEach(sub => processItem(sub));
+            } else {
+                processItem(taskObj);
+            }
+        });
+    });
 
-                    // 2. Przetwórz Podzadania
-                    if (taskObj.subtasks && taskObj.subtasks.length > 0) {
-                        taskObj.subtasks.forEach(sub => {
-                            processItem(sub);
-                        });
-                    }
-                });
-            });
+    // Zaokrąglenia dla godzin/punktów
+    totals.todo = Math.round(totals.todo * 10) / 10;
+    totals.inprogress = Math.round(totals.inprogress * 10) / 10;
+    totals.done = Math.round(totals.done * 10) / 10;
+    totals.totalActive = Math.round(totals.totalActive * 10) / 10;
 
-            // Konwersja do tablicy i sortowanie
-            const workloadArray = Object.keys(teamWorkload).map(userId => {
-                const user = findUser(userId);
-                const data = teamWorkload[userId];
-                return {
-                    userId: userId,
-                    name: user ? (user.name || user.email) : 'Nieznany Użytkownik',
-                    todo: data.todo,
-                    inprogress: data.inprogress,
-                    done: data.done,
-                    totalActive: data.todo + data.inprogress
-                };
-            });
-
-            workloadArray.sort((a, b) => b.totalActive - a.totalActive);
-
-            return {
-                list: workloadArray,
-                totals: {
-                    todo: totalTeamTodo,
-                    inprogress: totalTeamInProgress,
-                    done: totalTeamDone,
-                    totalActive: totalTeamTodo + totalTeamInProgress
-                }
-            };
-        }
+    return { totals };
+}
                         
         // === KONIEC NOWEJ FUNKCJI ===
         // === NOWA FUNKCJA: Obliczanie globalnego budżetu Właściciela ===
@@ -20463,32 +20450,44 @@ if (!listsContainer) {
             };
             
             // Obciążenie Zespołu
-            const teamWorkloadData = calculateTeamWorkload(); 
-            const teamTotals = teamWorkloadData.totals;
-            const teamTotalTasks = teamTotals.todo + teamTotals.inprogress + teamTotals.done;
-            const teamTodoPercent = teamTotalTasks > 0 ? (teamTotals.todo / teamTotalTasks) * 100 : 0;
-            const teamInProgressPercent = teamTotalTasks > 0 ? (teamTotals.inprogress / teamTotalTasks) * 100 : 0;
+        const currentMetric = state.ui.teamWorkloadMetric || 'tasks';
+        const teamWorkloadData = calculateTeamWorkload(currentMetric);
+        const teamTotals = teamWorkloadData.totals;
+        
+        // Jednostki i etykiety
+        const unitLabel = currentMetric === 'tasks' ? '' : (currentMetric === 'hours' ? 'h' : 'pkt');
+        const totalLabel = currentMetric === 'tasks' ? 'zadań' : (currentMetric === 'hours' ? 'godzin' : 'punktów');
+        
+        const teamTotalValue = Math.round((teamTotals.todo + teamTotals.inprogress + teamTotals.done) * 10) / 10;
+        const teamTodoPercent = teamTotalValue > 0 ? (teamTotals.todo / teamTotalValue) * 100 : 0;
+        const teamInProgressPercent = teamTotalValue > 0 ? (teamTotals.inprogress / teamTotalValue) * 100 : 0;
 
-            cardHTMLs['team-workload'] = `
-                <div class="dashboard-card kpi-mini-card" data-id="team-workload" data-action="show-team-workload-details">
-                    <h3>Obciążenie zespołu <span style="color: var(--text-secondary); font-weight: 500; font-size: 13px;">(Wspólne projekty)</span></h3>
-                    <div style="font-size: 36px; font-weight: 700; color: var(--text-primary); margin-top: 8px;">
-                        ${teamTotals.totalActive}
-                        <span style="font-size: 16px; font-weight: 500; color: var(--text-secondary); margin-left: 8px;">Aktywne</span>
-                    </div>
-                    <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 12px;">Całkowita liczba zadań: ${teamTotalTasks}</p>
-                    <div class="modern-chart">
-                        <div class="chart-row">
-                            <div class="chart-label"><span>Do realizacji</span><strong>${teamTotals.todo}</strong></div>
-                            <div class="chart-bar-wrapper"><div class="chart-bar-fill todo" style="width: ${teamTodoPercent}%;"></div></div>
-                        </div>
-                        <div class="chart-row">
-                            <div class="chart-label"><span>W trakcie</span><strong>${teamTotals.inprogress}</strong></div>
-                            <div class="chart-bar-wrapper"><div class="chart-bar-fill inprogress" style="width: ${teamInProgressPercent}%;"></div></div>
-                        </div>
-                    </div>
-                </div>
-            `;
+        cardHTMLs['team-workload'] = `
+    <div class="dashboard-card kpi-mini-card" data-id="team-workload">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+            <h3 style="margin: 0;">Obciążenie zespołu</h3>
+            <select class="js-workload-metric-select" style="padding: 2px 4px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-secondary); cursor: pointer;">
+                <option value="tasks" ${currentMetric === 'tasks' ? 'selected' : ''}>Zadania</option>
+                <option value="hours" ${currentMetric === 'hours' ? 'selected' : ''}>Godziny</option>
+                <option value="points" ${currentMetric === 'points' ? 'selected' : ''}>Punkty</option>
+            </select>
+        </div>
+        <div style="font-size: 32px; font-weight: 700; color: var(--text-primary); margin-top: 8px;" data-action="show-team-workload-details">
+            ${teamTotals.totalActive}<span style="font-size: 14px; font-weight: 500; color: var(--text-secondary); margin-left: 4px;">${unitLabel} aktywne</span>
+        </div>
+        <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;" data-action="show-team-workload-details">Łącznie: ${teamTotalValue} ${unitLabel}</p>
+        
+        <div class="modern-chart" data-action="show-team-workload-details" style="cursor: pointer;">
+            <div class="chart-row">
+                <div class="chart-label"><span>Do realizacji</span><strong>${teamTotals.todo}${unitLabel}</strong></div>
+                <div class="chart-bar-wrapper"><div class="chart-bar-fill todo" style="width: ${teamTodoPercent}%;"></div></div>
+            </div>
+            <div class="chart-row">
+                <div class="chart-label"><span>W trakcie</span><strong>${teamTotals.inprogress}${unitLabel}</strong></div>
+                <div class="chart-bar-wrapper"><div class="chart-bar-fill inprogress" style="width: ${teamInProgressPercent}%;"></div></div>
+            </div>
+        </div>
+    </div> `;
 
             // Mój Budżet
             cardHTMLs['my-budget'] = `
