@@ -17392,13 +17392,26 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
             // 7. Renderuj listę numerowaną (WIERSZOWĄ)
             listEl.innerHTML = backlogTasks.map(task => {
                 const assigneesHTML = (task.assignees || [])
-                    .map(id => findUser(id))
-                    .filter(Boolean)
-                    .map(u => renderAvatarHTML(u, 'avatar').replace('class="avatar"', 'class="avatar" style="width:24px; height:24px; font-size:10px; margin-left:-6px; border:2px solid var(--bg-secondary);"'))
-                    .join('');
+            .map(id => findUser(id))
+            .filter(Boolean)
+            .map(u => renderAvatarHTML(u, 'avatar').replace('class="avatar"', 'class="avatar" style="width:24px; height:24px; font-size:10px; margin-left:-6px; border:2px solid var(--bg-secondary);"'))
+            .join('');
 
-                const points = task.estimation || task.effort || '-';
-                const iconsHTML = generateRowIconsHTML(task);
+        // --- NOWA LOGIKA PUNKTÓW DLA BACKLOGU ---
+        const hasSubtasks = task.subtasks && task.subtasks.length > 0;
+        const points = hasSubtasks 
+            ? task.subtasks.reduce((sum, s) => sum + (parseFloat(s.estimation || s.effort || 0)), 0)
+            : (task.estimation || task.effort || 0);
+
+        const pointsStyle = hasSubtasks
+            ? "background-color: var(--bg-tertiary); color: var(--text-secondary); cursor: not-allowed;"
+            : "background-color: rgba(79, 70, 229, 0.1); color: var(--accent-primary); cursor: pointer;";
+
+        const lockedClass = hasSubtasks ? 'points-locked' : '';
+        const pointsTitle = hasSubtasks ? 'Suma z podzadań (Edycja zablokowana)' : 'Kliknij, aby edytować punkty';
+        // ----------------------------------------
+
+        const iconsHTML = generateRowIconsHTML(task);
                 
                 const projectLabel = (filterValue === 'all' && task.projectName)
                     ? `<span style="font-size: 11px; color: var(--text-secondary); margin-right: 12px; white-space: nowrap;">${task.projectName}</span>` 
@@ -17448,9 +17461,12 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
                             ${iconsHTML}
                             ${projectLabel}
                             <div class="task-assignees" style="display: flex; margin-right: 16px; padding-left: 6px;">${assigneesHTML}</div>
-                            <span class="backlog-points" title="Punkty/Wysiłek" style="background-color: rgba(79, 70, 229, 0.1); color: var(--accent-primary); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; min-width: 30px; text-align: center;">
-                                ${points}
-                            </span>
+                <span class="backlog-points js-edit-points ${lockedClass}" 
+                      data-task-id="${task.id}" 
+                      title="${pointsTitle}" 
+                      style="${pointsStyle} padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; min-width: 30px; text-align: center; transition: all 0.2s;">
+                    ${points}
+                </span>
                         </div>
                     </li>
                     <div class="backlog-subtasks-container" id="backlog-subtasks-${task.id}"></div>
@@ -33626,7 +33642,19 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
         const planningBacklogList = document.getElementById('planning-backlog-list');
         if (planningBacklogList) {
             planningBacklogList.addEventListener('click', (e) => {
-                
+                // === NOWE: OBSŁUGA EDYCJI PUNKTÓW (Backlog) ===
+            const pointsBadge = e.target.closest('.js-edit-points');
+            if (pointsBadge) {
+                e.stopPropagation(); // Zapobiegamy otwarciu modala szczegółów zadania
+                if (pointsBadge.classList.contains('points-locked')) {
+                    showNotification("Suma punktów tego zadania wynika z jego podzadań. Edytuj podzadania, aby zmienić wynik.", "Info");
+                    return;
+                }
+                const taskId = pointsBadge.dataset.taskId;
+                const textVal = pointsBadge.textContent.trim();
+                openEditPointsModal(taskId, textVal);
+                return;
+            }
                 // === 1. OBSŁUGA ROZWIJANIA LISTY PODZADAŃ (Kliknięcie w ikonę) ===
                 const toggleBtn = e.target.closest('.js-toggle-backlog-subtasks');
                 if (toggleBtn) {
@@ -33666,25 +33694,21 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
                                     // Ikony (używamy helpera, bo logika jest ta sama, tylko kontener inny)
                                     const iconsHTML = generateRowIconsHTML(sub);
 
-                                    return `
-                                    <div class="backlog-subtask-row ${completedClass}" data-subtask-id="${sub.id}" data-parent-id="${task.id}">
-                                        <div class="backlog-subtask-left">
-                                            <svg class="subtask-connection-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                <path d="M9 10l6 0"/><path d="M9 10l0 5"/>
-                                            </svg>
-                                            <span class="backlog-subtask-title-text">${index + 1}. ${sub.title}</span>
-                                        </div>
+                                    // Podzadania w tym widoku są zawsze bezpośrednio edytowalne
+                        const subPointsStyle = "background-color: rgba(79, 70, 229, 0.05); color: var(--text-secondary); cursor: pointer;";
 
-                                        <div class="backlog-item-meta" style="display: flex; align-items: center; flex-shrink: 0; gap: 16px;">
-                                            ${iconsHTML}
-                                            <div class="task-assignees" style="display: flex; margin-right: 16px; padding-left: 6px;">${assigneesHTML}</div>
-                                            <span class="backlog-points" style="background-color: rgba(79, 70, 229, 0.05); color: var(--text-secondary); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; min-width: 30px; text-align: center;">
-                                                ${points}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    `;
-                                }).join('');
+                        return `
+                            <div class="backlog-subtask-row ${completedClass}" data-subtask-id="${sub.id}" data-parent-id="${task.id}">
+                                <span class="backlog-points js-edit-points" 
+                                          data-task-id="${sub.id}" 
+                                          title="Kliknij, aby edytować punkty podzadania" 
+                                          style="${subPointsStyle} padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; min-width: 30px; text-align: center; transition: all 0.2s;">
+                                        ${points}
+                                    </span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
                                 
                                 container.innerHTML = rowsHTML;
                             } else {
@@ -39068,7 +39092,15 @@ welcomeModal.okBtn.addEventListener('click', async () => {
                 editPointsModal.saveBtn.disabled = true;
                 editPointsModal.saveBtn.textContent = '...';
 
-                const projectDocRef = doc(db, `artifacts/${appId}/public/data/projects`, state.currentProjectId);
+                // --- ZMIANA: Dynamiczne wykrywanie projektu (ważne dla Backlogu) ---
+                const { task, project } = findTask(editingPointsTaskId);
+                if (!task || !project) throw new Error("Nie znaleziono projektu zadania.");
+
+                const projectDocRef = findProject(project.id) 
+                    ? doc(projectsRef, project.id) 
+                    : doc(completedProjectsRef, project.id);
+                // -----------------------------------------------------------------
+
                 const projectSnap = await getDoc(projectDocRef);
 
                 if (projectSnap.exists()) {
