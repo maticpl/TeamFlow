@@ -19061,16 +19061,62 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
 }
         
         
-        // === NOWA FUNKCJA: Listenery dla modala obciążenia ===
-        function setupWorkloadModalListeners() {
+        /**
+ * Pobiera unikalne miesiące z dat zadań i podzadań wszystkich projektów,
+ * aby wypełnić filtr w dashboardzie.
+ */
+function getAvailableWorkloadMonths() {
+    const monthsSet = new Set();
+    
+    // Przeszukujemy wszystkie dostępne źródła projektów
+    const allProjects = [
+        ...state.projects, 
+        ...state.completedProjects,
+        ...(state.globalUserProjects || []),
+        ...(state.globalUserCompletedProjects || [])
+    ];
+
+    allProjects.forEach(project => {
+        if (!project.tasks) return;
+
+        project.tasks.forEach(task => {
+            const taskObj = migrateTask(task);
+            
+            // Funkcja pomocnicza do wyciągania miesiąca z elementu
+            const extractMonth = (item) => {
+                if (item.dueDate && typeof item.dueDate === 'string' && item.dueDate.length >= 7) {
+                    // Sprawdzamy czy format to YYYY-MM...
+                    const monthPart = item.dueDate.substring(0, 7); // Pobiera "YYYY-MM"
+                    if (/^\d{4}-\d{2}$/.test(monthPart)) {
+                        monthsSet.add(monthPart);
+                    }
+                }
+            };
+
+            // Sprawdzamy zadanie główne
+            extractMonth(taskObj);
+
+            // Sprawdzamy wszystkie podzadania
+            if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                taskObj.subtasks.forEach(sub => extractMonth(sub));
+            }
+        });
+    });
+
+    // Zamieniamy Set na tablicę i sortujemy od najnowszych
+    return Array.from(monthsSet).sort().reverse();
+}
+
+// === TWOJA FUNKCJA LISTENERA (TERAZ JUŻ BĘDZIE DZIAŁAĆ) ===
+function setupWorkloadModalListeners() {
     const tabTasks = document.getElementById('workload-tab-tasks');
     const tabHours = document.getElementById('workload-tab-hours');
-    const tabPoints = document.getElementById('workload-tab-points'); // NASZA NOWA ZAKŁADKA
+    const tabPoints = document.getElementById('workload-tab-points');
     const monthFilterSelect = document.getElementById('workload-month-filter');
     const chartContainerId = 'team-workload-modal-chart-container';
 
-    // 1. Inicjalizacja selecta miesięcy (jeśli jeszcze nie ma opcji)
     if (monthFilterSelect && monthFilterSelect.options.length <= 1) {
+        // Teraz funkcja jest już zdefiniowana wyżej
         const months = getAvailableWorkloadMonths();
         months.forEach(m => {
             const opt = document.createElement('option');
@@ -19088,7 +19134,6 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         if (activeBtn) activeBtn.classList.add('active');
     };
 
-    // OBSŁUGA: ZADANIA
     if (tabTasks) {
         tabTasks.addEventListener('click', () => {
             setActiveTab(tabTasks);
@@ -19097,35 +19142,30 @@ function buildTeamMembersAccordion(containerElement, selectedMemberIds = [], pro
         });
     }
 
-    // OBSŁUGA: GODZINY
     if (tabHours) {
         tabHours.addEventListener('click', () => {
             setActiveTab(tabHours);
-            // Wywołujemy nową funkcję z parametrem 'hours'
             const data = calculateTeamWorkloadEffort(monthFilterSelect.value, 'hours');
             renderTeamWorkloadEffortChart(data, chartContainerId, 'Obciążenie (godziny)', 'h');
         });
     }
 
-    // OBSŁUGA: PUNKTY
     if (tabPoints) {
         tabPoints.addEventListener('click', () => {
             setActiveTab(tabPoints);
-            // Wywołujemy nową funkcję z parametrem 'points'
             const data = calculateTeamWorkloadEffort(monthFilterSelect.value, 'points');
             renderTeamWorkloadEffortChart(data, chartContainerId, 'Obciążenie (punkty)', 'pkt');
         });
     }
 
-    // OBSŁUGA: ZMIANA MIESIĄCA (Musi wiedzieć, co jest obecnie wybrane)
     if (monthFilterSelect) {
         monthFilterSelect.addEventListener('change', () => {
             const filter = monthFilterSelect.value;
-            if (tabTasks.classList.contains('active')) {
+            if (tabTasks && tabTasks.classList.contains('active')) {
                 renderTeamWorkloadChart(calculateTeamWorkload(filter).list, chartContainerId);
-            } else if (tabHours.classList.contains('active')) {
+            } else if (tabHours && tabHours.classList.contains('active')) {
                 renderTeamWorkloadEffortChart(calculateTeamWorkloadEffort(filter, 'hours'), chartContainerId, 'Obciążenie (godziny)', 'h');
-            } else if (tabPoints.classList.contains('active')) {
+            } else if (tabPoints && tabPoints.classList.contains('active')) {
                 renderTeamWorkloadEffortChart(calculateTeamWorkloadEffort(filter, 'points'), chartContainerId, 'Obciążenie (punkty)', 'pkt');
             }
         });
