@@ -14041,29 +14041,27 @@ function renderSprintDraftTasks() {
     const activeDraftIds = new Set(sprintDraftTasks.map(t => t.id));
 
     // === NOWOŚĆ: Generowanie Globalnej Mapy Numeracji (WBS) dla spójności z AI ===
-    const fullProjectForIndex = findProject(state.currentProjectId);
-    const sprintTaskIndexMap = {};
-    
-    if (fullProjectForIndex && fullProjectForIndex.tasks) {
-        // Kopia do sortowania
-        const tasksForNumbering = [...fullProjectForIndex.tasks];
-        
-        // Funkcja pomocnicza czasu (taka sama jak w głównym widoku)
-        const getTime = (dateObj) => {
-            if (!dateObj) return 0;
-            if (typeof dateObj.toDate === 'function') return dateObj.toDate().getTime();
-            return new Date(dateObj).getTime();
-        };
-        
-        // Sortujemy chronologicznie
-        tasksForNumbering.sort((a, b) => getTime(a.createdAt) - getTime(b.createdAt));
-        
-        // Przypisujemy numery
-        tasksForNumbering.forEach((t, i) => {
-            sprintTaskIndexMap[t.id] = i + 1;
-        });
-    }
-    // === KONIEC GENEROWANIA MAPY ===
+        const fullProjectForIndex = findProject(state.currentProjectId);
+        const sprintTaskIndexMap = {};
+        if (fullProjectForIndex && fullProjectForIndex.tasks) {
+            // Kopia do sortowania + FILTROWANIE obiektów sprintu
+            const tasksForNumbering = fullProjectForIndex.tasks
+                .filter(t => t.type !== 'sprint') // <--- KLUCZOWA POPRAWKA: Ignoruj systemowe obiekty sprintu
+                .sort((a, b) => {
+                    const getTime = (dateObj) => {
+                        if (!dateObj) return 0;
+                        if (typeof dateObj.toDate === 'function') return dateObj.toDate().getTime();
+                        return new Date(dateObj).getTime();
+                    };
+                    return getTime(a.createdAt) - getTime(b.createdAt);
+                });
+
+            // Przypisujemy numery na podstawie przefiltrowanej listy
+            tasksForNumbering.forEach((t, i) => {
+                sprintTaskIndexMap[t.id] = i + 1;
+            });
+        }
+        // === KONIEC GENEROWANIA MAPY ===
 
     sprintDraftTasks.forEach((task, index) => {
         // --- LOGIKA DLA PODZADANIA SAMODZIELNEGO ---
