@@ -34767,64 +34767,79 @@ if (deleteGroupPermanentlyBtn) {
             `Czy na pewno chcesz usunąć grupę "${groupName}"? Wszystkie projekty, zadania i dane zostaną utracone bezpowrotnie. Tej operacji NIE MOŻNA cofnąć.`,
             async (confirmed) => {
                 if (confirmed) {
-                    loadingOverlay.style.display = 'flex'; // Pokaż loader
+                    loadingOverlay.style.display = 'flex';
                     try {
-                        // Używamy funkcji writeBatch z Modular SDK i globalnej zmiennej 'db'
                         const batch = writeBatch(db); 
                         const groupId = state.ui.activeGroupId;
+                        const userId = auth.currentUser.uid;
 
-                        // 1. Pobierz i usuń PROJEKTY AKTYWNE (Zadania są wewnątrz nich, więc znikną automatycznie)
-                        // Używamy globalnej referencji 'projectsRef' zdefiniowanej w Twoim kodzie
+                        console.log("ROZPOCZYNAM USUWANIE. Group ID:", groupId, "User ID:", userId);
+
+                        // --- 1. Usuwanie zawartości grupy (Projekty, Archiwum, Prośby) ---
+                        
+                        // Projekty
                         const projectsQ = query(projectsRef, where('groupId', '==', groupId));
                         const projectsSnap = await getDocs(projectsQ);
-                        projectsSnap.forEach(doc => {
-                            batch.delete(doc.ref);
-                        });
+                        projectsSnap.forEach(doc => batch.delete(doc.ref));
 
-                        // 2. Pobierz i usuń PROJEKTY ZAKOŃCZONE (Archiwum)
-                        // Używamy globalnej referencji 'completedProjectsRef'
+                        // Archiwum
                         const completedQ = query(completedProjectsRef, where('groupId', '==', groupId));
                         const completedSnap = await getDocs(completedQ);
-                        completedSnap.forEach(doc => {
-                            batch.delete(doc.ref);
+                        completedSnap.forEach(doc => batch.delete(doc.ref));
+
+                        // Prośby (groupRequests) - budujemy referencję ręcznie dla pewności
+                        const requestsRef = collection(db, 'artifacts', 'default-app-id', 'public', 'data', 'groupRequests');
+                        const requestsQ = query(requestsRef, where('groupId', '==', groupId));
+                        const requestsSnap = await getDocs(requestsQ);
+                        requestsSnap.forEach(doc => batch.delete(doc.ref));
+
+                        // --- 2. Usuwanie Grupy ---
+                        // Używamy jawnej ścieżki, aby uniknąć błędów zmiennych
+                        const targetGroupRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'groups', groupId);
+                        batch.delete(targetGroupRef);
+
+                        // --- 3. KLUCZOWE: Czyszczenie profilu Użytkownika ---
+                        // Usuwamy ID grupy z tablic w dokumencie użytkownika, aby zniknęła z menu
+                        const userDocRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'users', userId);
+                        
+                        // Próbujemy usunąć z 'memberOf', 'groups' oraz 'joinedGroups' (zgadujemy możliwe nazwy pól)
+                        // arrayRemove jest bezpieczne - jeśli pola nie ma, nic się nie stanie.
+                        batch.update(userDocRef, {
+                            memberOf: arrayRemove(groupId),     // Najbardziej prawdopodobne
+                            groups: arrayRemove(groupId),       // Alternatywa
+                            joinedGroups: arrayRemove(groupId), // Alternatywa
+                            // Resetujemy też pendingGroupId, jeśli dotyczy tej grupy
+                            pendingGroupId: deleteField() 
                         });
 
-                        // 3. Usuń samą GRUPĘ
-                        // Używamy globalnej referencji 'groupsRef' i funkcji 'doc'
-                        const groupDocRef = doc(groupsRef, groupId);
-                        batch.delete(groupDocRef);
-
-                        // 5. Wykonaj operacje w bazie
+                        // --- 4. Wykonanie Batcha ---
                         await batch.commit();
-                        
-                        // --- KLUCZOWA POPRAWKA CLEANUP ---
-                        
-                        // 1. Wyczyść ID z localStorage, aby po odświeżeniu aplikacja nie szukała trupa
-                        localStorage.removeItem('activeGroupId');
-                        localStorage.removeItem('lastActiveGroupId'); // Profilaktycznie, jeśli używasz innej nazwy
-                        
-                        // 2. Wyzeruj stan w pamięci JS
-                        state.ui.activeGroupId = null;
-                        state.ui.activeGroupInfo = null;
+                        console.log("Batch commit zakończony sukcesem.");
 
-                        // 3. Usuń wizualnie element z listy (Sidebar) natychmiastowo
-                        // Zakładam, że elementy listy mają atrybut data-id lub podobny, 
-                        // ale nawet jeśli nie, wymusimy to przez reload.
+                        // --- 5. Weryfikacja po usunięciu (Double Check) ---
+                        // Sprawdzamy czy dokument na pewno zniknął
+                        const checkDoc = await getDoc(targetGroupRef);
+                        if (checkDoc.exists()) {
+                            throw new Error("Krytyczny błąd: Dokument grupy nadal istnieje po operacji delete!");
+                        }
+
+                        // --- 6. Sukces i Czyszczenie lokalne ---
+                        localStorage.removeItem('activeGroupId');
+                        localStorage.removeItem('lastActiveGroupId');
+                        state.ui.activeGroupId = null;
+
+                        showNotification("Grupa została CAŁKOWICIE usunięta.", "Sukces");
                         
-                        showNotification("Grupa została trwale usunięta.", "Sukces");
-                        
-                        // 4. Przekierowanie "na twardo"
-                        // Używamy replace, aby użytkownik nie mógł cofnąć "Wstecz" do usuniętej grupy
+                        // Wymuszone przekierowanie na stronę główną (bez query params)
                         setTimeout(() => {
-                             // Jeśli jesteś w subkatalogu, to przeniesie Cię do czystego URL-a
-                             window.location.replace(window.location.pathname); 
+                             window.location.href = window.location.origin + window.location.pathname;
                         }, 1000);
 
                     } catch (error) {
                         console.error("PEŁNY BŁĄD USUWANIA:", error);
                         let msg = error.message;
                         if (error.code === 'permission-denied') {
-                            msg = "Błąd uprawnień. Sprawdź, czy zaktualizowałeś reguły w konsoli Firebase.";
+                            msg = "Błąd uprawnień. (Sprawdź reguły firestore.rules dla 'users' lub 'groups')";
                         }
                         showNotification("Błąd: " + msg, "Błąd");
                         loadingOverlay.style.display = 'none'; 
