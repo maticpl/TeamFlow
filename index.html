@@ -34769,41 +34769,44 @@ if (deleteGroupPermanentlyBtn) {
                 if (confirmed) {
                     loadingOverlay.style.display = 'flex'; // Pokaż loader
                     try {
-                        // ZMIANA: Zamiast Cloud Function, używamy bezpośrednio Firestore SDK
-                        const db = firebase.firestore();
-                        const batch = db.batch();
+                        // Używamy funkcji writeBatch z Modular SDK i globalnej zmiennej 'db'
+                        const batch = writeBatch(db); 
                         const groupId = state.ui.activeGroupId;
 
-                        // 1. Pobierz i dodaj do usunięcia wszystkie zadania (tasks) tej grupy
-                        const tasksSnapshot = await db.collection('tasks').where('groupId', '==', groupId).get();
-                        tasksSnapshot.forEach(doc => {
+                        // 1. Pobierz i usuń PROJEKTY AKTYWNE (Zadania są wewnątrz nich, więc znikną automatycznie)
+                        // Używamy globalnej referencji 'projectsRef' zdefiniowanej w Twoim kodzie
+                        const projectsQ = query(projectsRef, where('groupId', '==', groupId));
+                        const projectsSnap = await getDocs(projectsQ);
+                        projectsSnap.forEach(doc => {
                             batch.delete(doc.ref);
                         });
 
-                        // 2. Pobierz i dodaj do usunięcia wszystkie projekty (projects) tej grupy
-                        const projectsSnapshot = await db.collection('projects').where('groupId', '==', groupId).get();
-                        projectsSnapshot.forEach(doc => {
+                        // 2. Pobierz i usuń PROJEKTY ZAKOŃCZONE (Archiwum)
+                        // Używamy globalnej referencji 'completedProjectsRef'
+                        const completedQ = query(completedProjectsRef, where('groupId', '==', groupId));
+                        const completedSnap = await getDocs(completedQ);
+                        completedSnap.forEach(doc => {
                             batch.delete(doc.ref);
                         });
 
-                        // 3. Dodaj do usunięcia sam dokument grupy
-                        const groupRef = db.collection('groups').doc(groupId);
-                        batch.delete(groupRef);
+                        // 3. Usuń samą GRUPĘ
+                        // Używamy globalnej referencji 'groupsRef' i funkcji 'doc'
+                        const groupDocRef = doc(groupsRef, groupId);
+                        batch.delete(groupDocRef);
 
-                        // 4. Wykonaj wszystkie operacje naraz (atomic commit)
+                        // 4. Wykonaj wsad (commit)
                         await batch.commit();
                         
-                        showNotification("Grupa oraz powiązane dane zostały usunięte.", "Sukces");
+                        showNotification("Grupa i wszystkie jej projekty zostały usunięte.", "Sukces");
                         
-                        // Krótkie opóźnienie przed przeładowaniem dla pewności
                         setTimeout(() => {
                              window.location.reload();
                         }, 1000);
 
                     } catch (error) {
-                        console.error("Błąd usuwania grupy (Client-side):", error);
-                        showNotification("Wystąpił błąd podczas usuwania danych: " + error.message, "Błąd");
-                        loadingOverlay.style.display = 'none'; // Ukryj loader tylko przy błędzie
+                        console.error("Błąd usuwania grupy (Modular SDK):", error);
+                        showNotification("Wystąpił błąd: " + error.message, "Błąd");
+                        loadingOverlay.style.display = 'none'; 
                     }
                 }
             },
