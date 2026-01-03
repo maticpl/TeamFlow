@@ -34802,7 +34802,6 @@ async function openManageGroupModal() {
 const deleteGroupPermanentlyBtn = document.getElementById('delete-group-permanently-btn');
 if (deleteGroupPermanentlyBtn) {
             deleteGroupPermanentlyBtn.addEventListener('click', async () => {
-                // TU DEFINIUJEMY ZMIENNĄ groupInfo
                 const groupInfo = state.ui.activeGroupInfo;
                 const groupName = groupInfo ? groupInfo.name : 'tę grupę';
 
@@ -34811,14 +34810,13 @@ if (deleteGroupPermanentlyBtn) {
                     `Czy na pewno chcesz usunąć grupę "${groupName}"? Wszystkie projekty, zadania i dane zostaną utracone bezpowrotnie. Tej operacji NIE MOŻNA cofnąć.`,
                     async (confirmed) => {
                         if (confirmed) {
-                            // --- 1. SEKCJA BEZPIECZEŃSTWA: Brutalne odcięcie nasłuchu ---
+                            // --- 1. ODCIĘCIE NASŁUCHIWANIA ---
                             try {
                                 if (typeof unsubscribeAllListeners === 'function') {
                                     unsubscribeAllListeners();
                                 }
-                            } catch (e) { console.warn("Błąd przy unsubscribeAllListeners, próbuję ręcznie...", e); }
+                            } catch (e) { console.warn("Błąd przy unsubscribeAllListeners", e); }
 
-                            // Ręczne odpinanie (fallback)
                             try { if (state.ui.unsubscribeProject) state.ui.unsubscribeProject(); } catch(e){}
                             try { if (state.ui.unsubscribeGroup) state.ui.unsubscribeGroup(); } catch(e){}
                             try { if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers(); } catch(e){}
@@ -34829,61 +34827,79 @@ if (deleteGroupPermanentlyBtn) {
                             state.ui.unsubscribeUsers = null;
                             state.ui.unsubscribeChat = null;
 
-                            // --- 2. WALIDACJA DANYCH ---
                             loadingOverlay.style.display = 'flex';
                             
-                            // ZMIANA: Pobieramy ID z groupInfo (zdefiniowanego wyżej) lub ze stanu
+                            // --- 2. LOGIKA ODZYSKIWANIA ID (FIX) ---
                             let groupId = null;
-                            if (groupInfo && groupInfo.id) {
-                                groupId = groupInfo.id;
-                            } else if (state.currentUser && state.currentUser.activeGroupId) {
+
+                            // A. Próba z activeGroupId (często działa)
+                            if (state.currentUser && state.currentUser.activeGroupId) {
                                 groupId = state.currentUser.activeGroupId;
                             }
+                            
+                            // B. Próba z groupInfo.id (rzadko działa, bo groupInfo to często tylko value)
+                            if (!groupId && groupInfo && groupInfo.id) {
+                                groupId = groupInfo.id;
+                            }
 
+                            // C. OSTATECZNY RATUNEK: Szukamy ID po NAZWIE w mapie grup użytkownika
+                            if (!groupId && state.currentUser && state.currentUser.groupInfo && groupInfo && groupInfo.name) {
+                                console.log("Próba znalezienia ID grupy po nazwie:", groupInfo.name);
+                                const foundEntry = Object.entries(state.currentUser.groupInfo).find(([key, info]) => info.name === groupInfo.name);
+                                if (foundEntry) {
+                                    groupId = foundEntry[0]; // Klucz mapy to ID grupy
+                                    console.log("Znaleziono ID po nazwie:", groupId);
+                                }
+                            }
+
+                            // Walidacja finalna
                             if (!groupId) {
                                 loadingOverlay.style.display = 'none';
-                                console.error("KRYTYCZNY BŁĄD: Nie znaleziono ID grupy. groupInfo:", groupInfo, "state:", state);
-                                alert("Błąd krytyczny: Nie można zidentyfikować ID grupy. Odśwież stronę i spróbuj ponownie.");
+                                console.error("KRYTYCZNY BŁĄD: Nie znaleziono ID grupy. Dane debugowania:", {
+                                    groupInfoName: groupInfo?.name,
+                                    activeGroupId: state.currentUser?.activeGroupId,
+                                    userGroupInfoKeys: state.currentUser?.groupInfo ? Object.keys(state.currentUser.groupInfo) : 'BRAK'
+                                });
+                                alert("Błąd krytyczny: Nie udało się zidentyfikować ID grupy. Spróbuj odświeżyć stronę.");
                                 return;
                             }
                             
-                            groupId = String(groupId); // Dla pewności typ String
+                            groupId = String(groupId);
 
                             try {
                                 const batch = writeBatch(db);
                                 
-                                // A. Usuwanie dokumentu grupy
+                                // I. Usuwanie dokumentu grupy
                                 const groupRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'groups', groupId);
                                 batch.delete(groupRef);
 
-                                // B. Aktualizacja profilu użytkownika
+                                // II. Aktualizacja profilu użytkownika
                                 const userId = state.currentUser.uid;
                                 const userDocRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'users', userId);
                                 
                                 const updateData = {
                                     groupIds: arrayRemove(groupId),
                                     [`groupInfo.${groupId}`]: deleteField(),
-                                    activeGroupId: deleteField()
+                                    activeGroupId: deleteField(),
+                                    // Czyścimy też stare pola tablicowe dla pewności
+                                    memberOf: arrayRemove(groupId),
+                                    groups: arrayRemove(groupId),
+                                    joinedGroups: arrayRemove(groupId)
                                 };
-                                
-                                updateData.memberOf = arrayRemove(groupId);
-                                updateData.groups = arrayRemove(groupId);
-                                updateData.joinedGroups = arrayRemove(groupId);
 
                                 batch.update(userDocRef, updateData);
 
-                                // C. Wykonanie operacji
-                                console.log("Rozpoczynam usuwanie grupy ID:", groupId);
+                                // III. Commit
+                                console.log("Wysyłanie batch delete dla ID:", groupId);
                                 await batch.commit();
 
-                                // D. Sukces
-                                console.log('Grupa usunięta pomyślnie.');
+                                console.log('Grupa usunięta.');
                                 alert('Grupa została trwale usunięta.');
                                 window.location.reload(); 
 
                             } catch (error) {
                                 console.error("PEŁNY BŁĄD USUWANIA:", error);
-                                alert("Wystąpił błąd podczas usuwania grupy: " + error.message);
+                                alert("Wystąpił błąd: " + error.message);
                                 loadingOverlay.style.display = 'none';
                                 window.location.reload(); 
                             }
