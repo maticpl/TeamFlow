@@ -34769,16 +34769,40 @@ if (deleteGroupPermanentlyBtn) {
                 if (confirmed) {
                     loadingOverlay.style.display = 'flex'; // Pokaż loader
                     try {
-                        // Wywołanie funkcji chmurowej
-                        const deleteGroup = httpsCallable(functions, 'deleteGroup');
-                        await deleteGroup({ groupId: state.ui.activeGroupId });
+                        // ZMIANA: Zamiast Cloud Function, używamy bezpośrednio Firestore SDK
+                        const db = firebase.firestore();
+                        const batch = db.batch();
+                        const groupId = state.ui.activeGroupId;
+
+                        // 1. Pobierz i dodaj do usunięcia wszystkie zadania (tasks) tej grupy
+                        const tasksSnapshot = await db.collection('tasks').where('groupId', '==', groupId).get();
+                        tasksSnapshot.forEach(doc => {
+                            batch.delete(doc.ref);
+                        });
+
+                        // 2. Pobierz i dodaj do usunięcia wszystkie projekty (projects) tej grupy
+                        const projectsSnapshot = await db.collection('projects').where('groupId', '==', groupId).get();
+                        projectsSnapshot.forEach(doc => {
+                            batch.delete(doc.ref);
+                        });
+
+                        // 3. Dodaj do usunięcia sam dokument grupy
+                        const groupRef = db.collection('groups').doc(groupId);
+                        batch.delete(groupRef);
+
+                        // 4. Wykonaj wszystkie operacje naraz (atomic commit)
+                        await batch.commit();
                         
-                        showNotification("Grupa została pomyślnie usunięta.", "Sukces");
-                        // Przeładowanie, aby stan aplikacji się zresetował
-                        window.location.reload();
+                        showNotification("Grupa oraz powiązane dane zostały usunięte.", "Sukces");
+                        
+                        // Krótkie opóźnienie przed przeładowaniem dla pewności
+                        setTimeout(() => {
+                             window.location.reload();
+                        }, 1000);
+
                     } catch (error) {
-                        console.error("Błąd usuwania grupy:", error);
-                        showNotification("Błąd: " + error.message, "Błąd");
+                        console.error("Błąd usuwania grupy (Client-side):", error);
+                        showNotification("Wystąpił błąd podczas usuwania danych: " + error.message, "Błąd");
                         loadingOverlay.style.display = 'none'; // Ukryj loader tylko przy błędzie
                     }
                 }
