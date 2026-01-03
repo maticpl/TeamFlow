@@ -34810,51 +34810,83 @@ if (deleteGroupPermanentlyBtn) {
                     `Czy na pewno chcesz usunąć grupę "${groupName}"? Wszystkie projekty, zadania i dane zostaną utracone bezpowrotnie. Tej operacji NIE MOŻNA cofnąć.`,
                     async (confirmed) => {
                         if (confirmed) {
-                            // 1. ODPINAMY NASŁUCHIWANIE (Zabezpieczenie przed błędami konsoli)
-                            if (typeof unsubscribeAllListeners === 'function') {
-                                unsubscribeAllListeners();
-                            } else {
-                                if (state.ui.unsubscribeProject) state.ui.unsubscribeProject();
-                                if (state.ui.unsubscribeGroup) state.ui.unsubscribeGroup();
-                                if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
-                                if (state.ui.unsubscribeChat) state.ui.unsubscribeChat();
-                            }
+                            // --- 1. SEKCJA BEZPIECZEŃSTWA: Brutalne odcięcie nasłuchu ---
+                            // Używamy try-catch, żeby błąd w odpinaniu nie zatrzymał usuwania
+                            try {
+                                if (typeof unsubscribeAllListeners === 'function') {
+                                    unsubscribeAllListeners();
+                                }
+                            } catch (e) { console.warn("Błąd przy unsubscribeAllListeners, próbuję ręcznie...", e); }
 
+                            // Ręczne odpinanie (fallback) - dla pewności
+                            try { if (state.ui.unsubscribeProject) state.ui.unsubscribeProject(); } catch(e){}
+                            try { if (state.ui.unsubscribeGroup) state.ui.unsubscribeGroup(); } catch(e){}
+                            try { if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers(); } catch(e){}
+                            try { if (state.ui.unsubscribeChat) state.ui.unsubscribeChat(); } catch(e){}
+                            
+                            // Czyścimy referencje w stanie, żeby nic z nich nie korzystało
+                            state.ui.unsubscribeProject = null;
+                            state.ui.unsubscribeGroup = null;
+                            state.ui.unsubscribeUsers = null;
+                            state.ui.unsubscribeChat = null;
+
+                            // --- 2. WALIDACJA DANYCH ---
                             loadingOverlay.style.display = 'flex';
                             
+                            // Pobieramy ID bezpiecznie
+                            let groupId = state.currentUser.activeGroupId;
+                            if (!groupId && state.ui.activeGroupInfo) groupId = state.ui.activeGroupInfo.id;
+
+                            if (!groupId) {
+                                loadingOverlay.style.display = 'none';
+                                alert("Błąd krytyczny: Nie można zidentyfikować ID grupy do usunięcia. Odśwież stronę.");
+                                return;
+                            }
+                            
+                            // Wymuszamy typ String (częsty powód błędów w indexOf/arrayRemove)
+                            groupId = String(groupId);
+
                             try {
                                 const batch = writeBatch(db);
-                                const groupId = state.currentUser.activeGroupId; // Pobieramy ID aktualnej grupy
                                 
                                 // A. Usuwanie dokumentu grupy
                                 const groupRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'groups', groupId);
                                 batch.delete(groupRef);
 
-                                // B. Aktualizacja profilu użytkownika (To naprawia "wiszącą" grupę na liście)
+                                // B. Aktualizacja profilu użytkownika
                                 const userId = state.currentUser.uid;
                                 const userDocRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'users', userId);
                                 
-                                batch.update(userDocRef, {
-                                    groupIds: arrayRemove(groupId),        // Usuwamy ID z tablicy
-                                    [`groupInfo.${groupId}`]: deleteField(), // Usuwamy obiekt z mapy
-                                    memberOf: arrayRemove(groupId),        // Dla pewności (stare pola)
-                                    groups: arrayRemove(groupId),          // Dla pewności
-                                    activeGroupId: deleteField()           // Usuwamy aktywną grupę
-                                });
+                                // Budujemy obiekt aktualizacji
+                                const updateData = {
+                                    groupIds: arrayRemove(groupId),
+                                    [`groupInfo.${groupId}`]: deleteField(),
+                                    activeGroupId: deleteField() // Usuwamy wskaźnik na aktywną grupę
+                                };
+                                
+                                // Dodajemy opcjonalne pola (dla wstecznej kompatybilności), jeśli istnieją w bazie
+                                // arrayRemove jest bezpieczne nawet jak pola nie ma
+                                updateData.memberOf = arrayRemove(groupId);
+                                updateData.groups = arrayRemove(groupId);
+                                updateData.joinedGroups = arrayRemove(groupId);
+
+                                batch.update(userDocRef, updateData);
 
                                 // C. Wykonanie operacji
+                                console.log("Rozpoczynam usuwanie grupy ID:", groupId);
                                 await batch.commit();
 
                                 // D. Sukces
                                 console.log('Grupa usunięta pomyślnie.');
                                 alert('Grupa została trwale usunięta.');
-                                window.location.reload(); // Przeładowanie, aby Self-Healing naprawił resztę i zalogował do innej grupy
+                                window.location.reload(); 
 
                             } catch (error) {
-                                console.error("Błąd podczas usuwania grupy:", error);
+                                console.error("PEŁNY BŁĄD USUWANIA:", error);
                                 alert("Wystąpił błąd podczas usuwania grupy: " + error.message);
                                 loadingOverlay.style.display = 'none';
-                                window.location.reload(); // Przeładowanie awaryjne
+                                // Jeśli błąd jest "dziwny", ale grupa zniknęła z bazy, reload naprawi UI
+                                window.location.reload(); 
                             }
                         }
                     }
