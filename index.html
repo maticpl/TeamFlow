@@ -27182,8 +27182,18 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
 
                 if (rawGroupIds.length > 0) {
                     const groupsCollectionRef = collection(db, 'artifacts', 'default-app-id', 'public', 'data', 'groups');
-                    // Pobieramy status wszystkich grup równolegle
-                    const groupChecks = rawGroupIds.map(gid => getDoc(doc(groupsCollectionRef, gid)));
+                    
+                    // ZMIANA: Bezpieczne pobieranie. Jeśli brak uprawnień (błąd), traktujemy jako nieistniejącą.
+                    const groupChecks = rawGroupIds.map(async (gid) => {
+                        try {
+                            return await getDoc(doc(groupsCollectionRef, gid));
+                        } catch (error) {
+                            console.warn(`Brak dostępu do grupy ${gid} (Błąd: ${error.code}). Traktuję jako usuniętą.`);
+                            // Zwracamy "fałszywy" snapshot, żeby pętla forEach niżej zadziałała poprawnie (jako nieistniejąca)
+                            return { exists: () => false, id: gid };
+                        }
+                    });
+
                     const groupSnapshots = await Promise.all(groupChecks);
                     
                     groupSnapshots.forEach(snap => {
