@@ -34811,20 +34811,18 @@ if (deleteGroupPermanentlyBtn) {
                     async (confirmed) => {
                         if (confirmed) {
                             // --- 1. SEKCJA BEZPIECZEŃSTWA: Brutalne odcięcie nasłuchu ---
-                            // Używamy try-catch, żeby błąd w odpinaniu nie zatrzymał usuwania
                             try {
                                 if (typeof unsubscribeAllListeners === 'function') {
                                     unsubscribeAllListeners();
                                 }
                             } catch (e) { console.warn("Błąd przy unsubscribeAllListeners, próbuję ręcznie...", e); }
 
-                            // Ręczne odpinanie (fallback) - dla pewności
+                            // Ręczne odpinanie (fallback)
                             try { if (state.ui.unsubscribeProject) state.ui.unsubscribeProject(); } catch(e){}
                             try { if (state.ui.unsubscribeGroup) state.ui.unsubscribeGroup(); } catch(e){}
                             try { if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers(); } catch(e){}
                             try { if (state.ui.unsubscribeChat) state.ui.unsubscribeChat(); } catch(e){}
                             
-                            // Czyścimy referencje w stanie, żeby nic z nich nie korzystało
                             state.ui.unsubscribeProject = null;
                             state.ui.unsubscribeGroup = null;
                             state.ui.unsubscribeUsers = null;
@@ -34833,18 +34831,18 @@ if (deleteGroupPermanentlyBtn) {
                             // --- 2. WALIDACJA DANYCH ---
                             loadingOverlay.style.display = 'flex';
                             
-                            // Pobieramy ID bezpiecznie
-                            let groupId = state.currentUser.activeGroupId;
-                            if (!groupId && state.ui.activeGroupInfo) groupId = state.ui.activeGroupInfo.id;
+                            // ZMIANA: Używamy currentGroup.id, bo currentGroup jest dostępny w tym zakresie
+                            // (skoro działało sprawdzanie currentGroup.name wyżej, to id też zadziała)
+                            let groupId = currentGroup.id;
 
                             if (!groupId) {
                                 loadingOverlay.style.display = 'none';
-                                alert("Błąd krytyczny: Nie można zidentyfikować ID grupy do usunięcia. Odśwież stronę.");
+                                console.error("Brak ID grupy w obiekcie currentGroup:", currentGroup);
+                                alert("Błąd krytyczny: Nie można zidentyfikować ID grupy. Odśwież stronę i spróbuj ponownie.");
                                 return;
                             }
                             
-                            // Wymuszamy typ String (częsty powód błędów w indexOf/arrayRemove)
-                            groupId = String(groupId);
+                            groupId = String(groupId); // Dla pewności typ String
 
                             try {
                                 const batch = writeBatch(db);
@@ -34857,15 +34855,12 @@ if (deleteGroupPermanentlyBtn) {
                                 const userId = state.currentUser.uid;
                                 const userDocRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'users', userId);
                                 
-                                // Budujemy obiekt aktualizacji
                                 const updateData = {
                                     groupIds: arrayRemove(groupId),
                                     [`groupInfo.${groupId}`]: deleteField(),
-                                    activeGroupId: deleteField() // Usuwamy wskaźnik na aktywną grupę
+                                    activeGroupId: deleteField()
                                 };
                                 
-                                // Dodajemy opcjonalne pola (dla wstecznej kompatybilności), jeśli istnieją w bazie
-                                // arrayRemove jest bezpieczne nawet jak pola nie ma
                                 updateData.memberOf = arrayRemove(groupId);
                                 updateData.groups = arrayRemove(groupId);
                                 updateData.joinedGroups = arrayRemove(groupId);
@@ -34885,7 +34880,6 @@ if (deleteGroupPermanentlyBtn) {
                                 console.error("PEŁNY BŁĄD USUWANIA:", error);
                                 alert("Wystąpił błąd podczas usuwania grupy: " + error.message);
                                 loadingOverlay.style.display = 'none';
-                                // Jeśli błąd jest "dziwny", ale grupa zniknęła z bazy, reload naprawi UI
                                 window.location.reload(); 
                             }
                         }
