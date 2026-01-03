@@ -34794,18 +34794,39 @@ if (deleteGroupPermanentlyBtn) {
                         const groupDocRef = doc(groupsRef, groupId);
                         batch.delete(groupDocRef);
 
-                        // 4. Wykonaj wsad (commit)
+                        // 5. Wykonaj operacje w bazie
                         await batch.commit();
                         
-                        showNotification("Grupa i wszystkie jej projekty zostały usunięte.", "Sukces");
+                        // --- KLUCZOWA POPRAWKA CLEANUP ---
                         
+                        // 1. Wyczyść ID z localStorage, aby po odświeżeniu aplikacja nie szukała trupa
+                        localStorage.removeItem('activeGroupId');
+                        localStorage.removeItem('lastActiveGroupId'); // Profilaktycznie, jeśli używasz innej nazwy
+                        
+                        // 2. Wyzeruj stan w pamięci JS
+                        state.ui.activeGroupId = null;
+                        state.ui.activeGroupInfo = null;
+
+                        // 3. Usuń wizualnie element z listy (Sidebar) natychmiastowo
+                        // Zakładam, że elementy listy mają atrybut data-id lub podobny, 
+                        // ale nawet jeśli nie, wymusimy to przez reload.
+                        
+                        showNotification("Grupa została trwale usunięta.", "Sukces");
+                        
+                        // 4. Przekierowanie "na twardo"
+                        // Używamy replace, aby użytkownik nie mógł cofnąć "Wstecz" do usuniętej grupy
                         setTimeout(() => {
-                             window.location.reload();
+                             // Jeśli jesteś w subkatalogu, to przeniesie Cię do czystego URL-a
+                             window.location.replace(window.location.pathname); 
                         }, 1000);
 
                     } catch (error) {
-                        console.error("Błąd usuwania grupy (Modular SDK):", error);
-                        showNotification("Wystąpił błąd: " + error.message, "Błąd");
+                        console.error("PEŁNY BŁĄD USUWANIA:", error);
+                        let msg = error.message;
+                        if (error.code === 'permission-denied') {
+                            msg = "Błąd uprawnień. Sprawdź, czy zaktualizowałeś reguły w konsoli Firebase.";
+                        }
+                        showNotification("Błąd: " + msg, "Błąd");
                         loadingOverlay.style.display = 'none'; 
                     }
                 }
