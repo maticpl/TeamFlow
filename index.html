@@ -27175,11 +27175,44 @@ function updateTaskBudgetTotal(modalRefs, currency = '') {
         // === KONIEC ZMIANY ===
         
         // --- NOWA LOGIKA: Sprawdzanie przynależności do grup ---
-        
-        const userGroupsIds = userData.groupIds || [];
-        const userGroupInfo = userData.groupInfo || {};
-        
-        // === ZMIANA: Dodano warunek && userData.status !== 'pending_approval' ===
+                // ZMIANA: Weryfikacja - Zamiast ufać danym z profilu, sprawdzamy czy grupy istnieją
+                let rawGroupIds = userData.groupIds || [];
+                let verifiedGroupIds = [];
+                let verifiedGroupInfo = {};
+
+                if (rawGroupIds.length > 0) {
+                    const groupsCollectionRef = collection(db, 'artifacts', 'default-app-id', 'public', 'data', 'groups');
+                    // Pobieramy status wszystkich grup równolegle
+                    const groupChecks = rawGroupIds.map(gid => getDoc(doc(groupsCollectionRef, gid)));
+                    const groupSnapshots = await Promise.all(groupChecks);
+                    
+                    groupSnapshots.forEach(snap => {
+                        if (snap.exists()) {
+                            verifiedGroupIds.push(snap.id);
+                            // Przepisujemy info z profilu, jeśli istnieje, lub tworzymy domyślne
+                            if (userData.groupInfo && userData.groupInfo[snap.id]) {
+                                verifiedGroupInfo[snap.id] = userData.groupInfo[snap.id];
+                            } else {
+                                verifiedGroupInfo[snap.id] = { name: snap.data().name, role: 'member' };
+                            }
+                        }
+                    });
+
+                    // ZMIANA: Self-Healing - Jeśli znaleziono nieistniejące grupy, naprawiamy profil użytkownika w tle
+                    if (verifiedGroupIds.length !== rawGroupIds.length) {
+                        console.warn("Wykryto nieistniejące grupy w profilu. Uruchamiam autonaprawę...");
+                        // Używamy userDocRef, który jest zdefiniowany wcześniej w onAuthStateChanged
+                        updateDoc(userDocRef, {
+                            groupIds: verifiedGroupIds,
+                            groupInfo: verifiedGroupInfo
+                        }).catch(err => console.error("Błąd autonaprawy profilu:", err));
+                    }
+                }
+
+                const userGroupsIds = verifiedGroupIds;
+                const userGroupInfo = verifiedGroupInfo;
+
+                // === ZMIANA: Dodano warunek && userData.status !== 'pending_approval' ===
         if (userGroupsIds.length === 0 && userData.status !== 'pending_approval') {
             // SCENARIUSZ 1: Użytkownik jest 'active', ale nie ma żadnej grupy.
             // (np. nowy użytkownik po rejestracji solo)
@@ -34799,18 +34832,20 @@ if (deleteGroupPermanentlyBtn) {
                         batch.delete(targetGroupRef);
 
                         // --- 3. KLUCZOWE: Czyszczenie profilu Użytkownika ---
-                        // Usuwamy ID grupy z tablic w dokumencie użytkownika, aby zniknęła z menu
-                        const userDocRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'users', userId);
-                        
-                        // Próbujemy usunąć z 'memberOf', 'groups' oraz 'joinedGroups' (zgadujemy możliwe nazwy pól)
-                        // arrayRemove jest bezpieczne - jeśli pola nie ma, nic się nie stanie.
-                        batch.update(userDocRef, {
-                            memberOf: arrayRemove(groupId),     // Najbardziej prawdopodobne
-                            groups: arrayRemove(groupId),       // Alternatywa
-                            joinedGroups: arrayRemove(groupId), // Alternatywa
-                            // Resetujemy też pendingGroupId, jeśli dotyczy tej grupy
-                            pendingGroupId: deleteField() 
-                        });
+                    // Usuwamy ID grupy z tablic w dokumencie użytkownika, aby zniknęła z menu
+                    const userDocRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'users', userId);
+                    
+                    // Próbujemy usunąć z 'memberOf', 'groups' oraz 'joinedGroups' (zgadujemy możliwe nazwy pól)
+                    // arrayRemove jest bezpieczne - jeśli pola nie ma, nic się nie stanie.
+                    batch.update(userDocRef, {
+                        groupIds: arrayRemove(groupId), // <--- NOWE: Usuwamy z głównej listy ID
+                        [`groupInfo.${groupId}`]: deleteField(), // <--- NOWE: Usuwamy metadane grupy
+                        memberOf: arrayRemove(groupId), 
+                        groups: arrayRemove(groupId), 
+                        joinedGroups: arrayRemove(groupId), 
+                        // Resetujemy też pendingGroupId, jeśli dotyczy tej grupy
+                        pendingGroupId: deleteField()
+                    });
 
                         // --- 4. Wykonanie Batcha ---
                         await batch.commit();
