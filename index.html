@@ -34810,98 +34810,57 @@ if (deleteGroupPermanentlyBtn) {
                     `Czy na pewno chcesz usunąć grupę "${groupName}"? Wszystkie projekty, zadania i dane zostaną utracone bezpowrotnie. Tej operacji NIE MOŻNA cofnąć.`,
                     async (confirmed) => {
                         if (confirmed) {
-                            // === ZMIANA: Odpinamy listenery przed usunięciem ===
-                            // Zapobiega to błędom "Missing permissions", gdy UI próbuje odświeżyć dane, które właśnie usuwamy.
+                            // 1. ODPINAMY NASŁUCHIWANIE (Zabezpieczenie przed błędami konsoli)
                             if (typeof unsubscribeAllListeners === 'function') {
                                 unsubscribeAllListeners();
+                            } else {
+                                if (state.ui.unsubscribeProject) state.ui.unsubscribeProject();
+                                if (state.ui.unsubscribeGroup) state.ui.unsubscribeGroup();
+                                if (state.ui.unsubscribeUsers) state.ui.unsubscribeUsers();
+                                if (state.ui.unsubscribeChat) state.ui.unsubscribeChat();
                             }
-                            // === KONIEC ZMIANY ===
 
                             loadingOverlay.style.display = 'flex';
+                            
                             try {
                                 const batch = writeBatch(db);
-                        const groupId = state.ui.activeGroupId;
-                        const userId = auth.currentUser.uid;
+                                const groupId = state.currentUser.activeGroupId; // Pobieramy ID aktualnej grupy
+                                
+                                // A. Usuwanie dokumentu grupy
+                                const groupRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'groups', groupId);
+                                batch.delete(groupRef);
 
-                        console.log("ROZPOCZYNAM USUWANIE. Group ID:", groupId, "User ID:", userId);
+                                // B. Aktualizacja profilu użytkownika (To naprawia "wiszącą" grupę na liście)
+                                const userId = state.currentUser.uid;
+                                const userDocRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'users', userId);
+                                
+                                batch.update(userDocRef, {
+                                    groupIds: arrayRemove(groupId),        // Usuwamy ID z tablicy
+                                    [`groupInfo.${groupId}`]: deleteField(), // Usuwamy obiekt z mapy
+                                    memberOf: arrayRemove(groupId),        // Dla pewności (stare pola)
+                                    groups: arrayRemove(groupId),          // Dla pewności
+                                    activeGroupId: deleteField()           // Usuwamy aktywną grupę
+                                });
 
-                        // --- 1. Usuwanie zawartości grupy (Projekty, Archiwum, Prośby) ---
-                        
-                        // Projekty
-                        const projectsQ = query(projectsRef, where('groupId', '==', groupId));
-                        const projectsSnap = await getDocs(projectsQ);
-                        projectsSnap.forEach(doc => batch.delete(doc.ref));
+                                // C. Wykonanie operacji
+                                await batch.commit();
 
-                        // Archiwum
-                        const completedQ = query(completedProjectsRef, where('groupId', '==', groupId));
-                        const completedSnap = await getDocs(completedQ);
-                        completedSnap.forEach(doc => batch.delete(doc.ref));
+                                // D. Sukces
+                                console.log('Grupa usunięta pomyślnie.');
+                                alert('Grupa została trwale usunięta.');
+                                window.location.reload(); // Przeładowanie, aby Self-Healing naprawił resztę i zalogował do innej grupy
 
-                        // Prośby (groupRequests) - budujemy referencję ręcznie dla pewności
-                        const requestsRef = collection(db, 'artifacts', 'default-app-id', 'public', 'data', 'groupRequests');
-                        const requestsQ = query(requestsRef, where('groupId', '==', groupId));
-                        const requestsSnap = await getDocs(requestsQ);
-                        requestsSnap.forEach(doc => batch.delete(doc.ref));
-
-                        // --- 2. Usuwanie Grupy ---
-                        // Używamy jawnej ścieżki, aby uniknąć błędów zmiennych
-                        const targetGroupRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'groups', groupId);
-                        batch.delete(targetGroupRef);
-
-                        // --- 3. KLUCZOWE: Czyszczenie profilu Użytkownika ---
-                    // Usuwamy ID grupy z tablic w dokumencie użytkownika, aby zniknęła z menu
-                    const userDocRef = doc(db, 'artifacts', 'default-app-id', 'public', 'data', 'users', userId);
-                    
-                    // Próbujemy usunąć z 'memberOf', 'groups' oraz 'joinedGroups' (zgadujemy możliwe nazwy pól)
-                    // arrayRemove jest bezpieczne - jeśli pola nie ma, nic się nie stanie.
-                    batch.update(userDocRef, {
-                        groupIds: arrayRemove(groupId), // <--- NOWE: Usuwamy z głównej listy ID
-                        [`groupInfo.${groupId}`]: deleteField(), // <--- NOWE: Usuwamy metadane grupy
-                        memberOf: arrayRemove(groupId), 
-                        groups: arrayRemove(groupId), 
-                        joinedGroups: arrayRemove(groupId), 
-                        // Resetujemy też pendingGroupId, jeśli dotyczy tej grupy
-                        pendingGroupId: deleteField()
-                    });
-
-                        // --- 4. Wykonanie Batcha ---
-                        await batch.commit();
-                        console.log("Batch commit zakończony sukcesem.");
-
-                        // --- 5. Weryfikacja po usunięciu (Double Check) ---
-                        // Sprawdzamy czy dokument na pewno zniknął
-                        const checkDoc = await getDoc(targetGroupRef);
-                        if (checkDoc.exists()) {
-                            throw new Error("Krytyczny błąd: Dokument grupy nadal istnieje po operacji delete!");
+                            } catch (error) {
+                                console.error("Błąd podczas usuwania grupy:", error);
+                                alert("Wystąpił błąd podczas usuwania grupy: " + error.message);
+                                loadingOverlay.style.display = 'none';
+                                window.location.reload(); // Przeładowanie awaryjne
+                            }
                         }
-
-                        // --- 6. Sukces i Czyszczenie lokalne ---
-                        localStorage.removeItem('activeGroupId');
-                        localStorage.removeItem('lastActiveGroupId');
-                        state.ui.activeGroupId = null;
-
-                        showNotification("Grupa została CAŁKOWICIE usunięta.", "Sukces");
-                        
-                        // Wymuszone przekierowanie na stronę główną (bez query params)
-                        setTimeout(() => {
-                             window.location.href = window.location.origin + window.location.pathname;
-                        }, 1000);
-
-                    } catch (error) {
-                        console.error("PEŁNY BŁĄD USUWANIA:", error);
-                        let msg = error.message;
-                        if (error.code === 'permission-denied') {
-                            msg = "Błąd uprawnień. (Sprawdź reguły firestore.rules dla 'users' lub 'groups')";
-                        }
-                        showNotification("Błąd: " + msg, "Błąd");
-                        loadingOverlay.style.display = 'none'; 
                     }
-                }
-            },
-            true // true oznacza styl czerwonego przycisku potwierdzenia
-        );
-    });
-}
+                );
+            });
+        }
 
 // === KONIEC ZMIANY ===
 
