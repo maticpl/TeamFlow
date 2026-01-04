@@ -20548,34 +20548,42 @@ if (!listsContainer) {
             });
 
             const fillerCount = 3 - (dashboardGrid.children.length % 3);
-            if (fillerCount < 3) {
-                for (let i = 0; i < fillerCount; i++) {
-                     const emptyTile = document.createElement('div');
-                     emptyTile.className = 'dashboard-card kpi-mini-card';
-                     emptyTile.style.visibility = 'hidden'; 
-                     emptyTile.style.border = 'none';
-                     emptyTile.style.boxShadow = 'none';
-                     emptyTile.style.cursor = 'default';
-                     emptyTile.innerHTML = '&nbsp;';
-                     dashboardGrid.appendChild(emptyTile);
-                }
+        if (fillerCount < 3) {
+            for (let i = 0; i < fillerCount; i++) {
+                const emptyTile = document.createElement('div');
+                // ZMIANA: Dodano klasę 'dashboard-filler'
+                emptyTile.className = 'dashboard-card kpi-mini-card dashboard-filler';
+                // ZMIANA: Zamiast visibility:hidden używamy opacity:0, aby element reagował na mysz
+                emptyTile.style.opacity = '0'; 
+                // Upewniamy się, że element jest klikalny/namierzalny dla Sortable
+                emptyTile.style.pointerEvents = 'auto'; 
+                emptyTile.style.border = 'none';
+                emptyTile.style.boxShadow = 'none';
+                emptyTile.style.cursor = 'default';
+                emptyTile.innerHTML = '&nbsp;';
+                // ZMIANA: Dodajemy data-id, aby Sortable mógł zarządzać tym elementem w DOM
+                emptyTile.dataset.id = `filler-${i}`;
+                dashboardGrid.appendChild(emptyTile);
             }
+        }
 
-            dashboardGrid.classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
-            
-            if (sortableDashboard) {
-                sortableDashboard.destroy();
-                sortableDashboard = null;
-            }
-            if (state.ui.dashboardEditMode && dashboardGrid) {
-                sortableDashboard = new Sortable(dashboardGrid, {
-                    animation: 150,
-                    ghostClass: 'sortable-ghost',
-                    group: 'dashboard-kpi', 
-                    multiDrag: true, 
-                    selectedClass: 'selected' 
-                });
-            }
+        dashboardGrid.classList.toggle('layout-edit-mode', state.ui.dashboardEditMode);
+
+        if (sortableDashboard) {
+            sortableDashboard.destroy();
+            sortableDashboard = null;
+        }
+        if (state.ui.dashboardEditMode && dashboardGrid) {
+            sortableDashboard = new Sortable(dashboardGrid, {
+                animation: 150,
+                ghostClass: 'sortable-ghost',
+                group: 'dashboard-kpi',
+                multiDrag: true,
+                selectedClass: 'selected',
+                // ZMIANA: Blokujemy możliwość chwytania (przeciągania) samych fillerów
+                filter: '.dashboard-filler' 
+            });
+        }
 
             const myTasksKanbanEl = document.getElementById('my-tasks-kanban');
 
@@ -35723,20 +35731,23 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
         backToProjectsBtnMobile.addEventListener('click', handleBackButtonClick);
         
         editDashboardLayoutBtn.addEventListener('click', async () => {
-            if (state.ui.dashboardEditMode) {
-                if (sortableDashboard) {
-                    const newOrder = sortableDashboard.toArray();
-                    state.currentUser.layouts.dashboard = newOrder;
-                    try {
-                        const userRef = doc(usersRef, state.currentUser.uid);
-                        await updateDoc(userRef, { "layouts.dashboard": newOrder });
-                        showNotification("Układ pulpitu został zapisany.", "Sukces");
-                    } catch (error) {
-                        console.error("Błąd zapisu układu pulpitu:", error);
-                        showNotification("Nie udało się zapisać układu.", "Błąd");
-                    }
+        if (state.ui.dashboardEditMode) {
+            if (sortableDashboard) {
+                const rawOrder = sortableDashboard.toArray();
+                // ZMIANA: Filtrujemy tablicę, usuwając identyfikatory fillerów
+                const newOrder = rawOrder.filter(id => !id.startsWith('filler-'));
+                
+                state.currentUser.layouts.dashboard = newOrder;
+                try {
+                    const userRef = doc(usersRef, state.currentUser.uid);
+                    await updateDoc(userRef, { "layouts.dashboard": newOrder });
+                    showNotification("Układ pulpitu został zapisany.", "Sukces");
+                } catch (error) {
+                    console.error("Błąd zapisu układu pulpitu:", error);
+                    showNotification("Nie udało się zapisać układu.", "Błąd");
                 }
-                state.ui.dashboardEditMode = false;
+            }
+            state.ui.dashboardEditMode = false;
                 // ZMIANA: Dopisek "KPI" w HTML przycisku
                 editDashboardLayoutBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg><span>Edytuj układ KPI</span>`;
             } else {
