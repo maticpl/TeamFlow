@@ -19331,30 +19331,27 @@ function openSprintReportModal(sprintId) {
     // 2. Znajdź zadania, które zostały UKOŃCZONE w tym sprincie (zostają podpięte pod stare ID)
     const doneTasks = project.tasks.filter(t => t.parentSprintId === sprintId && t.status === 'done');
 
-    // 3. Znajdź NASTĘPNY SPRINT i przeniesione zadania
-    // Zakładamy format nazwy "Sprint #X". Pobieramy X.
-    let nextSprintTitle = "Nowego Sprintu";
-    let movedTasks = [];
+    // 3. Znajdź PRZENIESIONE ZADANIA (Niezależnie od tego, gdzie trafiły)
+    // Szukamy zadań, które mają znacznik, że pochodzą z tego sprintu
+    let movedTasks = project.tasks.filter(t => t.carryOverFrom === sprintId);
+
+    // 4. Ustal nazwę miejsca docelowego (dla celów wyświetlania w raporcie)
+    let destinationName = "Kolejnego Etapu / Backlogu";
     
-    const match = sprintTask.title.match(/#(\d+)/);
-    if (match) {
-        const currentNum = parseInt(match[1], 10);
-        const nextNum = currentNum + 1;
+    if (movedTasks.length > 0) {
+        // Sprawdzamy pierwsze z brzegu przeniesione zadanie, żeby zobaczyć gdzie wylądowało
+        const sampleTask = movedTasks[0];
         
-        // Szukamy sprintu z numerem o 1 większym
-        const nextSprint = project.tasks.find(t => t.type === 'sprint' && t.title.includes(`#${nextNum}`));
-        
-        if (nextSprint) {
-            nextSprintTitle = nextSprint.title;
-            // Zadania przeniesione to te, które są w NOWYM sprincie I mają znacznik przeniesienia z obecnego
-            // <<< ZMIANA: Dodano warunek carryOverFrom
-            movedTasks = project.tasks.filter(t => 
-                t.parentSprintId === nextSprint.id && t.carryOverFrom === sprintTask.id
-            );
+        if (sampleTask.parentSprintId) {
+            // Jeśli ma parentSprintId, to trafiło do innego sprintu -> szukamy jego nazwy
+            const targetSprint = project.tasks.find(t => t.id === sampleTask.parentSprintId);
+            if (targetSprint) {
+                destinationName = targetSprint.title;
+            }
+        } else if (sampleTask.status === 'backlog' || sampleTask.status === 'todo') {
+            // Jeśli nie ma parentSprintId, to trafiło do Backlogu
+            destinationName = "Backlogu";
         }
-    } else {
-        // Fallback: Jeśli nie ma numeru, szukamy sprintu stworzonego zaraz po zamknięciu tego
-        // (opcjonalne, na razie zostawmy puste jeśli nie wykryje numeru)
     }
 
     // --- OBLICZENIA KPI (Opieramy się na tym co było planowane vs dowiezione) ---
@@ -19501,9 +19498,9 @@ if (!listsContainer) {
             </div>
 
             <div class="report-task-column moved">
-                <h4>➡️ Przeniesione do: ${nextSprintTitle}</h4>
-                ${renderTaskList(movedTasks, "Wszystko dowiezione! Brak zadań przeniesionych.")}
-            </div>
+            <h4>➡️ Przeniesione do: ${destinationName}</h4>
+            ${renderTaskList(movedTasks, "Wszystko dowiezione! Brak zadań przeniesionych.")}
+        </div>
         </div>
     `;
 
