@@ -12944,44 +12944,78 @@ let state = {
             let checkboxHTML = '';
             let titleHTML = '';
             let taskIdAttr = '';
+            // Zmienna do nadpisania stylów kontenera treści dla podzadań
+            let customContentStyle = '';
 
             if (isSubtask) {
-                // Checkbox dla podzadania (musi mieć inne atrybuty i klasę dla listenera)
-                checkboxHTML = `<input type="checkbox" class="kanban-subtask-checkbox" data-parent-id="${task.parentId}" data-subtask-id="${task.id}" ${isCompleted ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">`;
+                // 1. Checkbox: Dodajemy margin-top, aby wyrównać go z tytułem w nowym układzie "karty"
+                checkboxHTML = `<input type="checkbox" class="kanban-subtask-checkbox" data-parent-id="${task.parentId}" data-subtask-id="${task.id}" ${isCompleted ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; margin-top: 12px; align-self: flex-start;">`;
                 
-                // Tytuł z kontekstem rodzica
+                // 2. Tytuł (Zawartość Karty): Tworzymy strukturę przypominającą kartę Kanban
+                // Używamy stylów inline dla szybkiego efektu "niebieskiego elementu" (tło, obramowanie)
                 titleHTML = `
-                    <div style="display: flex; flex-direction: column;">
-                        <span style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 10 4 15 9 20"></polyline><path d="M20 4v7a4 4 0 0 1-4 4H4"></path></svg>
-                            ${task.parentTitle}
-                        </span>
-                        <span class="my-day-task-item-title" style="font-size: 15px;">${task.title}</span>
-                    </div>
-                `;
-                // Atrybut ID dla <li> - przekazujemy ID podzadania, 'openTaskModal' sam wykryje że to subtask i przekieruje
-                taskIdAttr = `data-task-id="${task.id}"`; 
-            } else {
-                // Standardowe Zadanie Główne
-                checkboxHTML = `<input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''}>`;
-                titleHTML = `<h4 class="my-day-task-item-title">${task.title}</h4>`;
-                taskIdAttr = `data-task-id="${task.id}"`;
-            }
+                    <div class="subtask-kanban-card-look" style="
+                        background-color: var(--bg-secondary); 
+                        border: 1px solid var(--border-color);
+                        border-left: 4px solid var(--primary-color); /* Niebieski akcent po lewej */
+                        border-radius: 8px;
+                        padding: 12px;
+                        width: 100%;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 8px;
+                    ">
+                        <div style="font-size: 11px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px;">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.7;"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg>
+                            <span>Podzadanie do: <strong>${task.parentTitle}</strong></span>
+                        </div>
 
-            return `
-                <li class="my-day-task-item ${statusClassForVisuals} ${completedClass}" ${taskIdAttr}>
-                    ${checkboxHTML}
-                    <div class="my-day-task-item-content">
-                        <div class="my-day-task-item-header">
-                            ${titleHTML}
+                        <div class="my-day-task-item-header" style="margin-bottom: 4px;">
+                            <h4 class="my-day-task-item-title" style="font-size: 15px; margin: 0;">${task.title}</h4>
                             <span class="task-status-pill ${statusClassForVisuals}">${statusText}</span>
                         </div>
-                        <div class="my-day-task-item-meta">
+
+                        <div class="my-day-task-item-meta" style="margin-top: 0;">
                             <div class="my-day-project-name">
                                 Z grupy: <strong style="color: var(--text-primary);">${task.groupName}</strong> | Z projektu: <a href="#" data-project-id="${task.projectId}">${task.projectName}</a> | Termin: <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${dateTimeString}</span>
                             </div>
                             <div class="task-assignees">${assigneesHTML}</div>
                         </div>
+                    </div>
+                `;
+                
+                taskIdAttr = `data-task-id="${task.id}" data-is-subtask="true" data-parent-id="${task.parentId}"`;
+                // Dla podzadań resetujemy domyślny padding i tło kontenera treści, bo nasza "karta" ma własne
+                customContentStyle = 'padding: 0; background: transparent; border: none; box-shadow: none;';
+
+            } else {
+                // Standardowe Zadanie Główne - bez zmian
+                checkboxHTML = `<input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''}>`;
+                
+                titleHTML = `
+                    <div class="my-day-task-item-header">
+                        <h4 class="my-day-task-item-title">${task.title}</h4>
+                        <span class="task-status-pill ${statusClassForVisuals}">${statusText}</span>
+                    </div>
+                    <div class="my-day-task-item-meta">
+                        <div class="my-day-project-name">
+                            Z grupy: <strong style="color: var(--text-primary);">${task.groupName}</strong> | Z projektu: <a href="#" data-project-id="${task.projectId}">${task.projectName}</a> | Termin: <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${dateTimeString}</span>
+                        </div>
+                        <div class="task-assignees">${assigneesHTML}</div>
+                    </div>
+                `;
+
+                taskIdAttr = `data-task-id="${task.id}"`;
+            }
+
+            // Zmiana w głównym return:
+            // 1. Dodano 'align-items: flex-start' do <li> dla podzadań, aby checkbox był na górze.
+            // 2. Zastosowano 'customContentStyle' dla diva z treścią.
+            return `
+                <li class="my-day-task-item ${statusClassForVisuals} ${completedClass}" ${taskIdAttr} style="${isSubtask ? 'align-items: flex-start;' : ''}">
+                    ${checkboxHTML}
+                    <div class="my-day-task-item-content" style="${customContentStyle}">
+                        ${titleHTML}
                     </div>
                 </li>
             `;
