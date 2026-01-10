@@ -13355,6 +13355,99 @@ let state = {
             }
         }
     }
+    /**
+         * Nowa funkcja obsługująca odznaczanie elementów checklisty w widoku "Mój Dzień".
+         * Obsługuje zarówno checklisty w Zadaniu Głównym, jak i w Podzadaniach.
+         */
+        async function handleChecklistItemToggle(checkbox, mainTaskId, itemId) {
+            // 1. Pobieramy ID podzadania z atrybutu (dodaliśmy go w createMyDayTaskItemHTML)
+            const subtaskId = checkbox.dataset.subtaskContainerId; 
+            const { task, project } = findTask(mainTaskId);
+
+            if (!task || !project) {
+                console.error("Nie znaleziono zadania lub projektu dla:", mainTaskId);
+                return;
+            }
+
+            // Klonujemy zadanie do edycji
+            let updatedTask = { ...task };
+            let modificationSuccess = false;
+
+            if (subtaskId) {
+                // === SCENARIUSZ A: Element listy wewnątrz PODZADANIA ===
+                if (updatedTask.subtasks) {
+                    updatedTask.subtasks = updatedTask.subtasks.map(sub => {
+                        // Szukamy właściwego podzadania
+                        if (sub.id === subtaskId && sub.checklist) {
+                            // Szukamy elementu checklisty w tym podzadaniu
+                            const itemIndex = sub.checklist.findIndex(i => i.id === itemId);
+                            if (itemIndex !== -1) {
+                                // Kopia tablicy checklisty
+                                const updatedChecklist = [...sub.checklist];
+                                // Aktualizacja statusu
+                                updatedChecklist[itemIndex] = {
+                                    ...updatedChecklist[itemIndex],
+                                    isCompleted: checkbox.checked
+                                };
+                                modificationSuccess = true;
+                                // Zwracamy zaktualizowane podzadanie
+                                return { ...sub, checklist: updatedChecklist };
+                            }
+                        }
+                        return sub;
+                    });
+                }
+            } else {
+                // === SCENARIUSZ B: Element listy w ZADANIU GŁÓWNYM ===
+                if (updatedTask.checklist) {
+                    const itemIndex = updatedTask.checklist.findIndex(i => i.id === itemId);
+                    if (itemIndex !== -1) {
+                        const updatedChecklist = [...updatedTask.checklist];
+                        updatedChecklist[itemIndex] = {
+                            ...updatedChecklist[itemIndex],
+                            isCompleted: checkbox.checked
+                        };
+                        updatedTask.checklist = updatedChecklist;
+                        modificationSuccess = true;
+                    }
+                }
+            }
+
+            if (modificationSuccess) {
+                // Wizualizacja natychmiastowa (UI)
+                const listItem = checkbox.closest('.my-day-task-item');
+                if (listItem) {
+                    if (checkbox.checked) {
+                        listItem.classList.add('completed');
+                        // Dodatkowo: przekreśl tekst (dla pewności wizualnej)
+                        const titleEl = listItem.querySelector('.my-day-task-item-title') || listItem.querySelector('span'); // span w nagłówku checklisty
+                        if(titleEl) {
+                             // Opcjonalnie dodaj styl, choć klasa .completed powinna to załatwić
+                        }
+                        showConfetti();
+                    } else {
+                        listItem.classList.remove('completed');
+                    }
+                }
+
+                // Zapis do Firebase
+                const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+                try {
+                    await updateDoc(projectDocRef, {
+                        tasks: project.tasks.map(t => t.id === mainTaskId ? updatedTask : t)
+                    });
+                    console.log("Zaktualizowano stan elementu checklisty.");
+                } catch (error) {
+                    console.error("Błąd zapisu checklisty w Mój Dzień:", error);
+                    showNotification("Błąd zapisu.", "Błąd");
+                    checkbox.checked = !checkbox.checked; // Cofnij zmianę w UI
+                    if (listItem) listItem.classList.toggle('completed');
+                }
+            } else {
+                console.error("Nie udało się znaleźć elementu checklisty do zaktualizowania (SubtaskID: " + subtaskId + ")");
+                showNotification("Błąd spójności danych.", "Błąd");
+            }
+        }
         function showConfirmation(title, message, callback, danger = false) {
             confirmationModal.title.textContent = title;
             
