@@ -13148,48 +13148,86 @@ let state = {
                     }
 
                     // --- 2. Sprawdź Podzadania ---
-                    if (taskObj.subtasks && taskObj.subtasks.length > 0) {
-                        taskObj.subtasks.forEach(sub => {
-                            if ((sub.assignees || []).includes(myId)) {
-                                const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
-                                const subIsDone = subStatus === 'done';
-                                
-                                if (sub.dueDate) {
-                                    const subDate = new Date(sub.dueDate);
-                                    
-                                    // Przygotuj obiekt "płaski" dla widoku
-                                    const subItemData = {
-                                        ...sub,
-                                        id: sub.id,
-                                        title: sub.title,
-                                        dueDate: sub.dueDate,
-                                        status: subStatus,
-                                        isCompleted: sub.isCompleted,
-                                        itemType: 'subtask',
-                                        parentId: taskObj.id,
-                                        parentTitle: taskObj.title,
-                                        projectName: project.name,
-                                        projectId: project.id,
-                                        groupName: groupName,
-                                        assignees: sub.assignees
-                                    };
+            if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                taskObj.subtasks.forEach(sub => {
+                    // Logika dla samego podzadania (istniejąca)
+                    if ((sub.assignees || []).includes(myId)) {
+                        const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                        const subIsDone = subStatus === 'done';
 
-                                    // A. Zaległe
-                                    if (!subIsDone && subDate < selectedDateStartOfDay) {
-                                        overdueTasks.push(subItemData);
-                                    }
-                                    // B. Na dziś (aktywne)
-                                    else if (!subIsDone && sub.dueDate.startsWith(dateString)) {
-                                        activeTasksForDate.push(subItemData);
-                                    }
-                                    // C. Na dziś (wykonane)
-                                    else if (subIsDone && sub.dueDate.startsWith(dateString)) {
-                                        completedTasksForDate.push(subItemData);
-                                    }
+                        if (sub.dueDate) {
+                            const subDate = new Date(sub.dueDate);
+                            const subItemData = {
+                                ...sub,
+                                id: sub.id,
+                                title: sub.title,
+                                dueDate: sub.dueDate,
+                                status: subStatus,
+                                isCompleted: sub.isCompleted,
+                                itemType: 'subtask',
+                                parentId: taskObj.id,
+                                parentTitle: taskObj.title,
+                                projectName: project.name,
+                                projectId: project.id,
+                                groupName: groupName,
+                                assignees: sub.assignees
+                            };
+
+                            if (!subIsDone && subDate < selectedDateStartOfDay) {
+                                overdueTasks.push(subItemData);
+                            }
+                            else if (!subIsDone && sub.dueDate.startsWith(dateString)) {
+                                activeTasksForDate.push(subItemData);
+                            }
+                            else if (subIsDone && sub.dueDate.startsWith(dateString)) {
+                                completedTasksForDate.push(subItemData);
+                            }
+                        }
+                    }
+
+                    // === NOWE: Sprawdź Elementy Listy Kontrolnej wewnątrz PODZADANIA ===
+                    if (sub.checklist && sub.checklist.length > 0) {
+                        sub.checklist.forEach(item => {
+                            // Sprawdzamy czy element checklisty jest przypisany do mnie i ma datę
+                            if (item.assigneeId === myId && item.date) {
+                                const itemDate = new Date(item.date);
+                                const isDone = item.isCompleted;
+                                
+                                const checkItemData = {
+                                    id: item.id,
+                                    title: item.name,
+                                    dueDate: item.date,
+                                    status: isDone ? 'done' : 'todo',
+                                    isCompleted: isDone,
+                                    itemType: 'checklist-item',
+                                    parentId: taskObj.id,
+                                    // Budujemy kontekst: Zadanie Główne > Podzadanie
+                                    parentTitle: `${taskObj.title} > ${sub.title}`, 
+                                    subtaskId: sub.id, // Ważne: przekazujemy ID podzadania, aby checkbox wiedział co aktualizować
+                                    projectId: project.id,
+                                    projectName: project.name,
+                                    groupName: groupName,
+                                    assignees: [myId]
+                                };
+
+                                // A. Zaległe
+                                if (!isDone && itemDate < selectedDateStartOfDay) {
+                                    overdueTasks.push(checkItemData);
+                                }
+                                // B. Na dziś (aktywne)
+                                else if (!isDone && item.date === dateString) {
+                                    activeTasksForDate.push(checkItemData);
+                                }
+                                // C. Na dziś (wykonane)
+                                else if (isDone && item.date === dateString) {
+                                    completedTasksForDate.push(checkItemData);
                                 }
                             }
                         });
                     }
+                    // === KONIEC NOWEGO KODU ===
+                });
+            }
 
                     // --- 3. Sprawdź Elementy Listy Kontrolnej (Checklist Items) ---
                 if (taskObj.checklist && taskObj.checklist.length > 0) {
