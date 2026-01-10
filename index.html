@@ -12958,21 +12958,39 @@ let state = {
     let customContentStyle = '';
     let liStyle = '';
 
-    if (isSubtask) {
-        // === FINALNA POPRAWKA V2: Wyrównanie do krawędzi i obsługa zdarzeń ===
-        
-        checkboxHTML = ''; 
-        const parentTitleSafe = task.parentTitle ? task.parentTitle : 'Zadanie nadrzędne';
+    if (isSubtask || task.itemType === 'checklist-item') {
+            // === WSPÓLNA LOGIKA DLA PODZADAŃ I LISTY KONTROLNEJ ===
+            checkboxHTML = ''; // Checkbox renderujemy wewnątrz kontentu
+            
+            let headerText = '';
+            let checkboxClass = '';
+            let dataAttributes = '';
+            
+            if (isSubtask) {
+                const parentTitleSafe = task.parentTitle ? task.parentTitle : 'Zadanie nadrzędne';
+                headerText = `Podzadanie do: ${parentTitleSafe}`;
+                checkboxClass = 'kanban-subtask-checkbox';
+                dataAttributes = `data-parent-id="${task.parentId}" data-subtask-id="${task.id}"`;
+            } else {
+                // TYPE: checklist-item
+                // Wyświetlamy kontekst (Zadanie lub Podzadanie, z którego pochodzi)
+                const contextTitle = task.parentTitle ? task.parentTitle : 'Zadanie';
+                headerText = `Zadanie z listy kontrolnej (${contextTitle})`;
+                checkboxClass = 'checklist-item-checkbox'; // Nowa klasa
+                // Przekazujemy ID rodzica (Tasks) oraz ID samego elementu listy
+                // Jeśli to lista z podzadania, potrzebujemy też ID podzadania (task.subtaskId)
+                dataAttributes = `data-parent-id="${task.parentId}" data-item-id="${task.id}" ${task.subtaskId ? `data-subtask-container-id="${task.subtaskId}"` : ''}`;
+            }
 
-        titleHTML = `
+            titleHTML = `
             <div style="
                 background-color: var(--primary-color, #4a90e2);
                 color: #fff;
                 font-size: 11px;
                 font-weight: 600;
                 padding: 6px 16px;
-                display: flex; 
-                align-items: center; 
+                display: flex;
+                align-items: center;
                 gap: 6px;
                 width: 100%;
                 margin: 0;
@@ -12981,22 +12999,26 @@ let state = {
                 min-height: 28px;
                 border-bottom: 1px solid rgba(0,0,0,0.05);
             ">
-                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg>
-                <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Podzadanie do: ${parentTitleSafe}</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;">
+                    ${isSubtask 
+                        ? '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline>' 
+                        : '<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />'} 
+                </svg>
+                <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${headerText}</span>
             </div>
-
+            
             <div style="
-                display: flex; 
+                display: flex;
                 flex-direction: row;
                 align-items: flex-start;
                 padding: 10px 12px;
                 width: 100%;
                 box-sizing: border-box;
-                flex-grow: 1; 
+                flex-grow: 1;
                 background-color: transparent;
             ">
                 <div style="margin-right: 12px; padding-top: 2px; flex-shrink: 0; cursor: default;" onclick="event.stopPropagation()">
-                     <input type="checkbox" class="kanban-subtask-checkbox" data-parent-id="${task.parentId}" data-subtask-id="${task.id}" ${isCompleted ? 'checked' : ''} style="cursor: pointer;" onclick="event.stopPropagation()">
+                    <input type="checkbox" class="${checkboxClass}" ${dataAttributes} ${isCompleted ? 'checked' : ''} style="cursor: pointer;" onclick="event.stopPropagation()">
                 </div>
 
                 <div class="my-day-task-item-content" style="padding: 0; border: none; box-shadow: none; background: transparent; width: 100%; flex: 1;">
@@ -13006,24 +13028,24 @@ let state = {
                     </div>
                     <div class="my-day-task-item-meta" style="margin-top: 4px;">
                         <div class="my-day-project-name">
-                            Z grupy: <strong style="color: var(--text-primary);">${task.groupName}</strong> | Z projektu: <a href="#" data-project-id="${task.projectId}">${task.projectName}</a> | Termin: <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${dateTimeString}</span>
+                            Z grupy: <strong style="color: var(--text-primary);">${task.groupName}</strong> | 
+                            Z projektu: <a href="#" data-project-id="${task.projectId}">${task.projectName}</a> | 
+                            Termin: <span style="${isOverdue ? 'color: var(--danger-primary); font-weight: 600;' : ''}">${dateTimeString}</span>
                         </div>
                         <div class="task-assignees">${assigneesHTML}</div>
                     </div>
                 </div>
             </div>
-        `;
+            `;
+            
+            taskIdAttr = `data-task-id="${task.parentId}"`; // Linkujemy do rodzica, żeby modal się otworzył
+            // Upewniamy się, że wrapper nie ma marginesów
+            customContentStyle = 'padding: 0; margin: 0; background: transparent; border: none; box-shadow: none; display: flex; flex-direction: column; width: 100%; flex: 1;';
+            
+            // MODYFIKACJA LI - NAJWAŻNIEJSZE ZMIANY:
+            liStyle = 'padding: 0 !important; margin: 0; display: flex !important; flex-direction: column !important; align-items: stretch !important; gap: 0 !important; overflow: hidden; background-color: var(--card-bg, #fff); width: 100%; box-sizing: border-box;';
         
-        taskIdAttr = `data-task-id="${task.id}" data-is-subtask="true" data-parent-id="${task.parentId}"`;
-        
-        // Upewniamy się, że wrapper nie ma marginesów
-        customContentStyle = 'padding: 0; margin: 0; background: transparent; border: none; box-shadow: none; display: flex; flex-direction: column; width: 100%; flex: 1;';
-        
-        // MODYFIKACJA LI - NAJWAŻNIEJSZE ZMIANY:
-        liStyle = 'padding: 0 !important; margin: 0; display: flex !important; flex-direction: column !important; align-items: stretch !important; gap: 0 !important; overflow: hidden; background-color: var(--card-bg, #fff); width: 100%; box-sizing: border-box;';
-    
-
-    } else {
+        } else {
         // Zadanie główne
         // ZMIANA: Dodano onclick="event.stopPropagation()" do checkboxa zadania głównego
         checkboxHTML = `<input type="checkbox" class="task-card-checkbox" data-task-id="${task.id}" ${isCompleted ? 'checked' : ''} onclick="event.stopPropagation()">`;
@@ -13168,10 +13190,52 @@ let state = {
                             }
                         });
                     }
-                });
-            });
-            // === KONIEC NOWEJ LOGIKI ===
 
+                    // --- 3. Sprawdź Elementy Listy Kontrolnej (Checklist Items) ---
+                    // Wstawione tutaj, aby mieć dostęp do 'taskObj'
+                    if (taskObj.checklist && taskObj.checklist.length > 0) {
+                        taskObj.checklist.forEach(item => {
+                            // Sprawdzamy czy element jest przypisany do mnie i ma datę
+                            if (item.assigneeId === myId && item.date) {
+                                const itemDate = new Date(item.date);
+                                const isDone = item.isCompleted;
+                                
+                                const checkItemData = {
+                                    id: item.id,
+                                    title: item.name,
+                                    dueDate: item.date,
+                                    status: isDone ? 'done' : 'todo',
+                                    isCompleted: isDone,
+                                    itemType: 'checklist-item', // Nowy typ
+                                    parentId: taskObj.id,
+                                    parentTitle: taskObj.title,
+                                    projectId: project.id,
+                                    projectName: project.name,
+                                    groupName: groupName,
+                                    assignees: [myId]
+                                };
+
+                                // A. Zaległe
+                                if (!isDone && itemDate < selectedDateStartOfDay) {
+                                    overdueTasks.push(checkItemData);
+                                }
+                                // B. Na dziś (aktywne)
+                                else if (!isDone && item.date === dateString) {
+                                    activeTasksForDate.push(checkItemData);
+                                }
+                                // C. Na dziś (wykonane)
+                                else if (isDone && item.date === dateString) {
+                                    completedTasksForDate.push(checkItemData);
+                                }
+                            }
+                        });
+                    }
+                    // -------------------------------------------------------------
+
+                }); // Koniec pętli zadań (taskObj)
+            }); // Koniec pętli projektów
+            // === KONIEC NOWEJ LOGIKI ===
+                
             const emptyStateEl = document.getElementById('my-day-empty-state');
 
             // Sortowanie (po godzinie)
@@ -13219,13 +13283,23 @@ let state = {
             handleTaskCheckboxClick(e.target, e);
             return; 
         } 
-        // 2. Checkbox Podzadania (NAPRAWA)
+        // 2. Checkbox Podzadania
         else if (e.target.matches('.kanban-subtask-checkbox')) {
             const mainTaskId = e.target.dataset.parentId;
             if (mainTaskId) {
                 handleSubtaskToggle(e.target, mainTaskId);
             }
-            return; // Zatrzymaj, aby nie otwierać modala
+            return;
+        }
+        // 3. Checkbox Elementu Listy Kontrolnej (NOWE)
+        else if (e.target.matches('.checklist-item-checkbox')) {
+            const mainTaskId = e.target.dataset.parentId;
+            const itemId = e.target.dataset.itemId;
+
+            if (mainTaskId && itemId) {
+                handleChecklistItemToggle(e.target, mainTaskId, itemId);
+            }
+            return;
         }
         // 3. Link do Projektu
         else if (e.target.closest('a[data-project-id]')) {
@@ -36878,7 +36952,70 @@ manageGroupModal.addSubgroupForm.addEventListener('submit', async (e) => {
              renderSubtaskListInMainModal(mainTask); 
          }
         }
+        async function handleChecklistItemToggle(checkbox, mainTaskId, itemId, subtaskId = null) {
+        const { task: mainTask, project } = findTask(mainTaskId);
+        if (!mainTask || !project) return;
 
+        let updatedTask = { ...mainTask };
+        let itemFound = false;
+
+        // Scenariusz A: Lista kontrolna w Podzadaniu
+        if (subtaskId) {
+            updatedTask.subtasks = updatedTask.subtasks.map(sub => {
+                if (sub.id === subtaskId && sub.checklist) {
+                    const newChecklist = sub.checklist.map(item => {
+                        if (item.id === itemId) {
+                            itemFound = true;
+                            return { ...item, isCompleted: checkbox.checked };
+                        }
+                        return item;
+                    });
+                    return { ...sub, checklist: newChecklist };
+                }
+                return sub;
+            });
+        } 
+        // Scenariusz B: Lista kontrolna w Zadaniu Głównym
+        else {
+            if (updatedTask.checklist) {
+                updatedTask.checklist = updatedTask.checklist.map(item => {
+                    if (item.id === itemId) {
+                        itemFound = true;
+                        return { ...item, isCompleted: checkbox.checked };
+                    }
+                    return item;
+                });
+            }
+        }
+
+        if (!itemFound) {
+            console.error("Nie znaleziono elementu listy kontrolnej do zaktualizowania.");
+            return;
+        }
+
+        // Zapisz do Firestore
+        const projectDocRef = findProject(project.id) ? doc(projectsRef, project.id) : doc(completedProjectsRef, project.id);
+        const updatedTasks = project.tasks.map(t => (t.id === mainTaskId ? updatedTask : t));
+
+        try {
+            await updateDoc(projectDocRef, { tasks: updatedTasks });
+            
+            if (checkbox.checked) {
+                showConfetti();
+                // Wizualna aktualizacja (przekreślenie kafelka)
+                const parentCard = checkbox.closest('.my-day-task-item');
+                if (parentCard) parentCard.classList.add('completed');
+            } else {
+                const parentCard = checkbox.closest('.my-day-task-item');
+                if (parentCard) parentCard.classList.remove('completed');
+            }
+
+        } catch (error) {
+            console.error("Błąd zapisu elementu listy kontrolnej:", error);
+            showNotification("Błąd aktualizacji.", "Błąd");
+            checkbox.checked = !checkbox.checked; // Cofnij zmianę w UI
+        }
+    }
         async function handleSubtaskDelete(subtaskId, mainTaskId) {
              const { task: mainTask, project } = findTask(mainTaskId);
              if (!mainTask || !project) return;
