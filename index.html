@@ -20693,6 +20693,84 @@ if (!listsContainer) {
             totalEl.textContent = grandTotal.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             currencyEl.textContent = currency;
         }
+        /**
+ * NOWA FUNKCJA: Pobiera globalną listę zaległości (Zadania, Podzadania, Checklisty) ze wszystkich grup.
+ */
+function getGlobalOverdueItems() {
+    const allProjects = [...state.globalUserProjects, ...state.globalUserCompletedProjects];
+    const myId = state.currentUser.uid;
+    const selectedDateStartOfDay = new Date();
+    selectedDateStartOfDay.setHours(0, 0, 0, 0); // Dzisiaj 00:00
+    
+    let overdueItems = [];
+
+    allProjects.forEach(project => {
+        const groupName = state.currentUser.groupInfo[project.groupId] ? state.currentUser.groupInfo[project.groupId].name : 'Nieznana Grupa';
+        
+        (project.tasks || []).forEach(task => {
+            const taskObj = migrateTask(task);
+            
+            // 1. Zadanie Główne
+            if (taskObj.assignees.includes(myId)) {
+                if (taskObj.dueDate) {
+                    const taskDate = new Date(taskObj.dueDate);
+                    if (taskObj.status !== 'done' && taskDate < selectedDateStartOfDay) {
+                        overdueItems.push({ ...taskObj, itemType: 'task', projectName: project.name, projectId: project.id, groupName: groupName });
+                    }
+                }
+            }
+
+            // 2. Podzadania
+            if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                taskObj.subtasks.forEach(sub => {
+                    if ((sub.assignees || []).includes(myId)) {
+                        const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                        if (sub.dueDate) {
+                            const subDate = new Date(sub.dueDate);
+                            if (subStatus !== 'done' && subDate < selectedDateStartOfDay) {
+                                overdueItems.push({ ...sub, itemType: 'subtask', parentId: taskObj.id, parentTitle: taskObj.title, projectName: project.name, projectId: project.id, groupName: groupName });
+                            }
+                        }
+                    }
+                    
+                    // 3. Checklist w Podzadaniu
+                    if (sub.checklist && sub.checklist.length > 0) {
+                        sub.checklist.forEach(item => {
+                            if (item.assigneeId === myId && item.date) {
+                                const itemDate = new Date(item.date);
+                                if (!item.isCompleted && itemDate < selectedDateStartOfDay) {
+                                    overdueItems.push({ 
+                                        ...item, title: item.name, itemType: 'checklist-item', 
+                                        parentId: taskObj.id, parentTitle: `${taskObj.title} > ${sub.title}`, subtaskId: sub.id, 
+                                        projectName: project.name, projectId: project.id, groupName: groupName 
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+
+            // 4. Checklist w Zadaniu Głównym
+            if (taskObj.checklist && taskObj.checklist.length > 0) {
+                taskObj.checklist.forEach(item => {
+                    if (item.assigneeId === myId && item.date) {
+                        const itemDate = new Date(item.date);
+                        if (!item.isCompleted && itemDate < selectedDateStartOfDay) {
+                            overdueItems.push({ 
+                                ...item, title: item.name, itemType: 'checklist-item', 
+                                parentId: taskObj.id, parentTitle: taskObj.title, 
+                                projectName: project.name, projectId: project.id, groupName: groupName 
+                            });
+                        }
+                    }
+                });
+            }
+        });
+    });
+    
+    return overdueItems.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+}
          function renderMyDashboardView() {
             // === NOWE: Ukryj narzędzia radaru po wyjściu z widoku radaru ===
             if (radarUi.toolsWrapper) radarUi.toolsWrapper.style.display = 'none';
@@ -20751,18 +20829,15 @@ if (!listsContainer) {
                 const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
                 if (dateA === Infinity && dateB === Infinity) return 0;
                 if (dateA === Infinity) return 1;
-                if (dateB === Infinity) return -1;
-                return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - a.dueDate;
-            });
+        if (dateB === Infinity) return -1;
+        return state.ui.sortMyTasksByDate === 'asc' ? dateA - dateB : dateB - a.dueDate;
+    });
 
-            // === ZMIANA: Obliczenia dla kafelka "Nadchodzące" i "Zaległe" ===
-            // Tutaj można zdecydować: czy zaległe mają obejmować podzadania? 
-            // Dla spójności z "Obciążeniem" warto by było, ale getOverdueTasks jest proste.
-            // Zostawmy zaległe na 'myTasks' (Główne) dla czytelności lub zmieńmy na allWorkItems.
-            // W tym kroku naprawiamy TYLKO KAFELEK OBCIĄŻENIA.
-            
-            const overdueTasks = getOverdueTasks(myTasks);
-            const todayPlusTomorrow = myTasks.filter(t => {
+    // ZMIANA: Używamy getGlobalOverdueItems zamiast getOverdueTasks(myTasks), aby pobrać wszystko (zadania, podzadania, checklisty)
+    const overdueTasks = getGlobalOverdueItems();
+    
+    // Filtrowanie zadań na "Dziś i Jutro"
+    const todayPlusTomorrow = myTasks.filter(t => {
                 if (!t.dueDate || t.status === 'done') return false;
                 const dueDate = new Date(t.dueDate);
                 const now = new Date();
@@ -32004,15 +32079,23 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             let contentHTML = '';
             
             switch (type) {
-                case 'show-my-overdue-details':
-                    title = 'Moje Opóźnione Zadania';
-                    const overdueTasks = getOverdueTasks(allMyTasks);
-                    contentHTML = overdueTasks.length === 0 
-                        ? '<p class="no-tasks-message">Brak opóźnionych zadań. Dobra robota!</p>' 
-                        : overdueTasks.map(task => createTaskCardHTML(task, true)).join('');
-                    break;
-                    
-                case 'show-team-delays-details':
+        case 'show-my-overdue-details':
+            title = 'Moje Opóźnione Zadania (Wszystkie grupy)';
+            // ZMIANA: Pobieramy globalną listę (zadania, podzadania, checklisty)
+            const overdueItems = getGlobalOverdueItems();
+            
+            if (overdueItems.length === 0) {
+                contentHTML = '<p class="no-tasks-message">Brak opóźnionych zadań. Dobra robota!</p>';
+            } else {
+                // ZMIANA: Używamy createMyDayTaskItemHTML dla każdego elementu, aby lista wyglądała spójnie
+                // i zawierała informacje o projekcie/grupie
+                contentHTML = `<ul class="my-day-list" style="display: flex; flex-direction: column; gap: 10px; width: 100%;">` + 
+                              overdueItems.map(item => createMyDayTaskItemHTML(item)).join('') + 
+                              `</ul>`;
+            }
+            break;
+
+        case 'show-my-upcoming-details':
                     title = 'Opóźnienia w Zespole';
                     const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
                     
