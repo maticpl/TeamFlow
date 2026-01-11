@@ -32175,34 +32175,30 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
     }
 
     /**
-     * Generuje HTML dla elementu listy w Dashboardzie (z checkboxem).
+     * Generuje HTML dla elementu listy w Dashboardzie w formie KAFELKA (Card).
      */
     function createMyDayTaskItemHTML(item) {
         let isCompleted = false;
-        let typeLabel = '';
         
         if (item.itemType === 'task') {
             isCompleted = item.status === 'done';
-            typeLabel = 'Zadanie';
         } else if (item.itemType === 'subtask') {
             isCompleted = item.status === 'done' || item.isCompleted;
-            typeLabel = 'Podzadanie';
         }
 
         const checkedAttr = isCompleted ? 'checked' : '';
-        const completedClass = isCompleted ? 'completed' : '';
+        const completedClass = isCompleted ? 'completed' : ''; // Styl CSS .completed powinien wyszarzać element
         
-        // Meta dane: Grupa • Projekt • Data
+        // Formatowanie daty
         const dueDateStr = item.dueDate ? new Date(item.dueDate).toLocaleDateString('pl-PL') : '';
-        const meta = `<span style="font-weight:600; color:var(--danger-primary);">${dueDateStr}</span> • ${item.groupName} • ${item.projectName}`;
         
-        // Tytuł z ewentualnym kontekstem rodzica
+        // Tytuł z ewentualnym kontekstem rodzica (dla podzadań)
         let titleHtml = item.title;
         if (item.itemType === 'subtask') {
-            titleHtml = `${item.title} <small style="color:var(--text-secondary); display:block; font-size:11px;">(w: ${item.parentTitle})</small>`;
+            titleHtml = `${item.title} <div style="color:var(--text-secondary); font-size:11px; margin-top:2px; font-weight:400;">(w zadaniu: ${item.parentTitle})</div>`;
         }
 
-        // Dane do datasetów (do obsługi kliknięć)
+        // Atrybuty danych niezbędne do działania Event Listenera (kliknięcia i checkboxa)
         const dataAttrs = `
             data-item-type="${item.itemType}" 
             data-task-id="${item.itemType === 'task' ? item.id : item.parentId}" 
@@ -32210,23 +32206,50 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             data-project-id="${item.projectId}"
         `;
 
+        // Zwracamy strukturę Kafelka (Card) zamiast List Item
+        // Używamy klasy 'my-day-task-item' aby zachować zgodność z Listenerem kliknięć dodanym w poprzednim kroku
         return `
-        <li class="my-day-task-item ${completedClass}" ${dataAttrs} style="cursor: pointer; position: relative; padding: 12px; border-left: 4px solid var(--danger-primary);">
-            <div style="display: flex; align-items: flex-start; width: 100%;">
+        <div class="my-day-task-item ${completedClass}" ${dataAttrs} style="
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+        " 
+        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'"
+        onmouseout="this.style.transform='none'; this.style.boxShadow='0 2px 5px rgba(0,0,0,0.03)'">
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-secondary);">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                     <span style="background: var(--primary-light); color: var(--primary-color); padding: 2px 8px; border-radius: 4px; font-weight: 600; text-transform: uppercase;">
+                        ${item.groupName}
+                     </span>
+                </div>
+                <span style="opacity: 0.7;">${item.projectName}</span>
+            </div>
+
+            <div style="display: flex; align-items: flex-start; gap: 12px; flex-grow: 1;">
                 <input type="checkbox" class="dashboard-overdue-checkbox" ${checkedAttr} 
-                       style="width: 20px; height: 20px; margin-right: 16px; margin-top: 2px; cursor: pointer; z-index: 2;"
+                       style="width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; cursor: pointer; accent-color: var(--primary-color); z-index: 2;"
                        ${dataAttrs}>
                 
-                <div class="my-day-task-item-content">
-                    <div class="my-day-task-item-title" style="font-weight: 600; font-size: 15px; color: var(--text-primary); line-height: 1.4;">
-                        ${titleHtml}
-                    </div>
-                    <div class="my-day-task-item-meta" style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">
-                        ${meta}
-                    </div>
+                <div class="my-day-task-item-title" style="font-weight: 600; font-size: 14px; color: var(--text-primary); line-height: 1.4; word-break: break-word;">
+                    ${titleHtml}
                 </div>
             </div>
-        </li>
+
+            <div style="border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 4px; display: flex; align-items: center; gap: 6px; color: var(--danger-primary); font-size: 12px; font-weight: 600;">
+                 <span class="material-icons" style="font-size: 16px;">event_busy</span>
+                 <span>Opóźnione: ${dueDateStr}</span>
+            </div>
+        </div>
         `;
     }
 
@@ -32312,15 +32335,16 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             
             switch (type) {
         case 'show-my-overdue-details':
-            title = 'Moje Opóźnione Zadania (Wszystkie grupy)';
-            // ZMIANA: Pobieramy globalną listę (zadania, podzadania, checklisty)
+            title = 'Moje Opóźnione Zadania';
             const overdueItems = getGlobalOverdueItems();
             if (overdueItems.length === 0) {
                 contentHTML = '<p class="no-tasks-message">Brak opóźnionych zadań. Dobra robota!</p>';
             } else {
-                // ZMIANA: Używamy createMyDayTaskItemHTML dla każdego elementu, aby lista wyglądała spójnie
-                // i zawierała informacje o projekcie/grupie
-                contentHTML = `<ul class="my-day-list" style="display: flex; flex-direction: column; gap: 10px; width: 100%;">` + overdueItems.map(item => createMyDayTaskItemHTML(item)).join('') + `</ul>`;
+                // ZMIANA: Kontener to teraz Grid, aby kafelki układały się obok siebie (responsywnie)
+                contentHTML = `
+                    <div class="dashboard-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; width: 100%; padding-bottom: 20px;">
+                        ${overdueItems.map(item => createMyDayTaskItemHTML(item)).join('')}
+                    </div>`;
             }
             break;
         case 'show-team-delays-details': // <--- NAPRAWA: Zmieniono nazwę case, aby pasowała do data-action kafelka
