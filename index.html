@@ -21005,17 +21005,30 @@ function getGlobalOverdueItems() {
             `;
 
             // Renderowanie GRID
-            kanbanBoardEl.innerHTML = `
-                <div class="dashboard-container">
-                    <div class="dashboard-grid" id="dashboard-grid-main"></div>
-                    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; margin-top: 24px;">Wszystkie Moje Zadania</h2>
-                    <section id="my-tasks-kanban" class="kanban-board-mini"></section>
-                </div>
-            `;
-            
-            const dashboardGrid = document.getElementById('dashboard-grid-main');
-            const allKpis = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget']; 
-            const order = state.currentUser.layouts.dashboard || allKpis;
+    kanbanBoardEl.innerHTML = `
+        <div class="dashboard-container">
+            <div class="dashboard-grid" id="dashboard-grid-main"></div>
+            <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; margin-top: 24px;">Wszystkie Moje Zadania</h2>
+            <section id="my-tasks-kanban" class="kanban-board-mini"></section>
+        </div>
+    `;
+
+    const dashboardGrid = document.getElementById('dashboard-grid-main');
+
+    // === NAPRAWA: Dodanie obsługi kliknięcia w kafelki Dashboardu ===
+    dashboardGrid.addEventListener('click', (e) => {
+        // Znajdź najbliższy element z klasą .dashboard-card
+        const card = e.target.closest('.dashboard-card');
+        // Jeśli znaleziono kartę i ma ona zdefiniowaną akcję
+        if (card && card.dataset.action) {
+            // Wywołaj funkcję otwierającą szczegóły
+            renderDashboardDetailsModal(card.dataset.action);
+        }
+    });
+    // === KONIEC NAPRAWY ===
+    
+    const allKpis = ['my-overdue', 'team-delays', 'upcoming', 'workload', 'activity', 'team-workload', 'my-budget', 'user-budget'];
+    const order = state.currentUser.layouts.dashboard || allKpis;
             
             order.forEach(id => {
                 if (cardHTMLs[id]) {
@@ -32093,23 +32106,18 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             title = 'Moje Opóźnione Zadania (Wszystkie grupy)';
             // ZMIANA: Pobieramy globalną listę (zadania, podzadania, checklisty)
             const overdueItems = getGlobalOverdueItems();
-            
             if (overdueItems.length === 0) {
                 contentHTML = '<p class="no-tasks-message">Brak opóźnionych zadań. Dobra robota!</p>';
             } else {
                 // ZMIANA: Używamy createMyDayTaskItemHTML dla każdego elementu, aby lista wyglądała spójnie
                 // i zawierała informacje o projekcie/grupie
-                contentHTML = `<ul class="my-day-list" style="display: flex; flex-direction: column; gap: 10px; width: 100%;">` + 
-                              overdueItems.map(item => createMyDayTaskItemHTML(item)).join('') + 
-                              `</ul>`;
+                contentHTML = `<ul class="my-day-list" style="display: flex; flex-direction: column; gap: 10px; width: 100%;">` + overdueItems.map(item => createMyDayTaskItemHTML(item)).join('') + `</ul>`;
             }
             break;
-
-        case 'show-my-upcoming-details':
-                    title = 'Opóźnienia w Zespole';
-                    const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
-                    
-                    // === NOWA LOGIKA: Zbieranie zadań I podzadań ===
+        case 'show-team-delays-details': // <--- NAPRAWA: Zmieniono nazwę case, aby pasowała do data-action kafelka
+            title = 'Opóźnienia w Zespole';
+            const myOwnedProjects = state.projects.filter(p => p.ownerId === state.currentUser.uid);
+            // === NOWA LOGIKA: Zbieranie zadań I podzadań ===
                     let allTeamOverdueItems = [];
                     const nowTime = Date.now();
                     const myId = state.currentUser.uid;
