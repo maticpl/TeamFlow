@@ -32101,6 +32101,210 @@ if (e.target.matches('.kanban-checklist-item-checkbox')) {
             }
              
         });
+        /**
+     * Pobiera wszystkie opóźnione elementy (zadania, podzadania, checklisty) ze wszystkich projektów użytkownika.
+     */
+    function getGlobalOverdueItems() {
+        const user = state.currentUser;
+        if (!user) return [];
+        
+        let allProjects = [];
+        // Łączymy projekty aktywne i zakończone
+        if (state.globalUserProjects) allProjects = [...state.globalUserProjects];
+        if (state.globalUserCompletedProjects) allProjects = [...allProjects, ...state.globalUserCompletedProjects];
+        
+        // Jeśli globalne listy są puste, fallback do lokalnych (dla bezpieczeństwa)
+        if (allProjects.length === 0) {
+            allProjects = [...state.projects, ...state.completedProjects];
+        }
+
+        const myId = user.uid;
+        const now = new Date();
+        now.setHours(0, 0, 0, 0); // Porównujemy z początkiem dzisiejszego dnia
+        let overdueItems = [];
+
+        allProjects.forEach(project => {
+            const groupName = (user.groupInfo && user.groupInfo[project.groupId]) ? user.groupInfo[project.groupId].name : 'Nieznana Grupa';
+            
+            (project.tasks || []).forEach(task => {
+                const taskObj = migrateTask(task); // Upewniamy się, że struktura jest poprawna
+
+                // 1. Zadanie Główne
+                if (taskObj.assignees && taskObj.assignees.includes(myId)) {
+                    if (taskObj.dueDate && taskObj.status !== 'done') {
+                        const taskDate = new Date(taskObj.dueDate);
+                        if (taskDate < now) {
+                            overdueItems.push({
+                                ...taskObj,
+                                itemType: 'task',
+                                projectName: project.name,
+                                projectId: project.id,
+                                groupName: groupName
+                            });
+                        }
+                    }
+                }
+
+                // 2. Podzadania
+                if (taskObj.subtasks && taskObj.subtasks.length > 0) {
+                    taskObj.subtasks.forEach(sub => {
+                        if ((sub.assignees || []).includes(myId)) {
+                            const subStatus = sub.status || (sub.isCompleted ? 'done' : 'todo');
+                            if (sub.dueDate && subStatus !== 'done') {
+                                const subDate = new Date(sub.dueDate);
+                                if (subDate < now) {
+                                    overdueItems.push({
+                                        ...sub,
+                                        itemType: 'subtask',
+                                        parentId: taskObj.id,
+                                        parentTitle: taskObj.title,
+                                        projectName: project.name,
+                                        projectId: project.id,
+                                        groupName: groupName
+                                    });
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+        });
+
+        // Sortowanie od najstarszego opóźnienia
+        return overdueItems.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+    }
+
+    /**
+     * Generuje HTML dla elementu listy w Dashboardzie (z checkboxem).
+     */
+    function createMyDayTaskItemHTML(item) {
+        let isCompleted = false;
+        let typeLabel = '';
+        
+        if (item.itemType === 'task') {
+            isCompleted = item.status === 'done';
+            typeLabel = 'Zadanie';
+        } else if (item.itemType === 'subtask') {
+            isCompleted = item.status === 'done' || item.isCompleted;
+            typeLabel = 'Podzadanie';
+        }
+
+        const checkedAttr = isCompleted ? 'checked' : '';
+        const completedClass = isCompleted ? 'completed' : '';
+        
+        // Meta dane: Grupa • Projekt • Data
+        const dueDateStr = item.dueDate ? new Date(item.dueDate).toLocaleDateString('pl-PL') : '';
+        const meta = `<span style="font-weight:600; color:var(--danger-primary);">${dueDateStr}</span> • ${item.groupName} • ${item.projectName}`;
+        
+        // Tytuł z ewentualnym kontekstem rodzica
+        let titleHtml = item.title;
+        if (item.itemType === 'subtask') {
+            titleHtml = `${item.title} <small style="color:var(--text-secondary); display:block; font-size:11px;">(w: ${item.parentTitle})</small>`;
+        }
+
+        // Dane do datasetów (do obsługi kliknięć)
+        const dataAttrs = `
+            data-item-type="${item.itemType}" 
+            data-task-id="${item.itemType === 'task' ? item.id : item.parentId}" 
+            data-subtask-id="${item.itemType === 'subtask' ? item.id : ''}"
+            data-project-id="${item.projectId}"
+        `;
+
+        return `
+        <li class="my-day-task-item ${completedClass}" ${dataAttrs} style="cursor: pointer; position: relative; padding: 12px; border-left: 4px solid var(--danger-primary);">
+            <div style="display: flex; align-items: flex-start; width: 100%;">
+                <input type="checkbox" class="dashboard-overdue-checkbox" ${checkedAttr} 
+                       style="width: 20px; height: 20px; margin-right: 16px; margin-top: 2px; cursor: pointer; z-index: 2;"
+                       ${dataAttrs}>
+                
+                <div class="my-day-task-item-content">
+                    <div class="my-day-task-item-title" style="font-weight: 600; font-size: 15px; color: var(--text-primary); line-height: 1.4;">
+                        ${titleHtml}
+                    </div>
+                    <div class="my-day-task-item-meta" style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">
+                        ${meta}
+                    </div>
+                </div>
+            </div>
+        </li>
+        `;
+    }
+
+    // === NOWY LISTENER: Obsługa kliknięć w modalu Dashboardu ===
+    if (dashboardDetailsModal.content) {
+        dashboardDetailsModal.content.addEventListener('click', async (e) => {
+            // 1. Kliknięcie w CHECKBOX
+            if (e.target.classList.contains('dashboard-overdue-checkbox')) {
+                e.stopPropagation(); // Nie otwieraj modala po kliknięciu w checkbox
+                
+                const checkbox = e.target;
+                const type = checkbox.dataset.itemType;
+                const taskId = checkbox.dataset.taskId; // ID zadania (lub rodzica dla podzadania)
+                const projectId = checkbox.dataset.projectId;
+                
+                // Tymczasowo zablokuj, aby uniknąć wielokrotnych kliknięć
+                checkbox.disabled = true;
+
+                try {
+                    // Pobierz projekt i zadanie (potrzebne do funkcji obsługi)
+                    // Musimy poszukać w globalnych listach, bo projekt może nie być aktywny w 'state.projects'
+                    let project = findProject(projectId) || findCompletedProject(projectId);
+                    
+                    // Jeśli nie znaleziono w standardowych, szukaj w globalnych (z loadera)
+                    if (!project && state.globalUserProjects) {
+                        project = state.globalUserProjects.find(p => p.id === projectId);
+                    }
+                    if (!project && state.globalUserCompletedProjects) {
+                        project = state.globalUserCompletedProjects.find(p => p.id === projectId);
+                    }
+
+                    if (project) {
+                        const taskData = (project.tasks || []).find(t => t.id === taskId);
+                        if (taskData) {
+                            if (type === 'task') {
+                                // Symulujemy działanie handleTaskCheckboxClick
+                                // Musimy ustawić dataset.taskId na elemencie, który przekazujemy
+                                // (checkbox już go ma, więc przekazujemy go bezpośrednio)
+                                await handleTaskCheckboxClick(checkbox, e);
+                            } else if (type === 'subtask') {
+                                const subtaskId = checkbox.dataset.subtaskId;
+                                // handleSubtaskToggle wymaga dataset.parentId i dataset.subtaskId
+                                // Upewnijmy się, że są ustawione (powinny być z HTML)
+                                await handleSubtaskToggle(checkbox, taskId);
+                            }
+                            
+                            // Sukces - checkbox zostanie zaktualizowany przez onSnapshot,
+                            // ale możemy dodać wizualne przekreślenie od razu
+                            const row = checkbox.closest('.my-day-task-item');
+                            if (row && checkbox.checked) row.classList.add('completed');
+                            else if (row) row.classList.remove('completed');
+                        }
+                    }
+                } catch (err) {
+                    console.error("Błąd podczas aktualizacji z dashboardu:", err);
+                    checkbox.checked = !checkbox.checked; // Cofnij zmianę
+                    showNotification("Wystąpił błąd. Spróbuj ponownie.", "Błąd");
+                } finally {
+                    checkbox.disabled = false;
+                }
+                return;
+            }
+
+            // 2. Kliknięcie w KAFELEK (Otwórz szczegóły)
+            const itemEl = e.target.closest('.my-day-task-item');
+            if (itemEl) {
+                const type = itemEl.dataset.itemType;
+                const taskId = itemEl.dataset.taskId;
+                
+                if (type === 'task') {
+                    openTaskModal(taskId);
+                } else if (type === 'subtask') {
+                    const subtaskId = itemEl.dataset.subtaskId;
+                    openSubtaskModal(taskId, subtaskId);
+                }
+            }
+        });
+    }
         function renderDashboardDetailsModal(type) {
             const allMyTasks = getAllMyTasks();
             let title = '';
