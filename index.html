@@ -33380,19 +33380,30 @@ case 'show-team-workload-details':
             // 1. Zidentyfikuj obecne zadanie i projekt
             const taskId = taskModal.overlay.dataset.taskId;
             const { project } = findTask(taskId);
-            const sourceProjectId = project ? project.id : null;
+            
+            if (!project) {
+                console.error("Nie znaleziono projektu źródłowego.");
+                return;
+            }
+
+            const sourceProjectId = project.id;
+            const sourceProjectType = project.type; // Pobieramy typ projektu (np. 'classic', 'kanban' itp.)
 
             // 2. Resetuj listę w modalu
             moveTaskModal.projectList.innerHTML = '';
             moveTaskModal.confirmBtn.disabled = true;
 
-            // 3. Pobierz listę projektów docelowych (wszystkie minus obecny)
-            // Łączymy projekty aktywne i zakończone, bo można przywrócić zadanie do archiwum
-            const allProjects = [...state.projects, ...state.completedProjects];
-            const targetProjects = allProjects.filter(p => p.id !== sourceProjectId && !p.isInbox); // Opcjonalnie wykluczamy Inbox, jeśli nie chcemy tam przenosić
+            // 3. Pobierz listę projektów docelowych
+            // Zmiana 1: Bierzemy tylko state.projects (tylko aktywne projekty)
+            // Zmiana 2: Filtrujemy po ID oraz po TYPIE projektu
+            const targetProjects = state.projects.filter(p => 
+                p.id !== sourceProjectId &&     // Nie ten sam projekt
+                !p.isInbox &&                   // Nie Inbox (opcjonalnie)
+                p.type === sourceProjectType    // MUSI być ten sam typ projektu
+            );
 
             if (targetProjects.length === 0) {
-                moveTaskModal.projectList.innerHTML = '<p style="color: var(--text-secondary); font-style: italic; text-align: center;">Brak innych projektów.</p>';
+                moveTaskModal.projectList.innerHTML = '<p style="color: var(--text-secondary); font-style: italic; text-align: center;">Brak innych aktywnych projektów tego samego typu.</p>';
             } else {
                 // 4. Generuj listę wyboru
                 moveTaskModal.projectList.innerHTML = targetProjects.map(p => `
@@ -33413,7 +33424,10 @@ case 'show-team-workload-details':
                 });
             }
 
-            // 5. Otwórz modal
+            // 5. Otwórz modal i napraw Z-Index
+            // Zmiana 3: Wymuszamy, aby ten modal był nad modalem zadania
+            moveTaskModal.overlay.style.zIndex = "9999"; 
+            
             openModal(moveTaskModal.overlay);
         });
     }
