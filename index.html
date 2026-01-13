@@ -12055,6 +12055,119 @@ let state = {
             projectList: document.getElementById('move-task-project-list'),
             confirmBtn: document.getElementById('confirm-move-task-btn')
         };
+        // === NOWY LISTENER: Przenoszenie zadania między projektami (Architektura Array) ===
+        if (moveTaskModal.confirmBtn) {
+            moveTaskModal.confirmBtn.addEventListener('click', async () => {
+                // 1. Pobierz wybrane ID projektu
+                const radio = moveTaskModal.projectList.querySelector('input[name="move-task-target"]:checked');
+                if (!radio) {
+                    showNotification('Wybierz projekt docelowy.', 'warning');
+                    return;
+                }
+                
+                const targetProjectId = radio.value;
+                const taskId = taskModal.overlay.dataset.taskId;
+                
+                // Walidacja: czy projekt jest inny?
+                if (targetProjectId === state.currentProjectId) {
+                    showNotification('Zadanie już znajduje się w tym projekcie.', 'warning');
+                    return;
+                }
+
+                // UI: Zablokuj przycisk
+                const originalText = moveTaskModal.confirmBtn.textContent;
+                moveTaskModal.confirmBtn.disabled = true;
+                moveTaskModal.confirmBtn.textContent = 'Przenoszenie...';
+
+                try {
+                    // 2. Pobierz referencje do dokumentów (Source i Target)
+                    const sourceProjectId = state.currentProjectId; // Zakładamy, że jesteśmy w widoku projektu
+                    
+                    // Sprawdzamy czy projekty są aktywne czy zakończone (dla referencji)
+                    // (Funkcja pomocnicza findProject szuka w stanie lokalnym, tutaj budujemy ref do bazy)
+                    const sourceRef = findProject(sourceProjectId) ? doc(projectsRef, sourceProjectId) : doc(completedProjectsRef, sourceProjectId);
+                    const targetRef = findProject(targetProjectId) ? doc(projectsRef, targetProjectId) : doc(completedProjectsRef, targetProjectId);
+
+                    // 3. Pobierz świeże dane z bazy (Transaction/Batch safer, but separate reads for Arrays logic here)
+                    // Używamy getDoc, aby operować na najnowszych tablicach
+                    const sourceSnap = await getDoc(sourceRef);
+                    const targetSnap = await getDoc(targetRef);
+
+                    if (!sourceSnap.exists() || !targetSnap.exists()) {
+                        throw new Error("Nie znaleziono projektu źródłowego lub docelowego.");
+                    }
+
+                    const sourceData = sourceSnap.data();
+                    const targetData = targetSnap.data();
+
+                    // 4. Znajdź i usuń zadanie z listy źródłowej
+                    const sourceTasks = sourceData.tasks || [];
+                    const taskIndex = sourceTasks.findIndex(t => t.id === taskId);
+                    
+                    if (taskIndex === -1) {
+                        throw new Error("Zadanie nie istnieje w projekcie źródłowym (mogło zostać usunięte).");
+                    }
+
+                    // Wyciągamy obiekt zadania
+                    let taskToMove = { ...sourceTasks[taskIndex] };
+                    
+                    // Usuwamy ze źródła
+                    const newSourceTasks = sourceTasks.filter(t => t.id !== taskId);
+
+                    // 5. Zaktualizuj zadanie (projectId, status, historia)
+                    taskToMove.projectId = targetProjectId;
+                    taskToMove.status = 'todo'; // Resetujemy status do "Do zrobienia" w nowym projekcie
+                    taskToMove.customColumnId = null; // Resetujemy kolumnę niestandardową
+                    
+                    // Logika historii (Activity Log)
+                    const activity = {
+                        type: 'move',
+                        userId: state.currentUser.uid,
+                        timestamp: Date.now(),
+                        oldValue: sourceData.name,
+                        newValue: targetData.name,
+                        message: `przeniósł zadanie z projektu "${sourceData.name}" do "${targetData.name}"`
+                    };
+                    taskToMove.activityLog = [...(taskToMove.activityLog || []), activity];
+
+                    // Aktualizacja projectId w podzadaniach (jeśli są)
+                    if (taskToMove.subtasks && taskToMove.subtasks.length > 0) {
+                        taskToMove.subtasks = taskToMove.subtasks.map(sub => ({
+                            ...sub,
+                            projectId: targetProjectId // Aktualizujemy ID projektu w podzadaniu
+                        }));
+                    }
+
+                    // 6. Dodaj do listy docelowej
+                    const newTargetTasks = [...(targetData.tasks || []), taskToMove];
+
+                    // 7. Zapisz zmiany w obu projektach (Batch)
+                    const batch = writeBatch(db);
+                    
+                    // Aktualizacja źródła
+                    batch.update(sourceRef, { tasks: newSourceTasks });
+                    
+                    // Aktualizacja celu
+                    batch.update(targetRef, { tasks: newTargetTasks });
+
+                    await batch.commit();
+
+                    // 8. Sukces
+                    showNotification(`Przeniesiono zadanie do: ${targetData.name}`, 'success');
+                    closeModal(moveTaskModal.overlay);
+                    closeModal(taskModal.overlay); // Zamknij też szczegóły zadania
+
+                    // Nie musimy ręcznie odświeżać render(), onSnapshot załatwi sprawę (zadanie zniknie z widoku)
+
+                } catch (error) {
+                    console.error("Błąd przenoszenia zadania:", error);
+                    showNotification("Wystąpił błąd podczas przenoszenia zadania.", "Błąd");
+                } finally {
+                    moveTaskModal.confirmBtn.disabled = false;
+                    moveTaskModal.confirmBtn.textContent = originalText;
+                }
+            });
+        }
         const notificationModal = {
             overlay: document.getElementById('notification-modal'),
             title: document.getElementById('notification-title'),
