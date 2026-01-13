@@ -16944,25 +16944,39 @@ function handleRadarNodeDragMove(e) {
     const dateStr = newDate.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
     
     // === POCZĄTEK NOWEJ LOGIKI WALIDACJI ===
-    isRadarDragValid = true; // Zakładamy, że jest ok
-    let validationMsg = "";
+            isRadarDragValid = true; // Zakładamy, że jest ok
+            let validationMsg = "";
 
-    // Sprawdź czy to podzadanie (polygon) i czy ma rodzica z terminem
-    if (activeNode.tagName === 'polygon' && activeProjectData) {
-        const parentId = activeNode.dataset.taskId; // W radarze taskId na węźle podzadania to ID rodzica
-        const parentTask = activeProjectData.tasks.find(t => t.id === parentId);
-        
-        if (parentTask && parentTask.dueDate) {
-            const parentDueISO = parentTask.dueDate.split('T')[0];
-            
-            if (tempNewDate > parentDueISO) {
-                isRadarDragValid = false;
-                const parentDatePretty = new Date(parentTask.dueDate).toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
-                validationMsg = `Blokada! Max: ${parentDatePretty}`;
+            // 1. Walidacja Podzadania (Względem Rodzica)
+            if (activeNode.tagName === 'polygon' && activeProjectData) {
+                const parentId = activeNode.dataset.taskId; // W radarze taskId na węźle podzadania to ID rodzica
+                const parentTask = activeProjectData.tasks.find(t => t.id === parentId);
+                
+                if (parentTask && parentTask.dueDate) {
+                    const parentDueISO = parentTask.dueDate.split('T')[0];
+                    if (tempNewDate > parentDueISO) {
+                        isRadarDragValid = false;
+                        const parentDatePretty = new Date(parentTask.dueDate).toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' });
+                        validationMsg = `Blokada! Max: ${parentDatePretty}`;
+                    }
+                }
             }
-        }
-    }
-    // === KONIEC WALIDACJI ===
+
+            // 2. Walidacja Projektu (Względem Dat Projektu) - NOWE
+            // Sprawdzamy tylko, jeśli poprzednia walidacja przeszła (priorytet ma błąd podzadania)
+            if (isRadarDragValid && activeProjectData) {
+                // Sprawdź datę zakończenia projektu
+                if (activeProjectData.endDate && tempNewDate > activeProjectData.endDate) {
+                    isRadarDragValid = false;
+                    validationMsg = `Nie mogę przenieść bo maks data to data zakończenia projektu na dzień: ${activeProjectData.endDate}`;
+                }
+                // Sprawdź datę rozpoczęcia projektu
+                else if (activeProjectData.startDate && tempNewDate < activeProjectData.startDate) {
+                    isRadarDragValid = false;
+                    validationMsg = `Nie mogę przenieść bo start projektu to: ${activeProjectData.startDate}`;
+                }
+            }
+            // === KONIEC WALIDACJI ===
 
     if (!isRadarDragValid) {
         // Styl dla BŁĘDU (Przekroczony termin rodzica)
