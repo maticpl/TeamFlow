@@ -31298,12 +31298,58 @@ document.getElementById('edit-project-selected-list').addEventListener('click', 
 
 
          kanbanBoardEl.addEventListener('click', (e) => {
-            
-            // --- START NOWEGO KODU: PRZENIESIONY BLOK ---
-            // 1. PRIORYTET: Sprawdź czy kliknięto w przycisk rozwijania podzadań
-            // Musi być na samym początku, żeby inne "obszary klikalne" (jak Sprint) go nie przesłoniły.
-            const subtaskToggleBtn = e.target.closest('.js-toggle-subtasks');
-            if (subtaskToggleBtn) {
+            // =================================================================
+            // POPRAWKA: Obsługa TRYBU ZAZNACZANIA (Blokada otwierania zadań)
+            // =================================================================
+            if (state.ui.isSelectModeActive) {
+                // Wyjątek: Pozwól na zwijanie/rozwijanie kolumn (kliknięcie w nagłówek)
+                if (e.target.closest('.collapse-column-btn') || e.target.closest('.kanban-column.collapsed .kanban-column-header')) {
+                    // Nie robimy nic, kod przechodzi dalej do obsługi kolumn
+                } else {
+                    // Sprawdź, czy kliknięto w kartę zadania lub podzadania
+                    const card = e.target.closest('.task-card, .subtask-visual-card');
+                    
+                    if (card) {
+                        // Zatrzymujemy domyślne akcje (np. otwieranie modala)
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        // Pobieramy ID (Zadanie Główne vs Podzadanie)
+                        const isMainTask = card.classList.contains('task-card');
+                        const id = isMainTask ? card.dataset.taskId : card.dataset.subtaskId;
+                        
+                        if (id) {
+                            // Logika przełączania (Toggle) - Zaznacz/Odznacz
+                            if (state.ui.selectedTaskIds.includes(id)) {
+                                // Odznacz
+                                state.ui.selectedTaskIds = state.ui.selectedTaskIds.filter(i => i !== id);
+                                card.classList.remove('selected');
+                            } else {
+                                // Zaznacz
+                                state.ui.selectedTaskIds.push(id);
+                                card.classList.add('selected');
+                            }
+                            
+                            // Aktualizuj licznik na pasku akcji (jeśli funkcja istnieje)
+                            if (typeof updateBulkActionBar === 'function') {
+                                updateBulkActionBar();
+                            }
+                        }
+                        // KLUCZOWE: Return kończy funkcję tutaj. Reszta kodu (otwieranie okna) się nie wykona.
+                        return; 
+                    }
+                }
+            }
+            // =================================================================
+            // KONIEC POPRAWKI
+            // =================================================================
+
+            // 1. Styl dla klikalnych triggerów (ikony "2/5", "1/3" multi oraz listy kontrolnej)
+            // Główne zadanie ORAZ Podzadania
+            /* 1. Styl dla klikalnych triggerów (Główne zadanie ORAZ Podzadania) */
+             const subtaskToggleBtn = e.target.closest('.js-toggle-subtasks');
+
+             if (subtaskToggleBtn) {
                 e.preventDefault(); 
                 e.stopPropagation();
                 const taskCard = subtaskToggleBtn.closest('.task-card');
