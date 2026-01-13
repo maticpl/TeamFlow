@@ -33419,6 +33419,54 @@ case 'show-team-workload-details':
     }
     // === KONIEC NAPRAWY ===
 
+    // === NOWOŚĆ: Logika wykonawcza przycisku "Przenieś" (Zatwierdź) ===
+    if (moveTaskModal.confirmBtn) {
+        moveTaskModal.confirmBtn.addEventListener('click', async () => {
+            const selectedRadio = moveTaskModal.projectList.querySelector('input[name="move-task-target"]:checked');
+            if (!selectedRadio) return; // Zabezpieczenie
+
+            const targetProjectId = selectedRadio.value;
+            const taskId = taskModal.overlay.dataset.taskId;
+
+            // Znajdź zadanie w stanie lokalnym
+            const task = findTask(taskId);
+            if (!task) return;
+
+            try {
+                // 1. Aktualizacja w Firestore
+                await db.collection('tasks').doc(taskId).update({
+                    projectId: targetProjectId,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp() // Dobra praktyka: aktualizacja daty edycji
+                });
+
+                // 2. Aktualizacja stanu lokalnego (ważne dla natychmiastowego efektu bez przeładowania)
+                task.projectId = targetProjectId;
+
+                // 3. Logika UI
+                closeModal(moveTaskModal.overlay); // Zamknij modal wyboru
+                closeModal(taskModal.overlay);     // Zamknij modal zadania (bo zadanie znika z widoku tego projektu)
+                
+                // 4. Odświeżenie widoku
+                // Sprawdzamy, gdzie jesteśmy, aby odpowiednio odświeżyć widok
+                if (state.currentView === 'project') {
+                    renderBoard(); // Odśwież Kanban
+                } else if (state.currentView === 'my-day' || state.currentView === 'dashboard') {
+                    // Jeśli jesteśmy w widokach globalnych, zadanie może zostać, ale trzeba odświeżyć jego metadane
+                    // Dla uproszczenia w tym miejscu najlepiej przeładować widok
+                    if(typeof renderMyDay === 'function' && state.currentView === 'my-day') renderMyDay();
+                    if(typeof renderDashboard === 'function' && state.currentView === 'dashboard') renderDashboard();
+                }
+
+                showNotification('Zadanie zostało przeniesione do innego projektu.', 'success');
+
+            } catch (error) {
+                console.error("Błąd podczas przenoszenia zadania:", error);
+                showNotification('Wystąpił błąd podczas przenoszenia zadania.', 'error');
+            }
+        });
+    }
+    // === KONIEC NOWOŚCI ===
+
     taskModal.addCommentBtn.addEventListener('click', async () => {
         const taskId = taskModal.overlay.dataset.taskId;
         const commentText = taskModal.newCommentText.value.trim();
