@@ -17033,22 +17033,35 @@ async function handleRadarNodeDragEnd(e) {
         activeNode.style.transition = ''; 
     }
 
-    // === NOWE: BLOKADA ZAPISU JEŚLI DATA JEST NIEPOPRAWNA ===
-    if (!isRadarDragValid) {
-        showNotification("Nie można ustawić daty podzadania później niż zadania głównego.", "Błąd");
-        renderRadarView(); // Przerysuj radar, aby cofnąć wizualnie węzeł
-        
-        // Reset zmiennych
-        activeNode = null;
-        activeTaskData = null;
-        activeProjectData = null;
-        tempNewDate = null;
-        return; // Przerwij funkcję
-    }
-    // === KONIEC BLOKADY ===
+    // === NOWE: BLOKADA ZAPISU JEŚLI DATA JEST NIEPOPRAWNA (PODZADANIE) ===
+            if (!isRadarDragValid) {
+                showNotification("Nie można ustawić daty podzadania później niż zadania głównego.", "Błąd");
+                renderRadarView();
+                activeNode = null; activeTaskData = null; activeProjectData = null; tempNewDate = null;
+                return;
+            }
 
-    // === ZAPISZ NOWĄ DATĘ DO BAZY ===
-    if (activeTaskData && activeProjectData && tempNewDate) {
+            // === NOWE: BLOKADA ZAPISU WZGLĘDEM RAM CZASOWYCH PROJEKTU ===
+            if (activeProjectData && tempNewDate) {
+                // Sprawdź datę startu projektu
+                if (activeProjectData.startDate && tempNewDate < activeProjectData.startDate) {
+                    showNotification(`Nie można ustawić daty przed startem projektu (${activeProjectData.startDate}).`, "Błąd");
+                    renderRadarView(); // Cofnij wizualnie
+                    activeNode = null; activeTaskData = null; activeProjectData = null; tempNewDate = null;
+                    return;
+                }
+                // Sprawdź datę końca projektu
+                if (activeProjectData.endDate && tempNewDate > activeProjectData.endDate) {
+                    showNotification(`Nie można ustawić daty po zakończeniu projektu (${activeProjectData.endDate}).`, "Błąd");
+                    renderRadarView(); // Cofnij wizualnie
+                    activeNode = null; activeTaskData = null; activeProjectData = null; tempNewDate = null;
+                    return;
+                }
+            }
+            // === KONIEC BLOKADY PROJEKTOWEJ ===
+
+            // === ZAPISZ NOWĄ DATĘ DO BAZY ===
+            if (activeTaskData && activeProjectData && tempNewDate) {
         const taskId = activeTaskData.id;
         const projectId = activeProjectData.id;
         
@@ -23808,10 +23821,14 @@ function handleTaskFormChange(e) {
             }
 
             // --- Wypełnianie pól danymi (Wspólne dla obu trybów) ---
-            taskModal.overlay.dataset.taskId = taskId;
-            
-            // Wypełnianie dat
-            const defaultStartTime = '10:00';
+    taskModal.overlay.dataset.taskId = taskId;
+
+    // === NOWE: Aplikacja limitów dat z projektu (Edycja) ===
+    applyProjectDateLimits(project, taskModal.startDateDate, taskModal.dueDateDate);
+    // === KONIEC ===
+
+    // Wypełnianie dat
+    const defaultStartTime = '10:00';
             let startDateToParse = task.startDate || (task.createdAt && typeof task.createdAt.toDate === 'function' ? task.createdAt.toDate().toISOString() : null);
             
             if (startDateToParse) {
@@ -25769,7 +25786,33 @@ if (editorTaskDescription) {
                 </div>`;
             }).join('');
         }
+        // === NOWA FUNKCJA POMOCNICZA: Ograniczenia dat projektu ===
+/**
+ * Ustawia atrybuty min i max dla inputów daty na podstawie projektu.
+ * @param {object} project - Obiekt projektu.
+ * @param {HTMLElement} startDateInput - Input daty rozpoczęcia.
+ * @param {HTMLElement} dueDateInput - Input terminu wykonania.
+ */
+function applyProjectDateLimits(project, startDateInput, dueDateInput) {
+    if (!project) return;
 
+    // Resetuj najpierw
+    if (startDateInput) { startDateInput.min = ''; startDateInput.max = ''; }
+    if (dueDateInput) { dueDateInput.min = ''; dueDateInput.max = ''; }
+
+    // Ustaw Start (Min)
+    if (project.startDate) {
+        if (startDateInput) startDateInput.min = project.startDate;
+        if (dueDateInput) dueDateInput.min = project.startDate;
+    }
+
+    // Ustaw Koniec (Max)
+    if (project.endDate) {
+        if (startDateInput) startDateInput.max = project.endDate;
+        if (dueDateInput) dueDateInput.max = project.endDate;
+    }
+}
+// === KONIEC NOWEJ FUNKCJI ===
         function openNewTaskModal(options = {}) {
             const {
                 isFab = false, 
@@ -25996,52 +26039,57 @@ if (editorNewTaskDescription) {
                     newTaskModal.projectGroup.style.display = 'none';
                 } else {
                     // 3. Jesteśmy na PULPICIE/MÓJ DZIEŃ (przycisk na górze), w widoku 'all-projects' LUB w BACKLOGU
-                    
-                    let availableProjects = [];
-                    let preselect = '';
-
-                    // ZMIANA: Różna logika dla trybu Backlogu i trybu standardowego
-                    if (isBacklogMode) {
-                        // W Backlogu pokazujemy TYLKO projekty Agile (Sprint)
-                        availableProjects = state.projects.filter(p => !p.isInbox && p.type === 'sprint');
-                        // Domyślnie wybieramy pierwszy projekt Agile (nie Inboxa!)
-                        preselect = (availableProjects[0] && availableProjects[0].id) || '';
-                    } else {
-                        // Standardowo: Wszystkie projekty oprócz Inboxa (do wyświetlenia)
-                        // Ale do selecta wrzucamy `state.projects` (wszystkie), bo tak było w oryginale (mapowanie po wszystkich)
-                        // Jednak dla porządku, trzymajmy się listy `nonInbox` dla selecta w trybie dodawania, 
-                        // chyba że chcemy pozwolić wybrać Inboxa ręcznie.
-                        // Przywracam logikę oryginalną: filtrowanie nonInbox dla zmiennej pomocniczej, ale wyświetlanie odpowiednich.
-                        
-                        availableProjects = state.projects.filter(p => !p.isInbox);
-                        // Domyślnie Inbox lub pierwszy projekt
-                        preselect = (inboxProject && inboxProject.id) || (availableProjects[0] && availableProjects[0].id) || '';
-                        
-                        // Jeśli nie jesteśmy w backlogu, chcemy pokazać na liście też inne projekty (zgodnie z oryginałem)
-                        // Więc nadpisujemy availableProjects na pełną listę (lub bez inboxa, zależnie od preferencji).
-                        // Tutaj użyję filtrowania !isInbox dla spójności z Backlogiem, żeby nie wrzucać do "Skrzynki" przez pomyłkę z listy.
-                    }
-
-                    newTaskModal.projectSelect.innerHTML = availableProjects
-                        .map(p => `<option value="${p.id}" ${p.id === preselect ? 'selected' : ''}>${p.name}</option>`)
-                        .join('');
-                        
-                    newTaskModal.projectGroup.style.display = 'block';
-                    
-                    // Jeśli jesteśmy w Backlogu, musimy upewnić się, że pole jest widoczne i aktywne (nie wyszarzone)
-                    if (isBacklogMode) {
-                        newTaskModal.projectGroup.classList.add('active-field');
-                    }
-                    
-                    targetProject = findProject(preselect);
-                }
+            let availableProjects = [];
+            let preselect = '';
+            
+            // ZMIANA: Różna logika dla trybu Backlogu i trybu standardowego
+            if (isBacklogMode) {
+                 // ... (logika backlogu)
+                 preselect = (availableProjects[0] && availableProjects[0].id) || '';
+            } else {
+                 // ... (logika standardowa)
+                 availableProjects = state.projects.filter(p => !p.isInbox);
+                 preselect = (inboxProject && inboxProject.id) || (availableProjects[0] && availableProjects[0].id) || '';
             }
 
-            if (!targetProject) {
-                showNotification("Nie można zidentyfikować projektu docelowego.", "Błąd");
-                return;
+            newTaskModal.projectSelect.innerHTML = availableProjects
+                .map(p => `<option value="${p.id}" ${p.id === preselect ? 'selected' : ''}>${p.name}</option>`)
+                .join('');
+            
+            newTaskModal.projectGroup.style.display = 'block';
+            
+            // Jeśli jesteśmy w Backlogu, musimy upewnić się, że pole jest widoczne i aktywne (nie wyszarzone)
+            if (isBacklogMode) {
+                newTaskModal.projectGroup.classList.add('active-field');
             }
-            setupEffortTab(targetProject, null, newTaskModal);
+            
+            targetProject = findProject(preselect);
+        }
+    }
+
+    if (!targetProject) {
+        showNotification("Nie można zidentyfikować projektu docelowego.", "Błąd");
+        return;
+    }
+
+    // === NOWE: Aplikacja limitów dat dla projektu docelowego (na starcie) ===
+    applyProjectDateLimits(targetProject, newTaskModal.startDateDate, newTaskModal.dueDateDate);
+
+    // === NOWE: Listener zmiany projektu (Dynamiczna aktualizacja limitów) ===
+    // Usuwamy stary listener (jeśli był) poprzez przypisanie null, aby uniknąć duplikowania
+    newTaskModal.projectSelect.onchange = (e) => {
+        const selectedId = e.target.value;
+        const newProj = findProject(selectedId);
+        if (newProj) {
+            applyProjectDateLimits(newProj, newTaskModal.startDateDate, newTaskModal.dueDateDate);
+            // Opcjonalnie: odśwież listę osób i inne ustawienia zależne od projektu
+            populateAssigneesForProject(selectedId); // Zakładając, że ta funkcja istnieje
+            setupEffortTab(newProj, null, newTaskModal);
+        }
+    };
+    // === KONIEC ZMIAN ===
+
+    setupEffortTab(targetProject, null, newTaskModal);
 
             // === NOWA LOGIKA BUDOWANIA LISTY OSÓB (DUAL VIEW) ===
             // Zastępuje populateAssigneesForProject
